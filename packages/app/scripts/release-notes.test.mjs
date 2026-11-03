@@ -63,6 +63,14 @@ describe('the release-notes page', () => {
     expect(() => renderReleaseNotes([e, e], '')).toThrow(/twice/);
   });
 
+  it.each(['', 'v0.197', '0.197#x', '0.197 x', '0.197"', '.197', '0.', '0..197', '-1.0', '1e3', '1\n'])('rejects invalid version %j', (version) => {
+    expect(() => renderReleaseNotes([{ version, items: [] }], '')).toThrow(/invalid version/);
+  });
+
+  it.each(['0', '0.1000', '0.197.1', '1.0'])('accepts numeric version segments %s', (version) => {
+    expect(renderReleaseNotes([{ version, items: [] }], '')).toContain(`id="v${version}"`);
+  });
+
   it('is plain HTML with no script, and links back to the app and its source', () => {
     expect(page.startsWith('<!doctype html>')).toBe(true);
     expect(page).not.toMatch(/<script/i);
@@ -184,5 +192,38 @@ describe('the service worker leaves the page alone (it is not offline, on purpos
       expect(RELEASES_NAVIGATION.test(url), url).toBe(true);
     }
     for (const url of ['/', '/index.html', '/releasesX', '/?d=1']) expect(RELEASES_NAVIGATION.test(url), url).toBe(false);
+  });
+});
+
+
+describe('summary leads and full notes', () => {
+  it('renders escaped summary before the full items, without dropping either', () => {
+    const html = renderReleaseNotes([{
+      version: '0.197', date: '2026-11-03', title: 'Release',
+      summary: ['<img src=x> & "short"', 'Second summary line', 'Third summary line'], items: ['Detailed item'],
+    }], '');
+    const summary = '<li>&lt;img src=x&gt; &amp; &quot;short&quot;</li>';
+    expect(html).toContain('<p class="lead-h">In short</p><ul class="summary">');
+    expect(html).toContain(summary);
+    const summaryList = html.match(/<ul class="summary">([\s\S]*?)<\/ul>/)?.[1];
+    expect(summaryList?.match(/<li>.*?<\/li>/g)).toEqual([
+      summary, '<li>Second summary line</li>', '<li>Third summary line</li>',
+    ]);
+    expect(html).not.toContain('<img');
+    expect(html.indexOf(summary)).toBeLessThan(html.indexOf('<p class="lead-h">Full notes</p>'));
+    expect(html.indexOf('<p class="lead-h">Full notes</p>')).toBeLessThan(html.indexOf('<li>Detailed item</li>'));
+  });
+
+  it.each([null, 'text', {}, [], [''], ['   '], [7], ['ok', null]])('rejects invalid summary %j', (summary) => {
+    expect(() => renderReleaseNotes([{ version: '0.197', items: [], summary }], '')).toThrow(/summary/);
+  });
+
+  it('keeps old releases without summaries and describes the two views accurately', () => {
+    const html = renderReleaseNotes([{ version: '0.196', title: 'Old', date: 'd', items: ['Old item'] }], '');
+    expect(html).toContain('<li>Old item</li>');
+    expect(html).not.toContain('In short');
+    expect(html).not.toContain('Full notes</p>');
+    expect(html).toContain('version badge shows a short summary of the newest release; these are the full notes.');
+    expect(html).not.toContain('The same notes are in the app');
   });
 });

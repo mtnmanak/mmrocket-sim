@@ -5,11 +5,11 @@
  * vite.config.ts. Eric, 2026-10-02: the TRF posts had grown to three posts a
  * release, so the forum gets one short post and links here for the detail.
  *
- * ONE SOURCE. The page is the same text as the in-app What's new dialog
- * (components/ChangelogDialog.tsx), which the release-note claim check reads
- * before every release; nothing here is written by hand, so the two cannot
- * drift. Every release has an anchor, `#v<version>` (`#v0.151`), so a forum
- * post can link straight to its own release.
+ * ONE SOURCE, TWO VIEWS. Both readers use src/changelog.ts: the app's
+ * What's new dialog shows the newest summary and links to earlier releases;
+ * this page leads with each summary and keeps the full notes. Every release
+ * has an anchor, `#v<version>` (`#v0.151`), so a forum post can link
+ * straight to its own release.
  *
  * NOT OFFLINE, ON PURPOSE. The changelog is ~560 KB of text, which App.tsx
  * already keeps out of the startup chunk (scripts/lazy-chunks.mjs); precaching
@@ -22,6 +22,9 @@
  * Static HTML with no script: escaped text only (escapeHtml), so nothing in a
  * changelog entry can become markup.
  */
+
+import { releaseAnchor } from '../src/releaseLinks.mjs';
+export { RELEASES_URL, releaseAnchor } from '../src/releaseLinks.mjs';
 
 const SOURCE_URL = 'https://github.com/mtnmanak/mmrocket-sim';
 
@@ -38,10 +41,6 @@ export function escapeHtml(text) {
     .replace(/'/g, '&#39;');
 }
 
-/** The anchor a release's section carries: `v0.151`. */
-export function releaseAnchor(version) {
-  return `v${version}`;
-}
 
 /**
  * The page's palette is the mmr-brand 1.0.2 primitives (brand rollout D9, Eric,
@@ -78,6 +77,8 @@ nav.toc .d{color:var(--muted);margin:0 6px}
 section.release{border-top:1px solid var(--border);padding-top:18px;margin-top:18px}
 section.release h2{font-size:1.25rem;margin:0}
 section.release h2 .d{font-size:.85rem;font-weight:400;color:var(--muted);margin-left:8px}
+.lead-h{font-weight:600;margin:12px 0 4px}
+.summary{color:var(--text)}
 .title{color:var(--muted);margin:4px 0 10px}
 section.release li{margin-bottom:8px}
 .pre{color:var(--muted);white-space:pre-line;border-top:1px solid var(--border);margin-top:28px;padding-top:14px;font-size:.92rem}
@@ -98,6 +99,13 @@ export function renderReleaseNotes(changelog, preNote) {
     if (!e || typeof e.version !== 'string' || !Array.isArray(e.items)) {
       throw new Error(`release notes: a changelog entry has no version or items (${JSON.stringify(e).slice(0, 80)})`);
     }
+    if (!/^\d+(\.\d+)*$/.test(e.version) || e.version.trim() !== e.version) {
+      throw new Error(`release notes: invalid version ${JSON.stringify(e.version)}; expected dot-separated integers`);
+    }
+    if (e.summary !== undefined && (!Array.isArray(e.summary) || e.summary.length === 0
+      || e.summary.some((line) => typeof line !== 'string' || line.trim().length === 0))) {
+      throw new Error('release notes: summary must be a non-empty array of non-empty strings');
+    }
     if (seen.has(e.version)) throw new Error(`release notes: v${e.version} appears twice, so its anchor would too`);
     seen.add(e.version);
   }
@@ -108,6 +116,11 @@ export function renderReleaseNotes(changelog, preNote) {
     `<section class="release" id="${escapeHtml(releaseAnchor(e.version))}">`,
     `<h2><a href="#${escapeHtml(releaseAnchor(e.version))}">v${escapeHtml(e.version)}</a><span class="d">${escapeHtml(e.date)}</span></h2>`,
     `<p class="title">${escapeHtml(e.title)}</p>`,
+    ...(e.summary ? [
+      '<p class="lead-h">In short</p><ul class="summary">',
+      ...e.summary.map((line) => `<li>${escapeHtml(line)}</li>`),
+      '</ul><p class="lead-h">Full notes</p>',
+    ] : []),
     '<ul>',
     ...e.items.map((item) => `<li>${escapeHtml(item)}</li>`),
     '</ul>',
@@ -130,7 +143,7 @@ export function renderReleaseNotes(changelog, preNote) {
     '<main>',
     '<h1>MMRocket Sim release notes</h1>',
     `<p class="lead">Every release of the app, newest first. The latest is <a href="#${escapeHtml(releaseAnchor(newest.version))}">v${escapeHtml(newest.version)}</a> (${escapeHtml(newest.date)}). `
-      + 'The same notes are in the app: click the version badge in its header. '
+      + 'The app’s version badge shows a short summary of the newest release; these are the full notes. '
       + '<a href="../">Open the app</a>.</p>',
     '<nav class="toc" aria-label="Releases">',
     '<details open><summary>All releases</summary>',

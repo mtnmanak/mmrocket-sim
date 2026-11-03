@@ -3323,13 +3323,9 @@ html {
   margin-bottom: 4px;
 }
 
-.changelog-pre {
-  font-size: 11px;
-  color: var(--text-muted);
-  border-top: 1px solid var(--border);
-  margin-top: 14px;
-  padding-top: 10px;
-  white-space: pre-line;
+.changelog-entry .changelog-earlier {
+  list-style: none;
+  padding-left: 0;
 }
 
 /* Zoom cluster over the rocket viewport (+ / − / fit). Wheel-zoom and

@@ -8,6 +8,16 @@ import versionJson from '../../../version.json';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+function compareVersions(a: string, b: string): number {
+  const left = a.split('.').map(Number);
+  const right = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(left.length, right.length); i++) {
+    const difference = (left[i] ?? 0) - (right[i] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
 /**
  * The release tooling reads these two files as TEXT, not by importing them,
  * so their shape is a contract (audit 2026-09-22, row 510, which moved the
@@ -243,7 +253,7 @@ describe('changelog areas worked out from two diameters', () => {
     const out: string[] = [];
     for (const e of changelog) {
       const listed = [...AREA_FIGURES, ...NOT_FROM_DIAMETERS].filter((f) => f.version === e.version);
-      e.items.forEach((item, i) => {
+      [...e.items, ...e.summary ?? []].forEach((item, i) => {
         for (const s of sentences(item)) {
           if (!/\bareas?\b/i.test(s)) continue;
           const spans: [number, number][] = listed.flatMap((f) => {
@@ -267,10 +277,14 @@ describe('changelog areas worked out from two diameters', () => {
       .toEqual([]);
   });
 
+  function stated(changelog: ChangelogEntry[], f: { version: string; says: string }): boolean {
+    const entry = changelog.find((e) => e.version === f.version);
+    return !!entry && [...entry.items, ...entry.summary ?? []].some((item) => sentences(item).some((s) => s.includes(f.says)));
+  }
+
   it('lists only words the changelog states, each within one sentence of its own entry', () => {
     for (const f of [...AREA_FIGURES, ...NOT_FROM_DIAMETERS]) {
-      const entry = CHANGELOG.find((e) => e.version === f.version);
-      expect(entry?.items.some((item) => sentences(item).some((s) => s.includes(f.says))), `${f.version}: "${f.says}"`).toBe(true);
+      expect(stated(CHANGELOG, f), `${f.version}: "${f.says}"`).toBe(true);
     }
   });
 
@@ -293,6 +307,24 @@ describe('changelog areas worked out from two diameters', () => {
       .toMatch(/the area is 4\.080 times, 4 to the step written/);
   });
 
+  it('scans summary lines for unlisted area claims', () => {
+    const summary = ['The exit has 56 percent more area.'];
+    expect(unlisted([{ version: '9.999', date: 'd', title: 't', items: [], summary }]))
+      .toEqual([`9.999 item 1: "56 percent" in "${summary[0]}"`]);
+  });
+
+  it('finds listed claims when they appear only in a summary', () => {
+    const entries = structuredClone(CHANGELOG);
+    for (const entry of entries) {
+      entry.summary = [...entry.items, ...entry.summary ?? []];
+      entry.items = [];
+    }
+    for (const f of [...AREA_FIGURES, ...NOT_FROM_DIAMETERS]) {
+      expect(stated(entries, f), `${f.version}: "${f.says}"`).toBe(true);
+    }
+    expect(unlisted(entries)).toEqual([]);
+  });
+
   it('refuses the shapes that shipped: a diameter figure called area, and a percentage of nothing', () => {
     const says = (s: string, to: number, claim: AreaClaim) => problem({ version: '0.133', says: s, from: 0.18, to, claim });
     expect(says('from .180 to .242 in, which is 34 percent more area', 0.242, { areaPercent: 34 })).toMatch(/the area grows 81 %/);
@@ -300,5 +332,36 @@ describe('changelog areas worked out from two diameters', () => {
     expect(says('from .180 to .281 in, 56 percent more - and', 0.281, { widerPercent: 56 })).toMatch(/neither "wider" nor "diameter"/);
     expect(says('from .180 to .281 in, 56 percent more - and', 0.281, { areaPercent: 144 })).toMatch(/does not say it is an area/);
     expect(says('from .180 to .242 in, which is 34 percent wider and 81 percent more area', 0.242, { areaPercent: 81 })).toBeNull();
+  });
+});
+
+
+describe('short release summaries', () => {
+  it('compares integer version segments with missing parts treated as zero', () => {
+    const ordered = ['0.196', '0.197', '0.198', '0.1000', '1.0'];
+    for (let i = 1; i < ordered.length; i++) {
+      expect(compareVersions(ordered[i - 1]!, ordered[i]!)).toBeLessThan(0);
+      expect(compareVersions(ordered[i]!, ordered[i - 1]!)).toBeGreaterThan(0);
+    }
+    expect(compareVersions('0.197.1', '0.197')).toBeGreaterThan(0);
+    expect(compareVersions('0.197', '0.197.0')).toBe(0);
+    expect(compareVersions('1', '1.0')).toBe(0);
+  });
+  it('the newest entry always has a summary', () => {
+    expect(CHANGELOG[0]?.summary).toBeDefined();
+  });
+
+  it('every release from 0.197 has 3–6 non-empty summary lines within 1,500 characters', () => {
+    for (const entry of CHANGELOG.filter((e) => compareVersions(e.version, '0.197') >= 0)) {
+      expect(Array.isArray(entry.summary), entry.version).toBe(true);
+      const summary = entry.summary!;
+      expect(summary.length, entry.version).toBeGreaterThanOrEqual(3);
+      expect(summary.length, entry.version).toBeLessThanOrEqual(6);
+      for (const line of summary) {
+        expect(typeof line, entry.version).toBe('string');
+        expect(line.trim().length, entry.version).toBeGreaterThan(0);
+      }
+      expect(summary.join('').length, entry.version).toBeLessThanOrEqual(1500);
+    }
   });
 });

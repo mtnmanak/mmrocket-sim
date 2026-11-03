@@ -121,7 +121,7 @@ it('CR-2: current changelog, guide and shipped titles name rendered Preferences 
   const current = CHANGELOG[0]!;
   expect(FROZEN_CHANGELOG_VERSIONS.has(current.version)).toBe(false);
   const copy: [string, string][] = [
-    [`CHANGELOG[0] (${current.version})`, [current.title, ...current.items].join('\n')],
+    [`CHANGELOG[0] (${current.version})`, [current.title, ...current.summary ?? [], ...current.items].join('\n')],
     ['user-guide.md', guide],
   ];
   for (const [file, source] of Object.entries(shippedSources)) {
