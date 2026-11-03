@@ -1,5 +1,5 @@
 {
-  "version": "0.196",
-  "released": "2026-10-28",
-  "note": "The motor catalogue check reads MMRocket Sim's own curated catalogue instead of thrustcurve.org and runs by itself at most every six hours; more screen-reader alerts announce reliably; several import, save and stored-data fixes. No simulation number changes."
+  "version": "0.197",
+  "released": "2026-11-03",
+  "note": "Motor links from thrustcurve.org (they appear once thrustcurve.org offers them); scored tester flights unchanged; 14 RASAero files change from launch-lug and finish import fixes (completed flights move 0.07–2.3%, one flight that already tumbled under thrust tops out 4.74% lower); many file, storage, catalogue and API fixes."
 }
