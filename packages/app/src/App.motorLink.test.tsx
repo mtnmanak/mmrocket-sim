@@ -707,7 +707,7 @@ it.each(['tree', 'record', 'previous-tree', 'previous-record'] as const)('round1
     if (kind === 'previous-tree') sinks.history.reset(pending.previousTree);
     else if (kind === 'previous-record') sinks.setMountMotors(pending.previousMotor ? { ...plan.snapshot.mountMotors, [Object.keys(plan.snapshot.mountMotors)[0]!]: pending.previousMotor } : {});
     else if (kind === 'tree') sinks.history.reset({ ...plan.snapshot.tree });
-    else sinks.setMountMotors(Object.fromEntries(Object.entries(plan.snapshot.mountMotors).map(([id,m]) => [id, { ...m }])));
+    else sinks.setMountMotors(Object.fromEntries(Object.entries(plan.snapshot.mountMotors).map(([id,m]) => [id, { ...m, spec: { ...m.spec } }])));
     sinks.setMeasured({ massKg: 0.2, cgM: null });
   });
   await settle(); await settle();
@@ -735,7 +735,7 @@ it.each(['tree', 'motor'] as const)('round11 unexpected precommit %s cancels', a
   const [plan, sinks] = vi.mocked(applyImportPlan).mock.calls[0]!;
   await act(async () => {
     if (kind === 'tree') sinks.history.reset({ ...plan.snapshot.tree });
-    else sinks.setMountMotors(Object.fromEntries(Object.entries(plan.snapshot.mountMotors).map(([id,m]) => [id, { ...m }])));
+    else sinks.setMountMotors(Object.fromEntries(Object.entries(plan.snapshot.mountMotors).map(([id,m]) => [id, { ...m, spec: { ...m.spec } }])));
   });
   await act(async () => real.applyImportPlan(plan, sinks));
   await settle(); await settle();
@@ -1013,4 +1013,61 @@ it('round13 onRun rejects a generation retired during flight', async () => {
   await act(async () => gate.resolve()); await waitFor(() => runs().length === 1);
   expect(held.noteWrites).toHaveLength(0);
   expect(host.querySelector('.results-column')?.textContent ?? '').not.toContain('the real rocket could not be built this way');
+}, 20_000);
+
+
+it('round14 relabel during an inactive motor question still flies exactly once', async () => {
+  await open('&motor=' + motor.motorId, await questionFile());
+  await waitFor(() => vi.mocked(applyImportPlan).mock.calls.length === 1);
+  expect(host.textContent).toContain('Apply');
+  expect(flyBuiltDesign).not.toHaveBeenCalled();
+  const original = Object.values(vi.mocked(applyImportPlan).mock.calls[0]![0].snapshot.mountMotors)[0]!;
+  await act(async () => setCatalogueOverlay({ baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(),
+    liveCount: getCatalogue().length, added: [], changed: [{ motorId: motor.motorId, before: motor,
+      after: { ...motor, designation: 'Renamed14' }, fields: ['designation'] }], removed: [], rejected: [] }));
+  await waitFor(() => Object.values(session().mountMotors ?? {}).some(m => (m as {label: string}).label.includes('Renamed14')));
+  expect(flyBuiltDesign).not.toHaveBeenCalled();
+  expect(original.label).not.toContain('Renamed14');
+  await click('Apply');
+  await waitFor(() => runs().length === 1);
+  await settle(); await settle();
+  expect(flyBuiltDesign).toHaveBeenCalledOnce();
+}, 20_000);
+
+it.each(['id', 'delay', 'auto', 'spec', 'remove'] as const)('round14 real motor %s change cancels a held flight', async kind => {
+  held.build = true;
+  await open('&motor=' + motor.motorId);
+  await waitFor(() => vi.mocked(applyImportPlan).mock.calls.length === 1);
+  const [plan, sinks] = vi.mocked(applyImportPlan).mock.calls[0]!;
+  const [id, original] = Object.entries(plan.snapshot.mountMotors)[0]!;
+  const changed = { ...original, meta: { ...original.meta } };
+  if (kind === 'id') changed.meta.motorId = '000000000000000000000000';
+  // Shared spec isolates the explicit delay stamp from the independent spec-identity fence.
+  if (kind === 'delay') changed.spec.ejectionDelay += 1;
+  if (kind === 'auto') changed.meta.autoDelay = !original.meta.autoDelay;
+  if (kind === 'spec') changed.spec = { ...original.spec };
+  held.build = false;
+  await act(async () => sinks.setMountMotors(kind === 'remove' ? {} : { [id]: changed }));
+  await settle(); await settle();
+  expect(flyBuiltDesign).not.toHaveBeenCalled();
+  await act(async () => sinks.setMountMotors(plan.snapshot.mountMotors));
+  await settle();
+  expect(flyBuiltDesign).not.toHaveBeenCalled();
+});
+
+it('round14 ineligible B offers replacement after untouched flown A', async () => {
+  await open('&motor=' + motor.motorId);
+  await waitFor(() => runs().length === 1 && typeof session().motorLinkMark === 'string');
+  const oldTree = session().tree;
+  await act(async () => root.unmount()); host.remove();
+  await open('&motor=' + motor.motorId, await round10File('occupied'));
+  await waitFor(() => host.textContent!.includes('Open design from this link?'));
+  expect(vi.mocked(applyImportPlan).mock.calls).toHaveLength(1);
+  expect(session().tree).toEqual(oldTree);
+  expect(flyBuiltDesign).toHaveBeenCalledOnce();
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Open design from link"] .modal-danger')!.click());
+  await waitFor(() => vi.mocked(applyImportPlan).mock.calls.length === 2);
+  await settle();
+  expect(host.textContent).toContain('design already has motors');
+  expect(flyBuiltDesign).toHaveBeenCalledOnce();
 }, 20_000);

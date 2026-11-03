@@ -841,7 +841,7 @@ export function App() {
   const linkFileImports = useRef(new WeakMap<ImportedDesign, { imported: ImportedDesign; resolved: NonNullable<ImportedDesign['resolvedMotors']> }>());
   const preparedFlights = useRef(new WeakMap<ImportedDesign, PreparedFlight>());
   const eligibleMotorLinks = useRef(new WeakSet<ImportedDesign>());
-  const pendingLinkFlight = useRef<(PreparedFlight & { gen: number; tree: FlightTree; motor: MountMotor; previousTree: FlightTree; previousMotor: MountMotor | undefined; committed: boolean }) | null>(null);
+  const pendingLinkFlight = useRef<(PreparedFlight & { gen: number; tree: FlightTree; motor: MountMotor; motorDelay: number; previousTree: FlightTree; previousMotor: MountMotor | undefined; committed: boolean }) | null>(null);
   const [motorLinkNotes, setMotorLinkNotes] = useState<{ gen: number; physicsKey: string; motorFlightKey: string;
     activeConfigId: string | null; launch: LaunchConditions; runId: string; notes: LinkNote[] } | null>(null);
   const [motorLinkMark, setMotorLinkMark] = useState<string | null>(restored.session?.motorLinkMark ?? null);
@@ -2901,7 +2901,7 @@ export function App() {
     const flight = preparedFlights.current.get(imported);
     if (eligibleMotorLinks.current.has(imported)) setMotorLinkMark(designFingerprint(plan.snapshot));
     if (flight) pendingLinkFlight.current = { ...flight, gen: documentGeneration.current, tree: plan.snapshot.tree,
-      motor: plan.snapshot.mountMotors[flight.mountId]!, previousTree: tree, previousMotor: mountMotors[flight.mountId], committed: false };
+      motor: plan.snapshot.mountMotors[flight.mountId]!, motorDelay: plan.snapshot.mountMotors[flight.mountId]!.spec.ejectionDelay, previousTree: tree, previousMotor: mountMotors[flight.mountId], committed: false };
     return plan.snapshot.tree;
   };
 
@@ -3258,11 +3258,18 @@ export function App() {
       pendingLinkFlight.current = null;
       return;
     }
-    if (tree !== pending.tree || mountMotors[pending.mountId] !== pending.motor) {
+    const currentMotor = mountMotors[pending.mountId];
+    // Catalogue relabels replace records and metadata, but preserve the loaded spec.
+    const sameMotor = currentMotor !== undefined
+      && currentMotor.meta.motorId === pending.motor.meta.motorId
+      && currentMotor.spec.ejectionDelay === pending.motorDelay
+      && !!currentMotor.meta.autoDelay === !!pending.motor.meta.autoDelay
+      && currentMotor.spec === pending.motor.spec;
+    if (tree !== pending.tree || !sameMotor) {
       // An earlier sync render can still carry either pre-import value.
-      // Once committed, any different tree or motor cancels this one-shot launch.
+      // Once committed, a different tree or motor selection cancels this one-shot launch.
       if (pending.committed || (tree !== pending.tree && tree !== pending.previousTree)
-        || (mountMotors[pending.mountId] !== pending.motor && mountMotors[pending.mountId] !== pending.previousMotor)) {
+        || (!sameMotor && currentMotor !== pending.previousMotor)) {
         pendingLinkFlight.current = null;
       }
       return;
@@ -3323,7 +3330,7 @@ export function App() {
         return prepareMotorLink(imported, link, openId);
       },
       // Include non-tree edits and work done while the link was decoding.
-      shouldOffer: () => shareShouldOffer.current && !(link.motorId !== null && linkMayReplace.current),
+      shouldOffer: imported => shareShouldOffer.current && !(eligibleMotorLinks.current.has(imported) && linkMayReplace.current),
       onOffer: imported => { setShareOffer(imported); },
       apply: async (imported, openId) => { await latestApplyImported.current(imported, openId); },
       // 'warn', not the default 'info'. The message is 165 characters before the

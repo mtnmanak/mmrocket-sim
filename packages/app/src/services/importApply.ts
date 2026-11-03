@@ -905,7 +905,7 @@ export async function openShareLink(hash: string, deps: {
   /** Decode and parse the fragment (every await of this path). Throws on a bad link. */
   read: (hash: string, openId: number) => Promise<ImportedDesign>;
   /** Ask first (a restored design the user worked on) rather than apply. */
-  shouldOffer: () => boolean;
+  shouldOffer: (imported: ImportedDesign) => boolean;
   onOffer: (imported: ImportedDesign) => void;
   apply: (imported: ImportedDesign, openId: number) => Promise<void>;
   onError: (e: unknown) => void;
@@ -914,7 +914,7 @@ export async function openShareLink(hash: string, deps: {
   try {
     const imported = await deps.read(hash, openId);
     if (!deps.openSeq.isCurrent(openId)) return;
-    if (deps.shouldOffer()) deps.onOffer(imported);
+    if (deps.shouldOffer(imported)) deps.onOffer(imported);
     else await deps.apply(imported, openId);
   } catch (e) {
     if (!deps.openSeq.isCurrent(openId)) return;
