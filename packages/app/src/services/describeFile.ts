@@ -354,19 +354,13 @@ export async function describeFile(
   if (mounts.length === 0) notes.push('This design has no motor mount, so no motor can be placed in it.');
   const launchMountId = launchMountOf(tree, mountNodes.map(m => m.id!));
   const launchMount = launchMountId === null ? null : mounts[mountNodes.findIndex(m => m.id === launchMountId)]!.key;
-  const motor = launchMountId === null ? undefined : opened.mountMotors[launchMountId];
-  // Import may have selected a different configuration: use that open's unresolved refs too.
-  const ref = launchMountId === null ? undefined : plan.unmatchedRefs[launchMountId];
-  let delay = launchMountId === null || motor?.meta.autoDelay || (!motor && (ref?.autoDelay || ref?.rktEveryDelay)) ? undefined
-    : motor ? motor.spec.ejectionDelay : ref?.delay;
-  // RASAero synthesizes a plugged sustainer and zero-delay boosters for flight.
-  // Only an explicit engine-string delay is evidence for a link hint.
-  if (imported.sourceFormat === 'cdx1' && launchMountId !== null) {
-    const sourceRefs = imported.configs?.find(c => c.id === opened.activeConfigId)?.motors ?? imported.motors;
-    const stated = sourceRefs[launchMountId]?.matchContext?.explicitDelay;
-    delay = stated === 'plugged' ? Infinity : stated;
-  }
-  const hint: DelayHint | null = delay === Infinity ? 'plugged' : delay ?? null;
+  // A catalogue match may replace every-delay or synthesize a flight delay.
+  // Only the file's statement in the configuration selected by open is evidence.
+  const sourceRefs = imported.configs?.find(c => c.id === opened.activeConfigId)?.motors ?? imported.motors;
+  const ref = launchMountId === null ? undefined : sourceRefs[launchMountId];
+  const delay = ref?.autoDelay || ref?.rktEveryDelay ? undefined
+    : ref?.statedDelay;
+  const hint: DelayHint | null = delay ?? null;
   // Outside the lock: compression awaits a stream.
   const projection = motorFreeProjection(opened);
   const writerNotes: string[] = [];

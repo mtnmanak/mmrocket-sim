@@ -83,6 +83,8 @@ export interface OrkMotorRef {
   diameter: number;
   length: number;
   delay: number;
+  /** File statement only; absent for synthesized, unreadable or automatic delays. */
+  statedDelay?: number | 'plugged';
   /**
    * Desktop motor identity, carried verbatim for write-back: a matching
    * <digest> is the desktop matcher's silent-success tier, rescuing even a
@@ -889,6 +891,8 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
         // A decimal that overflows (1e999) is Infinity: plugged, as desktop's
         // parseDouble makes it.
         delay: importedEjectionDelay(Number.isNaN(delayValue) ? Infinity : delayValue, notes, designation, delayText ?? ''),
+        ...(delayText === 'none' ? { statedDelay: 'plugged' as const }
+          : Number.isFinite(delayValue) ? { statedDelay: delayValue } : {}),
         ...(digest ? { digest } : {}),
         ...(motorType ? { motorType } : {}),
         mountId: node.id,

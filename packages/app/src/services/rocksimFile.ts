@@ -2108,6 +2108,8 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
     const read = rktEjectionDelay(engineSet, num);
     const matchContext = rocksimMotorEvidence(engineSet, motorIndex);
     const every = read === 'every' ? rktEveryDelay(code, manufacturer, matchContext, opts?.catalogue) : null;
+    const rawDelay = text(engineSet, ':scope > EjectionDelay');
+    const statedDelay = parseDecimal(rawDelay);
     const ref: OrkMotorRef = {
       designation: code,
       matchContext,
@@ -2121,6 +2123,8 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
       // fixes (2026-09-22) reopened as an ordinary delay and would fire at
       // burnout the day the motor became loadable. The flag gives a .rkt its −1.
       delay: read === 'plugged' ? Infinity : read === 'every' ? (every?.delay ?? Infinity) : read,
+      ...(statedDelay === -2 ? { statedDelay: 'plugged' as const }
+        : Number.isFinite(statedDelay) && statedDelay >= 0 ? { statedDelay } : {}),
       mountId: mount.id,
       ...(!isBottomStage ? { ignitionEvent: 'burnout' as const, ignitionDelay }
         : ignitionDelay > 0 ? { ignitionEvent: 'launch' as const, ignitionDelay } : {}),

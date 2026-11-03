@@ -8,6 +8,14 @@ const other = '5f4294d2000231000000001e';
 const fragment = '#d=1.AAAA';
 
 describe('motor-link suffix', () => {
+  it.each([`&motor2=${id}`, '&motorX=1', '&delayX=5', '&delayX5', '&=', '&=5'])(
+    'silently ignores unknown or empty names %s', suffix => {
+      expect(motorLinkParams(fragment + suffix)).toEqual({ motorId: null, delayHint: null, problems: [] });
+    });
+  it('enforces the writer rounding tolerance boundary', () => {
+    expect(withDelayHint(fragment, 5.000005)).toBe(fragment);
+    expect(withDelayHint(fragment, 5.0000001)).toBe(fragment + '&delay=5');
+  });
   it('writes only round-trippable delays, allowing two-decimal float noise', () => {
     for (const value of [5.125, 1000, 3.333333, NaN, -1, -Infinity]) {
       expect(withDelayHint(fragment, value)).toBe(fragment);

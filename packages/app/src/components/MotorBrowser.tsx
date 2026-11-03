@@ -13,7 +13,7 @@ import {
 import type { MotorSpec } from '@online-openrocket/engine';
 import {
   MOTOR_DB_DATE, classLabel, classesFittingMount,
-  displayDesignation, displayMotorManufacturer, motorLabel, filterMotors, hasMassData, impulseClassesForMount, isAvailable, isHighPower,
+  displayDesignation, displayMotorManufacturer, filterMotors, hasMassData, impulseClassesForMount, isAvailable,
   manufacturersForMount, propellantsForMount, rangesForMount,
   sortMotors, type MotorDbEntry, type MotorSortKey,
 } from '../services/motorDb.js';
@@ -21,8 +21,9 @@ import {
   deleteExMotor, exLibraryBackupNote, exToDbEntry, loadExMotors,
 } from '../services/exMotors.js';
 import {
-  bundledFiles, defaultDelay, delayOptions, fetchMotorSpec, headerMasses, knownNoPublishedCurve, pickSampleFile,
+  bundledFiles, defaultDelay, delayOptions, headerMasses, knownNoPublishedCurve, pickSampleFile,
 } from '../services/thrustcurve.js';
+import { loadMotorForMount } from '../services/motorLoad.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { noticeQuantity, siToUi } from '../prefs/units.js';
 import { NumField } from './NumField.js';
@@ -549,28 +550,12 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       const chosen = delay === 'auto' ? finite[finite.length - 1] ?? 0
         : delay === 'custom' ? customDelay
         : delay;
-      const spec = await fetchMotorSpec(picked, chosen, ctrl.signal, { units: prefs.units });
+      const loaded = await loadMotorForMount(picked, chosen, { units: prefs.units, signal: ctrl.signal, autoDelay: delay === 'auto' });
       // Closed while the download was in flight: the abort above fires, but a
       // cached spec can also resolve without ever touching the network, so the
       // check is on the signal rather than on the throw.
       if (superseded()) return;
-      const label = motorLabel(picked, chosen, { autoDelay: delay === 'auto' });
-      onSelect(label, spec, {
-        label,
-        manufacturer: picked.manufacturerAbbrev,
-        // EX motors: pin the exact library entry ("ex:" namespace), so a
-        // later .ork export writes THIS vendor's manufacturer even when two
-        // vendors' same-designation curves coexist in the library.
-        ...(picked.motorId.startsWith('ex:')
-          ? { exMotorId: picked.motorId }
-          : { motorId: picked.motorId }),
-        availableDelays: opts,
-        autoDelay: delay === 'auto',
-        type: picked.type,
-        propellant: picked.propInfo,
-        motorCase: picked.caseInfo,
-        highPower: isHighPower(picked),
-      });
+      onSelect(loaded.label, loaded.spec, loaded.meta);
       onClose();
     } catch (e) {
       // A cancelled load is not a failure to report — the user asked for it,

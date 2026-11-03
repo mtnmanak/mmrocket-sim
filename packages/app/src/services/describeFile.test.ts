@@ -65,13 +65,10 @@ describe('describeFile: dry statics on the shipped data, no flight', () => {
     const ids = motorMounts(source.tree).map(m => m.id!);
     const id = launchMountOf(source.tree, ids);
     expect(out.launchMount).toBe(id === null ? null : `m${ids.indexOf(id) + 1}`);
-    const motor = id === null ? undefined : source.mountMotors[id];
-    let delay = id === null || motor?.meta.autoDelay ? undefined : motor ? motor.spec.ejectionDelay : plan.unmatchedRefs[id]?.delay;
-    if (imported.sourceFormat === 'cdx1' && id !== null) {
-      const stated = (imported.configs?.find(c => c.id === source.activeConfigId)?.motors ?? imported.motors)[id]?.matchContext?.explicitDelay;
-      delay = stated === 'plugged' ? Infinity : stated;
-    }
-    expect(motorLinkParams(out.fragment).delayHint).toBe(delay === Infinity ? 'plugged' : delay ?? null);
+    const ref = id === null ? undefined : (imported.configs?.find(c => c.id === source.activeConfigId)?.motors ?? imported.motors)[id];
+    const delay = ref?.autoDelay || ref?.rktEveryDelay ? undefined
+      : ref?.statedDelay;
+    expect(motorLinkParams(out.fragment).delayHint).toBe(delay ?? null);
   }, 60_000);
 
   it.each(FORMATS)('%s: SI, dry basis and the Design tab conditions, finite JSON only', async (file, format) => {
@@ -269,13 +266,71 @@ describe('describeFile: mounts', () => {
 });
 
 describe('describeFile: the motor-independent fragment', () => {
+  it.each(['C6', 'Z99999-NOPE'])('reads RockSim stated delays independently of matching %s', async code => {
+    for (const [value, hint] of [['-2', 'plugged'], ['0', 0], ['5', 5], ['', null], ['garbage', null], ['0x10', null], ['9'.repeat(400), null]] as const) {
+      const body = strToU8(strFromU8(bytes('rocksimTestRocket1.rkt'))
+        .replace(/<EngineCode>[^<]*<\/EngineCode>/g, `<EngineCode>${code}</EngineCode>`)
+        .replace(/<EngineMfg>[^<]*<\/EngineMfg>/g, '<EngineMfg>Estes</EngineMfg>')
+        .replace(/<EjectionDelay>[^<]*<\/EjectionDelay>/g, `<EjectionDelay>${value}</EjectionDelay>`));
+      expect(motorLinkParams((await describeFile(body, 'stated.rkt')).fragment).delayHint).toBe(hint);
+    }
+  }, 60_000);
+  it.each(['C6', 'Z99999-NOPE'])('reads RASAero stated tokens independently of matching %s', async code => {
+    for (const [token, hint] of [['-P', 'plugged'], ['-0', 0], ['-5', 5], ['', null]] as const) {
+      const body = strToU8(strFromU8(bytes('Show-off.CDX1'))
+        .replace(/(<(?:Sustainer|Booster1|Booster2)Engine>)[^<]+/g, `$1${code}${token}  (Estes)`));
+      expect(motorLinkParams((await describeFile(body, 'stated.CDX1')).fragment).delayHint).toBe(hint);
+    }
+  }, 60_000);
+  it.each(['C3.4T', 'C6', 'Z99999-NOPE'])('omits matched and unmatched RockSim every-delay for %s', async code => {
+    const body = strToU8(strFromU8(bytes('rocksimTestRocket1.rkt'))
+      .replace(/<EngineCode>[^<]*<\/EngineCode>/g, `<EngineCode>${code}</EngineCode>`)
+      .replace(/<EngineMfg>[^<]*<\/EngineMfg>/g, `<EngineMfg>${code === 'C3.4T' ? 'AeroTech' : 'Estes'}</EngineMfg>`)
+      .replace(/<EjectionDelay>[^<]*<\/EjectionDelay>/g, '<EjectionDelay>-1</EjectionDelay>'));
+    expect(motorLinkParams((await describeFile(body, 'every.rkt')).fragment).delayHint).toBeNull();
+  }, 60_000);
+  it.each(['none', '', 'garbage', '1e999', '0', '5'])('uses only explicit .ork delay %j', async value => {
+    const xml = referenceXml().replace(/<delay>[^<]*<\/delay>/g, `<delay>${value}</delay>`);
+    const out = await describeFile(ork(xml), 'stated.ork');
+    const hint = value === 'none' ? 'plugged' : value === '0' ? 0 : value === '5' ? 5 : null;
+    expect(motorLinkParams(out.fragment).delayHint).toBe(hint);
+    if (hint === 0) expect(out.notes.export.join(' ')).toContain('a delay hint of 0 s');
+  }, 60_000);
+  it('ignores absent .ork delay for matched and unmatched motors', async () => {
+    for (const code of ['C6', 'Z99999-NOPE']) {
+      for (const [value, hint] of [['none', 'plugged'], ['5', 5], ['', null]] as const) {
+        const xml = referenceXml().replace(/<designation>[^<]*<\/designation>/g, `<designation>${code}</designation>`)
+          .replace(/<delay>[^<]*<\/delay>/g, value ? `<delay>${value}</delay>` : '');
+        expect(motorLinkParams((await describeFile(ork(xml), 'stated.ork')).fragment).delayHint).toBe(hint);
+      }
+    }
+  }, 60_000);
+  it('does not call overflowing RASAero digits plugged', async () => {
+    const body = strToU8(strFromU8(bytes('Show-off.CDX1'))
+      .replace(/(<(?:Sustainer|Booster1|Booster2)Engine>)[^<]+/g, `$1I170-${'9'.repeat(400)}  (Kosdon)`));
+    const imported = await openHeadlessDesign(body, 'overflow.CDX1', { network: 'forbid' });
+    const refs = (imported.configs ?? []).flatMap(c => Object.values(c.motors));
+    expect(refs.length).toBeGreaterThan(0);
+    expect(refs.every(r => r.statedDelay === undefined)).toBe(true);
+    // Pre-hint-work matching treats overflowing digits as plugged evidence.
+    const legacy = structuredClone(imported);
+    for (const ref of [legacy.motors, ...(legacy.configs ?? []).map(c => c.motors)].flatMap(Object.values)) {
+      ref.matchContext = { source: 'rasaero', explicitDelay: 'plugged' };
+    }
+    const actual = (await planHeadlessImport(imported, { network: 'forbid' })).snapshot;
+    const expected = (await planHeadlessImport(legacy, { network: 'forbid' })).snapshot;
+    expect(Object.keys(expected.mountMotors).length).toBeGreaterThan(0);
+    const identities = (s: typeof actual) => Object.values(s.mountMotors).map(m => [m.meta.motorId, m.spec]);
+    expect(identities(actual)).toEqual(identities(expected));
+    expect(motorLinkParams((await describeFile(body, 'overflow.CDX1')).fragment).delayHint).toBeNull();
+  }, 60_000);
   it.each([undefined, 5, 'plugged'] as const)('uses only the stated RASAero delay, not synthesized Infinity or zero: %s', async stated => {
     const realOpen = fileServices.openHeadlessDesign;
     vi.spyOn(fileServices, 'openHeadlessDesign').mockImplementation(async (...args) => {
       const imported = await realOpen(...args);
       imported.sourceFormat = 'cdx1';
       for (const refs of [imported.motors, ...(imported.configs ?? []).map(c => c.motors)]) {
-        for (const ref of Object.values(refs)) ref.matchContext = { source: 'rasaero', explicitDelay: stated };
+        for (const ref of Object.values(refs)) ref.statedDelay = stated;
       }
       return imported;
     });
@@ -335,21 +390,19 @@ describe('describeFile: the motor-independent fragment', () => {
     expect(again.mounts).toEqual(out.mounts);
   }, 60_000);
 
-  it('omits unset delays and unmatched Auto on a built opened tree', async () => {
-    // File readers normalize absent delays to plugged. Build the unset internal states explicitly.
-    const realPlan = fileServices.planHeadlessImport;
+  it('omits unset delays and unmatched Auto from imported refs', async () => {
+    const realOpen = fileServices.openHeadlessDesign;
     for (const mode of ['resolved unset', 'unmatched unset', 'unmatched Auto']) {
-      const spy = vi.spyOn(fileServices, 'planHeadlessImport').mockImplementation(async (...args) => {
-        const plan = await realPlan(...args);
-        const id = launchMountOf(plan.snapshot.tree, motorMounts(plan.snapshot.tree).map(m => m.id!))!;
-        if (mode === 'resolved unset') Reflect.deleteProperty(plan.snapshot.mountMotors[id]!.spec, 'ejectionDelay');
-        else {
-          delete plan.snapshot.mountMotors[id];
-          plan.unmatchedRefs[id] = { designation: 'Missing', manufacturer: 'Test', diameter: 0.018, length: 0.07, delay: 5 };
-          if (mode === 'unmatched unset') Reflect.deleteProperty(plan.unmatchedRefs[id]!, 'delay');
-          else plan.unmatchedRefs[id]!.autoDelay = true;
+      const spy = vi.spyOn(fileServices, 'openHeadlessDesign').mockImplementation(async (...args) => {
+        const imported = await realOpen(...args);
+        for (const refs of [imported.motors, ...(imported.configs ?? []).map(c => c.motors)]) {
+          for (const ref of Object.values(refs)) {
+            if (mode !== 'resolved unset') ref.designation = 'Missing';
+            if (mode === 'unmatched Auto') ref.autoDelay = true;
+            else delete ref.statedDelay;
+          }
         }
-        return plan;
+        return imported;
       });
       const out = await describeFile(bytes('reference.ork'), 'reference.ork');
       expect(out.fragment).not.toContain('&delay=');

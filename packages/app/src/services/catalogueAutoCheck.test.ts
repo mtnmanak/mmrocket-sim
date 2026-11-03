@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  resetCatalogueAutoCheckForTests, startCatalogueAutoCheck, subscribeAutomaticCatalogueResult, type CatalogueAutoCheckEnv,
+  catalogueCheckSettled, resetCatalogueAutoCheckForTests, startCatalogueAutoCheck, subscribeAutomaticCatalogueResult, type CatalogueAutoCheckEnv,
 } from './catalogueAutoCheck.js';
 import {
   OVERLAY_KEY, RECHECK_MIN_MS, checkForCatalogueUpdates, discardCatalogueOverlay, loadStoredOverlay, restoreCatalogueOverlay,
@@ -37,6 +37,42 @@ beforeEach(async () => {
   fetchImpl = catalogueFetch(manifestOf(pub), [pub]);
 });
 afterEach(() => { vi.restoreAllMocks(); setCatalogueOverlay(null); localStorage.clear(); });
+
+it('bounds a stalled startup check and settles offline or failed checks without waiting', async () => {
+  vi.useFakeTimers();
+  try {
+    const check = startCatalogueAutoCheck(env({ restored: () => false, onInstall: () => () => {} }));
+    void check;
+    let done = false;
+    void catalogueCheckSettled(60_000).then(() => { done = true; });
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(done).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(done).toBe(true);
+    resetCatalogueAutoCheckForTests();
+    await startCatalogueAutoCheck(env({ online: () => false }));
+    await catalogueCheckSettled(10_000);
+    expect(vi.getTimerCount()).toBe(0);
+    resetCatalogueAutoCheckForTests();
+    await startCatalogueAutoCheck(env({ online: () => { throw new Error('offline'); } }));
+    await catalogueCheckSettled(10_000);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally { vi.useRealTimers(); }
+});
+
+it('waits for a slow successful check to install the newer catalogue before settling', async () => {
+  let restored = false;
+  let install: () => void = () => {};
+  const check = startCatalogueAutoCheck(env({ restored: () => restored, onInstall: fn => { install = fn; return () => {}; } }));
+  let settled = false;
+  const wait = catalogueCheckSettled(10_000).then(() => { settled = true; });
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  restored = true; install();
+  expect(await check).toBe('checked');
+  await wait;
+  expect(getCatalogue().some(m => m.motorId === 'auto-new')).toBe(true);
+});
 
 describe('when it runs', () => {
   it.each([false, true])('throttles across reloads when only the small check record fits (old overlay: %s)', async old => {
