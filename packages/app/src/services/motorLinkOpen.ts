@@ -24,7 +24,7 @@ export const motorLinkLoadFailure = (motor: TcMotor, delay: number, autoDelay = 
   `The link's motor “${noteField(motorLabel(motor, delay, { autoDelay }))}” could not be loaded. The design is open; no flight was run.`;
 
 const copy = {
-  unknown: (id: string, date: string) => `The link asked for motor ID “${noteField(id)}”, which this app's motor list (dated ${noteField(date)}) does not have. The design is open with that mount empty — pick a motor on the Motors tab.`,
+  unknown: (id: string, date: string) => `The link asked for motor ID “${noteField(id)}”, which this app's motor list (dated ${noteField(date)}) does not have. No motor was loaded from the link — pick one on Motors & Configuration.`,
   noMount: 'This design has no motor mount, so the motor in the link could not be loaded.',
   diameter: (motor: string, diameter: number, bore: number) => `${motor} is ${diameter} mm across, but this mount takes ${bore} mm. It was loaded and flown anyway as the link asked — the real rocket could not be built this way.`,
   length: (motor: string, length: number, max: number) => `${motor} is ${length} mm long, longer than this mount's ${max} mm limit. It was loaded and flown anyway — it may hit parts inside the rocket.`,

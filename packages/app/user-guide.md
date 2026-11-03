@@ -1609,7 +1609,9 @@ A motor link from ThrustCurve opens the design, loads that motor in the launch m
 
 A motor that is too wide or too long is loaded and flown anyway. A warning beside the results explains the mismatch: the real rocket may be impossible to assemble, or the motor may hit parts inside it. Check the fit before using those results. Other motor mounts keep their existing motors; add motors to empty mounts on **Motors & Configuration**. A configuration whose motor loadout was refused stays refused: the link loads no motor and runs no flight.
 
-An unknown motor leaves the mount empty and shows the requested ID and the date of the motor catalogue searched, including an active catalogue update; no flight runs. A design with no motor mount also opens without flying. The link's delay hint is used only if that motor offers it; otherwise the motor browser's default delay is used, including **Auto** when no delays are listed. Reloading the page restores the design without flying it again.
+An unknown motor loads nothing from the link and shows the requested ID and the date of the motor catalogue searched, including an active catalogue update; motors already in the design stay loaded, and no flight runs. A design with no motor mount also opens without flying. The link's delay hint is used only if that motor offers it; otherwise the motor browser's default delay is used, including **Auto** when no delays are listed. Reloading the page restores the design without flying it again.
+
+Editing the design or launch settings while the link is loading cancels its automatic motor load and flight. Unloading the motors also cancels it. If the file asks you to choose its motors, make that choice first; the link does not load or fly automatically. If the published nozzle exit cannot be loaded, the flight proceeds without it and a caution asks you to check **Motors & Configuration**. Link mismatch warnings beside results belong to the successful run: changing the launch settings or inspecting another run hides them.
 
 ## Printing oversized parts on a 3D printer
 

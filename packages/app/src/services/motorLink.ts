@@ -30,6 +30,7 @@ export function motorLinkParams(hash: string): MotorLinkParams {
     }
   }
   if (pairs.length > 32) result.problems.push('The link has extra parameters; only the first 32 were read.');
+  result.problems = [...new Set(result.problems)];
   return result;
 }
 
