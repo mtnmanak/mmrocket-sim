@@ -837,7 +837,8 @@ export function App() {
   const [confirmNew, setConfirmNew] = useState(false);
   /** A decoded share-link design waiting for the user's OK to replace theirs. */
   const [shareOffer, setShareOffer] = useState<ImportedDesign | null>(null);
-  type PreparedFlight = { mountId: string; motorId: string; notes: LinkNote[] };
+  type PreparedFlight = { mountId: string; motorId: string; notes: LinkNote[]; assignment?: Awaited<ReturnType<typeof loadMotorForMount>> };
+  const linkFileImports = useRef(new WeakMap<ImportedDesign, { imported: ImportedDesign; resolved: NonNullable<ImportedDesign['resolvedMotors']> }>());
   const preparedFlights = useRef(new WeakMap<ImportedDesign, PreparedFlight>());
   const pendingLinkFlight = useRef<(PreparedFlight & { gen: number }) | null>(null);
   const [motorLinkNotes, setMotorLinkNotes] = useState<{ gen: number; physicsKey: string; motorFlightKey: string;
@@ -2812,7 +2813,26 @@ export function App() {
     // assembled apart. The launch is merged ONCE, from the mirror, now that
     // every await is behind us (audit 2026-09-22). The history starts over
     // from the opened design: Ctrl+Z does not reach across a file open.
+    const fileImport = linkFileImports.current.get(imported);
+    const filePlan = fileImport && planImport({ ...fileImport.imported, notes: imported.notes, noteTiers: imported.noteTiers, expand: imported.expand }, fileImport.resolved,
+      { launch: launchRef.current, text: statedWeightText, units: prefs.units });
     const plan = planImport(imported, resolved, { launch: launchRef.current, text: statedWeightText, units: prefs.units });
+    if (filePlan) {
+      // Reconcile a newly injected motor against the FILE's weighed set.
+      const flight = preparedFlights.current.get(imported)!;
+      const motor = resolved.working[flight.mountId]!.motor!;
+      const before = filePlan.snapshot;
+      const assignment = planMotorAssignment({ tree: before.tree, targetMountId: flight.mountId, ...motor,
+        refs: filePlan.unmatchedRefs, savedConfigs: before.savedConfigs, activeConfigId: before.activeConfigId, massText, statedWeightText });
+      plan.snapshot.mountMotors = assignMotorRecords(before.mountMotors, before.tree, flight.mountId, assignment);
+      plan.snapshot.savedConfigs = syncActiveConfig(plan.snapshot.savedConfigs, plan.snapshot.activeConfigId,
+        { motors: plan.snapshot.mountMotors, unmatchedRefs: plan.unmatchedRefs, tree: plan.snapshot.tree });
+      const lines = [...plan.note.group.lines.filter(n => !n.kind.startsWith('I16.')),
+        ...filePlan.note.group.lines.filter(n => n.kind.startsWith('I16.'))];
+      const group = { ...plan.note.group, lines };
+      plan.note = { ...plan.note, group, text: [group.heading, ...lines.map(n => n.text)].filter(Boolean).join('\n'),
+        severity: highestTier(lines) === 'information' ? plan.note.severity : 'warn' };
+    }
     const quietLines = new Set(planImport(imported, acceptedOtherMakerNotes(resolved),
       { launch: launchRef.current, text: statedWeightText, units: prefs.units }).note.text.split('\n'));
     const acceptedLines = plan.note.text.split('\n').filter(line => !quietLines.has(line));
@@ -2839,7 +2859,7 @@ export function App() {
     if (storedCount) {
       const current = loadRuns();
       // The matched configurations, so an unnamed one's runs carry its shown label.
-      const summaryPlan = planSummaryImport(imported, current, plan.snapshot.savedConfigs);
+      const summaryPlan = planSummaryImport(fileImport?.imported ?? imported, current, filePlan?.snapshot.savedConfigs ?? plan.snapshot.savedConfigs);
       let next = current;
       if (summaryPlan.runs.length || summaryPlan.updatedRuns.length) {
         next = appendImportedRuns(summaryPlan.runs, summaryPlan.updatedRuns, summaryPlan.warningMergeBudget);
@@ -3187,7 +3207,7 @@ export function App() {
       return imported;
     }
     if (plan.kind === 'no-flight') { addNotes(plan.notes.map(n => link.problems.includes(n.text) ? { ...n, tier: 'caution' } : n)); return imported; }
-    if (resolved.working[plan.mountId]?.otherMaker) {
+    if (collectOpenMotorIdentities(imported, resolved, snapshot).length) {
       addNotes([...problems, { tier: 'caution', text: "The file's motors need a choice first. No motor was loaded from the link and no flight was run." }]);
       return imported;
     }
@@ -3195,22 +3215,31 @@ export function App() {
     try { loaded = await loadMotorForMount(plan.motor, plan.delay, { units: prefs.units, autoDelay: plan.autoDelay }); }
     catch { addNotes([...problems, { tier: 'caution', text: motorLinkLoadFailure(plan.motor, plan.delay, plan.autoDelay) }]); return imported; }
     if (!openSeq.isCurrent(openId)) return imported;
+    const flightNotes = plan.notes.filter(n => !link.problems.includes(n.text));
+    const notes = plan.notes.map(n => link.problems.includes(n.text) ? { ...n, tier: 'caution' as const } : n);
+    if (imported.motors[plan.mountId]) {
+      // Apply the original file first. Its first committed render owns the manual assignment.
+      addNotes(notes);
+      preparedFlights.current.set(imported, { mountId: plan.mountId, motorId: plan.motor.motorId, notes: flightNotes, assignment: loaded });
+      return imported;
+    }
+    linkFileImports.current.set(imported, { imported: { ...imported, motors: { ...imported.motors },
+      configs: imported.configs?.map(c => ({ ...c, motors: { ...c.motors } })) },
+      resolved: { ...resolved, working: { ...resolved.working } } });
     imported.motors[plan.mountId] = { designation: plan.motor.designation, manufacturer: plan.motor.manufacturerAbbrev,
       diameter: plan.motor.diameter / 1000, length: plan.motor.length / 1000, delay: plan.delay };
     const mounted = { ...loaded, ignition: ignitionDefaultFor(snapshot.tree, { mountId: plan.mountId, propellant: loaded.meta.propellant }) };
     resolved.working[plan.mountId] = { motor: mounted, note: '' };
     const cfg = imported.configs?.find(c => c.id === imported.chosenConfigId);
     if (cfg) cfg.motors[plan.mountId] = imported.motors[plan.mountId]!;
-    const flightNotes = plan.notes.filter(n => !link.problems.includes(n.text));
-    const notes = plan.notes.map(n => link.problems.includes(n.text) ? { ...n, tier: 'caution' as const } : n);
-    const stage = stageMotors(snapshot.tree, [[plan.mountId, mounted]]).find(s => s.motors.length);
+    const stage = stageMotors(snapshot.tree, Object.entries({ ...snapshot.mountMotors, [plan.mountId]: mounted })).find(s => s.motors.some(m => m.mountId === plan.mountId));
     if (stage && numOrNull(findNode(snapshot.tree, stage.stageId)!, 'nozzleExitDiameter') === null) {
       try {
-        const entry = await nozzleForMotorId(plan.motor.motorId);
-        const diameter = equivalentExitDiameterM(stage.motors.map(m => ({ count: m.count, exitDiameterM: entry?.exitDiameterM ?? null })));
+        const entries = await Promise.all(stage.motors.map(m => nozzleForMotorId(m.motorId)));
+        const diameter = equivalentExitDiameterM(stage.motors.map((m, i) => ({ count: m.count, exitDiameterM: entries[i]?.exitDiameterM ?? null })));
         if (diameter !== null) {
           imported.tree = applyStageNozzles(imported.tree, { [stage.stageId]: diameter });
-          if (cfg) cfg.nozzles = { ...cfg.nozzles, [stage.stageId]: diameter };
+          if (cfg?.nozzles) cfg.nozzles = { ...cfg.nozzles, [stage.stageId]: diameter };
         }
       } catch { notes.push({ tier: 'caution', text: 'The published nozzle exit could not be loaded, so the flight used none — check Motors & Configuration.' }); }
     }
@@ -3221,11 +3250,21 @@ export function App() {
   useEffect(() => {
     const pending = pendingLinkFlight.current;
     if (!pending) return;
-    if (pending.gen !== documentGeneration.current || mountMotors[pending.mountId]?.meta.motorId !== pending.motorId) {
+    if (pending.gen !== documentGeneration.current) {
       pendingLinkFlight.current = null;
       return;
     }
-    if (!built || !primaryMountId || simulating || nozzlePending || flightHoldsHandle.current) return;
+    if (pending.assignment) {
+      const loaded = pending.assignment;
+      delete pending.assignment;
+      assignMotor(pending.mountId, loaded.label, loaded.spec, loaded.meta);
+      return;
+    }
+    if (mountMotors[pending.mountId]?.meta.motorId !== pending.motorId) {
+      pendingLinkFlight.current = null;
+      return;
+    }
+    if (!built || !primaryMountId || simulating || nozzlePending || openMotorQuestion || flightHoldsHandle.current) return;
     pendingLinkFlight.current = null;
     onLaunch({ fromLink: true, onRun: (runId: string) => {
       if (pending.gen !== documentGeneration.current) return;

@@ -2,6 +2,14 @@ import { matchImportedMotor } from './services/motorMatch.js';
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act } from 'react';
+vi.mock('react', async original => {
+  const real = await original<typeof import('react')>();
+  return { ...real, useRef: <T,>(value: T) => {
+    const ref = real.useRef(value);
+    if (value === null) held.refs.push(ref);
+    return ref;
+  } };
+});
 import { createRoot, type Root } from 'react-dom/client';
 import { readFileSync } from 'node:fs';
 import { App } from './App.js';
@@ -21,9 +29,14 @@ import { setCatalogueOverlay } from './services/motorDb.js';
 import type { ComponentProps } from 'react';
 import type { MotorPicker } from './components/MotorPicker.js';
 import { OVERRIDE_INCLUDES_MOTOR } from './services/statedLaunchWeight.js';
-import { applyImportPlan } from './services/importApply.js';
+import { planImport, applyImportPlan } from './services/importApply.js';
 import { addRuns } from './services/simStore.js';
 import { importedSummaryRuns } from './services/orkFlightData.js';
+import { collectOpenMotorIdentities } from './services/openMotorChoices.js';
+vi.mock('./services/openMotorChoices.js', async original => {
+ const real = await original<typeof import('./services/openMotorChoices.js')>();
+ return { ...real, collectOpenMotorIdentities: vi.fn(real.collectOpenMotorIdentities) };
+});
 import { motorLinkParams } from './services/motorLink.js';
 vi.mock('./services/motorLink.js', async original => {
   const real = await original<typeof import('./services/motorLink.js')>();
@@ -34,7 +47,7 @@ vi.mock('./services/motorMatch.js', async original => {
   const real = await original<typeof import('./services/motorMatch.js')>();
   return { ...real, matchImportedMotor: vi.fn(real.matchImportedMotor) };
 });
-const held = vi.hoisted(() => ({ build: false, nozzle: false, notes: [] as string[], pick: null as ComponentProps<typeof MotorPicker>['onSelect'] | null }));
+const held = vi.hoisted(() => ({ refs: [] as { current: unknown }[], build: false, nozzle: false, notes: [] as string[], pick: null as ComponentProps<typeof MotorPicker>['onSelect'] | null }));
 vi.mock('./services/buildDesign.js', async original => {
   const real = await original<typeof import('./services/buildDesign.js')>();
   return { ...real, buildDesign: (...args: Parameters<typeof real.buildDesign>) => held.build ? { error: 'Build deferred by test' } : real.buildDesign(...args) };
@@ -70,7 +83,7 @@ vi.mock('./services/motorLoad.js', async original => {
 });
 vi.mock('./services/importApply.js', async original => {
   const real = await original<typeof import('./services/importApply.js')>();
-  return { ...real, applyImportPlan: vi.fn(real.applyImportPlan), resolveImportMotors: vi.fn(real.resolveImportMotors) };
+  return { ...real, planImport: vi.fn(real.planImport), applyImportPlan: vi.fn(real.applyImportPlan), resolveImportMotors: vi.fn(real.resolveImportMotors) };
 });
 vi.mock('./services/nozzleDb.js', async original => {
   const real = await original<typeof import('./services/nozzleDb.js')>();
@@ -139,6 +152,7 @@ beforeEach(async () => {
   vi.mocked(loadMotorForMount).mockClear();
   vi.mocked(applyImportPlan).mockClear();
   vi.mocked(matchImportedMotor).mockClear();
+  held.refs = [];
   held.nozzle = false;
   held.build = false;
 });
@@ -552,4 +566,127 @@ it('round9 document generation supersedes the same motor pending build', async (
   await act(async () => picker.dispatchEvent(new Event('change', { bubbles: true })));
   await waitFor(() => vi.mocked(applyImportPlan).mock.calls.length === 2);
   await settle(); expect(flyBuiltDesign).not.toHaveBeenCalled();
+});
+
+function linkRef() { return { designation: motor.designation, manufacturer: motor.manufacturerAbbrev,
+  diameter: motor.diameter / 1000, length: motor.length / 1000, delay }; }
+async function round10File(kind: 'empty' | 'occupied' | 'same-stage' | 'two-stage', pad = false, stored = false) {
+  const tree = defaultTree(); const mount = motorMounts(tree)[0]!;
+  const motors: Record<string, ReturnType<typeof linkRef>> = {};
+  if (kind === 'occupied') { motors[mount.id!] = linkRef(); stages(tree)[0]!.nozzleExitDiameter = 0.009; }
+  if (kind === 'same-stage') {
+    const body = stages(tree)[0]!.children!.find(n => n.type === 'bodytube')!;
+    body.children!.push({ type: 'podset', id: 'pods', instanceCount: 1, children: [{ type: 'bodytube', id: 'pod-body', length: 0.15, outerRadius: 0.012, children: [{ ...mount, id: 'pod-mount' }] }] }); motors['pod-mount'] = linkRef();
+  }
+  if (kind === 'two-stage') {
+    tree.components = [{ type: 'stage', id: 'sustainer', children: stages(tree)[0]!.children },
+      { type: 'stage', id: 'booster', children: [{ ...mount, id: 'booster-mount' }] }];
+    motors[mount.id!] = linkRef();
+  }
+  let xml = exportOrk({ name: 'Round10', tree, motors, launch: DEFAULT_CONDITIONS, configs: [{ id: 'c1', name: null, isDefault: true, motors }], activeConfigId: 'c1',
+    ...(stored ? { flightData: { c1: { runId: 'stored-r10', maxAltitude: 123, aeroModel: 'classic' as const } } } : {}) });
+  if (pad) xml = xml.replace('</rocket>', '<measuredpadmass configid="c1">0.5</measuredpadmass></rocket>');
+  return encodeShareFragment(xml);
+}
+it('round10 occupied applies the original motors before synchronous assignment', async () => {
+  held.build = true;
+  await open('&motor=' + motor.motorId, await round10File('occupied', true));
+  await waitFor(() => vi.mocked(applyImportPlan).mock.calls.length === 1);
+  const pre = vi.mocked(applyImportPlan).mock.calls[0]![0].snapshot;
+  expect(Object.values(pre.mountMotors)[0]).toMatchObject({ padMassKg: 0.5 });
+  expect(Object.values(pre.mountMotors)[0]!.spec.ejectionDelay).toBe(delay);
+  await waitFor(() => Object.values(session().mountMotors ?? {}).length === 1);
+  expect(Object.values(session().mountMotors)[0]).toMatchObject({ padMassKg: 0.5, spec: { ejectionDelay: defaultDelay(motor) ?? 0 } });
+});
+it.each(['empty', 'same-stage', 'two-stage'] as const)('round10 pre-injection pad mass %s', async kind => {
+  held.build = true;
+  await open('&motor=' + motor.motorId, await round10File(kind, true));
+  await waitFor(() => vi.mocked(applyImportPlan).mock.calls.length === 1);
+  const p = vi.mocked(applyImportPlan).mock.calls[0]![0];
+  const motors = p.snapshot.mountMotors;
+  if (kind === 'empty') {
+    expect(Object.values(motors).some(m => m.padMassKg !== undefined)).toBe(false);
+    expect(p.note.group.lines.some(n => n.kind === 'I16.pad-mass-dropped' && n.tier === 'caution')).toBe(true);
+  } else {
+    const weighed = Object.values(motors).find(m => m.padMassKg === 0.5)!;
+    expect(weighed).toBeDefined();
+    const { padMassSetKey } = await import('./services/configSync.js');
+    expect(weighed.padMassWeighedWith).not.toBe(padMassSetKey(p.snapshot.tree, motors, p.unmatchedRefs));
+  }
+});
+it.each([true, false])('round10 whole-stage published exits known=%s', async known => {
+  held.build = true; let calls = 0;
+  vi.mocked(nozzleForMotorId).mockImplementation(async () => ++calls === 2 && !known ? null : ({ exitDiameterM: 0.006 } as Awaited<ReturnType<typeof nozzleForMotorId>>));
+  await open('&motor=' + motor.motorId, await round10File('same-stage'));
+  await waitFor(() => vi.mocked(applyImportPlan).mock.calls.length === 1);
+  const p = vi.mocked(applyImportPlan).mock.calls[0]![0];
+  const d = stages(p.snapshot.tree)[0]!.nozzleExitDiameter;
+  if (known) expect(d).toBeCloseTo(Math.sqrt(2) * 0.006, 10);
+  else expect(d == null).toBe(true);
+  const prepared = vi.mocked(planImport).mock.calls.at(-1)![0];
+  expect(prepared.configs![0]!.nozzles).toBeUndefined();
+  const raw = stages(prepared.tree)[0]!.nozzleExitDiameter;
+  if (known) expect(raw).toBeCloseTo(Math.sqrt(2) * 0.006, 10);
+  else expect(raw == null).toBe(true);
+  expect(p.snapshot.savedConfigs[0]!.nozzles).toBeUndefined();
+});
+it('round10 stored empty configuration retains its flown label', async () => {
+  held.build = true;
+  await open('&motor=' + motor.motorId, await round10File('empty', false, true));
+  await waitFor(() => runs().length === 1);
+  expect(runs()[0]).toMatchObject({ flightConfig: 'No motors', importedConfigVerified: true });
+});
+it('round10 generation comparison alone rejects an obsolete pending stamp', async () => {
+  held.build = true; await open('&motor=' + motor.motorId);
+  await waitFor(() => vi.mocked(applyImportPlan).mock.calls.length === 1);
+  const ref = held.refs.find(r => r.current && typeof r.current === 'object' && 'gen' in r.current && 'mountId' in r.current)!;
+  expect(ref).toBeDefined();
+  (ref.current as { gen: number }).gen--;
+  held.build = false;
+  await act(async () => vi.mocked(applyImportPlan).mock.calls[0]![1].setMeasured({ massKg: 0.2, cgM: null }));
+  await settle(); expect(flyBuiltDesign).not.toHaveBeenCalled();
+});
+
+async function questionFile(otherMount = false) {
+  let xml = '<openrocket version="1.10"><rocket><name>Inactive question</name><motorconfiguration configid="a" default="true"/><motorconfiguration configid="b"/><subcomponents><stage><subcomponents><bodytube><length>0.5</length><radius>0.016</radius><thickness>0.001</thickness><motormount><motor configid="b"><manufacturer>Enerjet</manufacturer><designation>F67</designation><diameter>0.0286</diameter><length>0.127</length><delay>9</delay></motor></motormount></bodytube></subcomponents></stage></subcomponents></rocket></openrocket>';
+  if (otherMount) xml = xml.replace('<motor configid="b">', '<motor configid="a">').replace('<motormount>', '<motormount/><subcomponents><innertube><length>0.15</length><outerradius>0.015</outerradius><motormount>').replace('</motormount></bodytube>', '</motormount></innertube></subcomponents></bodytube>');
+  return encodeShareFragment(xml);
+}
+it.each([false, true])('round10 inactive configuration or other-mount question %s motor question stops the read', async otherMount => {
+  await open('&motor=' + motor.motorId, await questionFile(otherMount)); await settle();
+  expect(host.textContent).toContain("file's motors need a choice first");
+  expect(loadMotorForMount).not.toHaveBeenCalled();
+  expect(flyBuiltDesign).not.toHaveBeenCalled();
+});
+it('round10 launch guard holds a question opened at apply', async () => {
+  // Isolate the launch guard from the earlier read gate.
+  vi.mocked(collectOpenMotorIdentities).mockReturnValueOnce([]);
+  await open('&motor=' + motor.motorId, await questionFile()); await settle(); await settle();
+  expect(loadMotorForMount).toHaveBeenCalledOnce();
+  expect(host.textContent).toContain('Enerjet');
+  expect(flyBuiltDesign).not.toHaveBeenCalled();
+});
+it('round10 replacing a different occupied motor drops its weighing', async () => {
+  const other = getCatalogue().find(m => m.diameter === 18 && m.motorId !== motor.motorId && m.designation !== motor.designation)!;
+  expect(other).toBeDefined();
+  vi.mocked(nozzleForMotorId).mockResolvedValue({ exitDiameterM: 0.006 } as Awaited<ReturnType<typeof nozzleForMotorId>>);
+  held.build = true;
+  await open('&motor=' + other.motorId, await round10File('occupied', true));
+  await waitFor(() => Object.values(session().mountMotors ?? {}).some(m => (m as { meta: { motorId: string } }).meta.motorId === other.motorId));
+  expect(Object.values(session().mountMotors).some(m => (m as { padMassKg?: number }).padMassKg !== undefined)).toBe(false);
+  await waitFor(() => stages(session().tree)[0]!.nozzleExitDiameter === 0.006);
+  expect(stages(session().tree)[0]!.nozzleExitDiameter).toBeCloseTo(0.006, 10);
+  expect(Object.values(vi.mocked(applyImportPlan).mock.calls[0]![0].snapshot.mountMotors)[0]).toMatchObject({ meta: { motorId: motor.motorId }, padMassKg: 0.5 });
+});
+
+it('round10 unresolved occupied reference is applied before manual adoption', async () => {
+  held.build = true;
+  vi.mocked(matchImportedMotor).mockResolvedValueOnce({ note: 'File curve unavailable' });
+  await open('&motor=' + motor.motorId, await round10File('occupied', true));
+  await waitFor(() => Object.values(session().mountMotors ?? {}).length === 1);
+  const applied = vi.mocked(applyImportPlan).mock.calls[0]![0];
+  expect(Object.keys(applied.snapshot.mountMotors)).toHaveLength(0);
+  expect(Object.values(applied.unmatchedRefs)[0]).toMatchObject({ padMassKg: 0.5, designation: motor.designation });
+  expect(Object.values(session().mountMotors)[0]).toMatchObject({ padMassKg: 0.5 });
+  expect(session().unmatchedRefs ?? {}).toEqual({});
 });
