@@ -10,7 +10,7 @@ import { defaultDelay, delayOptions, type TcMotor } from './thrustcurve.js';
 
 export interface LinkNote { tier: NoteTier; text: string }
 export type MotorLinkPlan =
-  | { kind: 'fly'; mountId: string; motor: TcMotor; delay: number; notes: LinkNote[] }
+  | { kind: 'fly'; mountId: string; motor: TcMotor; delay: number; autoDelay: boolean; notes: LinkNote[] }
   | { kind: 'no-flight'; notes: LinkNote[] };
 
 /** Same provisional delay as the Motors tab when no prescribed delays exist. */
@@ -20,8 +20,8 @@ export function chooseLinkDelay(motor: TcMotor, hint: DelayHint | null): number 
 }
 
 // Keep all motor-link user copy here so it can be reviewed together.
-export const motorLinkLoadFailure = (motor: TcMotor, delay: number): string =>
-  `The link's motor “${noteField(motorLabel(motor, delay))}” could not be loaded. The design is open; no flight was run.`;
+export const motorLinkLoadFailure = (motor: TcMotor, delay: number, autoDelay = false): string =>
+  `The link's motor “${noteField(motorLabel(motor, delay, { autoDelay }))}” could not be loaded. The design is open; no flight was run.`;
 
 const copy = {
   unknown: (id: string, date: string) => `The link asked for motor ID “${noteField(id)}”, which this app's motor list (dated ${noteField(date)}) does not have. The design is open with that mount empty — pick a motor on the Motors tab.`,
@@ -34,22 +34,26 @@ const copy = {
 export function planMotorLink(input: {
   tree: RocketTree; mountIds: string[]; params: MotorLinkParams;
   catalogue: readonly MotorDbEntry[]; catalogueDate: string;
+  loadedMountIds?: string[];
 }): MotorLinkPlan {
   const { tree, params } = input;
   const notes: LinkNote[] = params.problems.map(text => ({ tier: 'information', text }));
+  if (params.motorId === null) return { kind: 'no-flight', notes };
   const mountId = launchMountOf(tree, input.mountIds);
   if (mountId === null) return { kind: 'no-flight', notes: [...notes, { tier: 'information', text: copy.noMount }] };
   const motor = input.catalogue.find(m => m.motorId === params.motorId);
   if (!motor) return { kind: 'no-flight', notes: [...notes,
     { tier: 'information', text: copy.unknown(params.motorId ?? '', input.catalogueDate) }] };
   const delay = chooseLinkDelay(motor, params.delayHint);
-  const label = noteField(motorLabel(motor, delay));
+  const autoDelay = delayOptions(motor).length === 0;
+  const label = noteField(motorLabel(motor, delay, { autoDelay }));
   const mount = findNode(tree, mountId)!;
   const boreMm = mountBore(mount) * 1000;
   if (!fitsMount(boreMm, motor)) notes.push({ tier: 'caution', text: copy.diameter(label, motor.diameter, boreMm) });
   const max = motorLengthLimit(mount);
   if (max !== null && motor.length / 1000 > max) notes.push({ tier: 'caution', text: copy.length(label, motor.length, max * 1000) });
-  if (input.mountIds.length > 1) notes.push({ tier: 'information',
-    text: copy.others(noteField(stages(tree)[stageIndexOf(tree, mountId)]?.name ?? 'launch-stage'), input.mountIds.length - 1) });
-  return { kind: 'fly', mountId, motor, delay, notes };
+  const emptyOthers = input.mountIds.filter(id => id !== mountId && !input.loadedMountIds?.includes(id)).length;
+  if (emptyOthers > 0) notes.push({ tier: 'information',
+    text: copy.others(noteField(stages(tree)[stageIndexOf(tree, mountId)]?.name ?? 'launch-stage'), emptyOthers) });
+  return { kind: 'fly', mountId, motor, delay, autoDelay, notes };
 }

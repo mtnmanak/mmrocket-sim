@@ -1607,9 +1607,9 @@ Copying a share link shows the same export cautions as saving an `.ork`, includi
 
 A motor link from ThrustCurve opens the design, loads that motor in the launch mount, and flies it. It uses your own aerodynamics preference and the file's launch site, weather and rod settings. If you already have a design open, the usual replacement offer appears first.
 
-A motor that is too wide or too long is loaded and flown anyway. A warning beside the results explains the mismatch: the real rocket may be impossible to assemble, or the motor may hit parts inside it. Check the fit before using those results. Other motor mounts stay empty; add their motors on the Motors tab.
+A motor that is too wide or too long is loaded and flown anyway. A warning beside the results explains the mismatch: the real rocket may be impossible to assemble, or the motor may hit parts inside it. Check the fit before using those results. Other motor mounts keep their existing motors; add motors to empty mounts on **Motors & Configuration**. A configuration whose motor loadout was refused stays refused: the link loads no motor and runs no flight.
 
-An unknown motor leaves the mount empty and shows the requested ID and motor-list date; no flight runs. A design with no motor mount also opens without flying. The link's delay hint is used only if that motor offers it; otherwise the motor browser's default delay is used. Reloading the page restores the design without flying it again.
+An unknown motor leaves the mount empty and shows the requested ID and the date of the motor catalogue searched, including an active catalogue update; no flight runs. A design with no motor mount also opens without flying. The link's delay hint is used only if that motor offers it; otherwise the motor browser's default delay is used, including **Auto** when no delays are listed. Reloading the page restores the design without flying it again.
 
 ## Printing oversized parts on a 3D printer
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { getCatalogue, MOTOR_DB_DATE } from './motorDb.js';
 import { defaultDelay, delayOptions } from './thrustcurve.js';
-import { chooseLinkDelay, planMotorLink } from './motorLinkOpen.js';
+import { chooseLinkDelay, planMotorLink, motorLinkLoadFailure } from './motorLinkOpen.js';
 import type { MotorLinkParams } from './motorLink.js';
 
 const catalogue = getCatalogue();
@@ -16,6 +16,36 @@ const input = () => ({ tree, mountIds: ['m'], catalogue, catalogueDate: MOTOR_DB
   params: { motorId: motor.motorId, delayHint: null, problems: [] } as MotorLinkParams });
 
 describe('motor link plan', () => {
+  it('carries Auto for a shipped motor with no prescribed delays', () => {
+    const m = catalogue.find(m => delayOptions(m).length === 0)!;
+    expect(planMotorLink({ ...input(), params: { motorId: m.motorId, delayHint: null, problems: [] } }))
+      .toMatchObject({ kind: 'fly', delay: 0, autoDelay: true });
+  });
+  it('names Auto in mismatch and load-failure notes', () => {
+    const m = catalogue.find(m => delayOptions(m).length === 0 && m.diameter > 29)!;
+    const plan = planMotorLink({ ...input(), params: { motorId: m.motorId, delayHint: null, problems: [] } });
+    expect(plan.notes.some(n => n.text.includes('(auto delay)'))).toBe(true);
+    expect(motorLinkLoadFailure(m, 0, true)).toContain('(auto delay)');
+  });
+  it('carries a non-default offered hint and a mixed plugged choice', () => {
+    const hint = delayOptions(motor).find(d => d !== defaultDelay(motor))!;
+    expect(planMotorLink({ ...input(), params: { motorId: motor.motorId, delayHint: hint, problems: [] } }))
+      .toMatchObject({ delay: hint, autoDelay: false });
+    const mixed = catalogue.find(m => delayOptions(m).includes(Infinity) && delayOptions(m).some(Number.isFinite))!;
+    expect(chooseLinkDelay(mixed, 'plugged')).toBe(Infinity);
+  });
+  it('reports invalid motor parameters once without inventing an unknown ID', () => {
+    expect(planMotorLink({ ...input(), params: { motorId: null, delayHint: null, problems: ['was ignored'] } }))
+      .toEqual({ kind: 'no-flight', notes: [{ tier: 'information', text: 'was ignored' }] });
+  });
+  it('counts only the other empty mounts in the current loadout', () => {
+    const check = input();
+    check.tree = { components: [{ ...tree.components[0]!, children: [tube('m'), tube('loaded'), tube('empty')] }] };
+    check.mountIds = ['m', 'loaded', 'empty'];
+    expect(planMotorLink({ ...check, loadedMountIds: ['loaded'] })).toMatchObject({ notes: [
+      { text: expect.stringContaining('1 other motor mount(s) are empty') },
+    ] });
+  });
   it('uses an offered hint and otherwise the browser default, including unsupported P', () => {
     expect(motor).toBeDefined();
     expect(chooseLinkDelay(motor, delayOptions(motor)[0]!)).toBe(delayOptions(motor)[0]);

@@ -20,6 +20,7 @@ import { MOTOR_DB } from './motorDb.js';
 import { bundleHasCurve, defaultDelay } from './thrustcurve.js';
 import * as fileServices from './simulateFile.js';
 import * as shareLinks from './shareLink.js';
+import { importRkt } from './rocksimFile.js';
 
 /**
  * THE S3 DRAFT DESCRIBE (describeFile.ts), on the committed fixtures only.
@@ -267,12 +268,13 @@ describe('describeFile: mounts', () => {
 
 describe('describeFile: the motor-independent fragment', () => {
   it.each(['C6', 'Z99999-NOPE'])('reads RockSim stated delays independently of matching %s', async code => {
-    for (const [value, hint] of [['-2', 'plugged'], ['0', 0], ['5', 5], ['', null], ['garbage', null], ['0x10', null], ['9'.repeat(400), null]] as const) {
+    for (const [value, hint] of [['-2', 'plugged'], ['-3', null], ['Infinity', null], ['0', 0], ['5', 5], ['', null], ['garbage', null], ['0x10', null], ['9'.repeat(400), null]] as const) {
       const body = strToU8(strFromU8(bytes('rocksimTestRocket1.rkt'))
         .replace(/<EngineCode>[^<]*<\/EngineCode>/g, `<EngineCode>${code}</EngineCode>`)
         .replace(/<EngineMfg>[^<]*<\/EngineMfg>/g, '<EngineMfg>Estes</EngineMfg>')
         .replace(/<EjectionDelay>[^<]*<\/EjectionDelay>/g, `<EjectionDelay>${value}</EjectionDelay>`));
       expect(motorLinkParams((await describeFile(body, 'stated.rkt')).fragment).delayHint).toBe(hint);
+      if (hint === null) expect(Object.values(importRkt(body).motors).every(ref => ref.statedDelay === undefined)).toBe(true);
     }
   }, 60_000);
   it.each(['C6', 'Z99999-NOPE'])('reads RASAero stated tokens independently of matching %s', async code => {
