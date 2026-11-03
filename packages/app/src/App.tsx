@@ -1,7 +1,8 @@
+import { ignitionDefaultFor } from './services/ignitionDefault.js';
 import { noteField, noteText } from './services/noteField.js';
 import { motorLinkParams, type MotorLinkParams } from './services/motorLink.js';
 import { planMotorLink, motorLinkLoadFailure, type LinkNote } from './services/motorLinkOpen.js';
-import { linkResultCurrent, pendingLinkCurrent, takeMotorLinkOpen } from './services/motorLinkFlight.js';
+import { linkResultCurrent } from './services/motorLinkFlight.js';
 import { catalogueCheckSettled } from './services/catalogueAutoCheck.js';
 import { loadMotorForMount } from './services/motorLoad.js';
 import { ConfigStabilityRange } from './components/ConfigStabilityRange.js';
@@ -509,7 +510,6 @@ export function App() {
   const [mountMotors, setMountMotors] = useState<Record<string, MountMotor>>(restored.state.mountMotors);
   const motorChoices = useRef(new Map<string, object>());
   const beginMotorChoice = (mountId: string) => {
-    clearMotorLink();
     const token = {};
     motorChoices.current.set(mountId, token);
     return () => motorChoices.current.get(mountId) === token
@@ -797,23 +797,6 @@ export function App() {
   const setGroupNote = useCallback((text: string, severity: NoticeSeverity, expand?: boolean, group?: NoteGroup) => {
     setFileNoteState({ text, severity, ...(expand ? { expand: true } : {}), ...(group ? { group } : {}) });
   }, []);
-  const importNoteGenerations = useRef(new WeakMap<HeldNote, number>());
-  const importNote = (note: HeldNote): HeldNote => {
-    importNoteGenerations.current.set(note, documentGeneration.current);
-    return note;
-  };
-  const mergeLinkNotes = (notes: LinkNote[]) => {
-    if (!notes.length) return;
-    setFileNoteState(prev => {
-      prev = prev && importNoteGenerations.current.get(prev) === documentGeneration.current ? prev : null;
-      const group = prev ? groupOf(prev) : { lines: [] };
-      const seen = new Set(group.lines.map(line => line.text));
-      const added = notes.filter(n => { if (seen.has(n.text)) return false; seen.add(n.text); return true; });
-      return importNote({ ...prev, text: [prev?.text, ...added.map(n => n.text)].filter(Boolean).join('\n'),
-        severity: prev?.severity === 'error' ? 'error' : 'warn', expand: true,
-        group: { ...group, lines: [...group.lines, ...added.map(n => ({ ...n, kind: 'literal' as const }))] } });
-    });
-  };
   /** Imported hand-rolled camera shrouds awaiting the convert-to-native offer. */
   const [shroudPrompt, setShroudPrompt] = useState<ShroudCandidate[] | null>(null);
   // Session restore is routine good news — one quiet line that fades out,
@@ -854,30 +837,16 @@ export function App() {
   const [confirmNew, setConfirmNew] = useState(false);
   /** A decoded share-link design waiting for the user's OK to replace theirs. */
   const [shareOffer, setShareOffer] = useState<ImportedDesign | null>(null);
-  const shareMotorLink = useRef<MotorLinkParams | null>(null);
-  const motorLinkSeq = useRef(0);
-  const pendingLinkOpen = useRef<{ link: MotorLinkParams; openId: number; tree: RocketTree } | null>(null);
-  const [, bumpLinkOpen] = useState(0);
-  const pendingLinkFlight = useRef<{ gen: number; seq: number; mountId: string; notes: LinkNote[]; tree: RocketTree;
-    mark: string | null; motorFlightKey: string | null; launch: LaunchConditions; activeConfigId: string | null; nozzleReady: boolean; nozzleStarted: boolean } | null>(null);
+  type PreparedFlight = { mountId: string; motorId: string; notes: LinkNote[] };
+  const preparedFlights = useRef(new WeakMap<ImportedDesign, PreparedFlight>());
+  const pendingLinkFlight = useRef<(PreparedFlight & { gen: number }) | null>(null);
   const [motorLinkNotes, setMotorLinkNotes] = useState<{ gen: number; physicsKey: string; motorFlightKey: string;
     activeConfigId: string | null; launch: LaunchConditions; runId: string; notes: LinkNote[] } | null>(null);
   const clearMotorLink = () => {
-    motorLinkSeq.current++;
-    pendingLinkOpen.current = null;
-    shareMotorLink.current = null;
+    setShareOffer(null);
     pendingLinkFlight.current = null;
     setMotorLinkNotes(null);
   };
-  const writeLinkNozzleTree = useCallback((next: RocketTree) => {
-    // Automatic nozzle following belongs to the pending motor assignment.
-    const pending = pendingLinkFlight.current;
-    if (pending?.tree === treeRef.current && (pending.mark === null || pending.mark === motorLinkLive.current.currentMark)) {
-      pending.tree = next;
-      pending.mark = null;
-    }
-    writeTree(next);
-  }, [treeRef, writeTree]);
   const [showBatch, setShowBatch] = useState(false);
   const [showScale, setShowScale] = useState(false);
   const [showChangelog, setShowChangelog] = useState(false);
@@ -1436,7 +1405,7 @@ export function App() {
   const stageMotorLoadout = useMemo(() => stageMotors(flightTree, assigned), [flightTree, assigned]);
   const {
     cleared: nozzleCleared, pending: nozzlePending, seed: seedNozzleFollow, restoring: restoreNozzleFollow,
-  } = useNozzleFollow({ loadout: stageMotorLoadout, treeRef, writeTree: writeLinkNozzleTree });
+  } = useNozzleFollow({ loadout: stageMotorLoadout, treeRef, writeTree: writeTree });
   // The PRIMARY mount drives the report's lead columns, auto-delay and the
   // weighed pad mass: the topmost-stage mount with a motor (the sustainer's).
   // ONE definition of "the primary" — treeModel.primaryMountOf — shared with
@@ -1950,8 +1919,7 @@ export function App() {
     tree.components, legacyPositionCheck, treeRef, writeTree, assigned, prefs.units.motorDimensions]);
 
   /** Assigns a motor to a mount, with the propellant-aware ignition default. */
-  const assignMotor = (targetMountId: string, label: string, spec: MotorSpec, meta: MotorMeta, fromLink = false) => {
-    if (!fromLink) clearMotorLink();
+  const assignMotor = (targetMountId: string, label: string, spec: MotorSpec, meta: MotorMeta) => {
     motorChoices.current.delete(targetMountId);
     // THE LIVE TREE, not this render's (2026-09-08, from review). Both motor
     // pickers call `onSelect` only after an AWAITED thrust-curve fetch, so the
@@ -1970,8 +1938,7 @@ export function App() {
       setMotorLoadoutRepair({ ...repairNotice, onDismiss: () => setMotorLoadoutRepair(null) });
     }
     if (plan.padMassNote !== undefined) {
-      if (fromLink) mergeLinkNotes([{ text: plan.padMassNote, tier: plan.padMassTier ?? 'information' }]);
-      else setFileNote(plan.padMassNote, 'info', undefined, plan.padMassTier);
+      setFileNote(plan.padMassNote, 'info', undefined, plan.padMassTier);
     }
     setUnmatchedRefs((prev) => {
       if (!Object.hasOwn(prev, targetMountId)) return prev;
@@ -1994,8 +1961,7 @@ export function App() {
     if (fix) {
       if (fix.note) {
         setTree(fix.tree);
-        if (fromLink) mergeLinkNotes([{ text: fix.note, tier: plan.reconciliationTier ?? 'information' }]);
-        else setFileNote(fix.note, fix.severity, undefined, plan.reconciliationTier);
+        setFileNote(fix.note, fix.severity, undefined, plan.reconciliationTier);
       } else {
         // A STALE mark and nothing else: both overrides were already cleared by
         // hand, so this only drops the bookkeeping key. `setTree` would push an
@@ -2073,7 +2039,6 @@ export function App() {
   const onLaunch = (options?: unknown) => {
     const link = options && typeof options === 'object' && 'fromLink' in options && options.fromLink === true
       ? options as { fromLink: true; onRun: (runId: string) => void } : null;
-    if (!link) clearMotorLink();
     const refusal = savedConfigs.find(c => c.id === activeConfigId)?.motorLoadoutRefusal;
     if (refusal) { setSimError(noteText(refusal)); return; }
     if (!built || !primaryMountId || simulating || nozzlePending || flightHoldsHandle.current) return;
@@ -2820,7 +2785,7 @@ export function App() {
     // `dirty` false so the next Open discarded the work silently.
     const openId = seq ?? openSeq.begin();
     // The awaits of an open: every motor the file names, resolved.
-    const resolved = await resolveImportMotors(imported, ref => matchImportedMotor(ref, { units: prefs.units }));
+    const resolved = imported.resolvedMotors ?? await resolveImportMotors(imported, ref => matchImportedMotor(ref, { units: prefs.units }));
     // EVERY await is behind us; from here on this function writes state. A
     // newer open started while those fetches were outstanding owns the screen
     // now, so this one stops here rather than overwriting it — and, crucially,
@@ -2858,7 +2823,7 @@ export function App() {
       setMountMotors, setUnmatchedRefs, setSavedConfigs, setActiveConfigId, setDetachedOverrides, setLaunch, setMeasured,
       setLongitudeCheck: (evidence) => setLongitudeReview(evidence ? { evidence, applied: false } : null),
       setMachAlt: setFileMachAlt, setNote: (text, severity, expand, group) => {
-        setFileNoteState(importNote({ text, severity, ...(expand ? { expand: true } : {}), ...(group ? { group } : {}) }));
+        setFileNoteState({ text, severity, ...(expand ? { expand: true } : {}), ...(group ? { group } : {}) });
       }, setShroudPrompt,
       // eslint-disable-next-line no-restricted-syntax -- an import: the design on screen IS the file on disk
       markSaved,
@@ -2892,9 +2857,9 @@ export function App() {
         { kind: 'I27.stored-runs-rule', tier: 'information',
           text: `Imports fill available spaces up to the ${MAX_RUNS}-run limit in file order; no existing runs were removed or reordered.` },
       ];
-      setFileNoteState(importNote({ text: [plan.note.text, ...runLines.map(l => l.text)].filter(Boolean).join('\n'),
+      setFileNoteState({ text: [plan.note.text, ...runLines.map(l => l.text)].filter(Boolean).join('\n'),
         severity: plan.note.severity, ...(plan.note.expand ? { expand: true } : {}),
-        group: { ...plan.note.group, lines: [...plan.note.group.lines, ...runLines] } }));
+        group: { ...plan.note.group, lines: [...plan.note.group.lines, ...runLines] } });
     }
     // An opened design (a share link included) that brings launch conditions
     // of its own has replaced the ones the weather record describes.
@@ -2910,6 +2875,8 @@ export function App() {
     setPadMassNote(null);
     setMotorLoadoutRepair(null);
     setSelectedId(null);
+    const flight = preparedFlights.current.get(imported);
+    if (flight) pendingLinkFlight.current = { ...flight, gen: documentGeneration.current };
     return plan.snapshot.tree;
   };
 
@@ -2919,7 +2886,6 @@ export function App() {
    * back and what it carries across.
    */
   const applyConfig = (requested: SavedConfig) => {
-    clearMotorLink();
     setMotorLoadoutRepair(null);
     motorChoices.current.clear();
     const plan = planConfigSwitch(
@@ -3070,7 +3036,6 @@ export function App() {
   };
 
   const createConfig = (): string | null => {
-    clearMotorLink();
     const next = createLoadedConfig({ savedConfigs, activeConfigId, detachedOverrides, tree, mountMotors, unmatchedRefs });
     if (!next) return null;
     // Older scale companions cannot restore configurations created after them.
@@ -3083,7 +3048,6 @@ export function App() {
   };
 
   const duplicateFlightConfig = () => {
-    clearMotorLink();
     const next = duplicateActiveConfig({ savedConfigs, activeConfigId, tree, mountMotors, unmatchedRefs });
     if (!next) return;
     resetHistory();
@@ -3093,14 +3057,12 @@ export function App() {
   };
 
   const renameFlightConfig = (id: string, name: string) => {
-    clearMotorLink();
     if (renameConfig(savedConfigs, id, name) === savedConfigs) return;
     setSavedConfigs(prev => renameConfig(prev, id, name));
     setFileNote('Flight configuration renamed.');
   };
 
   const deleteFlightConfig = (config: SavedConfig) => {
-    clearMotorLink();
     const next = deleteConfig(savedConfigs, activeConfigId, config.id, detachedOverrides);
     setSavedConfigs(next.savedConfigs);
     setActiveConfigId(next.activeConfigId);
@@ -3114,7 +3076,6 @@ export function App() {
 
   /** The "None" row / full unload: no motors, no active configuration. */
   const clearConfig = () => {
-    clearMotorLink();
     motorChoices.current.clear();
     detachedHistoryEpoch.current = {};
     // The working set — and what the tree holds for the configuration — goes
@@ -3198,108 +3159,76 @@ export function App() {
     }
   };
 
-  // Read the current render's assignment path after each asynchronous wait.
-  const motorLinkLive = useRef({ assignMotor, units: prefs.units, savedConfigs, activeConfigId, mountMotors, launch, currentMark, openMotorQuestion });
-  motorLinkLive.current = { assignMotor, units: prefs.units, savedConfigs, activeConfigId, mountMotors, launch, currentMark, openMotorQuestion };
-  const runMotorLink = async (link: MotorLinkParams, openId: number) => {
-    if (!openSeq.isCurrent(openId) || (link.motorId === null && !link.problems.length)) return;
-    const seq = motorLinkSeq.current;
-    const gen = documentGeneration.current;
-    const startMark = motorLinkLive.current.currentMark;
-    const current = () => openSeq.isCurrent(openId) && gen === documentGeneration.current
-      && seq === motorLinkSeq.current && startMark === motorLinkLive.current.currentMark;
-    const problems: LinkNote[] = link.problems.map(text => ({ tier: 'caution', text }));
-    if (link.motorId === null) { mergeLinkNotes(problems); return; }
-    if (motorLinkLive.current.openMotorQuestion) {
-      mergeLinkNotes([...problems, { tier: 'caution', text: "The file's motors need a choice first. No motor was loaded from the link and no flight was run." }]);
-      return;
-    }
-    const refused = () => {
-      const live = motorLinkLive.current;
-      const reason = live.savedConfigs.find(c => c.id === live.activeConfigId)?.motorLoadoutRefusal;
-      if (!reason) return false;
-      mergeLinkNotes([...problems, { tier: 'caution', text: `The link's motor was not loaded: this configuration's motor loadout was refused. ${noteText(reason)} No flight was run.` }]);
-      return true;
+  // No asynchronous resolution is allowed after applying the shared design.
+  const prepareMotorLink = async (imported: ImportedDesign, link: MotorLinkParams, openId: number): Promise<ImportedDesign> => {
+    const addNotes = (notes: LinkNote[]) => {
+      if (notes.length) imported.expand = true;
+      const seen = new Set(imported.notes);
+      for (const note of notes) {
+        if (seen.has(note.text)) continue;
+        seen.add(note.text);
+        imported.notes.push(note.text);
+        (imported.noteTiers ??= []).push({ ...note, kind: 'motor-link' });
+      }
     };
+    const problems: LinkNote[] = link.problems.map(text => ({ tier: 'caution', text }));
+    if (link.motorId === null) { addNotes(problems); return imported; }
     await catalogueCheckSettled(10_000);
-    if (!current()) return;
-    if (refused()) return;
-    const plan = planMotorLink({ tree: treeRef.current,
-      mountIds: motorMounts(treeRef.current).map(m => m.id!), params: link,
-      loadedMountIds: Object.keys(motorLinkLive.current.mountMotors),
-      catalogue: getCatalogue(), catalogueDate: getCatalogueOverlay()?.snapshot?.generated ?? MOTOR_DB_DATE });
-    plan.notes = plan.notes.map(note => link.problems.includes(note.text) ? { ...note, tier: 'caution' } : note);
-    if (plan.kind === 'no-flight') {
-      mergeLinkNotes(plan.notes);
-      return;
+    const resolved = await resolveImportMotors(imported, ref => matchImportedMotor(ref, { units: prefs.units }));
+    if (!openSeq.isCurrent(openId)) return imported;
+    imported.resolvedMotors = resolved;
+    const snapshot = planImport(imported, resolved, { launch: launchRef.current, text: statedWeightText, units: prefs.units }).snapshot;
+    const plan = planMotorLink({ tree: snapshot.tree, mountIds: motorMounts(snapshot.tree).map(m => m.id!), params: link,
+      loadedMountIds: Object.keys(snapshot.mountMotors), catalogue: getCatalogue(),
+      catalogueDate: getCatalogueOverlay()?.snapshot?.generated ?? MOTOR_DB_DATE });
+    const refusal = snapshot.savedConfigs.find(c => c.id === snapshot.activeConfigId)?.motorLoadoutRefusal;
+    if (refusal) {
+      addNotes([...problems, { tier: 'caution', text: `The link's motor was not loaded: this configuration's motor loadout was refused. ${noteText(refusal)} No flight was run.` }]);
+      return imported;
     }
-    try {
-      const loaded = await loadMotorForMount(plan.motor, plan.delay, { units: motorLinkLive.current.units, autoDelay: plan.autoDelay });
-      if (!current()) return;
-      if (refused()) return;
-      motorLinkLive.current.assignMotor(plan.mountId, loaded.label, loaded.spec, loaded.meta, true);
-      const live = motorLinkLive.current;
-      const pending = { gen, seq, mountId: plan.mountId, notes: plan.notes, tree: treeRef.current,
-        mark: null, motorFlightKey: null, launch: live.launch, activeConfigId: live.activeConfigId, nozzleReady: false, nozzleStarted: false };
-      pendingLinkFlight.current = pending;
-    } catch {
-      if (current()) mergeLinkNotes([...problems, { tier: 'caution', text: motorLinkLoadFailure(plan.motor, plan.delay, plan.autoDelay) }]);
+    if (plan.kind === 'no-flight') { addNotes(plan.notes.map(n => link.problems.includes(n.text) ? { ...n, tier: 'caution' } : n)); return imported; }
+    if (resolved.working[plan.mountId]?.otherMaker) {
+      addNotes([...problems, { tier: 'caution', text: "The file's motors need a choice first. No motor was loaded from the link and no flight was run." }]);
+      return imported;
     }
+    let loaded: Awaited<ReturnType<typeof loadMotorForMount>>;
+    try { loaded = await loadMotorForMount(plan.motor, plan.delay, { units: prefs.units, autoDelay: plan.autoDelay }); }
+    catch { addNotes([...problems, { tier: 'caution', text: motorLinkLoadFailure(plan.motor, plan.delay, plan.autoDelay) }]); return imported; }
+    if (!openSeq.isCurrent(openId)) return imported;
+    imported.motors[plan.mountId] = { designation: plan.motor.designation, manufacturer: plan.motor.manufacturerAbbrev,
+      diameter: plan.motor.diameter / 1000, length: plan.motor.length / 1000, delay: plan.delay };
+    const mounted = { ...loaded, ignition: ignitionDefaultFor(snapshot.tree, { mountId: plan.mountId, propellant: loaded.meta.propellant }) };
+    resolved.working[plan.mountId] = { motor: mounted, note: '' };
+    const cfg = imported.configs?.find(c => c.id === imported.chosenConfigId);
+    if (cfg) cfg.motors[plan.mountId] = imported.motors[plan.mountId]!;
+    const flightNotes = plan.notes.filter(n => !link.problems.includes(n.text));
+    const notes = plan.notes.map(n => link.problems.includes(n.text) ? { ...n, tier: 'caution' as const } : n);
+    const stage = stageMotors(snapshot.tree, [[plan.mountId, mounted]]).find(s => s.motors.length);
+    if (stage && numOrNull(findNode(snapshot.tree, stage.stageId)!, 'nozzleExitDiameter') === null) {
+      try {
+        const entry = await nozzleForMotorId(plan.motor.motorId);
+        const diameter = equivalentExitDiameterM(stage.motors.map(m => ({ count: m.count, exitDiameterM: entry?.exitDiameterM ?? null })));
+        if (diameter !== null) {
+          imported.tree = applyStageNozzles(imported.tree, { [stage.stageId]: diameter });
+          if (cfg) cfg.nozzles = { ...cfg.nozzles, [stage.stageId]: diameter };
+        }
+      } catch { notes.push({ tier: 'caution', text: 'The published nozzle exit could not be loaded, so the flight used none — check Motors & Configuration.' }); }
+    }
+    addNotes(notes);
+    preparedFlights.current.set(imported, { mountId: plan.mountId, motorId: plan.motor.motorId, notes: flightNotes });
+    return imported;
   };
-  // Consume once after import state commits, using this render's live state.
-  useEffect(() => {
-    if (tree !== treeRef.current) return; // History's reset must commit before taking the mark.
-    if (pendingLinkOpen.current?.tree !== tree) return;
-    const pending = takeMotorLinkOpen(pendingLinkOpen);
-    if (pending) void runMotorLink(pending.link, pending.openId);
-  });
   useEffect(() => {
     const pending = pendingLinkFlight.current;
     if (!pending) return;
-    if (tree !== treeRef.current) return;
-    if ((pending.mark !== null && pending.mark !== currentMark) || !pendingLinkCurrent(pending, { gen: documentGeneration.current, tree: treeRef.current,
-      seq: motorLinkSeq.current, launch, activeConfigId, motorFlightKey })) {
+    if (pending.gen !== documentGeneration.current || mountMotors[pending.mountId]?.meta.motorId !== pending.motorId) {
       pendingLinkFlight.current = null;
       return;
     }
-    pending.motorFlightKey ??= motorFlightKey;
-    pending.mark ??= currentMark;
-    if (!pending.nozzleReady) {
-      if (nozzlePending || pending.nozzleStarted) return;
-      pending.nozzleStarted = true;
-      // Same empty-field fill as NozzleField, even when that field is unmounted.
-      void (async () => {
-        const updates: Record<string, number> = {};
-        let lookupFailed = false;
-        for (const stage of stageMotorLoadout) {
-          const entries = await Promise.all(stage.motors.map(m => nozzleForMotorId(m.motorId).catch(() => {
-            lookupFailed = true;
-            return null;
-          })));
-          if (pendingLinkFlight.current !== pending || pending.seq !== motorLinkSeq.current) return;
-          if (pending.mark !== motorLinkLive.current.currentMark) return;
-          const node = findNode(treeRef.current, stage.stageId);
-          const published = equivalentExitDiameterM(stage.motors.map((m, i) => ({ count: m.count, exitDiameterM: entries[i]?.exitDiameterM ?? null })));
-          if (node && numOrNull(node, 'nozzleExitDiameter') === null && published !== null) updates[stage.stageId] = published;
-        }
-        if (pending.tree !== treeRef.current) return;
-        if (lookupFailed) mergeLinkNotes([{ tier: 'caution', text: 'The published nozzle exit could not be loaded, so the flight used none — check Motors & Configuration.' }]);
-        if (Object.keys(updates).length) {
-          writeLinkNozzleTree(applyStageNozzles(treeRef.current, updates));
-          pending.mark = null; // Re-take after our own nozzle fill commits.
-        }
-        pending.nozzleReady = true;
-        bumpLinkOpen(n => n + 1);
-      })();
-      return;
-    }
-    if (!mountMotors[pending.mountId] || !built || !primaryMountId || simulating
-      || nozzlePending || flightHoldsHandle.current) return;
+    if (!built || !primaryMountId || simulating || nozzlePending || flightHoldsHandle.current) return;
     pendingLinkFlight.current = null;
-    // A link flight is a Launch press: onLaunch records the design it flew;
-    // stillFlown keeps a superseded result off screen. Only pre-launch guards differ.
     onLaunch({ fromLink: true, onRun: (runId: string) => {
-      if (pending.seq !== motorLinkSeq.current || pending.gen !== documentGeneration.current) return;
+      if (pending.gen !== documentGeneration.current) return;
       setMotorLinkNotes({ gen: pending.gen, physicsKey, motorFlightKey, activeConfigId, launch, runId, notes: pending.notes });
     } });
   });
@@ -3324,6 +3253,7 @@ export function App() {
   useEffect(() => {
     if (shareHandled.current || !hasSharePayload(window.location.hash)) return;
     shareHandled.current = true; // StrictMode double-invoke guard (the ref survives the remount)
+    clearMotorLink();
     const hash = window.location.hash;
     const link = motorLinkParams(hash);
     // window.history explicitly: the browser's, not the design's undo history.
@@ -3332,7 +3262,7 @@ export function App() {
     // (importApply.openShareLink).
     void openShareLink(hash, {
       openSeq,
-      read: async (h) => {
+      read: async (h, openId) => {
         // Cheap pre-decode cap: no real share link approaches 1 MB of
         // fragment, and a crafted one can inflate to hundreds of MB — refuse
         // it before base64/inflate ever run (same soft-fail path as a
@@ -3340,18 +3270,14 @@ export function App() {
         if (h.length > MAX_FRAGMENT_CHARS) {
           throw new Error('the link is far longer than any real design — refusing to decode it');
         }
-        return importOrk(await decodeShareFragment(h), { units: prefs.units, presets: await loadPresets(), distanceUnit: prefs.units.altitude,
+        const imported = importOrk(await decodeShareFragment(h), { units: prefs.units, presets: await loadPresets(), distanceUnit: prefs.units.altitude,
           horizontalDistanceUnit: prefs.units.distance });
+        return prepareMotorLink(imported, link, openId);
       },
       // Include non-tree edits and work done while the link was decoding.
       shouldOffer: () => shareShouldOffer.current,
-      onOffer: imported => { shareMotorLink.current = link; setShareOffer(imported); },
-      apply: async (imported, openId) => {
-        const applying = applyImported(imported, openId);
-        const seq = motorLinkSeq.current;
-        const importedTree = await applying;
-        if (importedTree && seq === motorLinkSeq.current && openSeq.isCurrent(openId)) { pendingLinkOpen.current = { link, openId, tree: importedTree }; bumpLinkOpen(n => n + 1); }
-      },
+      onOffer: imported => { setShareOffer(imported); },
+      apply: async (imported, openId) => { await applyImported(imported, openId); },
       // 'warn', not the default 'info'. The message is 165 characters before the
       // reason is appended and the collapsed bar truncates at 157, so as an info
       // notice the reader got the first sentence, an 'i' glyph, no reason, and a
@@ -4174,15 +4100,8 @@ export function App() {
       <DesignConfirms tree={tree} lossDialog={lossDialog} setLossDialog={setLossDialog} saveLossy={saveLossy}
         unprotected={dirty || flownSinceSave.current} confirmNew={confirmNew} setConfirmNew={setConfirmNew} replaceLoss={replaceLoss} startNewDesign={startNewDesign}
         onSaveOrk={onSaveOrk} pendingOpen={pendingOpen} setPendingOpen={setPendingOpen} onOpenOrk={onOpenOrk}
-        shareOffer={shareOffer} setShareOffer={() => { shareMotorLink.current = null; setShareOffer(null); }}
-        applyImported={async imported => {
-          const link = shareMotorLink.current;
-          const openId = openSeq.begin();
-          const applying = applyImported(imported, openId);
-          const seq = motorLinkSeq.current;
-          const importedTree = await applying;
-          if (link && importedTree && seq === motorLinkSeq.current && openSeq.isCurrent(openId)) { pendingLinkOpen.current = { link, openId, tree: importedTree }; bumpLinkOpen(n => n + 1); }
-        }}
+        shareOffer={shareOffer} setShareOffer={setShareOffer}
+        applyImported={async imported => { await applyImported(imported); }}
         shroudPrompt={shroudPrompt} setShroudPrompt={setShroudPrompt} hasOpenMotorQuestion={openMotorQuestion !== null}
         onConvertShrouds={() => {
           if (!shroudPrompt) return;
@@ -4922,7 +4841,7 @@ export function App() {
                           motorLabel={loadout[0]?.label ?? null}
                           clearedFor={overrideFor(nozzleCleared, nozzleStage.id!) ?? null}
                           onCommit={(m) => setTree(applyStageNozzles(treeRef.current, { [nozzleStage.id!]: m }))}
-                          onAutoFill={(m) => writeLinkNozzleTree(applyStageNozzles(treeRef.current, { [nozzleStage.id!]: m }))}
+                          onAutoFill={(m) => writeTree(applyStageNozzles(treeRef.current, { [nozzleStage.id!]: m }))}
                         />
                       </div>;
                     })}
@@ -4974,8 +4893,7 @@ export function App() {
                         // Named, not "multiplication x" (audit 2026-09-22).
                         aria-label={`Remove ${mm.label} from ${mountName(m)}`}
                         onClick={() => {
-                          clearMotorLink();
-                          motorChoices.current.delete(m.id!);
+                                                motorChoices.current.delete(m.id!);
                           setMountMotors((prev) => {
                             const next = { ...prev };
                             delete next[m.id!];
@@ -5041,8 +4959,7 @@ export function App() {
                             ariaLabel={`Ejection delay for ${mountName(m)}`}
                             onCommit={(v) => {
                               if (v === null) return;
-                              clearMotorLink();
-                              // Typing a delay overrides auto (mountDelayEdits).
+                                                        // Typing a delay overrides auto (mountDelayEdits).
                               // Edit the raw record, never bake a resolved ignition override
                               // into its default (audit 2026-10-11, FC-4 fixup).
                               setMountMotors((prev) => ({ ...prev, [m.id!]: withDelay(prev[m.id!]!, v) }));
@@ -5059,8 +4976,7 @@ export function App() {
                               // Un-plugging restores the longest prescribed
                               // delay, or 6 s (mountDelayEdits).
                               const plugged = e.target.checked;
-                              clearMotorLink();
-                              setMountMotors((prev) => ({ ...prev, [m.id!]: withPlugged(prev[m.id!]!, plugged) }));
+                                                        setMountMotors((prev) => ({ ...prev, [m.id!]: withPlugged(prev[m.id!]!, plugged) }));
                             }}
                           />
                           plugged
@@ -5074,8 +4990,7 @@ export function App() {
                               style={{ width: 'auto' }}
                               onChange={(e) => {
                                 const auto = e.target.checked;
-                                clearMotorLink();
-                                setMountMotors((prev) => ({ ...prev, [m.id!]: withAuto(prev[m.id!]!, auto) }));
+                                                            setMountMotors((prev) => ({ ...prev, [m.id!]: withAuto(prev[m.id!]!, auto) }));
                               }}
                             />
                             auto (optimal)

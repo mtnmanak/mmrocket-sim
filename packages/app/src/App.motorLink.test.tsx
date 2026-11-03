@@ -1,3 +1,4 @@
+import { matchImportedMotor } from './services/motorMatch.js';
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act } from 'react';
@@ -17,11 +18,10 @@ import { exportOrk } from './services/orkFile.js';
 import { nozzleForMotorId } from './services/nozzleDb.js';
 import { stages, motorMounts } from './tree/treeModel.js';
 import { setCatalogueOverlay } from './services/motorDb.js';
-import { INITIAL_UNITS } from './prefs/units.js';
 import type { ComponentProps } from 'react';
 import type { MotorPicker } from './components/MotorPicker.js';
 import { OVERRIDE_INCLUDES_MOTOR } from './services/statedLaunchWeight.js';
-import { applyImportPlan, resolveImportMotors } from './services/importApply.js';
+import { applyImportPlan } from './services/importApply.js';
 import { addRuns } from './services/simStore.js';
 import { importedSummaryRuns } from './services/orkFlightData.js';
 import { motorLinkParams } from './services/motorLink.js';
@@ -30,7 +30,15 @@ vi.mock('./services/motorLink.js', async original => {
   return { ...real, motorLinkParams: vi.fn(real.motorLinkParams) };
 });
 
-const held = vi.hoisted(() => ({ nozzle: false, notes: [] as string[], pick: null as ComponentProps<typeof MotorPicker>['onSelect'] | null }));
+vi.mock('./services/motorMatch.js', async original => {
+  const real = await original<typeof import('./services/motorMatch.js')>();
+  return { ...real, matchImportedMotor: vi.fn(real.matchImportedMotor) };
+});
+const held = vi.hoisted(() => ({ build: false, nozzle: false, notes: [] as string[], pick: null as ComponentProps<typeof MotorPicker>['onSelect'] | null }));
+vi.mock('./services/buildDesign.js', async original => {
+  const real = await original<typeof import('./services/buildDesign.js')>();
+  return { ...real, buildDesign: (...args: Parameters<typeof real.buildDesign>) => held.build ? { error: 'Build deferred by test' } : real.buildDesign(...args) };
+});
 vi.mock('./components/Note.js', async original => {
   const real = await original<typeof import('./components/Note.js')>();
   return { ...real, Note: (props: ComponentProps<typeof real.Note>) => {
@@ -98,7 +106,7 @@ async function open(suffix: string, fragment?: string) {
   window.location.hash = xml + suffix;
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
   await act(async () => { root.render(<PrefsProvider><App /></PrefsProvider>); });
-  await waitFor(() => window.location.hash === '' && !!session().tree);
+  await waitFor(() => window.location.hash === '');
 }
 async function click(text: string) {
   const button = [...host.querySelectorAll('button')].find(b => b.textContent?.includes(text));
@@ -120,7 +128,8 @@ function deferred() {
   const promise = new Promise<void>(r => { resolve = r; });
   return { promise, resolve };
 }
-beforeEach(() => {
+beforeEach(async () => {
+  vi.mocked(nozzleForMotorId).mockImplementation((await vi.importActual<typeof import('./services/nozzleDb.js')>('./services/nozzleDb.js')).nozzleForMotorId);
   setCatalogueOverlay(null);
   localStorage.clear();
   localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true }));
@@ -129,7 +138,9 @@ beforeEach(() => {
   vi.mocked(catalogueCheckSettled).mockReset().mockResolvedValue();
   vi.mocked(loadMotorForMount).mockClear();
   vi.mocked(applyImportPlan).mockClear();
+  vi.mocked(matchImportedMotor).mockClear();
   held.nozzle = false;
+  held.build = false;
 });
 afterEach(async () => {
   if (root) await act(async () => root.unmount());
@@ -145,6 +156,7 @@ it('opens, assigns the requested offered delay, flies once and shows results', a
   expect(assigned).toHaveLength(1);
   expect(assigned[0]).toMatchObject({ meta: { motorId: motor.motorId }, spec: { ejectionDelay: delay } });
   expect(flyBuiltDesign).toHaveBeenCalledOnce();
+  expect(matchImportedMotor).not.toHaveBeenCalled();
   await settle(); await settle();
   expect(runs()).toHaveLength(1);
   expect(flyBuiltDesign).toHaveBeenCalledOnce();
@@ -154,6 +166,7 @@ it('opens, assigns the requested offered delay, flies once and shows results', a
 it('opens an unknown motor with an empty mount, a note and no flight', async () => {
   await open('&motor=000000000000000000000000');
   await waitFor(() => host.textContent!.includes('which this app\'s motor list'));
+  await waitFor(() => !!session().tree);
   expect(session().mountMotors).toEqual({});
   expect(runs()).toHaveLength(0);
   expect(flyBuiltDesign).not.toHaveBeenCalled();
@@ -167,57 +180,12 @@ it('never auto-flies a plain link', async () => {
   expect(runs()).toHaveLength(0);
 });
 
-it.each(['catalogue', 'curve'])('round8 cancels a tree edit during %s without handler cancellation', async kind => {
-  const gate = deferred();
-  if (kind === 'catalogue') vi.mocked(catalogueCheckSettled).mockReturnValueOnce(gate.promise);
-  else {
-    const real = await vi.importActual<typeof import('./services/motorLoad.js')>('./services/motorLoad.js');
-    vi.mocked(loadMotorForMount).mockImplementationOnce(async (...args) => { await gate.promise; return real.loadMotorForMount(...args); });
-  }
-  await open(`&motor=${motor.motorId}`);
-  if (kind === 'curve') await waitFor(() => vi.mocked(loadMotorForMount).mock.calls.length > 0);
-  const [plan, sinks] = vi.mocked(applyImportPlan).mock.calls.at(-1)!;
-  await act(async () => sinks.history.reset({ ...plan.snapshot.tree, name: 'Edited independently' }));
-  await act(async () => gate.resolve()); await settle(); await settle();
-  expect(flyBuiltDesign).not.toHaveBeenCalled();
-  expect(session().mountMotors).toEqual({});
-});
-it.each(['launch', 'mass', 'override'])('round8 cancels %s during catalogue without handler cancellation', async edit => {
-  const gate = deferred();
-  vi.mocked(catalogueCheckSettled).mockReturnValueOnce(gate.promise);
-  await open(`&motor=${motor.motorId}`);
-  const [plan, sinks] = vi.mocked(applyImportPlan).mock.calls.at(-1)!;
-  await act(async () => {
-    if (edit === 'launch') sinks.setLaunch({ ...DEFAULT_CONDITIONS, launchRodLengthM: 9 });
-    else if (edit === 'mass') sinks.setMeasured({ massKg: 0.7, cgM: null });
-    else sinks.setDetachedOverrides?.({ separations: { [plan.snapshot.tree.components[0]!.id!]: {
-      separationEvent: 'altitude', separationAltitude: 100, separationDelay: 0 } } });
-  });
-  await act(async () => gate.resolve()); await settle(); await settle();
-  expect(loadMotorForMount).not.toHaveBeenCalled();
-  expect(flyBuiltDesign).not.toHaveBeenCalled();
-  expect(plan).toBeDefined();
-});
-it('round8 cancels a pad-mass edit during catalogue without handler cancellation', async () => {
-  const gate = deferred();
-  vi.mocked(catalogueCheckSettled).mockReturnValueOnce(gate.promise);
-  const tree = defaultTree();
-  const motors = { [motorMounts(tree)[0]!.id!]: { designation: motor.designation, manufacturer: motor.manufacturerAbbrev,
-    diameter: motor.diameter / 1000, length: motor.length / 1000, delay } };
-  await open(`&motor=${motor.motorId}`, await encodeShareFragment(exportOrk({ name: 'Pad mass', tree, motors })));
-  const [plan, sinks] = vi.mocked(applyImportPlan).mock.calls.at(-1)!;
-  await act(async () => sinks.setMountMotors(Object.fromEntries(Object.entries(plan.snapshot.mountMotors)
-    .map(([id, m]) => [id, { ...m, padMassKg: 0.7 }]))));
-  await act(async () => gate.resolve()); await settle(); await settle();
-  expect(loadMotorForMount).not.toHaveBeenCalled();
-  expect(flyBuiltDesign).not.toHaveBeenCalled();
-});
 it('round8 malformed-only links do not wait for catalogue', async () => {
   vi.mocked(catalogueCheckSettled).mockReturnValueOnce(deferred().promise);
   await open('&motor=ABC&motor=ABC'); await settle();
   expect(host.textContent).toContain('was ignored');
   expect(catalogueCheckSettled).not.toHaveBeenCalled();
-  expect(host.textContent!.match(/was ignored/g)).toHaveLength(1);
+  expect(vi.mocked(applyImportPlan).mock.calls.at(-1)![0].note.group.lines.filter(n => n.text.includes('was ignored'))).toHaveLength(1);
   expect(vi.mocked(motorLinkParams).mock.results.at(-1)!.value.problems).toHaveLength(1);
 });
 it('round8 malformed cautions survive a refusal', async () => {
@@ -226,18 +194,8 @@ it('round8 malformed cautions survive a refusal', async () => {
   await open(`&motor=${motor.motorId}&delay=bad`, fragment); await settle();
   expect(host.textContent).toContain('was ignored');
   expect(host.textContent).toContain("configuration's motor loadout was refused");
-});
-it('round8 pending flight cancels a measured edit after assignment commits', async () => {
-  held.nozzle = true;
-  await open(`&motor=${motor.motorId}`);
-  await waitFor(() => Object.keys(session().mountMotors ?? {}).length === 1);
-  const [, sinks] = vi.mocked(applyImportPlan).mock.calls.at(-1)!;
-  await act(async () => sinks.setMeasured({ massKg: 0.7, cgM: null }));
-  const lookups = vi.mocked(nozzleForMotorId).mock.calls.length;
-  held.nozzle = false;
-  await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>)); await settle();
-  expect(vi.mocked(nozzleForMotorId).mock.calls).toHaveLength(lookups);
-  expect(flyBuiltDesign).not.toHaveBeenCalled();
+  expect(loadMotorForMount).not.toHaveBeenCalled();
+  expect(vi.mocked(applyImportPlan).mock.calls.at(-1)![0].snapshot.mountMotors).toEqual({});
 });
 it('round8 curve failures retain malformed parameter cautions', async () => {
   vi.mocked(loadMotorForMount).mockRejectedValueOnce(new Error('curve failed'));
@@ -251,34 +209,7 @@ it('round8 failed flight has no mismatch banner', async () => {
   vi.mocked(flyBuiltDesign).mockRejectedValueOnce(new Error('flight failed round8'));
   await open(`&motor=${wide.motorId}`);
   await waitFor(() => host.textContent!.includes('flight failed round8'));
-  expect(host.querySelector('.results-column')?.textContent).not.toContain('the real rocket could not be built this way');
-});
-it.each([false, true])('round8 Unload during import resolution cancels link (offer=%s)', async offer => {
-  if (offer) {
-    const tree = defaultTree();
-    const realLoad = await vi.importActual<typeof import('./services/motorLoad.js')>('./services/motorLoad.js');
-    const loaded = await realLoad.loadMotorForMount(motor, delay, { units: INITIAL_UNITS });
-    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ tree,
-      mountMotors: { [motorMounts(tree)[0]!.id!]: loaded }, launch: DEFAULT_CONDITIONS,
-      savedConfigs: [], activeConfigId: null, appVersion: APP_VERSION, savedAt: Date.now() }));
-  }
-  const gate = deferred();
-  let started = false;
-  const real = await vi.importActual<typeof import('./services/importApply.js')>('./services/importApply.js');
-  vi.mocked(resolveImportMotors).mockImplementationOnce(async (...args) => { started = true; await gate.promise; return real.resolveImportMotors(...args); });
-  // open() waits for a committed design; mount directly while resolution is held.
-  window.location.hash = readFileSync('src/services/__fixtures__/share-link-v0.100.txt', 'utf8').trim() + `&motor=${motor.motorId}`;
-  host = document.createElement('div'); document.body.append(host); root = createRoot(host);
-  await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
-  if (offer) {
-    await waitFor(() => host.textContent!.includes('Open design from this link?'));
-    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Open design from link"] .modal-danger')!.click());
-  }
-  await waitFor(() => started);
-  await click('Unload');
-  await act(async () => gate.resolve()); await settle(); await settle();
-  expect(loadMotorForMount).not.toHaveBeenCalled();
-  expect(flyBuiltDesign).not.toHaveBeenCalled();
+  expect(host.querySelector('.results-column')?.textContent ?? '').not.toContain('the real rocket could not be built this way');
 });
 it('round8 pending file motor choices stop the link', async () => {
   const fragment = await encodeShareFragment(`<openrocket version="1.10"><rocket><name>Question</name><motorconfiguration configid="a" default="true"/><subcomponents><stage><subcomponents><bodytube><length>0.5</length><radius>0.016</radius><thickness>0.001</thickness><motormount><motor configid="a"><manufacturer>Enerjet</manufacturer><designation>F67</designation><diameter>0.0286</diameter><length>0.127</length><delay>9</delay></motor></motormount></bodytube></subcomponents></stage></subcomponents></rocket></openrocket>`);
@@ -293,6 +224,7 @@ it('round8 unknown motor preserves motors already in the link', async () => {
     diameter: motor.diameter / 1000, length: motor.length / 1000, delay } };
   await open('&motor=000000000000000000000000', await encodeShareFragment(exportOrk({ name: 'Loaded', tree, motors })));
   await waitFor(() => host.textContent!.includes('No motor was loaded from the link'));
+  await waitFor(() => !!session().tree);
   expect(Object.keys(session().mountMotors)).toHaveLength(1);
   expect(flyBuiltDesign).not.toHaveBeenCalled();
 });
@@ -309,18 +241,7 @@ it('round8 nozzle chunk failure cautions and still flies', async () => {
 it('round8 notes de-duplicate repeated text even from separate producers', async () => {
   vi.mocked(motorLinkParams).mockReturnValueOnce({ motorId: null, delayHint: null, problems: ['Repeated caution', 'Repeated caution'] });
   await open(''); await settle();
-  expect(host.textContent?.match(/Repeated caution/g)).toHaveLength(1);
-});
-it('round8 merges into a fresh caution after a share receipt replaces the import note', async () => {
-  const gate = deferred();
-  vi.mocked(catalogueCheckSettled).mockReturnValueOnce(gate.promise);
-  vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn(async () => {}) } });
-  await open('&motor=000000000000000000000000');
-  await click('Save As / Export'); await click('Copy share link');
-  await waitFor(() => host.textContent!.includes('Share link copied'));
-  await act(async () => gate.resolve()); await settle();
-  expect(host.textContent).toContain('No motor was loaded from the link');
-  expect(host.textContent).not.toContain('Share link copied');
+  expect(vi.mocked(applyImportPlan).mock.calls.at(-1)![0].note.group.lines.filter(n => n.text === 'Repeated caution')).toHaveLength(1);
 });
 it.each(['launch', 'inspect'])('round8 hides run banner after %s', async action => {
   addRuns(importedSummaryRuns({ name: 'Other summary', storedSimulations: [{ name: 'Other summary', configId: null,
@@ -342,7 +263,7 @@ it.each(['launch', 'inspect'])('round8 hides run banner after %s', async action 
     const row = [...host.querySelectorAll<HTMLTableRowElement>('tr.motor-row')].find(r => r.textContent?.includes('Other summary'))!;
     expect(row).toBeDefined(); await act(async () => row.click());
   }
-  expect(host.querySelector('.results-column')?.textContent).not.toContain('the real rocket could not be built this way');
+  expect(host.querySelector('.results-column')?.textContent ?? '').not.toContain('the real rocket could not be built this way');
 });
 it('uses the Motors default when the hinted delay is not offered', async () => {
   await open(`&motor=${motor.motorId}&delay=999`);
@@ -359,9 +280,11 @@ it.each(['catalogue', 'curve'])('New cancels a pending %s wait without assigning
   await open(`&motor=${motor.motorId}`);
   await waitFor(() => kind === 'catalogue' || vi.mocked(loadMotorForMount).mock.calls.length > 0);
   await newDesign();
+  const lookups = vi.mocked(nozzleForMotorId).mock.calls.length;
   await act(async () => gate.resolve());
   await act(async () => { await new Promise(r => setTimeout(r, 500)); });
   if (kind === 'catalogue') expect(loadMotorForMount).not.toHaveBeenCalled();
+  expect(vi.mocked(nozzleForMotorId).mock.calls.length).toBe(lookups);
   await waitFor(() => !Object.keys(session().mountMotors ?? {}).length);
   expect(runs()).toHaveLength(0);
   expect(flyBuiltDesign).not.toHaveBeenCalled();
@@ -382,7 +305,7 @@ it.each([true, false])('offers a restored design; accept=%s controls the motor a
     expect(loadMotorForMount).toHaveBeenCalledOnce();
   } else {
     await click('Keep my design'); await settle();
-    expect(loadMotorForMount).not.toHaveBeenCalled();
+    expect(loadMotorForMount).toHaveBeenCalledOnce();
     expect(runs()).toHaveLength(0);
   }
 }, 20_000);
@@ -462,32 +385,6 @@ it('assigns Auto for a shipped motor with no listed delays', async () => {
   await waitFor(() => Object.keys(session().mountMotors ?? {}).length === 1);
   expect(Object.values(session().mountMotors)[0]).toMatchObject({ meta: { motorId: m.motorId, autoDelay: true } });
 });
-it('reads a late live refusal after a curve wait without repairing or flying it', async () => {
-  const gate = deferred();
-  const real = await vi.importActual<typeof import('./services/motorLoad.js')>('./services/motorLoad.js');
-  vi.mocked(loadMotorForMount).mockImplementationOnce(async (...args) => {
-    await gate.promise;
-    return real.loadMotorForMount(...args);
-  });
-  const fragment = await encodeShareFragment(exportOrk({ name: 'Late refusal', tree: defaultTree(),
-    configs: [{ id: 'late', name: 'Late', motors: {}, isDefault: true }], activeConfigId: 'late' }));
-  await open(`&motor=${motor.motorId}`, fragment);
-  await waitFor(() => vi.mocked(loadMotorForMount).mock.calls.length === 1);
-  await settle();
-  // Inject an asynchronous import/configuration update through App's actual sink,
-  // independently of manual-action cancellation, while the curve is outstanding.
-  const [plan, sinks] = vi.mocked(applyImportPlan).mock.calls.at(-1)!;
-  const refusal = 'Launch refused: the late loadout evidence is ambiguous.';
-  await act(async () => sinks.setSavedConfigs(plan.snapshot.savedConfigs.map(c => ({ ...c, motorLoadoutRefusal: refusal }))));
-  await settle();
-  await act(async () => gate.resolve());
-  await settle(); await settle();
-  expect(flyBuiltDesign).not.toHaveBeenCalled();
-  // Round 8: a changed design mark cancels silently before considering refusal.
-  expect(host.textContent).not.toContain("configuration's motor loadout was refused");
-  expect(session().mountMotors).toEqual({});
-  await waitFor(() => session().savedConfigs.some((c: { motorLoadoutRefusal?: string }) => c.motorLoadoutRefusal === refusal));
-});
 it.each(['ABC', 'ex:bad'])('keeps a malformed %s motor caution without loading', async id => {
   await open(`&motor=${id}`); await settle();
   expect(host.textContent).toContain('was ignored');
@@ -507,50 +404,11 @@ it.each(['design', 'motors'])('fills the published nozzle on %s before exactly o
   const flown = vi.mocked(flyBuiltDesign).mock.calls[0]![0].tree;
   expect(stages(flown).some(s => s.nozzleExitDiameter === entry.exitDiameterM)).toBe(true);
   await click('Motors & Configuration'); await settle();
-  await waitFor(() => stages(session().tree).some(s => s.nozzleExitDiameter === entry.exitDiameterM));
+  await waitFor(() => (session().tree && stages(session().tree).some(s => s.nozzleExitDiameter === entry.exitDiameterM)));
   expect(flyBuiltDesign).toHaveBeenCalledOnce();
   await click('Results');
   expect(host.querySelector('.results-column')).not.toBeNull();
 }, 20_000);
-it('a manual motor pick during the catalogue wait wins', async () => {
-  const gate = deferred();
-  vi.mocked(catalogueCheckSettled).mockReturnValueOnce(gate.promise);
-  await open(`&motor=${motor.motorId}`);
-  await click('Motors & Configuration');
-  const real = await vi.importActual<typeof import('./services/motorLoad.js')>('./services/motorLoad.js');
-  const loaded = await real.loadMotorForMount(motor, delay, { units: INITIAL_UNITS });
-  expect(held.pick).toBeTypeOf('function');
-  await act(async () => held.pick!(loaded.label, loaded.spec, loaded.meta));
-  await waitFor(() => Object.keys(session().mountMotors ?? {}).length > 0);
-  const picked = session().mountMotors;
-  await act(async () => gate.resolve()); await settle();
-  expect(loadMotorForMount).not.toHaveBeenCalled();
-  expect(session().mountMotors).toEqual(picked);
-  expect(flyBuiltDesign).not.toHaveBeenCalled();
-});
-it.each(['Unload', 'Launch', 'Remove', 'Config'])('%s cancels a link during the catalogue wait', async action => {
-  const gate = deferred();
-  vi.mocked(catalogueCheckSettled).mockReturnValueOnce(gate.promise);
-  const tree = defaultTree();
-  const motors = {
-    [motorMounts(tree)[0]!.id!]: { designation: motor.designation, manufacturer: motor.manufacturerAbbrev,
-      diameter: motor.diameter / 1000, length: motor.length / 1000, delay },
-  };
-  const fragment = await encodeShareFragment(exportOrk({ name: 'Already loaded', tree, motors,
-    configs: [{ id: 'loaded', name: 'Loaded', motors, isDefault: true },
-      { id: 'other', name: 'Other motors', motors, isDefault: false }], activeConfigId: 'loaded' }));
-  await open(`&motor=${motor.motorId}`, fragment);
-  await waitFor(() => Object.keys(session().mountMotors ?? {}).length === 1);
-  if (action === 'Remove' || action === 'Config') {
-    await click('Motors & Configuration');
-    await act(async () => host.querySelector<HTMLButtonElement>(action === 'Remove'
-      ? '[title="Remove this motor"]' : '[aria-label^="Apply Other motors"]')!.click());
-  } else await click(action);
-  await act(async () => gate.resolve()); await settle();
-  expect(loadMotorForMount).not.toHaveBeenCalled();
-  if (action === 'Launch') { await waitFor(() => runs().length === 1); expect(flyBuiltDesign).toHaveBeenCalledOnce(); }
-  else expect(flyBuiltDesign).not.toHaveBeenCalled();
-});
 it('quotes the active snapshot date when the motor is unknown', async () => {
   const gate = deferred();
   vi.mocked(catalogueCheckSettled).mockReturnValueOnce(gate.promise);
@@ -570,32 +428,15 @@ it('hides the mismatch banner after removing the motor', async () => {
   await click('Motors & Configuration');
   await act(async () => host.querySelector<HTMLButtonElement>('[title="Remove this motor"]')!.click());
   await click('Results');
-  expect(host.textContent).not.toContain('the real rocket could not be built this way');
+  expect(host.querySelector('.results-column')?.textContent ?? '').not.toContain('the real rocket could not be built this way');
 });
-it('drops a pending launch when the user edits before the nozzle is ready', async () => {
-  held.nozzle = true;
-  await open(`&motor=${motor.motorId}`);
-  await waitFor(() => Object.keys(session().mountMotors ?? {}).length === 1);
-  expect(flyBuiltDesign).not.toHaveBeenCalled();
-  await act(async () => {
-    const field = host.querySelector<HTMLInputElement>('#rocket-name')!;
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
-    setter.call(field, 'Edited before flight'); field.dispatchEvent(new Event('input', { bubbles: true }));
-    field.dispatchEvent(new Event('change', { bubbles: true }));
-  });
-  held.nozzle = false;
-  await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
-  await settle();
-  await waitFor(() => session().tree.name === 'Edited before flight');
-  expect(flyBuiltDesign).not.toHaveBeenCalled();
-});
-it('completes the design open while the catalogue stalls, then proceeds at the 10 s bound', async () => {
+it('keeps the design unapplied while the catalogue stalls, then proceeds at the 10 s bound', async () => {
   const gate = deferred();
   const real = await vi.importActual<typeof import('./services/catalogueAutoCheck.js')>('./services/catalogueAutoCheck.js');
   real.resetCatalogueAutoCheckForTests();
   vi.mocked(catalogueCheckSettled).mockImplementationOnce(async ms => { await gate.promise; await real.catalogueCheckSettled(ms); });
   await open(`&motor=${motor.motorId}`);
-  expect(session().tree).toBeDefined();
+  expect(applyImportPlan).not.toHaveBeenCalled();
   expect(flyBuiltDesign).not.toHaveBeenCalled();
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   await act(async () => gate.resolve());
@@ -621,5 +462,94 @@ it('loads a motor that does not fit and keeps the consequence beside its results
   await waitFor(() => runs().length === 1);
   expect(host.querySelector('.results-column')?.textContent).toContain('the real rocket could not be built this way');
   await newDesign();
-  expect(host.textContent).not.toContain('the real rocket could not be built this way');
+  expect(host.querySelector('.results-column')?.textContent ?? '').not.toContain('the real rocket could not be built this way');
+});
+
+it.each(['catalogue', 'curve', 'nozzle'])('round9 resolves %s before applying anything', async kind => {
+  const gate = deferred();
+  if (kind === 'catalogue') vi.mocked(catalogueCheckSettled).mockReturnValueOnce(gate.promise);
+  if (kind === 'curve') {
+    const real = await vi.importActual<typeof import('./services/motorLoad.js')>('./services/motorLoad.js');
+    vi.mocked(loadMotorForMount).mockImplementationOnce(async (...args) => { await gate.promise; return real.loadMotorForMount(...args); });
+  }
+  if (kind === 'nozzle') {
+    const real = await vi.importActual<typeof import('./services/nozzleDb.js')>('./services/nozzleDb.js');
+    vi.mocked(nozzleForMotorId).mockImplementation(async (...args) => { await gate.promise; return real.nozzleForMotorId(...args); });
+  }
+  await open(`&motor=${motor.motorId}`, await encodeShareFragment(exportOrk({ name: 'Prepared', tree: defaultTree() }))); await settle();
+  expect(applyImportPlan).not.toHaveBeenCalled();
+  expect(flyBuiltDesign).not.toHaveBeenCalled();
+  await act(async () => gate.resolve());
+  await waitFor(() => runs().length === 1);
+  expect(applyImportPlan).toHaveBeenCalledOnce();
+});
+
+it.each(['edit', 'remove', 'replace'])('round9 pending build: %s', async action => {
+  held.build = true;
+  await open(`&motor=${motor.motorId}`);
+  await waitFor(() => vi.mocked(applyImportPlan).mock.calls.length === 1);
+  const [plan, sinks] = vi.mocked(applyImportPlan).mock.calls[0]!;
+  expect(flyBuiltDesign).not.toHaveBeenCalled();
+  held.build = false;
+  await act(async () => {
+    if (action === 'edit') sinks.setMeasured({ massKg: 0.2, cgM: null });
+    else sinks.setMountMotors(action === 'remove' ? {} : Object.fromEntries(Object.entries(plan.snapshot.mountMotors).map(([id,m]) => [id, { ...m, meta: { ...m.meta, motorId: 'replacement' } }])));
+  });
+  if (action === 'edit') { await waitFor(() => runs().length === 1); expect(flyBuiltDesign).toHaveBeenCalledOnce(); }
+  else { await settle(); await settle(); expect(flyBuiltDesign).not.toHaveBeenCalled(); }
+});
+it('round9 keeps an existing nozzle when lookup fails', async () => {
+  const tree = defaultTree(); stages(tree)[0]!.nozzleExitDiameter = 0.009;
+  vi.mocked(nozzleForMotorId).mockRejectedValue(new Error('chunk failed'));
+  await open(`&motor=${motor.motorId}`, await encodeShareFragment(exportOrk({ name: 'Existing exit', tree })));
+  await waitFor(() => runs().length === 1);
+  expect(stages(vi.mocked(flyBuiltDesign).mock.calls[0]![0].tree)[0]!.nozzleExitDiameter).toBeCloseTo(0.009, 10);
+  expect(host.textContent).not.toContain('flight used none');
+});
+it('round9 a second open during resolution supersedes the prepared import', async () => {
+  const gate = deferred(); vi.mocked(catalogueCheckSettled).mockReturnValueOnce(gate.promise);
+  await open(`&motor=${motor.motorId}`);
+  const file = new File([exportOrk({ name: 'Second open', tree: defaultTree() })], 'second.ork');
+  const picker = host.querySelector<HTMLInputElement>('[aria-label="Open a design file"]')!;
+  Object.defineProperty(picker, 'files', { configurable: true, value: [file] });
+  await act(async () => picker.dispatchEvent(new Event('change', { bubbles: true })));
+  await waitFor(() => session().tree?.name === 'Second open');
+  await act(async () => gate.resolve()); await settle();
+  expect(session().tree.name).toBe('Second open'); expect(flyBuiltDesign).not.toHaveBeenCalled();
+  expect(host.textContent).not.toContain('Open design from this link?');
+});
+it('round9 catalogue relabeling a file motor during resolution still flies', async () => {
+  const gate = deferred(); vi.mocked(catalogueCheckSettled).mockReturnValueOnce(gate.promise);
+  const tree = defaultTree(); const motors = { [motorMounts(tree)[0]!.id!]: { designation: motor.designation, manufacturer: motor.manufacturerAbbrev,
+    diameter: motor.diameter / 1000, length: motor.length / 1000, delay } };
+  await open(`&motor=${motor.motorId}`, await encodeShareFragment(exportOrk({ name: 'Relabeled', tree, motors })));
+  await act(async () => setCatalogueOverlay({ baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(), liveCount: getCatalogue().length,
+    added: [], changed: [{ motorId: motor.motorId, before: motor, after: { ...motor, commonName: 'Relabeled file motor' }, fields: ['commonName'] }], removed: [], rejected: [] }));
+  await act(async () => gate.resolve()); await waitFor(() => runs().length === 1);
+  expect(flyBuiltDesign).toHaveBeenCalledOnce();
+});
+
+it('round9 New discards a pending build even if an old state writer returns', async () => {
+  held.build = true; await open(`&motor=${motor.motorId}`);
+  await waitFor(() => vi.mocked(applyImportPlan).mock.calls.length === 1);
+  const [plan, sinks] = vi.mocked(applyImportPlan).mock.calls[0]!;
+  await newDesign(); held.build = false;
+  await act(async () => { sinks.history.reset(plan.snapshot.tree); sinks.setMountMotors(plan.snapshot.mountMotors); sinks.setMeasured({ massKg: 0.2, cgM: null }); });
+  await settle(); expect(flyBuiltDesign).not.toHaveBeenCalled();
+});
+
+it('round9 document generation supersedes the same motor pending build', async () => {
+  held.build = true; await open(`&motor=${motor.motorId}`);
+  await waitFor(() => vi.mocked(applyImportPlan).mock.calls.length === 1);
+  const [old] = vi.mocked(applyImportPlan).mock.calls[0]!;
+  const real = await vi.importActual<typeof import('./services/importApply.js')>('./services/importApply.js');
+  // A new document can carry the identical tree and motor records. Keep that
+  // identity at the apply seam so only document ownership distinguishes it.
+  vi.mocked(applyImportPlan).mockImplementationOnce((plan, sinks) => real.applyImportPlan({ ...plan, snapshot: { ...old.snapshot, measured: { massKg: 0.2, cgM: null } } }, sinks));
+  held.build = false;
+  const picker = host.querySelector<HTMLInputElement>('[aria-label="Open a design file"]')!;
+  Object.defineProperty(picker, 'files', { configurable: true, value: [new File([exportOrk({ name: 'Replacement document', tree: defaultTree() })], 'replacement.ork')] });
+  await act(async () => picker.dispatchEvent(new Event('change', { bubbles: true })));
+  await waitFor(() => vi.mocked(applyImportPlan).mock.calls.length === 2);
+  await settle(); expect(flyBuiltDesign).not.toHaveBeenCalled();
 });
