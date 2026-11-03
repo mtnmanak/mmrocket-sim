@@ -195,7 +195,12 @@ afterEach(async () => {
 it('opens, assigns the requested offered delay, flies once and shows results', async () => {
   await open(`&motor=${motor.motorId}&delay=${delay}`);
   await waitFor(() => runs().length === 1);
-  await waitFor(() => Object.keys(session().mountMotors ?? {}).length === 1);
+  // The motor the simulator flew is the link's: checked on the flight itself, not on the autosave.
+  const flown = vi.mocked(flyBuiltDesign).mock.calls[0]![0];
+  expect(Object.values(flown.working!.motors)).toMatchObject([{ meta: { motorId: motor.motorId }, spec: { ejectionDelay: delay } }]);
+  // The autosave is debounced (400 ms) while the run store writes at once, so on a slow runner the run can land while
+  // the stored session still holds the design the app opened with (CI, v0.197 push): wait for the linked motor itself.
+  await waitFor(() => Object.values(session().mountMotors ?? {}).some(m => (m as { meta?: { motorId?: string } }).meta?.motorId === motor.motorId));
   const assigned = Object.values(session().mountMotors) as { meta: { motorId: string }; spec: { ejectionDelay: number } }[];
   expect(assigned).toHaveLength(1);
   expect(assigned[0]).toMatchObject({ meta: { motorId: motor.motorId }, spec: { ejectionDelay: delay } });
