@@ -218,6 +218,14 @@ describe('configuration-layer migration (FC-1)', () => {
     expect(migrateConfigLayers(s, () => 'layered-mark').state.savedMark).toBe('layered-mark');
   });
 
+  it('round13 moves only a matching motor-link origin through legacy layer migration', () => {
+    const s = session();
+    s.motorLinkMark = mark(s);
+    expect(migrateConfigLayers(s).state.motorLinkMark).toBe(mark(migrateConfigLayers(s).state));
+    s.motorLinkMark = 'edited-origin';
+    expect(migrateConfigLayers(s).state.motorLinkMark).toBe('edited-origin');
+  });
+
   it('matches legacy active capture when a node lacks an event but its stored record has one', () => {
     const s = session();
     delete s.tree.components[0]!.children![0]!.deployEvent;

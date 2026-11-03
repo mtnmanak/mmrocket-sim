@@ -4,9 +4,17 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act } from 'react';
 vi.mock('react', async original => {
   const real = await original<typeof import('react')>();
-  return { ...real, useRef: <T,>(value: T) => {
+  return { ...real, useState: <T,>(initial: T | (() => T)) => {
+    const [value, set] = real.useState(initial);
+    const write = real.useCallback((next: import('react').SetStateAction<T>) => {
+      if (next && typeof next === 'object' && 'runId' in next && 'notes' in next && 'gen' in next) held.noteWrites.push(next);
+      set(next);
+    }, [set]);
+    return [value, write] as const;
+  }, useRef: <T,>(value: T) => {
     const ref = real.useRef(value);
     if (value === null) held.refs.push(ref);
+    if (value === false) held.bools.push(ref as { current: boolean });
     return ref;
   } };
 });
@@ -30,10 +38,24 @@ import { setCatalogueOverlay } from './services/motorDb.js';
 import type { ComponentProps } from 'react';
 import type { MotorPicker } from './components/MotorPicker.js';
 import { OVERRIDE_INCLUDES_MOTOR } from './services/statedLaunchWeight.js';
-import { applyImportPlan } from './services/importApply.js';
+import { applyImportPlan, planImport } from './services/importApply.js';
+import { saveSessionDebounced } from './services/session.js';
+vi.mock('./services/session.js', async original => {
+  const real = await original<typeof import('./services/session.js')>();
+  return { ...real, saveSessionDebounced: vi.fn(real.saveSessionDebounced) };
+});
+vi.mock('./services/sessionRestore.js', async original => {
+  const real = await original<typeof import('./services/sessionRestore.js')>();
+  return { ...real, designStateFromSession: (...args: Parameters<typeof real.designStateFromSession>) => {
+    const restored = real.designStateFromSession(...args);
+    return { ...restored, refused: held.paused || restored.refused };
+  } };
+});
 import { addRuns } from './services/simStore.js';
 import { importedSummaryRuns } from './services/orkFlightData.js';
 import { motorLinkParams } from './services/motorLink.js';
+import { decodeShareFragment } from './services/shareLink.js';
+import { designFingerprint } from './services/dirtyState.js';
 vi.mock('./services/motorLink.js', async original => {
   const real = await original<typeof import('./services/motorLink.js')>();
   return { ...real, motorLinkParams: vi.fn(real.motorLinkParams) };
@@ -43,7 +65,11 @@ vi.mock('./services/motorMatch.js', async original => {
   const real = await original<typeof import('./services/motorMatch.js')>();
   return { ...real, matchImportedMotor: vi.fn(real.matchImportedMotor) };
 });
-const held = vi.hoisted(() => ({ refs: [] as { current: unknown }[], build: false, nozzle: false, notes: [] as string[], pick: null as ComponentProps<typeof MotorPicker>['onSelect'] | null }));
+const held = vi.hoisted(() => ({ noteWrites: [] as unknown[], primary: true, busy: false, bools: [] as { current: boolean }[], paused: false, refs: [] as { current: unknown }[], build: false, nozzle: false, notes: [] as string[], pick: null as ComponentProps<typeof MotorPicker>['onSelect'] | null }));
+vi.mock('./services/designDerivation.js', async original => {
+  const real = await original<typeof import('./services/designDerivation.js')>();
+  return { ...real, launchPrimaryOf: (...args: Parameters<typeof real.launchPrimaryOf>) => held.primary ? real.launchPrimaryOf(...args) : null };
+});
 vi.mock('./services/buildDesign.js', async original => {
   const real = await original<typeof import('./services/buildDesign.js')>();
   return { ...real, buildDesign: (...args: Parameters<typeof real.buildDesign>) => held.build ? { error: 'Build deferred by test' } : real.buildDesign(...args) };
@@ -65,6 +91,8 @@ vi.mock('./components/MotorPicker.js', async original => {
 vi.mock('./hooks/useNozzleFollow.js', async original => {
   const real = await original<typeof import('./hooks/useNozzleFollow.js')>();
   return { ...real, useNozzleFollow: (...args: Parameters<typeof real.useNozzleFollow>) => {
+    // The last boolean ref before this hook is App's flight handle hold.
+    if (held.busy) held.bools.at(-1)!.current = true;
     const result = real.useNozzleFollow(...args);
     return { ...result, pending: held.nozzle || result.pending };
   } };
@@ -152,6 +180,11 @@ beforeEach(async () => {
   held.refs = [];
   held.nozzle = false;
   held.build = false;
+  held.paused = false;
+  held.primary = true; held.busy = false; held.bools = [];
+  held.noteWrites = [];
+  vi.mocked(planImport).mockImplementation((await vi.importActual<typeof import('./services/importApply.js')>('./services/importApply.js')).planImport);
+  vi.mocked(saveSessionDebounced).mockClear();
 });
 afterEach(async () => {
   if (root) await act(async () => root.unmount());
@@ -823,4 +856,161 @@ it('round12 plain open clears origin even when its snapshot is identical', async
   await act(async () => accept.click());
   await waitFor(() => session().motorLinkMark === undefined);
   expect(flyBuiltDesign).toHaveBeenCalledOnce();
+}, 20_000);
+
+it.each([true, false])('round13 orphan caution survives motor question Apply configid=%s', async configid => {
+  held.build = true;
+  const real = await vi.importActual<typeof import('./services/importApply.js')>('./services/importApply.js');
+  vi.mocked(planImport).mockImplementation((...args) => {
+    const plan = real.planImport(...args);
+    if (Object.keys(args[0].motors).length) {
+      plan.note.severity = 'info';
+      plan.note.group.lines.push({ kind: 'I16.synthetic', tier: 'information', text: 'Injected-plan weighing line' });
+    }
+    return plan;
+  });
+  const xml = (await decodeShareFragment(await questionFile())).replace('</rocket>',
+    `<measuredpadmass${configid ? ' configid="a"' : ''}>0.5</measuredpadmass></rocket>`);
+  await open('&motor=' + motor.motorId, await encodeShareFragment(xml));
+  await waitFor(() => vi.mocked(applyImportPlan).mock.calls.length === 1);
+  const plan = vi.mocked(applyImportPlan).mock.calls[0]![0];
+  const caution = plan.note.group.lines.find(n => n.kind === 'I16.pad-mass-dropped')!;
+  expect(caution).toBeDefined();
+  expect(plan.note.severity).toBe('warn');
+  expect(plan.note.group.lines.filter(n => n.kind.startsWith('I16.'))).toHaveLength(1);
+  await click('Apply'); await settle();
+  expect(host.textContent).toContain(caution.text);
+});
+
+it('round13 startup uses latest render after edit and revert during read', async () => {
+  const gate = deferred();
+  vi.mocked(catalogueCheckSettled).mockReturnValueOnce(gate.promise);
+  const real = await vi.importActual<typeof import('./services/importApply.js')>('./services/importApply.js');
+  vi.mocked(applyImportPlan).mockImplementationOnce(() => {});
+  await open('&motor=' + motor.motorId);
+  await click('Design');
+  const input = host.querySelector<HTMLInputElement>('#rocket-name')!;
+  const original = input.value;
+  for (const name of [original + ' edit', original]) await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, name);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => gate.resolve());
+  await waitFor(() => vi.mocked(applyImportPlan).mock.calls.length === 1);
+  const [plan, sinks] = vi.mocked(applyImportPlan).mock.calls[0]!;
+  await act(async () => flushSync(() => sinks.setMeasured({ massKg: 0.2, cgM: null })));
+  await act(async () => real.applyImportPlan(plan, sinks));
+  await waitFor(() => runs().length === 1);
+}, 20_000);
+
+it.each(['tab', 'reload'] as const)('round13 relabel in %s preserves link origin', async kind => {
+  await open('&motor=' + motor.motorId); await waitFor(() => typeof session().motorLinkMark === 'string');
+  const before = session().motorLinkMark;
+  if (kind === 'tab') {
+    await act(async () => setCatalogueOverlay({ baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(),
+      liveCount: getCatalogue().length, added: [], changed: [{ motorId: motor.motorId, before: motor, after: { ...motor, designation: 'Renamed13' }, fields: ['designation'] }], removed: [], rejected: [] }));
+  } else {
+    await act(async () => root.unmount()); host.remove();
+    const stored = session();
+    for (const mm of Object.values(stored.mountMotors) as {label: string; meta: {label: string}}[]) {
+      mm.label = 'stale13'; mm.meta.label = 'stale13';
+    }
+    stored.motorLinkMark = designFingerprint(stored);
+    delete stored.savedMark;
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify(stored));
+    window.history.replaceState(null, '', '/');
+    host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+    await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+  }
+  await waitFor(() => typeof session().motorLinkMark === 'string' && (kind === 'reload' || session().motorLinkMark !== before));
+  expect(session().motorLinkMark).toBe(designFingerprint(session()));
+  await reloadLink('&motor=' + motor.motorId);
+  await waitFor(() => vi.mocked(applyImportPlan).mock.calls.length === 2);
+  expect(host.textContent).not.toContain('Open design from this link?');
+}, 20_000);
+
+it('round13 unknown motor A then B replaces without offer', async () => {
+  await open('&motor=000000000000000000000000');
+  await waitFor(() => !!session().tree);
+  await reloadLink('&motor=' + motor.motorId);
+  await waitFor(() => runs().length === 1);
+  expect(host.textContent).not.toContain('Open design from this link?');
+}, 20_000);
+
+it.each(['tab', 'reload'] as const)('round13 relabel never revives an edited origin in %s', async kind => {
+  await open('&motor=' + motor.motorId); await waitFor(() => typeof session().motorLinkMark === 'string');
+  const origin = session().motorLinkMark;
+  await act(async () => vi.mocked(applyImportPlan).mock.calls[0]![1].setMeasured({ massKg: 0.321, cgM: null }));
+  await waitFor(() => session().motorLinkMark === undefined);
+  if (kind === 'tab') {
+    await act(async () => setCatalogueOverlay({ baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(),
+      liveCount: getCatalogue().length, added: [], changed: [{ motorId: motor.motorId, before: motor, after: { ...motor, designation: 'Edited13' }, fields: ['designation'] }], removed: [], rejected: [] }));
+    await waitFor(() => Object.values(session().mountMotors).some(mm => (mm as {label: string}).label.includes('Edited13')));
+  } else {
+    await act(async () => root.unmount()); host.remove();
+    const stored = session(); stored.motorLinkMark = origin;
+    for (const mm of Object.values(stored.mountMotors) as {label: string; meta: {label: string}}[]) {
+      mm.label = 'stale13'; mm.meta.label = 'stale13';
+    }
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify(stored));
+    window.history.replaceState(null, '', '/');
+    host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+    await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+    await waitFor(() => session().motorLinkMark === undefined);
+  }
+  expect(session().motorLinkMark).toBeUndefined();
+}, 20_000);
+
+it.each(['file', 'paused'] as const)('round13 %s link-origin design requires offer', async kind => {
+  await open('&motor=' + motor.motorId); await waitFor(() => typeof session().motorLinkMark === 'string');
+  await act(async () => root.unmount()); host.remove();
+  if (kind === 'file') {
+    const stored = session(); stored.designFile = { name: 'saved.ork', via: 'saved', format: 'ork' };
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify(stored));
+  } else held.paused = true;
+  await open('&motor=' + motor.motorId);
+  await waitFor(() => host.textContent!.includes('Open design from this link?'));
+  expect(vi.mocked(applyImportPlan).mock.calls).toHaveLength(1);
+}, 20_000);
+
+it('round13 edit commit pagehide payload never contains a stale origin', async () => {
+  await open('&motor=' + motor.motorId); await waitFor(() => typeof session().motorLinkMark === 'string');
+  vi.mocked(saveSessionDebounced).mockClear();
+  await act(async () => vi.mocked(applyImportPlan).mock.calls[0]![1].setMeasured({ massKg: 0.321, cgM: null }));
+  await act(async () => window.dispatchEvent(new Event('pagehide')));
+  expect(vi.mocked(saveSessionDebounced).mock.calls.length).toBeGreaterThan(0);
+  for (const [payload] of vi.mocked(saveSessionDebounced).mock.calls) expect(payload.motorLinkMark).toBeUndefined();
+  expect(session().motorLinkMark).toBeUndefined();
+});
+
+it.each(['primary', 'handle'] as const)('round13 readiness %s holds then flies once', async kind => {
+  held.primary = kind !== 'primary'; held.busy = kind === 'handle';
+  await open('&motor=' + motor.motorId);
+  await waitFor(() => vi.mocked(applyImportPlan).mock.calls.length === 1);
+  await settle(); expect(flyBuiltDesign).not.toHaveBeenCalled();
+  held.primary = true; held.busy = false;
+  const [plan, sinks] = vi.mocked(applyImportPlan).mock.calls[0]!;
+  // A new record map recomputes the primary without changing the pending motor.
+  await act(async () => sinks.setMountMotors({ ...plan.snapshot.mountMotors }));
+  await waitFor(() => runs().length === 1);
+  expect(flyBuiltDesign).toHaveBeenCalledOnce();
+}, 20_000);
+
+it('round13 onRun rejects a generation retired during flight', async () => {
+  const wide = (await Promise.all(getCatalogue().filter(m => m.diameter > 18 && m.diameter <= 29)
+    .map(async m => await bundleHasCurve(m.motorId) ? m : null))).find(m => m !== null)!;
+  const gate = deferred();
+  const real = await vi.importActual<typeof import('./services/simulateDesign.js')>('./services/simulateDesign.js');
+  vi.mocked(flyBuiltDesign).mockImplementationOnce(async (...args) => { await gate.promise; return real.flyBuiltDesign(...args); });
+  held.build = true;
+  await open('&motor=' + wide.motorId);
+  await waitFor(() => vi.mocked(applyImportPlan).mock.calls.length === 1);
+  const pending = held.refs.find(r => r.current && typeof r.current === 'object' && 'gen' in r.current && 'mountId' in r.current)!.current as { gen: number };
+  held.build = false;
+  await act(async () => vi.mocked(applyImportPlan).mock.calls[0]![1].setMeasured({ massKg: 0.2, cgM: null }));
+  await waitFor(() => vi.mocked(flyBuiltDesign).mock.calls.length === 1);
+  pending.gen--;
+  await act(async () => gate.resolve()); await waitFor(() => runs().length === 1);
+  expect(held.noteWrites).toHaveLength(0);
+  expect(host.querySelector('.results-column')?.textContent ?? '').not.toContain('the real rocket could not be built this way');
 }, 20_000);

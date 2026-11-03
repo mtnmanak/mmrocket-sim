@@ -212,7 +212,7 @@ export function designStateFromSession(
     };
   // All established normalizations precede the layer migration (FC-4).
   const normalizedSession: SessionState = { ...session, ...normalized, maxMotorLengthByStage: {}, savedAt: session?.savedAt ?? 0 };
-  if (session?.savedMark) {
+  if (session?.savedMark || session?.motorLinkMark) {
     const beforeState = { ...normalized,
       tree: before, maxMotorLengthByStage: limits,
       ...(preRankRestore ? { mountMotors: preRankRestore.motors, savedConfigs: preRankRestore.configs } : {}),
@@ -222,6 +222,9 @@ export function designStateFromSession(
     // too keeps an unchanged restored design clean (review of b9-int, finding 4).
     if (designFingerprint(beforeState) === session.savedMark || legacyDesignFingerprint(beforeState) === session.savedMark) {
       normalizedSession.savedMark = designFingerprint(normalizedSession as Required<DesignState>);
+    }
+    if (designFingerprint(beforeState) === session.motorLinkMark || legacyDesignFingerprint(beforeState) === session.motorLinkMark) {
+      normalizedSession.motorLinkMark = designFingerprint(normalizedSession as Required<DesignState>);
     }
   }
   const migrated = migrateConfigLayers(session ? normalizedSession : { ...normalizedSession, configLayers: 1, detachedOverrides: {} });

@@ -48,6 +48,7 @@ export function migrateConfigLayers(
   input = sanitizeSessionFlightLayers(input);
   if (input.configLayers === 1) return { state: input as ConfigLayersSession, note: null };
   const wasClean = !!input.savedMark && input.savedMark === fingerprint(input);
+  const wasMotorLink = !!input.motorLinkMark && input.motorLinkMark === fingerprint(input);
   const nodes = new Map<string, ComponentNode>();
   const visit = (children: ComponentNode[]) => {
     for (const node of children) {
@@ -151,6 +152,7 @@ export function migrateConfigLayers(
   delete state.lossySaved;
   delete state.flownAutoDelays;
   const nextMark = migratedFingerprint(state);
+  if (wasMotorLink) state.motorLinkMark = nextMark;
   if (wasClean) state.savedMark = nextMark;
   else if (state.savedMark === nextMark) delete state.savedMark;
   // D7 I10: a partial migration could not recover earlier settings — Caution.

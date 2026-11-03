@@ -189,7 +189,7 @@ import {
 } from './services/designDerivation.js';
 import { equivalentExitDiameterM, stageMotors } from './services/nozzleFollow.js';
 import { nozzleForMotorId } from './services/nozzleDb.js';
-import { stableJson, type DesignSnapshot } from './services/dirtyState.js';
+import { stableJson, designFingerprint, type DesignSnapshot } from './services/dirtyState.js';
 import { autoDelayHardwareKey, autosavedDesignFile } from './services/autosaveBackup.js';
 import { designStateFromSession, type RankedPadMass } from './services/sessionRestore.js';
 import { createSequencer } from './services/latestWins.js';
@@ -840,10 +840,11 @@ export function App() {
   type PreparedFlight = { mountId: string; notes: LinkNote[] };
   const linkFileImports = useRef(new WeakMap<ImportedDesign, { imported: ImportedDesign; resolved: NonNullable<ImportedDesign['resolvedMotors']> }>());
   const preparedFlights = useRef(new WeakMap<ImportedDesign, PreparedFlight>());
+  const eligibleMotorLinks = useRef(new WeakSet<ImportedDesign>());
   const pendingLinkFlight = useRef<(PreparedFlight & { gen: number; tree: FlightTree; motor: MountMotor; previousTree: FlightTree; previousMotor: MountMotor | undefined; committed: boolean }) | null>(null);
   const [motorLinkNotes, setMotorLinkNotes] = useState<{ gen: number; physicsKey: string; motorFlightKey: string;
     activeConfigId: string | null; launch: LaunchConditions; runId: string; notes: LinkNote[] } | null>(null);
-  const [motorLinkMark, setMotorLinkMark] = useState<string | null>(loadedSession?.motorLinkMark ?? null);
+  const [motorLinkMark, setMotorLinkMark] = useState<string | null>(restored.session?.motorLinkMark ?? null);
   const clearMotorLink = (clearOrigin = true) => {
     if (clearOrigin) setMotorLinkMark(null);
     setShareOffer(null);
@@ -1015,7 +1016,10 @@ export function App() {
     // A .rkt/.CDX1 save marks the design it wrote, apart from the .ork mark:
     // a non-edit rewrite (catalogue relabel, restore migration, starter landing)
     // moves it too, or a design identical to the saved file reads as unsaved.
-    { onMarkMigrated: moveLossyMark });
+    { onMarkMigrated: (before, after) => {
+      moveLossyMark(before, after);
+      setMotorLinkMark(m => m === before ? after : m);
+    } });
   // Any other write that lands on the design's file replaces it, whichever
   // document asked for it: the refs are read as it completes (download's
   // rules, for App's own design saves, said this for one writer only).
@@ -2824,6 +2828,9 @@ export function App() {
     const filePlan = fileImport && planImport({ ...fileImport.imported, notes: imported.notes, noteTiers: imported.noteTiers, expand: imported.expand }, fileImport.resolved,
       { launch: launchRef.current, text: statedWeightText, units: prefs.units });
     const plan = planImport(imported, resolved, { launch: launchRef.current, text: statedWeightText, units: prefs.units });
+    const quietLines = new Set(planImport(imported, acceptedOtherMakerNotes(resolved),
+      { launch: launchRef.current, text: statedWeightText, units: prefs.units }).note.text.split('\n'));
+    const acceptedLines = plan.note.text.split('\n').filter(line => !quietLines.has(line));
     if (filePlan) {
       // The original motor-free import owns the orphan weighing caution.
       const lines = [...plan.note.group.lines.filter(n => !n.kind.startsWith('I16.')),
@@ -2832,9 +2839,6 @@ export function App() {
       plan.note = { ...plan.note, group, text: [group.heading, ...lines.map(n => n.text)].filter(Boolean).join('\n'),
         severity: highestTier(lines) === 'information' ? plan.note.severity : 'warn' };
     }
-    const quietLines = new Set(planImport(imported, acceptedOtherMakerNotes(resolved),
-      { launch: launchRef.current, text: statedWeightText, units: prefs.units }).note.text.split('\n'));
-    const acceptedLines = plan.note.text.split('\n').filter(line => !quietLines.has(line));
     motorChoices.current.clear();
     setAutosavePaused(false);
     applyImportPlan(plan, {
@@ -2895,6 +2899,7 @@ export function App() {
     setMotorLoadoutRepair(null);
     setSelectedId(null);
     const flight = preparedFlights.current.get(imported);
+    if (eligibleMotorLinks.current.has(imported)) setMotorLinkMark(designFingerprint(plan.snapshot));
     if (flight) pendingLinkFlight.current = { ...flight, gen: documentGeneration.current, tree: plan.snapshot.tree,
       motor: plan.snapshot.mountMotors[flight.mountId]!, previousTree: tree, previousMotor: mountMotors[flight.mountId], committed: false };
     return plan.snapshot.tree;
@@ -3198,6 +3203,7 @@ export function App() {
       addNotes([...problems, { tier: 'caution', text: noteField("The link's motor was not used because the design already has motors. No flight was run.") }]);
       return imported;
     }
+    eligibleMotorLinks.current.add(imported);
     await catalogueCheckSettled(10_000);
     const resolved = await resolveImportMotors(imported, ref => matchImportedMotor(ref, { units: prefs.units }));
     if (!openSeq.isCurrent(openId)) return imported;
@@ -3238,7 +3244,6 @@ export function App() {
         const diameter = equivalentExitDiameterM(stage.motors.map((m, i) => ({ count: m.count, exitDiameterM: entries[i]?.exitDiameterM ?? null })));
         if (diameter !== null) {
           imported.tree = applyStageNozzles(imported.tree, { [stage.stageId]: diameter });
-          if (cfg?.nozzles) cfg.nozzles = { ...cfg.nozzles, [stage.stageId]: diameter };
         }
       } catch { notes.push({ tier: 'caution', text: 'The published nozzle exit could not be loaded, so the flight used none — check Motors & Configuration.' }); }
     }
@@ -3246,7 +3251,6 @@ export function App() {
     preparedFlights.current.set(imported, { mountId: plan.mountId, notes: flightNotes });
     return imported;
   };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- observes readiness refs each render; committed limits the mark to one update
   useEffect(() => {
     const pending = pendingLinkFlight.current;
     if (!pending) return;
@@ -3263,9 +3267,9 @@ export function App() {
       }
       return;
     }
-    if (!pending.committed) setMotorLinkMark(currentMark);
     pending.committed = true;
-    if (!built || !primaryMountId || simulating || nozzlePending || openMotorQuestion || flightHoldsHandle.current) return;
+    // flightHoldsHandle includes simulating and reflight work.
+    if (!built || !primaryMountId || nozzlePending || openMotorQuestion || flightHoldsHandle.current) return;
     pendingLinkFlight.current = null;
     onLaunch({ fromLink: true, onRun: (runId: string) => {
       if (pending.gen !== documentGeneration.current) return;
@@ -3279,6 +3283,8 @@ export function App() {
   // Every failure lands in the file-note with the current design untouched;
   // a bad link must never blank the app.
   const shareHandled = useRef(false);
+  const latestApplyImported = useRef(applyImported);
+  latestApplyImported.current = applyImported;
   const linkMayReplace = useRef(false);
   linkMayReplace.current = motorLinkMayReplace({ motorLinkMark, currentMark, designFile, autosavePaused });
   const shareShouldOffer = useRef(false);
@@ -3319,7 +3325,7 @@ export function App() {
       // Include non-tree edits and work done while the link was decoding.
       shouldOffer: () => shareShouldOffer.current && !(link.motorId !== null && linkMayReplace.current),
       onOffer: imported => { setShareOffer(imported); },
-      apply: async (imported, openId) => { await applyImported(imported, openId); },
+      apply: async (imported, openId) => { await latestApplyImported.current(imported, openId); },
       // 'warn', not the default 'info'. The message is 165 characters before the
       // reason is appended and the collapsed bar truncates at 157, so as an info
       // notice the reader got the first sentence, an 'i' glyph, no reason, and a
