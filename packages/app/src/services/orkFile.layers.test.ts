@@ -50,15 +50,14 @@ describe('FC-2 configuration layers', () => {
     }
   });
 
-  it('warns about desktop rod aiming with elevated winds aloft without changing written conditions', () => {
+  it('writes the flown rod bearing with elevated winds aloft', () => {
     const launch = { ...DEFAULT_CONDITIONS, launchAltitudeM: 500, launchRodAngleDeg: 5,
       windLevels: [{ altitude: 0, speed: 2, direction: 0 }, { altitude: 500, speed: 4, direction: 1 }] };
     const notes: string[] = [];
     const xml = exportOrk({ name: 'Wind', tree: { components: [] }, launch, notes });
-    expect(notes.join(' ')).toContain('desktop OR');
-    expect(notes.join(' ')).toContain('rod');
-    expect(xml).toContain('<launchintowind>true</launchintowind>');
-    expect(xml).toContain('<launchroddirection>90.0</launchroddirection>');
+    expect(notes.join(' ')).not.toContain('wrong height');
+    expect(xml).toContain('<launchintowind>false</launchintowind>');
+    expect(xml).toContain('<launchroddirection>90</launchroddirection>');
     for (const changed of [{ launchAltitudeM: 0 }, { launchRodAngleDeg: 0 }, { launchRodAimDeg: 10 }, { windLevels: [] }]) {
       const quiet: string[] = [];
       exportOrk({ name: 'Wind', tree: { components: [] }, launch: { ...launch, ...changed }, notes: quiet });

@@ -1,0 +1,1366 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`keeps exact legacy XML for unaffected conditions {"launchRodAimDeg":null} 1`] = `
+"<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="MMRocket Sim">
+  <rocket>
+    <name>Legacy</name>
+    <id>fixed-2</id>
+    <axialoffset method="absolute">0.0</axialoffset>
+    <position type="absolute">0.0</position>
+    <designtype>original</designtype>
+    <motorconfiguration configid="fixed-1" default="true">
+    </motorconfiguration>
+    <referencetype>maximum</referencetype>
+    <subcomponents>
+    </subcomponents>
+  </rocket>
+  <simulations>
+    <simulation status="notsimulated">
+      <name>Simulation 1</name>
+      <simulator>RK4Simulator</simulator>
+      <calculator>BarrowmanCalculator</calculator>
+      <conditions>
+        <configid>fixed-1</configid>
+        <launchrodlength>1</launchrodlength>
+        <launchguideallowance>true</launchguideallowance>
+        <launchintowind>true</launchintowind>
+        <launchrodangle>0</launchrodangle>
+        <launchroddirection>90.0</launchroddirection>
+        <windaverage>0</windaverage>
+        <windturbulence>0</windturbulence>
+        <winddirection>1.5707963267948966</winddirection>
+        <wind model="average">
+          <speed>0</speed>
+          <direction>1.5707963267948966</direction>
+          <standarddeviation>0</standarddeviation>
+        </wind>
+        <windmodeltype>Average</windmodeltype>
+        <launchaltitude>0</launchaltitude>
+        <launchlatitude>28.61</launchlatitude>
+        <launchlongitude>-80.6</launchlongitude>
+        <geodeticmethod>spherical</geodeticmethod>
+        <atmosphere model="isa"/>
+        <timestep>0.05</timestep>
+        <maxtime>1200.0</maxtime>
+      </conditions>
+    </simulation>
+  </simulations>
+</openrocket>
+"
+`;
+
+exports[`keeps exact legacy XML for unaffected conditions {"launchRodAngleDeg":5,"launchAltitudeM":500} 1`] = `
+"<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="MMRocket Sim">
+  <rocket>
+    <name>Legacy</name>
+    <id>fixed-2</id>
+    <axialoffset method="absolute">0.0</axialoffset>
+    <position type="absolute">0.0</position>
+    <designtype>original</designtype>
+    <motorconfiguration configid="fixed-1" default="true">
+    </motorconfiguration>
+    <referencetype>maximum</referencetype>
+    <subcomponents>
+    </subcomponents>
+  </rocket>
+  <simulations>
+    <simulation status="notsimulated">
+      <name>Simulation 1</name>
+      <simulator>RK4Simulator</simulator>
+      <calculator>BarrowmanCalculator</calculator>
+      <conditions>
+        <configid>fixed-1</configid>
+        <launchrodlength>1</launchrodlength>
+        <launchguideallowance>true</launchguideallowance>
+        <launchintowind>true</launchintowind>
+        <launchrodangle>5</launchrodangle>
+        <launchroddirection>90.0</launchroddirection>
+        <windaverage>0</windaverage>
+        <windturbulence>0</windturbulence>
+        <winddirection>1.5707963267948966</winddirection>
+        <wind model="average">
+          <speed>0</speed>
+          <direction>1.5707963267948966</direction>
+          <standarddeviation>0</standarddeviation>
+        </wind>
+        <windmodeltype>Average</windmodeltype>
+        <launchaltitude>500</launchaltitude>
+        <launchlatitude>28.61</launchlatitude>
+        <launchlongitude>-80.6</launchlongitude>
+        <geodeticmethod>spherical</geodeticmethod>
+        <atmosphere model="isa"/>
+        <timestep>0.05</timestep>
+        <maxtime>1200.0</maxtime>
+      </conditions>
+    </simulation>
+  </simulations>
+</openrocket>
+"
+`;
+
+exports[`keeps exact legacy XML for unaffected conditions {"windLevels":[],"launchRodAngleDeg":5,"launchAltitudeM":500} 1`] = `
+"<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="MMRocket Sim">
+  <rocket>
+    <name>Legacy</name>
+    <id>fixed-2</id>
+    <axialoffset method="absolute">0.0</axialoffset>
+    <position type="absolute">0.0</position>
+    <designtype>original</designtype>
+    <motorconfiguration configid="fixed-1" default="true">
+    </motorconfiguration>
+    <referencetype>maximum</referencetype>
+    <subcomponents>
+    </subcomponents>
+  </rocket>
+  <simulations>
+    <simulation status="notsimulated">
+      <name>Simulation 1</name>
+      <simulator>RK4Simulator</simulator>
+      <calculator>BarrowmanCalculator</calculator>
+      <conditions>
+        <configid>fixed-1</configid>
+        <launchrodlength>1</launchrodlength>
+        <launchguideallowance>true</launchguideallowance>
+        <launchintowind>true</launchintowind>
+        <launchrodangle>5</launchrodangle>
+        <launchroddirection>90.0</launchroddirection>
+        <windaverage>0</windaverage>
+        <windturbulence>0</windturbulence>
+        <winddirection>1.5707963267948966</winddirection>
+        <wind model="average">
+          <speed>0</speed>
+          <direction>1.5707963267948966</direction>
+          <standarddeviation>0</standarddeviation>
+        </wind>
+        <windmodeltype>Average</windmodeltype>
+        <launchaltitude>500</launchaltitude>
+        <launchlatitude>28.61</launchlatitude>
+        <launchlongitude>-80.6</launchlongitude>
+        <geodeticmethod>spherical</geodeticmethod>
+        <atmosphere model="isa"/>
+        <timestep>0.05</timestep>
+        <maxtime>1200.0</maxtime>
+      </conditions>
+    </simulation>
+  </simulations>
+</openrocket>
+"
+`;
+
+exports[`keeps exact legacy XML for unaffected conditions {"windLevels":[{"altitude":0,"speed":2,"direction":0.4}],"launchRodAngleDeg":0,"launchAltitudeM":500} 1`] = `
+"<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="MMRocket Sim">
+  <rocket>
+    <name>Legacy</name>
+    <id>fixed-2</id>
+    <axialoffset method="absolute">0.0</axialoffset>
+    <position type="absolute">0.0</position>
+    <designtype>original</designtype>
+    <motorconfiguration configid="fixed-1" default="true">
+    </motorconfiguration>
+    <referencetype>maximum</referencetype>
+    <subcomponents>
+    </subcomponents>
+  </rocket>
+  <simulations>
+    <simulation status="notsimulated">
+      <name>Simulation 1</name>
+      <simulator>RK4Simulator</simulator>
+      <calculator>BarrowmanCalculator</calculator>
+      <conditions>
+        <configid>fixed-1</configid>
+        <launchrodlength>1</launchrodlength>
+        <launchguideallowance>true</launchguideallowance>
+        <launchintowind>true</launchintowind>
+        <launchrodangle>0</launchrodangle>
+        <launchroddirection>90.0</launchroddirection>
+        <windaverage>0</windaverage>
+        <windturbulence>0</windturbulence>
+        <winddirection>1.5707963267948966</winddirection>
+        <wind model="average">
+          <speed>0</speed>
+          <direction>1.5707963267948966</direction>
+          <standarddeviation>0</standarddeviation>
+        </wind>
+        <wind model="multilevel" altituderef="agl" mmrsource="{&quot;kind&quot;:&quot;ork&quot;}">
+          <windlevel altitude="0" speed="2" direction="1.9707963267948965" standarddeviation="0" mmrrelativedirection="0.4"/>
+        </wind>
+        <windmodeltype>MultiLevel</windmodeltype>
+        <launchaltitude>500</launchaltitude>
+        <launchlatitude>28.61</launchlatitude>
+        <launchlongitude>-80.6</launchlongitude>
+        <geodeticmethod>spherical</geodeticmethod>
+        <atmosphere model="isa"/>
+        <timestep>0.05</timestep>
+        <maxtime>1200.0</maxtime>
+      </conditions>
+    </simulation>
+  </simulations>
+</openrocket>
+"
+`;
+
+exports[`keeps exact legacy XML for unaffected conditions {"windLevels":[{"altitude":0,"speed":2,"direction":0.4}],"launchRodAngleDeg":null,"launchAltitudeM":500} 1`] = `
+"<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="MMRocket Sim">
+  <rocket>
+    <name>Legacy</name>
+    <id>fixed-2</id>
+    <axialoffset method="absolute">0.0</axialoffset>
+    <position type="absolute">0.0</position>
+    <designtype>original</designtype>
+    <motorconfiguration configid="fixed-1" default="true">
+    </motorconfiguration>
+    <referencetype>maximum</referencetype>
+    <subcomponents>
+    </subcomponents>
+  </rocket>
+  <simulations>
+    <simulation status="notsimulated">
+      <name>Simulation 1</name>
+      <simulator>RK4Simulator</simulator>
+      <calculator>BarrowmanCalculator</calculator>
+      <conditions>
+        <configid>fixed-1</configid>
+        <launchrodlength>1</launchrodlength>
+        <launchguideallowance>true</launchguideallowance>
+        <launchintowind>true</launchintowind>
+        <launchrodangle>NaN</launchrodangle>
+        <launchroddirection>90.0</launchroddirection>
+        <windaverage>0</windaverage>
+        <windturbulence>0</windturbulence>
+        <winddirection>1.5707963267948966</winddirection>
+        <wind model="average">
+          <speed>0</speed>
+          <direction>1.5707963267948966</direction>
+          <standarddeviation>0</standarddeviation>
+        </wind>
+        <wind model="multilevel" altituderef="agl" mmrsource="{&quot;kind&quot;:&quot;ork&quot;}">
+          <windlevel altitude="0" speed="2" direction="1.9707963267948965" standarddeviation="0" mmrrelativedirection="0.4"/>
+        </wind>
+        <windmodeltype>MultiLevel</windmodeltype>
+        <launchaltitude>500</launchaltitude>
+        <launchlatitude>28.61</launchlatitude>
+        <launchlongitude>-80.6</launchlongitude>
+        <geodeticmethod>spherical</geodeticmethod>
+        <atmosphere model="isa"/>
+        <timestep>0.05</timestep>
+        <maxtime>1200.0</maxtime>
+      </conditions>
+    </simulation>
+  </simulations>
+</openrocket>
+"
+`;
+
+exports[`states the manual rod at sea level over turned surface winds {"windLevels":[{"altitude":-100,"speed":2,"direction":0},{"altitude":100,"speed":4,"direction":0.8}]} 1`] = `
+"<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="MMRocket Sim">
+  <rocket>
+    <name>Surface</name>
+    <id>surface-2</id>
+    <axialoffset method="absolute">0.0</axialoffset>
+    <position type="absolute">0.0</position>
+    <designtype>original</designtype>
+    <motorconfiguration configid="surface-1" default="true">
+      <stage number="0" active="true"/>
+    </motorconfiguration>
+    <referencetype>maximum</referencetype>
+    <subcomponents>
+      <stage>
+        <name>Sustainer</name>
+        <id>surface-3</id>
+        <subcomponents>
+          <bodytube>
+            <name>Body Tube</name>
+            <id>surface-4</id>
+            <finish>normal</finish>
+            <material type="bulk" density="680.0" group="PaperProducts">Cardboard</material>
+            <length>1</length>
+            <thickness>0.0003</thickness>
+            <radius>0.03</radius>
+          </bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+  <simulations>
+    <simulation status="notsimulated">
+      <name>Simulation 1</name>
+      <simulator>RK4Simulator</simulator>
+      <calculator>BarrowmanCalculator</calculator>
+      <conditions>
+        <configid>surface-1</configid>
+        <launchrodlength>1</launchrodlength>
+        <launchguideallowance>true</launchguideallowance>
+        <launchintowind>false</launchintowind>
+        <launchrodangle>5</launchrodangle>
+        <launchroddirection>90</launchroddirection>
+        <windaverage>0</windaverage>
+        <windturbulence>0</windturbulence>
+        <winddirection>1.5707963267948966</winddirection>
+        <wind model="average">
+          <speed>0</speed>
+          <direction>1.5707963267948966</direction>
+          <standarddeviation>0</standarddeviation>
+        </wind>
+        <wind model="multilevel" altituderef="agl" mmrsource="{&quot;kind&quot;:&quot;ork&quot;}">
+          <windlevel altitude="-100" speed="2" direction="1.5707963267948966" standarddeviation="0" mmrrelativedirection="0"/>
+          <windlevel altitude="100" speed="4" direction="2.3707963267948964" standarddeviation="0" mmrrelativedirection="0.8"/>
+        </wind>
+        <windmodeltype>MultiLevel</windmodeltype>
+        <launchaltitude>0</launchaltitude>
+        <launchlatitude>28.61</launchlatitude>
+        <launchlongitude>-80.6</launchlongitude>
+        <geodeticmethod>spherical</geodeticmethod>
+        <atmosphere model="isa"/>
+        <timestep>0.05</timestep>
+        <maxtime>1200.0</maxtime>
+      </conditions>
+    </simulation>
+  </simulations>
+</openrocket>
+"
+`;
+
+exports[`states the manual rod at sea level over turned surface winds {"windLevels":[{"altitude":-100,"speed":2,"direction":0},{"altitude":100,"speed":4,"direction":0.8}]} 2`] = `
+"<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="MMRocket Sim">
+  <rocket>
+    <name>Surface</name>
+    <id>surface-2</id>
+    <axialoffset method="absolute">0.0</axialoffset>
+    <position type="absolute">0.0</position>
+    <designtype>original</designtype>
+    <motorconfiguration configid="surface-1" default="true">
+      <stage number="0" active="true"/>
+    </motorconfiguration>
+    <referencetype>maximum</referencetype>
+    <subcomponents>
+      <stage>
+        <name>Sustainer</name>
+        <id>surface-3</id>
+        <subcomponents>
+          <bodytube>
+            <name>Body Tube</name>
+            <id>surface-4</id>
+            <finish>normal</finish>
+            <material type="bulk" density="680.0" group="PaperProducts">Cardboard</material>
+            <length>1</length>
+            <thickness>0.0003</thickness>
+            <radius>0.03</radius>
+          </bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+  <simulations>
+    <simulation status="notsimulated">
+      <name>Simulation 1</name>
+      <simulator>RK4Simulator</simulator>
+      <calculator>BarrowmanCalculator</calculator>
+      <conditions>
+        <configid>surface-1</configid>
+        <launchrodlength>1</launchrodlength>
+        <launchguideallowance>true</launchguideallowance>
+        <launchintowind>false</launchintowind>
+        <launchrodangle>5</launchrodangle>
+        <launchroddirection>90</launchroddirection>
+        <windaverage>0</windaverage>
+        <windturbulence>0</windturbulence>
+        <winddirection>1.5707963267948966</winddirection>
+        <wind model="average">
+          <speed>0</speed>
+          <direction>1.5707963267948966</direction>
+          <standarddeviation>0</standarddeviation>
+        </wind>
+        <wind model="multilevel" altituderef="agl" mmrsource="{&quot;kind&quot;:&quot;ork&quot;}">
+          <windlevel altitude="-100" speed="2" direction="1.5707963267948966" standarddeviation="0" mmrrelativedirection="0"/>
+          <windlevel altitude="100" speed="4" direction="2.3707963267948964" standarddeviation="0" mmrrelativedirection="0.8"/>
+        </wind>
+        <windmodeltype>MultiLevel</windmodeltype>
+        <launchaltitude>0</launchaltitude>
+        <launchlatitude>28.61</launchlatitude>
+        <launchlongitude>-80.6</launchlongitude>
+        <geodeticmethod>spherical</geodeticmethod>
+        <atmosphere model="isa"/>
+        <timestep>0.05</timestep>
+        <maxtime>1200.0</maxtime>
+      </conditions>
+    </simulation>
+  </simulations>
+</openrocket>
+"
+`;
+
+exports[`states the manual rod at sea level over turned surface winds {"windLevels":[{"altitude":0,"speed":2,"direction":0.4}]} 1`] = `
+"<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="MMRocket Sim">
+  <rocket>
+    <name>Surface</name>
+    <id>surface-2</id>
+    <axialoffset method="absolute">0.0</axialoffset>
+    <position type="absolute">0.0</position>
+    <designtype>original</designtype>
+    <motorconfiguration configid="surface-1" default="true">
+      <stage number="0" active="true"/>
+    </motorconfiguration>
+    <referencetype>maximum</referencetype>
+    <subcomponents>
+      <stage>
+        <name>Sustainer</name>
+        <id>surface-3</id>
+        <subcomponents>
+          <bodytube>
+            <name>Body Tube</name>
+            <id>surface-4</id>
+            <finish>normal</finish>
+            <material type="bulk" density="680.0" group="PaperProducts">Cardboard</material>
+            <length>1</length>
+            <thickness>0.0003</thickness>
+            <radius>0.03</radius>
+          </bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+  <simulations>
+    <simulation status="notsimulated">
+      <name>Simulation 1</name>
+      <simulator>RK4Simulator</simulator>
+      <calculator>BarrowmanCalculator</calculator>
+      <conditions>
+        <configid>surface-1</configid>
+        <launchrodlength>1</launchrodlength>
+        <launchguideallowance>true</launchguideallowance>
+        <launchintowind>false</launchintowind>
+        <launchrodangle>5</launchrodangle>
+        <launchroddirection>90</launchroddirection>
+        <windaverage>0</windaverage>
+        <windturbulence>0</windturbulence>
+        <winddirection>1.5707963267948966</winddirection>
+        <wind model="average">
+          <speed>0</speed>
+          <direction>1.5707963267948966</direction>
+          <standarddeviation>0</standarddeviation>
+        </wind>
+        <wind model="multilevel" altituderef="agl" mmrsource="{&quot;kind&quot;:&quot;ork&quot;}">
+          <windlevel altitude="0" speed="2" direction="1.9707963267948965" standarddeviation="0" mmrrelativedirection="0.4"/>
+        </wind>
+        <windmodeltype>MultiLevel</windmodeltype>
+        <launchaltitude>0</launchaltitude>
+        <launchlatitude>28.61</launchlatitude>
+        <launchlongitude>-80.6</launchlongitude>
+        <geodeticmethod>spherical</geodeticmethod>
+        <atmosphere model="isa"/>
+        <timestep>0.05</timestep>
+        <maxtime>1200.0</maxtime>
+      </conditions>
+    </simulation>
+  </simulations>
+</openrocket>
+"
+`;
+
+exports[`states the manual rod at sea level over turned surface winds {"windLevels":[{"altitude":0,"speed":2,"direction":0.4}]} 2`] = `
+"<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="MMRocket Sim">
+  <rocket>
+    <name>Surface</name>
+    <id>surface-2</id>
+    <axialoffset method="absolute">0.0</axialoffset>
+    <position type="absolute">0.0</position>
+    <designtype>original</designtype>
+    <motorconfiguration configid="surface-1" default="true">
+      <stage number="0" active="true"/>
+    </motorconfiguration>
+    <referencetype>maximum</referencetype>
+    <subcomponents>
+      <stage>
+        <name>Sustainer</name>
+        <id>surface-3</id>
+        <subcomponents>
+          <bodytube>
+            <name>Body Tube</name>
+            <id>surface-4</id>
+            <finish>normal</finish>
+            <material type="bulk" density="680.0" group="PaperProducts">Cardboard</material>
+            <length>1</length>
+            <thickness>0.0003</thickness>
+            <radius>0.03</radius>
+          </bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+  <simulations>
+    <simulation status="notsimulated">
+      <name>Simulation 1</name>
+      <simulator>RK4Simulator</simulator>
+      <calculator>BarrowmanCalculator</calculator>
+      <conditions>
+        <configid>surface-1</configid>
+        <launchrodlength>1</launchrodlength>
+        <launchguideallowance>true</launchguideallowance>
+        <launchintowind>false</launchintowind>
+        <launchrodangle>5</launchrodangle>
+        <launchroddirection>90</launchroddirection>
+        <windaverage>0</windaverage>
+        <windturbulence>0</windturbulence>
+        <winddirection>1.5707963267948966</winddirection>
+        <wind model="average">
+          <speed>0</speed>
+          <direction>1.5707963267948966</direction>
+          <standarddeviation>0</standarddeviation>
+        </wind>
+        <wind model="multilevel" altituderef="agl" mmrsource="{&quot;kind&quot;:&quot;ork&quot;}">
+          <windlevel altitude="0" speed="2" direction="1.9707963267948965" standarddeviation="0" mmrrelativedirection="0.4"/>
+        </wind>
+        <windmodeltype>MultiLevel</windmodeltype>
+        <launchaltitude>0</launchaltitude>
+        <launchlatitude>28.61</launchlatitude>
+        <launchlongitude>-80.6</launchlongitude>
+        <geodeticmethod>spherical</geodeticmethod>
+        <atmosphere model="isa"/>
+        <timestep>0.05</timestep>
+        <maxtime>1200.0</maxtime>
+      </conditions>
+    </simulation>
+  </simulations>
+</openrocket>
+"
+`;
+
+exports[`states the manual rod for calm winds aloft 1`] = `
+"<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="MMRocket Sim">
+  <rocket>
+    <name>Profile</name>
+    <id>profile-2</id>
+    <axialoffset method="absolute">0.0</axialoffset>
+    <position type="absolute">0.0</position>
+    <designtype>original</designtype>
+    <motorconfiguration configid="profile-1" default="true">
+      <stage number="0" active="true"/>
+    </motorconfiguration>
+    <referencetype>maximum</referencetype>
+    <subcomponents>
+      <stage>
+        <name>Sustainer</name>
+        <id>profile-3</id>
+        <subcomponents>
+          <bodytube>
+            <name>Body Tube</name>
+            <id>profile-4</id>
+            <finish>normal</finish>
+            <material type="bulk" density="680.0" group="PaperProducts">Cardboard</material>
+            <length>1</length>
+            <thickness>0.0003</thickness>
+            <radius>0.03</radius>
+          </bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+  <simulations>
+    <simulation status="notsimulated">
+      <name>Simulation 1</name>
+      <simulator>RK4Simulator</simulator>
+      <calculator>BarrowmanCalculator</calculator>
+      <conditions>
+        <configid>profile-1</configid>
+        <launchrodlength>1</launchrodlength>
+        <launchguideallowance>true</launchguideallowance>
+        <launchintowind>false</launchintowind>
+        <launchrodangle>5</launchrodangle>
+        <launchroddirection>90</launchroddirection>
+        <windaverage>0</windaverage>
+        <windturbulence>0</windturbulence>
+        <winddirection>1.5707963267948966</winddirection>
+        <wind model="average">
+          <speed>0</speed>
+          <direction>1.5707963267948966</direction>
+          <standarddeviation>0</standarddeviation>
+        </wind>
+        <wind model="multilevel" altituderef="agl" mmrsource="{&quot;kind&quot;:&quot;ork&quot;}">
+          <windlevel altitude="0" speed="0" direction="1.5707963267948966" standarddeviation="0" mmrrelativedirection="0"/>
+        </wind>
+        <windmodeltype>MultiLevel</windmodeltype>
+        <launchaltitude>0</launchaltitude>
+        <launchlatitude>28.61</launchlatitude>
+        <launchlongitude>-80.6</launchlongitude>
+        <geodeticmethod>spherical</geodeticmethod>
+        <atmosphere model="isa"/>
+        <timestep>0.05</timestep>
+        <maxtime>1200.0</maxtime>
+      </conditions>
+    </simulation>
+  </simulations>
+</openrocket>
+"
+`;
+
+exports[`states the manual rod for calm winds aloft 2`] = `
+"<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="MMRocket Sim">
+  <rocket>
+    <name>Profile</name>
+    <id>profile-2</id>
+    <axialoffset method="absolute">0.0</axialoffset>
+    <position type="absolute">0.0</position>
+    <designtype>original</designtype>
+    <motorconfiguration configid="profile-1" default="true">
+      <stage number="0" active="true"/>
+    </motorconfiguration>
+    <referencetype>maximum</referencetype>
+    <subcomponents>
+      <stage>
+        <name>Sustainer</name>
+        <id>profile-3</id>
+        <subcomponents>
+          <bodytube>
+            <name>Body Tube</name>
+            <id>profile-4</id>
+            <finish>normal</finish>
+            <material type="bulk" density="680.0" group="PaperProducts">Cardboard</material>
+            <length>1</length>
+            <thickness>0.0003</thickness>
+            <radius>0.03</radius>
+          </bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+  <simulations>
+    <simulation status="notsimulated">
+      <name>Simulation 1</name>
+      <simulator>RK4Simulator</simulator>
+      <calculator>BarrowmanCalculator</calculator>
+      <conditions>
+        <configid>profile-1</configid>
+        <launchrodlength>1</launchrodlength>
+        <launchguideallowance>true</launchguideallowance>
+        <launchintowind>false</launchintowind>
+        <launchrodangle>5</launchrodangle>
+        <launchroddirection>90</launchroddirection>
+        <windaverage>0</windaverage>
+        <windturbulence>0</windturbulence>
+        <winddirection>1.5707963267948966</winddirection>
+        <wind model="average">
+          <speed>0</speed>
+          <direction>1.5707963267948966</direction>
+          <standarddeviation>0</standarddeviation>
+        </wind>
+        <wind model="multilevel" altituderef="agl" mmrsource="{&quot;kind&quot;:&quot;ork&quot;}">
+          <windlevel altitude="0" speed="0" direction="1.5707963267948966" standarddeviation="0" mmrrelativedirection="0"/>
+        </wind>
+        <windmodeltype>MultiLevel</windmodeltype>
+        <launchaltitude>0</launchaltitude>
+        <launchlatitude>28.61</launchlatitude>
+        <launchlongitude>-80.6</launchlongitude>
+        <geodeticmethod>spherical</geodeticmethod>
+        <atmosphere model="isa"/>
+        <timestep>0.05</timestep>
+        <maxtime>1200.0</maxtime>
+      </conditions>
+    </simulation>
+  </simulations>
+</openrocket>
+"
+`;
+
+exports[`states the manual rod for calm winds aloft 3`] = `
+"<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="MMRocket Sim">
+  <rocket>
+    <name>Profile</name>
+    <id>profile-2</id>
+    <axialoffset method="absolute">0.0</axialoffset>
+    <position type="absolute">0.0</position>
+    <designtype>original</designtype>
+    <motorconfiguration configid="profile-1" default="true">
+      <stage number="0" active="true"/>
+    </motorconfiguration>
+    <referencetype>maximum</referencetype>
+    <subcomponents>
+      <stage>
+        <name>Sustainer</name>
+        <id>profile-3</id>
+        <subcomponents>
+          <bodytube>
+            <name>Body Tube</name>
+            <id>profile-4</id>
+            <finish>normal</finish>
+            <material type="bulk" density="680.0" group="PaperProducts">Cardboard</material>
+            <length>1</length>
+            <thickness>0.0003</thickness>
+            <radius>0.03</radius>
+          </bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+  <simulations>
+    <simulation status="notsimulated">
+      <name>Simulation 1</name>
+      <simulator>RK4Simulator</simulator>
+      <calculator>BarrowmanCalculator</calculator>
+      <conditions>
+        <configid>profile-1</configid>
+        <launchrodlength>1</launchrodlength>
+        <launchguideallowance>true</launchguideallowance>
+        <launchintowind>false</launchintowind>
+        <launchrodangle>5</launchrodangle>
+        <launchroddirection>115</launchroddirection>
+        <windaverage>0</windaverage>
+        <windturbulence>0</windturbulence>
+        <winddirection>1.5707963267948966</winddirection>
+        <wind model="average">
+          <speed>0</speed>
+          <direction>1.5707963267948966</direction>
+          <standarddeviation>0</standarddeviation>
+        </wind>
+        <wind model="multilevel" altituderef="agl" mmrsource="{&quot;kind&quot;:&quot;ork&quot;}">
+          <windlevel altitude="0" speed="0" direction="1.5707963267948966" standarddeviation="0" mmrrelativedirection="0"/>
+        </wind>
+        <windmodeltype>MultiLevel</windmodeltype>
+        <launchaltitude>0</launchaltitude>
+        <launchlatitude>28.61</launchlatitude>
+        <launchlongitude>-80.6</launchlongitude>
+        <geodeticmethod>spherical</geodeticmethod>
+        <atmosphere model="isa"/>
+        <timestep>0.05</timestep>
+        <maxtime>1200.0</maxtime>
+      </conditions>
+    </simulation>
+  </simulations>
+</openrocket>
+"
+`;
+
+exports[`states the manual rod for nonfinite altitude winds aloft 1`] = `
+"<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="MMRocket Sim">
+  <rocket>
+    <name>Profile</name>
+    <id>profile-2</id>
+    <axialoffset method="absolute">0.0</axialoffset>
+    <position type="absolute">0.0</position>
+    <designtype>original</designtype>
+    <motorconfiguration configid="profile-1" default="true">
+      <stage number="0" active="true"/>
+    </motorconfiguration>
+    <referencetype>maximum</referencetype>
+    <subcomponents>
+      <stage>
+        <name>Sustainer</name>
+        <id>profile-3</id>
+        <subcomponents>
+          <bodytube>
+            <name>Body Tube</name>
+            <id>profile-4</id>
+            <finish>normal</finish>
+            <material type="bulk" density="680.0" group="PaperProducts">Cardboard</material>
+            <length>1</length>
+            <thickness>0.0003</thickness>
+            <radius>0.03</radius>
+          </bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+  <simulations>
+    <simulation status="notsimulated">
+      <name>Simulation 1</name>
+      <simulator>RK4Simulator</simulator>
+      <calculator>BarrowmanCalculator</calculator>
+      <conditions>
+        <configid>profile-1</configid>
+        <launchrodlength>1</launchrodlength>
+        <launchguideallowance>true</launchguideallowance>
+        <launchintowind>false</launchintowind>
+        <launchrodangle>5</launchrodangle>
+        <launchroddirection>90</launchroddirection>
+        <windaverage>0</windaverage>
+        <windturbulence>0</windturbulence>
+        <winddirection>1.5707963267948966</winddirection>
+        <wind model="average">
+          <speed>0</speed>
+          <direction>1.5707963267948966</direction>
+          <standarddeviation>0</standarddeviation>
+        </wind>
+        <wind model="multilevel" altituderef="agl" mmrsource="{&quot;kind&quot;:&quot;ork&quot;}">
+          <windlevel altitude="0" speed="2" direction="1.5707963267948966" standarddeviation="0" mmrrelativedirection="0"/>
+        </wind>
+        <windmodeltype>MultiLevel</windmodeltype>
+        <launchaltitude>NaN</launchaltitude>
+        <launchlatitude>28.61</launchlatitude>
+        <launchlongitude>-80.6</launchlongitude>
+        <geodeticmethod>spherical</geodeticmethod>
+        <atmosphere model="isa"/>
+        <timestep>0.05</timestep>
+        <maxtime>1200.0</maxtime>
+      </conditions>
+    </simulation>
+  </simulations>
+</openrocket>
+"
+`;
+
+exports[`states the manual rod for nonfinite altitude winds aloft 2`] = `
+"<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="MMRocket Sim">
+  <rocket>
+    <name>Profile</name>
+    <id>profile-2</id>
+    <axialoffset method="absolute">0.0</axialoffset>
+    <position type="absolute">0.0</position>
+    <designtype>original</designtype>
+    <motorconfiguration configid="profile-1" default="true">
+      <stage number="0" active="true"/>
+    </motorconfiguration>
+    <referencetype>maximum</referencetype>
+    <subcomponents>
+      <stage>
+        <name>Sustainer</name>
+        <id>profile-3</id>
+        <subcomponents>
+          <bodytube>
+            <name>Body Tube</name>
+            <id>profile-4</id>
+            <finish>normal</finish>
+            <material type="bulk" density="680.0" group="PaperProducts">Cardboard</material>
+            <length>1</length>
+            <thickness>0.0003</thickness>
+            <radius>0.03</radius>
+          </bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+  <simulations>
+    <simulation status="notsimulated">
+      <name>Simulation 1</name>
+      <simulator>RK4Simulator</simulator>
+      <calculator>BarrowmanCalculator</calculator>
+      <conditions>
+        <configid>profile-1</configid>
+        <launchrodlength>1</launchrodlength>
+        <launchguideallowance>true</launchguideallowance>
+        <launchintowind>false</launchintowind>
+        <launchrodangle>5</launchrodangle>
+        <launchroddirection>90</launchroddirection>
+        <windaverage>0</windaverage>
+        <windturbulence>0</windturbulence>
+        <winddirection>1.5707963267948966</winddirection>
+        <wind model="average">
+          <speed>0</speed>
+          <direction>1.5707963267948966</direction>
+          <standarddeviation>0</standarddeviation>
+        </wind>
+        <wind model="multilevel" altituderef="agl" mmrsource="{&quot;kind&quot;:&quot;ork&quot;}">
+          <windlevel altitude="0" speed="2" direction="1.5707963267948966" standarddeviation="0" mmrrelativedirection="0"/>
+        </wind>
+        <windmodeltype>MultiLevel</windmodeltype>
+        <launchaltitude>NaN</launchaltitude>
+        <launchlatitude>28.61</launchlatitude>
+        <launchlongitude>-80.6</launchlongitude>
+        <geodeticmethod>spherical</geodeticmethod>
+        <atmosphere model="isa"/>
+        <timestep>0.05</timestep>
+        <maxtime>1200.0</maxtime>
+      </conditions>
+    </simulation>
+  </simulations>
+</openrocket>
+"
+`;
+
+exports[`states the manual rod for nonfinite altitude winds aloft 3`] = `
+"<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="MMRocket Sim">
+  <rocket>
+    <name>Profile</name>
+    <id>profile-2</id>
+    <axialoffset method="absolute">0.0</axialoffset>
+    <position type="absolute">0.0</position>
+    <designtype>original</designtype>
+    <motorconfiguration configid="profile-1" default="true">
+      <stage number="0" active="true"/>
+    </motorconfiguration>
+    <referencetype>maximum</referencetype>
+    <subcomponents>
+      <stage>
+        <name>Sustainer</name>
+        <id>profile-3</id>
+        <subcomponents>
+          <bodytube>
+            <name>Body Tube</name>
+            <id>profile-4</id>
+            <finish>normal</finish>
+            <material type="bulk" density="680.0" group="PaperProducts">Cardboard</material>
+            <length>1</length>
+            <thickness>0.0003</thickness>
+            <radius>0.03</radius>
+          </bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+  <simulations>
+    <simulation status="notsimulated">
+      <name>Simulation 1</name>
+      <simulator>RK4Simulator</simulator>
+      <calculator>BarrowmanCalculator</calculator>
+      <conditions>
+        <configid>profile-1</configid>
+        <launchrodlength>1</launchrodlength>
+        <launchguideallowance>true</launchguideallowance>
+        <launchintowind>false</launchintowind>
+        <launchrodangle>5</launchrodangle>
+        <launchroddirection>115</launchroddirection>
+        <windaverage>0</windaverage>
+        <windturbulence>0</windturbulence>
+        <winddirection>1.5707963267948966</winddirection>
+        <wind model="average">
+          <speed>0</speed>
+          <direction>1.5707963267948966</direction>
+          <standarddeviation>0</standarddeviation>
+        </wind>
+        <wind model="multilevel" altituderef="agl" mmrsource="{&quot;kind&quot;:&quot;ork&quot;}">
+          <windlevel altitude="0" speed="2" direction="1.5707963267948966" standarddeviation="0" mmrrelativedirection="0"/>
+        </wind>
+        <windmodeltype>MultiLevel</windmodeltype>
+        <launchaltitude>NaN</launchaltitude>
+        <launchlatitude>28.61</launchlatitude>
+        <launchlongitude>-80.6</launchlongitude>
+        <geodeticmethod>spherical</geodeticmethod>
+        <atmosphere model="isa"/>
+        <timestep>0.05</timestep>
+        <maxtime>1200.0</maxtime>
+      </conditions>
+    </simulation>
+  </simulations>
+</openrocket>
+"
+`;
+
+exports[`states the manual rod for sea-level forecast winds aloft 1`] = `
+"<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="MMRocket Sim">
+  <rocket>
+    <name>Profile</name>
+    <id>profile-2</id>
+    <axialoffset method="absolute">0.0</axialoffset>
+    <position type="absolute">0.0</position>
+    <designtype>original</designtype>
+    <motorconfiguration configid="profile-1" default="true">
+      <stage number="0" active="true"/>
+    </motorconfiguration>
+    <referencetype>maximum</referencetype>
+    <subcomponents>
+      <stage>
+        <name>Sustainer</name>
+        <id>profile-3</id>
+        <subcomponents>
+          <bodytube>
+            <name>Body Tube</name>
+            <id>profile-4</id>
+            <finish>normal</finish>
+            <material type="bulk" density="680.0" group="PaperProducts">Cardboard</material>
+            <length>1</length>
+            <thickness>0.0003</thickness>
+            <radius>0.03</radius>
+          </bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+  <simulations>
+    <simulation status="notsimulated">
+      <name>Simulation 1</name>
+      <simulator>RK4Simulator</simulator>
+      <calculator>BarrowmanCalculator</calculator>
+      <conditions>
+        <configid>profile-1</configid>
+        <launchrodlength>1</launchrodlength>
+        <launchguideallowance>true</launchguideallowance>
+        <launchintowind>false</launchintowind>
+        <launchrodangle>5</launchrodangle>
+        <launchroddirection>90</launchroddirection>
+        <windaverage>0</windaverage>
+        <windturbulence>0</windturbulence>
+        <winddirection>1.5707963267948966</winddirection>
+        <wind model="average">
+          <speed>0</speed>
+          <direction>1.5707963267948966</direction>
+          <standarddeviation>0</standarddeviation>
+        </wind>
+        <wind model="multilevel" altituderef="agl" mmrsource="{&quot;kind&quot;:&quot;ork&quot;}">
+          <windlevel altitude="0" speed="2" direction="1.5707963267948966" standarddeviation="0" mmrrelativedirection="0"/>
+        </wind>
+        <windmodeltype>MultiLevel</windmodeltype>
+        <launchaltitude>0</launchaltitude>
+        <launchlatitude>28.61</launchlatitude>
+        <launchlongitude>-80.6</launchlongitude>
+        <geodeticmethod>spherical</geodeticmethod>
+        <atmosphere model="isa"/>
+        <timestep>0.05</timestep>
+        <maxtime>1200.0</maxtime>
+      </conditions>
+    </simulation>
+  </simulations>
+</openrocket>
+"
+`;
+
+exports[`states the manual rod for sea-level forecast winds aloft 2`] = `
+"<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="MMRocket Sim">
+  <rocket>
+    <name>Profile</name>
+    <id>profile-2</id>
+    <axialoffset method="absolute">0.0</axialoffset>
+    <position type="absolute">0.0</position>
+    <designtype>original</designtype>
+    <motorconfiguration configid="profile-1" default="true">
+      <stage number="0" active="true"/>
+    </motorconfiguration>
+    <referencetype>maximum</referencetype>
+    <subcomponents>
+      <stage>
+        <name>Sustainer</name>
+        <id>profile-3</id>
+        <subcomponents>
+          <bodytube>
+            <name>Body Tube</name>
+            <id>profile-4</id>
+            <finish>normal</finish>
+            <material type="bulk" density="680.0" group="PaperProducts">Cardboard</material>
+            <length>1</length>
+            <thickness>0.0003</thickness>
+            <radius>0.03</radius>
+          </bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+  <simulations>
+    <simulation status="notsimulated">
+      <name>Simulation 1</name>
+      <simulator>RK4Simulator</simulator>
+      <calculator>BarrowmanCalculator</calculator>
+      <conditions>
+        <configid>profile-1</configid>
+        <launchrodlength>1</launchrodlength>
+        <launchguideallowance>true</launchguideallowance>
+        <launchintowind>false</launchintowind>
+        <launchrodangle>5</launchrodangle>
+        <launchroddirection>90</launchroddirection>
+        <windaverage>0</windaverage>
+        <windturbulence>0</windturbulence>
+        <winddirection>1.5707963267948966</winddirection>
+        <wind model="average">
+          <speed>0</speed>
+          <direction>1.5707963267948966</direction>
+          <standarddeviation>0</standarddeviation>
+        </wind>
+        <wind model="multilevel" altituderef="agl" mmrsource="{&quot;kind&quot;:&quot;ork&quot;}">
+          <windlevel altitude="0" speed="2" direction="1.5707963267948966" standarddeviation="0" mmrrelativedirection="0"/>
+        </wind>
+        <windmodeltype>MultiLevel</windmodeltype>
+        <launchaltitude>0</launchaltitude>
+        <launchlatitude>28.61</launchlatitude>
+        <launchlongitude>-80.6</launchlongitude>
+        <geodeticmethod>spherical</geodeticmethod>
+        <atmosphere model="isa"/>
+        <timestep>0.05</timestep>
+        <maxtime>1200.0</maxtime>
+      </conditions>
+    </simulation>
+  </simulations>
+</openrocket>
+"
+`;
+
+exports[`states the manual rod for sea-level forecast winds aloft 3`] = `
+"<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="MMRocket Sim">
+  <rocket>
+    <name>Profile</name>
+    <id>profile-2</id>
+    <axialoffset method="absolute">0.0</axialoffset>
+    <position type="absolute">0.0</position>
+    <designtype>original</designtype>
+    <motorconfiguration configid="profile-1" default="true">
+      <stage number="0" active="true"/>
+    </motorconfiguration>
+    <referencetype>maximum</referencetype>
+    <subcomponents>
+      <stage>
+        <name>Sustainer</name>
+        <id>profile-3</id>
+        <subcomponents>
+          <bodytube>
+            <name>Body Tube</name>
+            <id>profile-4</id>
+            <finish>normal</finish>
+            <material type="bulk" density="680.0" group="PaperProducts">Cardboard</material>
+            <length>1</length>
+            <thickness>0.0003</thickness>
+            <radius>0.03</radius>
+          </bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+  <simulations>
+    <simulation status="notsimulated">
+      <name>Simulation 1</name>
+      <simulator>RK4Simulator</simulator>
+      <calculator>BarrowmanCalculator</calculator>
+      <conditions>
+        <configid>profile-1</configid>
+        <launchrodlength>1</launchrodlength>
+        <launchguideallowance>true</launchguideallowance>
+        <launchintowind>false</launchintowind>
+        <launchrodangle>5</launchrodangle>
+        <launchroddirection>115</launchroddirection>
+        <windaverage>0</windaverage>
+        <windturbulence>0</windturbulence>
+        <winddirection>1.5707963267948966</winddirection>
+        <wind model="average">
+          <speed>0</speed>
+          <direction>1.5707963267948966</direction>
+          <standarddeviation>0</standarddeviation>
+        </wind>
+        <wind model="multilevel" altituderef="agl" mmrsource="{&quot;kind&quot;:&quot;ork&quot;}">
+          <windlevel altitude="0" speed="2" direction="1.5707963267948966" standarddeviation="0" mmrrelativedirection="0"/>
+        </wind>
+        <windmodeltype>MultiLevel</windmodeltype>
+        <launchaltitude>0</launchaltitude>
+        <launchlatitude>28.61</launchlatitude>
+        <launchlongitude>-80.6</launchlongitude>
+        <geodeticmethod>spherical</geodeticmethod>
+        <atmosphere model="isa"/>
+        <timestep>0.05</timestep>
+        <maxtime>1200.0</maxtime>
+      </conditions>
+    </simulation>
+  </simulations>
+</openrocket>
+"
+`;
+
+exports[`states the manual rod for turbulent straddling winds aloft 1`] = `
+"<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="MMRocket Sim">
+  <rocket>
+    <name>Profile</name>
+    <id>profile-2</id>
+    <axialoffset method="absolute">0.0</axialoffset>
+    <position type="absolute">0.0</position>
+    <designtype>original</designtype>
+    <motorconfiguration configid="profile-1" default="true">
+      <stage number="0" active="true"/>
+    </motorconfiguration>
+    <referencetype>maximum</referencetype>
+    <subcomponents>
+      <stage>
+        <name>Sustainer</name>
+        <id>profile-3</id>
+        <subcomponents>
+          <bodytube>
+            <name>Body Tube</name>
+            <id>profile-4</id>
+            <finish>normal</finish>
+            <material type="bulk" density="680.0" group="PaperProducts">Cardboard</material>
+            <length>1</length>
+            <thickness>0.0003</thickness>
+            <radius>0.03</radius>
+          </bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+  <simulations>
+    <simulation status="notsimulated">
+      <name>Simulation 1</name>
+      <simulator>RK4Simulator</simulator>
+      <calculator>BarrowmanCalculator</calculator>
+      <conditions>
+        <configid>profile-1</configid>
+        <launchrodlength>1</launchrodlength>
+        <launchguideallowance>true</launchguideallowance>
+        <launchintowind>false</launchintowind>
+        <launchrodangle>5</launchrodangle>
+        <launchroddirection>90</launchroddirection>
+        <windaverage>0</windaverage>
+        <windturbulence>0</windturbulence>
+        <winddirection>1.5707963267948966</winddirection>
+        <wind model="average">
+          <speed>0</speed>
+          <direction>1.5707963267948966</direction>
+          <standarddeviation>0</standarddeviation>
+        </wind>
+        <wind model="multilevel" altituderef="agl" mmrsource="{&quot;kind&quot;:&quot;ork&quot;}">
+          <windlevel altitude="-100" speed="2" direction="1.5707963267948966" standarddeviation="1" mmrrelativedirection="0"/>
+          <windlevel altitude="100" speed="2" direction="1.5707963267948966" standarddeviation="1" mmrrelativedirection="0"/>
+        </wind>
+        <windmodeltype>MultiLevel</windmodeltype>
+        <launchaltitude>0</launchaltitude>
+        <launchlatitude>28.61</launchlatitude>
+        <launchlongitude>-80.6</launchlongitude>
+        <geodeticmethod>spherical</geodeticmethod>
+        <atmosphere model="isa"/>
+        <timestep>0.05</timestep>
+        <maxtime>1200.0</maxtime>
+      </conditions>
+    </simulation>
+  </simulations>
+</openrocket>
+"
+`;
+
+exports[`states the manual rod for turbulent straddling winds aloft 2`] = `
+"<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="MMRocket Sim">
+  <rocket>
+    <name>Profile</name>
+    <id>profile-2</id>
+    <axialoffset method="absolute">0.0</axialoffset>
+    <position type="absolute">0.0</position>
+    <designtype>original</designtype>
+    <motorconfiguration configid="profile-1" default="true">
+      <stage number="0" active="true"/>
+    </motorconfiguration>
+    <referencetype>maximum</referencetype>
+    <subcomponents>
+      <stage>
+        <name>Sustainer</name>
+        <id>profile-3</id>
+        <subcomponents>
+          <bodytube>
+            <name>Body Tube</name>
+            <id>profile-4</id>
+            <finish>normal</finish>
+            <material type="bulk" density="680.0" group="PaperProducts">Cardboard</material>
+            <length>1</length>
+            <thickness>0.0003</thickness>
+            <radius>0.03</radius>
+          </bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+  <simulations>
+    <simulation status="notsimulated">
+      <name>Simulation 1</name>
+      <simulator>RK4Simulator</simulator>
+      <calculator>BarrowmanCalculator</calculator>
+      <conditions>
+        <configid>profile-1</configid>
+        <launchrodlength>1</launchrodlength>
+        <launchguideallowance>true</launchguideallowance>
+        <launchintowind>false</launchintowind>
+        <launchrodangle>5</launchrodangle>
+        <launchroddirection>90</launchroddirection>
+        <windaverage>0</windaverage>
+        <windturbulence>0</windturbulence>
+        <winddirection>1.5707963267948966</winddirection>
+        <wind model="average">
+          <speed>0</speed>
+          <direction>1.5707963267948966</direction>
+          <standarddeviation>0</standarddeviation>
+        </wind>
+        <wind model="multilevel" altituderef="agl" mmrsource="{&quot;kind&quot;:&quot;ork&quot;}">
+          <windlevel altitude="-100" speed="2" direction="1.5707963267948966" standarddeviation="1" mmrrelativedirection="0"/>
+          <windlevel altitude="100" speed="2" direction="1.5707963267948966" standarddeviation="1" mmrrelativedirection="0"/>
+        </wind>
+        <windmodeltype>MultiLevel</windmodeltype>
+        <launchaltitude>0</launchaltitude>
+        <launchlatitude>28.61</launchlatitude>
+        <launchlongitude>-80.6</launchlongitude>
+        <geodeticmethod>spherical</geodeticmethod>
+        <atmosphere model="isa"/>
+        <timestep>0.05</timestep>
+        <maxtime>1200.0</maxtime>
+      </conditions>
+    </simulation>
+  </simulations>
+</openrocket>
+"
+`;
+
+exports[`states the manual rod for turbulent straddling winds aloft 3`] = `
+"<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="MMRocket Sim">
+  <rocket>
+    <name>Profile</name>
+    <id>profile-2</id>
+    <axialoffset method="absolute">0.0</axialoffset>
+    <position type="absolute">0.0</position>
+    <designtype>original</designtype>
+    <motorconfiguration configid="profile-1" default="true">
+      <stage number="0" active="true"/>
+    </motorconfiguration>
+    <referencetype>maximum</referencetype>
+    <subcomponents>
+      <stage>
+        <name>Sustainer</name>
+        <id>profile-3</id>
+        <subcomponents>
+          <bodytube>
+            <name>Body Tube</name>
+            <id>profile-4</id>
+            <finish>normal</finish>
+            <material type="bulk" density="680.0" group="PaperProducts">Cardboard</material>
+            <length>1</length>
+            <thickness>0.0003</thickness>
+            <radius>0.03</radius>
+          </bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+  <simulations>
+    <simulation status="notsimulated">
+      <name>Simulation 1</name>
+      <simulator>RK4Simulator</simulator>
+      <calculator>BarrowmanCalculator</calculator>
+      <conditions>
+        <configid>profile-1</configid>
+        <launchrodlength>1</launchrodlength>
+        <launchguideallowance>true</launchguideallowance>
+        <launchintowind>false</launchintowind>
+        <launchrodangle>5</launchrodangle>
+        <launchroddirection>115</launchroddirection>
+        <windaverage>0</windaverage>
+        <windturbulence>0</windturbulence>
+        <winddirection>1.5707963267948966</winddirection>
+        <wind model="average">
+          <speed>0</speed>
+          <direction>1.5707963267948966</direction>
+          <standarddeviation>0</standarddeviation>
+        </wind>
+        <wind model="multilevel" altituderef="agl" mmrsource="{&quot;kind&quot;:&quot;ork&quot;}">
+          <windlevel altitude="-100" speed="2" direction="1.5707963267948966" standarddeviation="1" mmrrelativedirection="0"/>
+          <windlevel altitude="100" speed="2" direction="1.5707963267948966" standarddeviation="1" mmrrelativedirection="0"/>
+        </wind>
+        <windmodeltype>MultiLevel</windmodeltype>
+        <launchaltitude>0</launchaltitude>
+        <launchlatitude>28.61</launchlatitude>
+        <launchlongitude>-80.6</launchlongitude>
+        <geodeticmethod>spherical</geodeticmethod>
+        <atmosphere model="isa"/>
+        <timestep>0.05</timestep>
+        <maxtime>1200.0</maxtime>
+      </conditions>
+    </simulation>
+  </simulations>
+</openrocket>
+"
+`;

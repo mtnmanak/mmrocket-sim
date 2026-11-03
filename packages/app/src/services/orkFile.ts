@@ -35,7 +35,7 @@ import { foldDeployEvent } from '../tree/deployEvent.js';
 import { axialLength, positionOf } from '../tree/position.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml, escapeXmlAttr, lookupTable, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
 import { gunzipCapped, unzipMember } from './zipMember.js';
-import { applyPresetLinks, linkedPreset, ORK_PRESET_KEYS, type PendingPresetLink, type Preset } from './presets.js';
+import { applyPresetLinks, ORK_PRESET_KEYS, type PendingPresetLink, type Preset } from './presets.js';
 import { ORK_PRESET_IMPORT_STATE, presetImportState, presetOverrideFields } from './orkPresetState.js';
 import { includedMotorFigures, OVERRIDE_INCLUDES_MOTOR, STATED_STAGE_FIGURES } from './statedLaunchWeight.js';
 import {
@@ -1767,16 +1767,9 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
   }
   applyPresetLinks(pendingLinks, opts?.presets, notes, {
     ownFile,
+    orkRecovery: true,
   });
   for (const node of zeroDensityParts) zeroBulkDensityNote(notes, String(node.name ?? node.type), units, node.density);
-  for (const { node } of pendingLinks) {
-    if (ownFile) continue;
-    if (node.type !== 'parachute' && node.type !== 'streamer') continue;
-    const row = linkedPreset(node, opts?.presets ?? []);
-    const usable = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0;
-    if (!row || !((node['cd'] === undefined && usable(row['cd'])) || (node['overrideMass'] === undefined && usable(row.mass)))) continue;
-    cautionNote(notes, 'I21.recovery-preset', `“${noteField(String(node.name ?? node.type))}”: desktop OR can use a linked recovery preset's drag coefficient and mass. The app uses ${node['cd'] === undefined ? 'its automatic drag coefficient' : `drag coefficient ${String(node['cd'])}`} and ${node['overrideMass'] === undefined ? 'mass computed from its material and dimensions' : 'the stated mass'}. Descent speed can differ; check the recovery settings before flying.`);
-  }
   const launch = readLaunchConditions(doc, notes, chosenConfigId, opts?.distanceUnit, units);
   const { simEls, simEl } = simulationForConfig(doc, chosenConfigId);
   const siteOf = (sim: XmlElement) => {
@@ -1987,7 +1980,11 @@ function readWindProfile(cond: XmlElement, launch: Partial<LaunchConditions>, no
   // desktop speed edit takes priority; invalid metadata must not drop winds.
   const retained = isCalmWind(windAverage) && levels.every((l) => Number.isFinite(l.ratio) && l.ratio >= 0
     && Math.abs(l.speed - l.ratio * windAverage) <= 1e-9 * Math.max(l.speed, l.ratio * windAverage));
-  const referenceFrom = retained ? Math.PI / 2 : from;
+  // App profiles retain their fixed compass frame, even when the lowest row
+  // turns. A desktop edit to any bearing invalidates the retained frame.
+  const appFrame = levels.every(l => Number.isFinite(l.relative)
+    && Math.abs(relativeWindDirection(l.direction - Math.PI / 2 - l.relative)) < 1e-12);
+  const referenceFrom = retained || appFrame ? Math.PI / 2 : from;
   launch.windLevels = levels.map((l) => {
     const direction = relativeWindDirection(l.direction - referenceFrom);
     // Our extra attribute avoids losing low bits when undoing the π/2
@@ -3859,12 +3856,13 @@ export function exportOrk({
     // The Rod aim as the flight and the reader see it (canonicalRodAimDeg).
     // 90° + aim loses low bits, and the reader's own rounding takes them
     // back off, so the aim reopens as the same number. canonicalRodAimDeg
-    // answers NaN for anything that is not a finite number, absent included.
-    const aimDeg = canonicalRodAimDeg(launch.launchRodAimDeg ?? NaN);
-    const manualRod = Number.isFinite(aimDeg) && aimDeg !== 0;
-    if (!manualRod && launch.launchRodAngleDeg !== 0 && launch.launchAltitudeM !== 0 && launch.windLevels?.length) {
-      if (notes) cautionNote(notes, 'export-loss', 'With winds aloft at a site above or below sea level, desktop OR may aim the tilted rod at wind from the wrong height when rerunning this file. Check its rod direction before flying; the predicted flight and landing can change.');
-    }
+    // answers NaN for anything that is not a finite number; absent aim is 0.
+    const canonicalAim = canonicalRodAimDeg(launch.launchRodAimDeg ?? 0);
+    const aimDeg = Number.isFinite(canonicalAim) ? canonicalAim : 0;
+    // State the flown bearing for tilted profiles without predicting desktop's
+    // into-wind lookup, including calm winds and sampled turbulence.
+    const manualRod = aimDeg !== 0 || (!!launch.windLevels?.length
+      && Number.isFinite(launch.launchRodAngleDeg) && launch.launchRodAngleDeg !== 0);
     simulationWrites.forEach(({ config: c, group }, i) => {
       // App flights have passed the caller's design/motor/conditions checks.
       // Imported historical summaries retain OUTDATED in desktop's loader:

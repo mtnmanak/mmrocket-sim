@@ -1,4 +1,8 @@
 // @vitest-environment happy-dom
+// r119: orkFile 529 -> 528 removes the obsolete elevated-wind rod caution;
+// recovery fills use the existing I19 producer. r119.test covers both changes.
+// noteExplanations 34 -> 35: I19 now describes replacing a lone canopy vent;
+// this is static explanatory copy, with behavior covered by r119.test.
 // N7 round 4 census review: presets 20 -> 21 and userMaterials 11 -> 12
 // add only recovery-copy message declarations. No numeric boundary changed.
 import { createElement, act } from 'react';

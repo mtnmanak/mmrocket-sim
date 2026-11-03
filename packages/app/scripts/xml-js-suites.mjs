@@ -22,6 +22,7 @@
  * Paths are relative to packages/app.
  */
 export const XML_JS_SUITES = [
+  'src/services/r119.test.ts',
   'src/services/integrationFix.test.ts',
   'src/services/fileNoteSafety.test.ts',
   'src/services/ejectionDelay.test.ts',

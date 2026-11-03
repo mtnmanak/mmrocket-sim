@@ -5,7 +5,6 @@ import { parseDesignFile } from './designFile.js';
 import { importOrk, exportOrk } from './orkFile.js';
 import { importCdx1, exportCdx1 } from './rasaeroFile.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
-import { highestTier, noteFlags } from './importNotes.js';
 import { noteField } from './noteField.js';
 import type { Preset } from './presets.js';
 
@@ -48,12 +47,13 @@ it('treats pre-rename preset links as app-owned', () => {
   expect(chute(old).cd).toBe(chute(current).cd);
   expect(chute(old).overrideMass).toBe(chute(current).overrideMass);
 });
-it('flags the elevated winds-aloft rod save disclosure as Caution', () => {
+it('writes the elevated winds-aloft rod bearing instead of the obsolete caution', () => {
   const r = importOrk(xml);
   const notes: string[] = [];
-  exportOrk({ name: r.name, tree: r.tree, motors: r.motors, notes, launch: { ...DEFAULT_CONDITIONS, launchAltitudeM: 100, launchRodAngleDeg: 5, windLevels: [{ altitude: 0, speed: 3, direction: 0 }] } });
-  expect(notes.join(' ')).toContain('wrong height');
-  expect(highestTier(noteFlags(notes))).toBe('caution');
+  const saved = exportOrk({ name: r.name, tree: r.tree, motors: r.motors, notes, launch: { ...DEFAULT_CONDITIONS, launchAltitudeM: 100, launchRodAngleDeg: 5, windLevels: [{ altitude: 0, speed: 3, direction: 0 }] } });
+  expect(notes.join(' ')).not.toContain('wrong height');
+  expect(saved).toContain('<launchintowind>false</launchintowind>');
+  expect(importOrk(saved).launch?.launchRodAimDeg).toBe(0);
 });
 it('ignores the unreleased ignition child while retaining the attribute', () => {
   const mount = '<motormount><ignitionevent>launch</ignitionevent><mmrignitionconfiguration configid="a"><ignitionevent>never</ignitionevent></mmrignitionconfiguration></motormount>';

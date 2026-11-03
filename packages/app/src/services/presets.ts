@@ -348,8 +348,8 @@ const n = (p: Preset, key: string): number | undefined => numOpt(p, key);
  * weighed mass is theirs, not the part's.
  *
  * `applyPresetLinks` below skips every undefined entry, so a catalogue link on
- * import still only ever FILLS what a file left unset; a clear here never
- * erases a value a file stated.
+ * import fills what a file left unset, except that a foreign .ork canopy's
+ * automatic Cd takes its catalogue vent too (see applyPresetLinks).
  */
 export function presetPatch(
   type: ComponentType,
@@ -1314,6 +1314,7 @@ export function detachPatch(): Partial<ComponentNode> {
  * the difference between failing and passing the 20 ft/s landing check on a
  * correctly built rocket).
  *
+ * Except for foreign .ork recovery devices (owner ruling 2026-11-02),
  * THE MASS IS NEVER TAKEN FROM THE CATALOGUE. RockSim keeps <PartNo> on a part
  * the author has since cut down, so a stock mass would land on a shortened
  * tube; the file's own mass model (density × geometry, or its measured mass) is
@@ -1341,6 +1342,9 @@ export function applyPresetLinks(
      * CL-24-N with its Cd cleared came back flying the rated 1.16.
      */
     ownFile?: boolean;
+    /** Foreign .ork recovery: take missing mass and the whole auto-Cd pair.
+     * Cd follows our catalogue policy; desktop OR's auto Cd is still 0.8. */
+    orkRecovery?: boolean;
   },
 ): number {
   if (!presets?.length || pending.length === 0) return 0;
@@ -1402,9 +1406,16 @@ export function applyPresetLinks(
     // Only a CANOPY has the pair: a streamer's Cd is referenced to strip area
     // and it has no vent, so it keeps the plain per-key gate below.
     const isCanopy = node.type === 'parachute';
+    const orkRecovery = opts?.orkRecovery && (isCanopy || node.type === 'streamer');
     const PAIR = ['cd', 'spillHoleDiameter'] as const;
     const canopyStatesHalf = isCanopy && PAIR.some((k) => node[k] !== undefined);
-    const takePair = patch['cd'] !== undefined && !canopyStatesHalf;
+    const takePair = patch['cd'] !== undefined && (orkRecovery ? node['cd'] === undefined : !canopyStatesHalf);
+    const fileVent = node['spillHoleDiameter'];
+    const replacedVent = isCanopy && takePair && fileVent !== undefined && fileVent !== patch['spillHoleDiameter'];
+    if (isCanopy && takePair && orkRecovery) {
+      // An unvented catalogue canopy must also replace a file's lone vent.
+      node['spillHoleDiameter'] = patch['spillHoleDiameter'];
+    }
     /**
      * A WALL THICKNESS IS A STATEMENT THAT THE PART IS HOLLOW (audit 2026-09-22).
      * The .ork reader marks a solid part `filled: true` and a hollow one only by
@@ -1443,8 +1454,8 @@ export function applyPresetLinks(
      * WHAT counts as a disagreement, and the words for it, are the conflict
      * marker's one table (catalogueField), which the property panel's ≠ chips
      * read too — so the note at open and the markers afterwards agree. A mass
-     * is compared where the file states one for the part itself; it is still
-     * never TAKEN (the fill loop below).
+     * is compared where the file states one for the part itself; only foreign
+     * .ork recovery devices take a missing mass (the fill loop below).
      */
     const conflicts: string[] = [];
     const byDensity = weighsByDensity(node, patch);
@@ -1461,7 +1472,7 @@ export function applyPresetLinks(
       if (differsFromCatalogue(field.differs, have, value)) conflicts.push(field.words);
     }
     for (const [key, value] of Object.entries(patch)) {
-      if (value === undefined || key === 'name' || key === 'overrideMass') continue;
+      if (value === undefined || key === 'name' || (key === 'overrideMass' && !orkRecovery)) continue;
       if (key === 'presetManufacturer' || key === 'presetPartNo') {
         node[key] = value;
         continue;
@@ -1469,7 +1480,7 @@ export function applyPresetLinks(
       if (isCanopy && (key === 'cd' || key === 'spillHoleDiameter')) {
         if (!takePair) continue;
         node[key] = value;
-        filled.add(wordsFor(node.type, key));
+        if (key !== 'spillHoleDiameter' || fileVent === undefined) filled.add(wordsFor(node.type, key));
         continue;
       }
       // A hollow row's `filled: false` is the default an unset node already
@@ -1483,6 +1494,7 @@ export function applyPresetLinks(
         && (key === 'outerRadius' || key === 'innerRadius')) continue;
       if (stated(key) === undefined) {
         node[key] = value;
+        if (key === 'overrideMass' && orkRecovery) delete node['overrideSubcomponentsMass'];
         filled.add(wordsFor(node.type, key));
       }
     }
@@ -1491,21 +1503,22 @@ export function applyPresetLinks(
     const took = filled.size ? ` — took ${[...filled].join(', ')} from the catalogue` : '';
     // Said out loud, because a silently missing Cd is how the 0.8 default gets
     // blamed on the catalogue instead of on the pairing rule.
-    const declined = canopyStatesHalf && patch['cd'] !== undefined
+    const declined = canopyStatesHalf && !takePair && patch['cd'] !== undefined
       ? ' — left the catalogue’s drag coefficient and spill hole out: this file already'
         + ' states one of the pair, and the two are one number together'
       : '';
     // A stated half-pair keeps the catalogue's whole pair out of the flight;
     // a canopy that states both halves is missing nothing.
     if (filled.size || (declined && !PAIR.every((k) => node[k] !== undefined))) changedFlight = true;
-    lines.push(`${noteField(node.name ?? node.type)} → ${noteField(p.manufacturer)} ${noteField(p.partNo)}${took}${declined}`);
+    const replaced = replacedVent ? ' — replaced the file’s spill hole with the catalogue’s to keep its drag coefficient and vent together' : '';
+    lines.push(`${noteField(node.name ?? node.type)} → ${noteField(p.manufacturer)} ${noteField(p.partNo)}${took}${declined}${replaced}`);
   }
   // One line per part matched in a foreign file; none from a file this app wrote.
   if (lines.length > 0) {
     // Caution only when a value the flight uses came from the catalogue (or a
     // stated pair kept it from applying); a link that filled nothing is a receipt.
     const matched = `${lines.length} part${lines.length === 1 ? '' : 's'} matched the parts catalogue by manufacturer and part number. `
-      + `The file's own values stand, including zero dimensions and thicknesses; the catalogue fills only missing values: ${lines.join('; ')}.`;
+      + `The file's own values stand${opts?.orkRecovery ? ' except that an automatic canopy drag coefficient takes the catalogue’s spill hole with it' : ''}, including zero dimensions and thicknesses; the catalogue fills missing values: ${lines.join('; ')}.`;
     if (changedFlight) cautionNote(notes, 'I19.catalogue-filled', matched); else notes.push(matched);
     // Said once, after the match sentence, and only when there is something to
     // say. It names the parts and the fields so a reader can go and look, and

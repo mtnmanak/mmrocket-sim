@@ -201,18 +201,18 @@ it.each(['plain', 'gzip', 'zip'])('C-F5-1 sniffs swapped .ork and .rkt content (
   }
 });
 const recoveryPreset: Preset = { kind: 'Parachute', manufacturer: 'Test', partNo: 'P', description: 'Recovery', mass: 0.1 };
-it('L-M2-1 discloses linked recovery mass differences without changing them', () => {
+it('L-M2-1 takes linked recovery mass while leaving an unrated Cd automatic', () => {
   const r = importOrk(file('<parachute><preset manufacturer="Test" partno="P"/><cd>auto</cd></parachute>'), { presets: [recoveryPreset] });
   expect(part(r)['cd']).toBeUndefined();
-  expect(part(r)['overrideMass']).toBeUndefined();
-  expect(r.notes.join('\n')).toContain('linked recovery preset');
-  expect(r.notes.join('\n')).toContain('Descent');
+  expect(part(r)['overrideMass']).toBe(0.1);
+  expect(r.notes.join('\n')).toContain('took mass from the catalogue');
+  expect(r.noteTiers?.some(n => n.kind === 'I19.catalogue-filled')).toBe(true);
 });
-it.each(['parachute', 'streamer'])('L-M2-1 notes omitted preset mass on %s while keeping stated Cd', tag => {
+it.each(['parachute', 'streamer'])('L-M2-1 fills missing preset mass on %s while keeping stated Cd', tag => {
   const r = importOrk(file(`<${tag}><preset manufacturer="Test" partno="P"/><cd>0.9</cd></${tag}>`), { presets: [{ ...recoveryPreset, kind: tag === 'parachute' ? 'Parachute' : 'Streamer' }] });
   expect(part(r)['cd']).toBe(0.9);
-  expect(part(r)['overrideMass']).toBeUndefined();
-  expect(r.notes.join('\n')).toContain('linked recovery preset');
+  expect(part(r)['overrideMass']).toBe(0.1);
+  expect(r.notes.join('\n')).toContain('took mass from the catalogue');
 });
 it.each(['bodytube', 'nosecone', 'transition'])('C-F1-3 sibling: %s reads uppercase filled', tag => {
   const r = importOrk(file(`<${tag}><thickness>FILLED</thickness></${tag}>`));

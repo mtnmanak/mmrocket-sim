@@ -3140,12 +3140,13 @@ describe(".ork <preset> — desktop's catalogue link is read (ruled 2026-09-03)"
   };
 
   it('links the part and takes the catalogue Cd for <cd>auto</cd>', async () => {
-    const { r, chute } = chuteOf(withPreset(), await loadPresets());
+    const presets = await loadPresets();
+    const { r, chute } = chuteOf(withPreset(), presets);
     expect(chute['cd']).toBe(2.2);
     expect(chute['presetManufacturer']).toBe('Fruity Chutes');
     expect(chute['presetPartNo']).toBe('IFC-084-S');
     expect(chute['lineCount']).toBe(12);            // explicit in the file — stands
-    expect(chute['overrideMass']).toBeUndefined();  // the catalogue never supplies the mass
+    expect(chute['overrideMass']).toBe(presets.find(p => p.manufacturer === 'Fruity Chutes' && p.partNo === 'IFC-084-S')!.mass);
     expect(chute.name).toBe('Main');
     expect(r.notes.some((n) => /matched the parts catalogue/.test(n))).toBe(true);
   });
