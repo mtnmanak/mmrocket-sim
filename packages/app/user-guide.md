@@ -1603,6 +1603,14 @@ RASAero launch lugs open as desktop OR constructs them: two lugs with 1 mm walls
 
 Copying a share link shows the same export cautions as saving an `.ork`, including Auto delays across the working motor set and saved configurations. Auto becomes a fixed delay in the recipient's design. With no matching flight, that delay is provisional: launch before sharing to keep the delay Auto flies.
 
+### Links from ThrustCurve
+
+A motor link from ThrustCurve opens the design, loads that motor in the launch mount, and flies it. It uses your own aerodynamics preference and the file's launch site, weather and rod settings. If you already have a design open, the usual replacement offer appears first.
+
+A motor that is too wide or too long is loaded and flown anyway. A warning beside the results explains the mismatch: the real rocket may be impossible to assemble, or the motor may hit parts inside it. Check the fit before using those results. Other motor mounts stay empty; add their motors on the Motors tab.
+
+An unknown motor leaves the mount empty and shows the requested ID and motor-list date; no flight runs. A design with no motor mount also opens without flying. The link's delay hint is used only if that motor offers it; otherwise the motor browser's default delay is used. Reloading the page restores the design without flying it again.
+
 ## Printing oversized parts on a 3D printer
 
 Tell the app what printer you own — **Preferences → 3D printing** — by picking a preset (Bambu H2D, X1C/P1S/A1, A1 mini, Prusa MK4S, Prusa XL, Ender 3, K1 Max, Neptune 4 Plus) or typing a custom bed X/Y and maximum Z in your preferred units. 8 mm is kept clear at both edges of the bed in X and Y (room for a brim) and at the top of Z (gantry clearance) — the part stands on the bed, so nothing comes off the bottom of Z. The **joint clearance** — the gap per side between a spigot and its socket — defaults to 0.15 mm, an FDM-realistic slip fit sized for 30-minute epoxy; drop it toward 0.05 mm only if you glue with thin CA, which seizes in a wider gap.

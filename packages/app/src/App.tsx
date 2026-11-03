@@ -1,4 +1,8 @@
 import { noteField, noteText } from './services/noteField.js';
+import { motorLinkParams, type MotorLinkParams } from './services/motorLink.js';
+import { planMotorLink, motorLinkLoadFailure, type LinkNote } from './services/motorLinkOpen.js';
+import { catalogueCheckSettled } from './services/catalogueAutoCheck.js';
+import { loadMotorForMount } from './services/motorLoad.js';
 import { ConfigStabilityRange } from './components/ConfigStabilityRange.js';
 import { DesignPrintReport } from './components/DesignPrintReport.js';
 import { designPrintHtml } from './services/designPrintReport.js';
@@ -93,7 +97,7 @@ import { AftView } from './components/AftView.js';
 import { View3DBoundary } from './components/View3DBoundary.js';
 import { PanelBoundary } from './components/PanelBoundary.js';
 import { motorTooltip, restoreConfigLabels, restoreMotorLabels } from './services/motorLabels.js';
-import { getCatalogue, getCatalogueOverlay, subscribeCatalogue, type CatalogueOverlay, classLabel, diameterClass } from './services/motorDb.js';
+import { MOTOR_DB_DATE, getCatalogue, getCatalogueOverlay, subscribeCatalogue, type CatalogueOverlay, classLabel, diameterClass } from './services/motorDb.js';
 import { useCatalogue } from './components/useCatalogue.js';
 import { loadCatalogueMotor, matchImportedMotor } from './services/motorMatch.js';
 import { changedMotorsInDesign, designChangeLine, restoreCatalogueOverlay } from './services/catalogueOverlay.js';
@@ -830,6 +834,20 @@ export function App() {
   const [confirmNew, setConfirmNew] = useState(false);
   /** A decoded share-link design waiting for the user's OK to replace theirs. */
   const [shareOffer, setShareOffer] = useState<ImportedDesign | null>(null);
+  const shareMotorLink = useRef<MotorLinkParams | null>(null);
+  const pendingLinkFlight = useRef<{ gen: number; mountId: string; notes: LinkNote[]; tree: RocketTree } | null>(null);
+  const [motorLinkNotes, setMotorLinkNotes] = useState<{ gen: number; physicsKey: string; notes: LinkNote[] } | null>(null);
+  const clearMotorLink = () => {
+    shareMotorLink.current = null;
+    pendingLinkFlight.current = null;
+    setMotorLinkNotes(null);
+  };
+  const writeLinkNozzleTree = useCallback((next: RocketTree) => {
+    // Automatic nozzle following belongs to the pending motor assignment.
+    const pending = pendingLinkFlight.current;
+    if (pending?.tree === treeRef.current) pending.tree = next;
+    writeTree(next);
+  }, [treeRef, writeTree]);
   const [showBatch, setShowBatch] = useState(false);
   const [showScale, setShowScale] = useState(false);
   const [showChangelog, setShowChangelog] = useState(false);
@@ -1102,6 +1120,7 @@ export function App() {
    * exactly the shape of thing that gets fixed in one place only.
    */
   const startNewDesign = () => {
+    clearMotorLink();
     documentGeneration.current++;
     appliedSaveDestination.current = null;
     appliedOrkSaveDestination.current = null;
@@ -1387,7 +1406,7 @@ export function App() {
   const stageMotorLoadout = useMemo(() => stageMotors(flightTree, assigned), [flightTree, assigned]);
   const {
     cleared: nozzleCleared, pending: nozzlePending, seed: seedNozzleFollow, restoring: restoreNozzleFollow,
-  } = useNozzleFollow({ loadout: stageMotorLoadout, treeRef, writeTree });
+  } = useNozzleFollow({ loadout: stageMotorLoadout, treeRef, writeTree: writeLinkNozzleTree });
   // The PRIMARY mount drives the report's lead columns, auto-delay and the
   // weighed pad mass: the topmost-stage mount with a motor (the sustainer's).
   // ONE definition of "the primary" — treeModel.primaryMountOf — shared with
@@ -2752,6 +2771,7 @@ export function App() {
    * the Flight configurations panel both empty the working set in one click.
    */
   const applyImported = async (imported: ImportedDesign, seq?: number, file: DesignFileRef | null = null) => {
+    clearMotorLink();
     // Which open this is. Every motor in the file can cost a live
     // thrustcurve.org fetch with no timeout, so two opens a second apart
     // finish in whatever order the network decides: at a launch site the
@@ -3046,6 +3066,8 @@ export function App() {
 
   /** The "None" row / full unload: no motors, no active configuration. */
   const clearConfig = () => {
+    clearMotorLink();
+    openSeq.begin();
     motorChoices.current.clear();
     detachedHistoryEpoch.current = {};
     // The working set — and what the tree holds for the configuration — goes
@@ -3069,6 +3091,7 @@ export function App() {
   };
 
   const onOpenOrk = async (file: File) => {
+    clearMotorLink();
     sessionDebugLog.record('import-start');
     // Claim the open BEFORE the first await — the parse and the motor fetches
     // that follow can take seconds, and a second Open in the meantime has to
@@ -3128,6 +3151,51 @@ export function App() {
     }
   };
 
+  // Read the current render's assignment path after each asynchronous wait.
+  const motorLinkLive = useRef({ assignMotor, units: prefs.units });
+  motorLinkLive.current = { assignMotor, units: prefs.units };
+  const runMotorLink = async (link: MotorLinkParams, openId: number) => {
+    if (link.motorId === null || !openSeq.isCurrent(openId)) return;
+    const gen = documentGeneration.current;
+    const liveTree = treeRef.current;
+    const current = () => openSeq.isCurrent(openId) && gen === documentGeneration.current
+      && liveTree === treeRef.current;
+    await catalogueCheckSettled(10_000);
+    if (!current()) return;
+    const plan = planMotorLink({ tree: treeRef.current,
+      mountIds: motorMounts(treeRef.current).map(m => m.id!), params: link,
+      catalogue: getCatalogue(), catalogueDate: MOTOR_DB_DATE });
+    plan.notes = plan.notes.map(note => link.problems.includes(note.text) ? { ...note, tier: 'caution' } : note);
+    if (plan.kind === 'no-flight') {
+      setFileNote(plan.notes.map(n => n.text).join('\n'), 'warn', true, 'caution');
+      return;
+    }
+    try {
+      const loaded = await loadMotorForMount(plan.motor, plan.delay, { units: motorLinkLive.current.units });
+      if (!current()) return;
+      motorLinkLive.current.assignMotor(plan.mountId, loaded.label, loaded.spec, loaded.meta);
+      pendingLinkFlight.current = { gen, mountId: plan.mountId, notes: plan.notes, tree: treeRef.current };
+    } catch {
+      if (current()) setFileNote(motorLinkLoadFailure(plan.motor, plan.delay), 'warn', true, 'caution');
+    }
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- inspect the pending ref each render; clear it before setting state or launching
+  useEffect(() => {
+    const pending = pendingLinkFlight.current;
+    if (!pending) return;
+    if (pending.gen !== documentGeneration.current || pending.tree !== treeRef.current) {
+      pendingLinkFlight.current = null;
+      return;
+    }
+    if (!mountMotors[pending.mountId] || !built || !primaryMountId || simulating
+      || nozzlePending || flightHoldsHandle.current) return;
+    pendingLinkFlight.current = null;
+    setMotorLinkNotes({ gen: pending.gen, physicsKey, notes: pending.notes });
+    // A link flight is a Launch press: onLaunch records the design it flew;
+    // stillFlown keeps a superseded result off screen. Only pre-launch guards differ.
+    onLaunch();
+  });
+
   // ---- "Open from a link": #d=<compressed .ork> in the URL fragment ----
   // Decoded once at startup, then the fragment is cleared up front —
   // declined and broken links included — so a reload never re-triggers it.
@@ -3149,6 +3217,7 @@ export function App() {
     if (shareHandled.current || !hasSharePayload(window.location.hash)) return;
     shareHandled.current = true; // StrictMode double-invoke guard (the ref survives the remount)
     const hash = window.location.hash;
+    const link = motorLinkParams(hash);
     // window.history explicitly: the browser's, not the design's undo history.
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
     // Sequenced like every other open, claimed before its first await
@@ -3168,8 +3237,11 @@ export function App() {
       },
       // Include non-tree edits and work done while the link was decoding.
       shouldOffer: () => shareShouldOffer.current,
-      onOffer: setShareOffer,
-      apply: applyImported,
+      onOffer: imported => { shareMotorLink.current = link; setShareOffer(imported); },
+      apply: async (imported, openId) => {
+        await applyImported(imported, openId);
+        await runMotorLink(link, openId);
+      },
       // 'warn', not the default 'info'. The message is 165 characters before the
       // reason is appended and the collapsed bar truncates at 157, so as an info
       // notice the reader got the first sentence, an 'i' glyph, no reason, and a
@@ -3992,7 +4064,13 @@ export function App() {
       <DesignConfirms tree={tree} lossDialog={lossDialog} setLossDialog={setLossDialog} saveLossy={saveLossy}
         unprotected={dirty || flownSinceSave.current} confirmNew={confirmNew} setConfirmNew={setConfirmNew} replaceLoss={replaceLoss} startNewDesign={startNewDesign}
         onSaveOrk={onSaveOrk} pendingOpen={pendingOpen} setPendingOpen={setPendingOpen} onOpenOrk={onOpenOrk}
-        shareOffer={shareOffer} setShareOffer={setShareOffer} applyImported={applyImported}
+        shareOffer={shareOffer} setShareOffer={() => { shareMotorLink.current = null; setShareOffer(null); }}
+        applyImported={async imported => {
+          const link = shareMotorLink.current;
+          const openId = openSeq.begin();
+          await applyImported(imported, openId);
+          if (link) await runMotorLink(link, openId);
+        }}
         shroudPrompt={shroudPrompt} setShroudPrompt={setShroudPrompt} hasOpenMotorQuestion={openMotorQuestion !== null}
         onConvertShrouds={() => {
           if (!shroudPrompt) return;
@@ -5026,6 +5104,8 @@ export function App() {
 
         {tab === 'results' && (
         <main className="results-column" data-tour="results-panel" ref={resultsMainRef} tabIndex={-1}>
+          {motorLinkNotes?.gen === documentGeneration.current && motorLinkNotes.physicsKey === physicsKey
+            && motorLinkNotes.notes.map((note, i) => <Note key={i} tier={note.tier}>{note.text}</Note>)}
           {/* ALWAYS MOUNTED (audit 2026-09-22): an alert inserted with its text
               already in place is announced unreliably. sr-only while empty, so
               the column's flex gap does not space an empty region. */}

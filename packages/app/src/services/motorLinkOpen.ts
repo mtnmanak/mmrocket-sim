@@ -20,6 +20,9 @@ export function chooseLinkDelay(motor: TcMotor, hint: DelayHint | null): number 
 }
 
 // Keep all motor-link user copy here so it can be reviewed together.
+export const motorLinkLoadFailure = (motor: TcMotor, delay: number): string =>
+  `The link's motor “${noteField(motorLabel(motor, delay))}” could not be loaded. The design is open; no flight was run.`;
+
 const copy = {
   unknown: (id: string, date: string) => `The link asked for motor ID “${noteField(id)}”, which this app's motor list (dated ${noteField(date)}) does not have. The design is open with that mount empty — pick a motor on the Motors tab.`,
   noMount: 'This design has no motor mount, so the motor in the link could not be loaded.',
