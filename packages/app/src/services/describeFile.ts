@@ -3,7 +3,7 @@ import type { FlightOverrides, FlightTree, SavedConfig } from '../model/design.j
 import type { NoticeSeverity } from '../components/NoticeBar.js';
 import { motorLengthLimit } from '../tree/motorLength.js';
 import { mountBore } from '../tree/scaleRocket.js';
-import { findNode, motorMounts, mountMotorCount, stageIndexOf, stages } from '../tree/treeModel.js';
+import { findNode, launchMountOf, motorMounts, mountMotorCount, stageIndexOf, stages } from '../tree/treeModel.js';
 import { buildDesign, KERNEL_HANDLES } from './buildDesign.js';
 import { CD_REFERENCE_MACH, designCdOf } from './designCd.js';
 import { currentSetKeyOf, designBuildInputOf, effectiveSupersonicOf, mountNamesOf } from './designDerivation.js';
@@ -12,15 +12,16 @@ import { aeroModelFor, rogersKbfFor } from './flightPipeline.js';
 import { resolveFlightState } from './flightState.js';
 import type { LaunchConditions } from './launchConditions.js';
 import { exportOrk } from './orkFile.js';
-import { encodeShareFragment } from './shareLink.js';
+import { encodeShareFragment, MAX_FRAGMENT_CHARS, SHARE_TOO_LARGE_ERROR_NAME } from './shareLink.js';
+import { motorLinkParams, withDelayHint, type DelayHint } from './motorLink.js';
 import { hasAerodynamicForce, shownCp, shownStability } from './simReport.js';
 import { APP_DEFAULT_AERO, SimulateDesignError, withKernel } from './simulateDesign.js';
 import { openHeadlessDesign, planHeadlessImport } from './simulateFile.js';
 import type { ImportPlan } from './importApply.js';
 
 /**
- * S3 DRAFT: ONE UPLOAD → ITS DRY STATICS, ITS MOUNTS AND A MOTOR-INDEPENDENT
- * SHARE FRAGMENT (2026-10-27, for the owner's review before anything ships).
+ * V1 SERVICE: ONE UPLOAD: ITS DRY STATICS, ITS MOUNTS AND A MOTOR-INDEPENDENT
+ * SHARE FRAGMENT.
  *
  * The file opens through the SAME door a headless flight uses
  * (simulateFile.openHeadlessDesign + planHeadlessImport): bundled presets,
@@ -100,6 +101,8 @@ export interface DescribeFileResult {
   sourceFormat: DesignFormat;
   analysis: DescribeAnalysis;
   mounts: DescribedMount[];
+  /** The request-local mounts[].key a motor link fills, or null when there is no mount. */
+  launchMount: string | null;
   /** `#d=1.…`, exactly what the app's share link carries after its origin. */
   fragment: string;
   notes: {
@@ -244,14 +247,17 @@ export function motorFreeOrk(p: MotorFreeProjection, notes: string[] = []): stri
   });
 }
 
-function exportNotes(p: MotorFreeProjection, opened: OpenedDesign, workingUnmatched: number, writerNotes: string[]): string[] {
+function exportNotes(p: MotorFreeProjection, opened: OpenedDesign, workingUnmatched: number, writerNotes: string[], hint: DelayHint | null): string[] {
   const out: string[] = [];
   const working = Object.keys(opened.mountMotors).length;
   const configs = p.savedConfigs.length;
   if (working || workingUnmatched || p.removed.configMotors || p.removed.unmatched) {
     out.push(`Motor selections were removed from the link: ${working + workingUnmatched} on the opened motor set`
       + ` and ${p.removed.configMotors + p.removed.unmatched} across ${configs} saved configuration${configs === 1 ? '' : 's'}`
-      + ' (unmatched references included). Each selected motor\'s ejection delay went with it; mount ignition settings are kept.');
+      + ' (unmatched references included). Selected motor delays were removed from the design payload. '
+      + (hint === 'plugged' ? 'This link carries a plugged delay hint (no ejection charge).'
+        : hint === null ? 'This link carries no delay hint.' : `This link carries a delay hint of ${hint} s.`)
+      + ' Mount ignition settings are kept.');
   }
   if (p.removed.refusals) out.push(`${p.removed.refusals} motor-loadout refusal${p.removed.refusals === 1 ? ' was' : 's were'} removed with the motors.`);
   return [...out, ...writerNotes];
@@ -346,10 +352,25 @@ export async function describeFile(
     };
   });
   if (mounts.length === 0) notes.push('This design has no motor mount, so no motor can be placed in it.');
+  const launchMountId = launchMountOf(tree, mountNodes.map(m => m.id!));
+  const launchMount = launchMountId === null ? null : mounts[mountNodes.findIndex(m => m.id === launchMountId)]!.key;
+  // A catalogue match may replace every-delay or synthesize a flight delay.
+  // Only the file's statement in the configuration selected by open is evidence.
+  const sourceRefs = imported.configs?.find(c => c.id === opened.activeConfigId)?.motors ?? imported.motors;
+  const ref = launchMountId === null ? undefined : sourceRefs[launchMountId];
+  const delay = ref?.autoDelay || ref?.rktEveryDelay ? undefined
+    : ref?.statedDelay;
+  const hint: DelayHint | null = delay ?? null;
   // Outside the lock: compression awaits a stream.
   const projection = motorFreeProjection(opened);
   const writerNotes: string[] = [];
-  const fragment = await encodeShareFragment(motorFreeOrk(projection, writerNotes));
+  const fragment = withDelayHint(await encodeShareFragment(motorFreeOrk(projection, writerNotes)), hint);
+  // ThrustCurve appends one 24-hex motor ID; App checks the complete hash before decoding.
+  if (fragment.length + '&motor='.length + 24 > MAX_FRAGMENT_CHARS) {
+    const err = new Error('This design is too large for a share link — send the .ork file instead.');
+    err.name = SHARE_TOO_LARGE_ERROR_NAME;
+    throw err;
+  }
   return {
     name: opened.tree.name ?? imported.name ?? 'Rocket',
     sourceFormat: imported.sourceFormat ?? 'ork',
@@ -366,12 +387,13 @@ export async function describeFile(
       },
     },
     mounts,
+    launchMount,
     fragment,
     notes: {
       import: { text: plan.note.text, severity: plan.note.severity,
         ...(opts.includeImportNoteGroup ? { group: plan.note.group } : {}) },
       analysis: notes,
-      export: exportNotes(projection, opened, Object.keys(plan.unmatchedRefs).length, writerNotes),
+      export: exportNotes(projection, opened, Object.keys(plan.unmatchedRefs).length, writerNotes, motorLinkParams(fragment).delayHint),
     },
   };
 }

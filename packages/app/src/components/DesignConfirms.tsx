@@ -156,8 +156,8 @@ export function DesignConfirms({ tree, unprotected = false, lossDialog, setLossD
               className="file-btn modal-danger"
               onClick={() => {
                 const offered = shareOffer;
-                setShareOffer(null);
                 void applyImported(offered);
+                setShareOffer(null);
               }}
             >
               Open “{shareOffer.name}”

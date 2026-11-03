@@ -1,4 +1,5 @@
 import { deflateSync, strToU8 } from 'fflate';
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS, MAX_INFLATED_BYTES, shareLinkOpenFailure } from './shareLink.js';
 import { refuseTooManyInstances } from '../tree/sanitize.js';
@@ -31,6 +32,16 @@ const XML = `<?xml version='1.0' encoding='utf-8'?>
 </subcomponents></rocket></openrocket>`;
 
 describe('share-link codec', () => {
+  it('keeps the v0.100 link XML identical with any suffix, including hostile input', async () => {
+    const old = readFileSync(new URL('./__fixtures__/share-link-v0.100.txt', import.meta.url), 'utf8').trim();
+    const xml = await decodeShareFragment(old);
+    expect(xml).toContain('Reference Rocket');
+    for (const suffix of ['&motor=5f4294d2000231000000001d&delay=5', '&motor=ABC', '&motor=<script>',
+      '&motor=', '&motor=abc#', '&motor=abc%26', '&x='.repeat(3414), '&motor=bad&motor=bad']) {
+      expect(await decodeShareFragment(old + suffix)).toBe(xml);
+      expect(await decodeShareFragment(old.slice(1) + suffix)).toBe(xml);
+    }
+  });
   it('shares the kernel default hollow wall after a filled body tube is made hollow', async () => {
     const tree = { components: [{ type: 'stage' as const, children: [
       { type: 'bodytube' as const, length: 0.2, outerRadius: 0.0125, filled: false },

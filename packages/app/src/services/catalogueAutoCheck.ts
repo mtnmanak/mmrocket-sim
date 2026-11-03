@@ -50,6 +50,16 @@ export type CatalogueAutoCheckOutcome = 'already-started' | 'offline' | 'no-stor
 const PROBE_KEY = 'online-openrocket.storage-probe.v1';
 
 let started = false;
+let settleCheck: () => void;
+export let catalogueCheck = new Promise<void>(resolve => { settleCheck = resolve; });
+
+/** Wait for startup's checked/skipped/failed result, with a bounded open. */
+export function catalogueCheckSettled(timeoutMs: number): Promise<void> {
+  return new Promise(resolve => {
+    const timer = setTimeout(resolve, Math.min(10_000, Math.max(0, timeoutMs)));
+    void catalogueCheck.then(() => { clearTimeout(timer); resolve(); });
+  });
+}
 const listeners = new Set<(overlay: CatalogueOverlay) => void>();
 
 /**
@@ -74,6 +84,7 @@ export function newlyChanged(after: CatalogueOverlay, before: CatalogueOverlay |
 /** @internal Test isolation only: the check starts once per page. */
 export function resetCatalogueAutoCheckForTests(): void {
   started = false;
+  catalogueCheck = new Promise<void>(resolve => { settleCheck = resolve; });
 }
 
 function storageWritable(env: CatalogueAutoCheckEnv): boolean {
@@ -96,6 +107,7 @@ const whenRestored = (env: CatalogueAutoCheckEnv): Promise<void> => env.restored
 export async function startCatalogueAutoCheck(env: CatalogueAutoCheckEnv = browser): Promise<CatalogueAutoCheckOutcome> {
   if (started) return 'already-started';
   started = true;
+  const finish = settleCheck;
   try {
     await whenRestored(env);
     if (!env.online()) return 'offline';
@@ -110,5 +122,7 @@ export async function startCatalogueAutoCheck(env: CatalogueAutoCheckEnv = brows
   } catch (err) {
     console.debug(`MMRocket Sim: the automatic motor catalogue check did not complete: ${err instanceof Error ? err.message : String(err)}`);
     return 'failed';
+  } finally {
+    finish();
   }
 }

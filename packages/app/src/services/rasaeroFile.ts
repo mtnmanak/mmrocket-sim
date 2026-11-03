@@ -1047,7 +1047,7 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
   // Engine strings are 'DESIG  (MFG)'; a trailing -<digits|P> token on the
   // designation is a delay (AbstractMotorLoader.removeDelay strips it too).
   // 'NoThrust' is RASAero's placeholder for a stage flying without a motor.
-  const parseEngine = (s: string): { designation: string; manufacturer: string; delay?: number } | null => {
+  const parseEngine = (s: string): { designation: string; manufacturer: string; delay?: number; explicitDelay?: number | 'plugged' } | null => {
     const parts = s.trim().split(/\s{2,}/);
     if (parts.length !== 2) return null;
     let designation = parts[0]!;
@@ -1057,7 +1057,9 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
       designation = designation.slice(0, designation.lastIndexOf('-'));
       delay = /^[0-9]+$/.test(dm[1]!) ? Number(dm[1]) : Infinity;
     }
-    return { designation, manufacturer: parts[1]!.replace(/^\(|\)$/g, ''), delay };
+    const explicitDelay = dm && /^[pP]$/.test(dm[1]!) ? 'plugged' as const
+      : Number.isFinite(delay) ? delay : undefined;
+    return { designation, manufacturer: parts[1]!.replace(/^\(|\)$/g, ''), delay, explicitDelay };
   };
   /** RASAero's mount for a stage: its aft-most body tube (desktop getMotorMountForStage). */
   const aftTube = (stage: ComponentNode | undefined): ComponentNode | undefined => {
@@ -1176,6 +1178,7 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
         designation: eng.designation,
         matchContext: { source: 'rasaero', ...(eng.delay !== undefined
           ? { explicitDelay: Number.isFinite(eng.delay) ? eng.delay : 'plugged' as const } : {}) },
+        ...(eng.explicitDelay !== undefined ? { statedDelay: eng.explicitDelay } : {}),
         manufacturer: eng.manufacturer, // RASAero abbreviation (AT/CTI/…) — a HINT, used by both motor lookups
         diameter: 0, // unknown in the file — match by designation alone
         length: 0,

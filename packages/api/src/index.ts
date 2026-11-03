@@ -99,16 +99,16 @@ function summary(out: TimedSimulateFileResult) {
   };
 }
 
-/** S3 draft contract: the service's result, with the fragment's full app link; stampedJson adds the stamp. */
+/** The /describe v1 contract (S5): the service's result, with the fragment's full app link; stampedJson adds the stamp. */
 function described(out: DescribeFileResult) {
   const notes = noteStrings(out.notes);
   const { group: _group, ...importNote } = notes.import;
   return {
-    experimental: true,
-    api: 's3-draft',
+    api: '1',
     name: displayEcho(out.name),
     sourceFormat: out.sourceFormat,
     analysis: out.analysis,
+    launchMount: out.launchMount,
     mounts: out.mounts.map(mount => ({ ...mount, name: displayEcho(mount.name), stageName: displayEcho(mount.stageName) })),
     fragment: out.fragment,
     link: `${APP_URL}/${out.fragment}`,

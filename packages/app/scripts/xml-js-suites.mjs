@@ -158,16 +158,17 @@ export const XML_JS_SUITES = [
   'src/services/xmlUtil.test.ts',
   'src/tree/motorLength.test.ts',
   'src/components/TreeSchematic.golden.test.tsx',
-  // These five reach an importer THROUGH the app rather than by calling one
+  // These six reach an importer THROUGH the app rather than by calling one
   // (verify-step2 finding 2): App.session opens rocksimTestRocket1.rkt and
   // App.nozzle ThreeCarbYen-2018.CDX1 as a user would, and MotorBrowser drops a
   // hand-written .rse — an edge case (exit diameter in inches) no other suite
   // carries — on its import input, which reaches parseRse via parseMotorFile.
-  // App.rodAim and App.weather open designs through share links.
+  // App.rodAim, App.weather and App.motorLink open designs through share links.
   'src/App.session.test.tsx',
   'src/App.nozzle.test.tsx',
   'src/App.rodAim.test.tsx',
   'src/App.weather.test.tsx',
+  'src/App.motorLink.test.tsx',
   'src/components/MotorBrowser.test.tsx',
   // Proves this project really runs the JS parser (and the default project the
   // browser's): without it, a setup file that stopped installing the parser

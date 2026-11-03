@@ -3,6 +3,11 @@
 // recovery fills use the existing I19 producer. r119.test covers both changes.
 // noteExplanations 34 -> 35: I19 now describes replacing a lone canopy vent;
 // this is static explanatory copy, with behavior covered by r119.test.
+// S5 round 4: rocksimFile 273 -> 274 adds the > in the EjectionDelay XML selector;
+// file-stated numeric/plugged/every/unreadable boundaries are in describeFile.test.ts.
+// Task 4: motorLinkOpen's length warning adds one producer; fitting, too-wide
+// and too-long plans (SI mount limits versus mm catalogue dimensions) are tested beside it.
+// S5 round 3: describeFile 0 -> 1 is the share-size refusal, covered at the exact motor-suffix boundary in describeFile.test.ts.
 // N7 round 4 census review: presets 20 -> 21 and userMaterials 11 -> 12
 // add only recovery-copy message declarations. No numeric boundary changed.
 import { createElement, act } from 'react';

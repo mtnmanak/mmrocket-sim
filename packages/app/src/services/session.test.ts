@@ -1760,3 +1760,14 @@ describe('stored-state siblings: a valid session is untouched', () => {
     expect(() => saveOrk(loaded)).not.toThrow();
   });
 });
+
+it.each([null, 123, {}, [], '', '@bad', '123456789', 'ABCDEFGH'])('round12 drops malformed motor-link mark %j', motorLinkMark => {
+  discardSession();
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), motorLinkMark }));
+  expect(loadSession()!.motorLinkMark).toBeUndefined();
+});
+it('round12 retains a valid motor-link mark', () => {
+  discardSession();
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), motorLinkMark: '1234abc' }));
+  expect(loadSession()!.motorLinkMark).toBe('1234abc');
+});

@@ -1,4 +1,10 @@
+import { ignitionDefaultFor } from './services/ignitionDefault.js';
 import { noteField, noteText } from './services/noteField.js';
+import { motorLinkParams, type MotorLinkParams } from './services/motorLink.js';
+import { planMotorLink, motorLinkMayReplace, motorLinkLoadFailure, type LinkNote } from './services/motorLinkOpen.js';
+import { linkResultCurrent } from './services/motorLinkFlight.js';
+import { catalogueCheckSettled } from './services/catalogueAutoCheck.js';
+import { loadMotorForMount } from './services/motorLoad.js';
 import { ConfigStabilityRange } from './components/ConfigStabilityRange.js';
 import { DesignPrintReport } from './components/DesignPrintReport.js';
 import { designPrintHtml } from './services/designPrintReport.js';
@@ -93,7 +99,7 @@ import { AftView } from './components/AftView.js';
 import { View3DBoundary } from './components/View3DBoundary.js';
 import { PanelBoundary } from './components/PanelBoundary.js';
 import { motorTooltip, restoreConfigLabels, restoreMotorLabels } from './services/motorLabels.js';
-import { getCatalogue, getCatalogueOverlay, subscribeCatalogue, type CatalogueOverlay, classLabel, diameterClass } from './services/motorDb.js';
+import { MOTOR_DB_DATE, getCatalogue, getCatalogueOverlay, subscribeCatalogue, type CatalogueOverlay, classLabel, diameterClass } from './services/motorDb.js';
 import { useCatalogue } from './components/useCatalogue.js';
 import { loadCatalogueMotor, matchImportedMotor } from './services/motorMatch.js';
 import { changedMotorsInDesign, designChangeLine, restoreCatalogueOverlay } from './services/catalogueOverlay.js';
@@ -181,8 +187,9 @@ import {
   assignedMotorsOf, currentSetKeyOf, designBuildInputOf, effectiveSupersonicOf, filePrimaryOf, hardwareDeltaKgOf,
   launchPrimaryOf, legacyPadMassStepOf, physicsKeyOf, provenanceKeyOf, refusedMountIdsOf,
 } from './services/designDerivation.js';
-import { stageMotors } from './services/nozzleFollow.js';
-import { stableJson, type DesignSnapshot } from './services/dirtyState.js';
+import { equivalentExitDiameterM, stageMotors } from './services/nozzleFollow.js';
+import { nozzleForMotorId } from './services/nozzleDb.js';
+import { stableJson, designFingerprint, type DesignSnapshot } from './services/dirtyState.js';
 import { autoDelayHardwareKey, autosavedDesignFile } from './services/autosaveBackup.js';
 import { designStateFromSession, type RankedPadMass } from './services/sessionRestore.js';
 import { createSequencer } from './services/latestWins.js';
@@ -830,6 +837,20 @@ export function App() {
   const [confirmNew, setConfirmNew] = useState(false);
   /** A decoded share-link design waiting for the user's OK to replace theirs. */
   const [shareOffer, setShareOffer] = useState<ImportedDesign | null>(null);
+  type PreparedFlight = { mountId: string; notes: LinkNote[] };
+  const linkFileImports = useRef(new WeakMap<ImportedDesign, { imported: ImportedDesign; resolved: NonNullable<ImportedDesign['resolvedMotors']> }>());
+  const preparedFlights = useRef(new WeakMap<ImportedDesign, PreparedFlight>());
+  const eligibleMotorLinks = useRef(new WeakSet<ImportedDesign>());
+  const pendingLinkFlight = useRef<(PreparedFlight & { gen: number; tree: FlightTree; motor: MountMotor; motorDelay: number; ignition: IgnitionTuple; previousTree: FlightTree; previousMotor: MountMotor | undefined; committed: boolean }) | null>(null);
+  const [motorLinkNotes, setMotorLinkNotes] = useState<{ gen: number; physicsKey: string; motorFlightKey: string;
+    activeConfigId: string | null; launch: LaunchConditions; runId: string; notes: LinkNote[] } | null>(null);
+  const [motorLinkMark, setMotorLinkMark] = useState<string | null>(restored.session?.motorLinkMark ?? null);
+  const clearMotorLink = (clearOrigin = true) => {
+    if (clearOrigin) setMotorLinkMark(null);
+    setShareOffer(null);
+    pendingLinkFlight.current = null;
+    setMotorLinkNotes(null);
+  };
   const [showBatch, setShowBatch] = useState(false);
   const [showScale, setShowScale] = useState(false);
   const [showChangelog, setShowChangelog] = useState(false);
@@ -995,7 +1016,10 @@ export function App() {
     // A .rkt/.CDX1 save marks the design it wrote, apart from the .ork mark:
     // a non-edit rewrite (catalogue relabel, restore migration, starter landing)
     // moves it too, or a design identical to the saved file reads as unsaved.
-    { onMarkMigrated: moveLossyMark });
+    { onMarkMigrated: (before, after) => {
+      moveLossyMark(before, after);
+      setMotorLinkMark(m => m === before ? after : m);
+    } });
   // Any other write that lands on the design's file replaces it, whichever
   // document asked for it: the refs are read as it completes (download's
   // rules, for App's own design saves, said this for one writer only).
@@ -1102,6 +1126,7 @@ export function App() {
    * exactly the shape of thing that gets fixed in one place only.
    */
   const startNewDesign = () => {
+    clearMotorLink();
     documentGeneration.current++;
     appliedSaveDestination.current = null;
     appliedOrkSaveDestination.current = null;
@@ -1387,7 +1412,7 @@ export function App() {
   const stageMotorLoadout = useMemo(() => stageMotors(flightTree, assigned), [flightTree, assigned]);
   const {
     cleared: nozzleCleared, pending: nozzlePending, seed: seedNozzleFollow, restoring: restoreNozzleFollow,
-  } = useNozzleFollow({ loadout: stageMotorLoadout, treeRef, writeTree });
+  } = useNozzleFollow({ loadout: stageMotorLoadout, treeRef, writeTree: writeTree });
   // The PRIMARY mount drives the report's lead columns, auto-delay and the
   // weighed pad mass: the topmost-stage mount with a motor (the sustainer's).
   // ONE definition of "the primary" — treeModel.primaryMountOf — shared with
@@ -1919,7 +1944,9 @@ export function App() {
       setFileNoteState(prev => retireLoadoutNote(prev, repairedConfig));
       setMotorLoadoutRepair({ ...repairNotice, onDismiss: () => setMotorLoadoutRepair(null) });
     }
-    if (plan.padMassNote !== undefined) setFileNote(plan.padMassNote, 'info', undefined, plan.padMassTier);
+    if (plan.padMassNote !== undefined) {
+      setFileNote(plan.padMassNote, 'info', undefined, plan.padMassTier);
+    }
     setUnmatchedRefs((prev) => {
       if (!Object.hasOwn(prev, targetMountId)) return prev;
       const next = { ...prev };
@@ -2016,7 +2043,9 @@ export function App() {
     return slash === -1 ? identity : identity.slice(slash + 1);
   };
 
-  const onLaunch = () => {
+  const onLaunch = (options?: unknown) => {
+    const link = options && typeof options === 'object' && 'fromLink' in options && options.fromLink === true
+      ? options as { fromLink: true; onRun: (runId: string) => void } : null;
     const refusal = savedConfigs.find(c => c.id === activeConfigId)?.motorLoadoutRefusal;
     if (refusal) { setSimError(noteText(refusal)); return; }
     if (!built || !primaryMountId || simulating || nozzlePending || flightHoldsHandle.current) return;
@@ -2083,6 +2112,7 @@ export function App() {
         recordRuns(addRun(run));
         sessionDebugLog.record('launch-complete');
         if (!stillFlown()) return;
+        link?.onRun(run.id);
         // Bound to the run it produced — the id is what lets a click through
         // the history table come back to these charts.
         setResult({ runId: run.id, value: res });
@@ -2354,12 +2384,17 @@ export function App() {
   const flownAutoDelaysNow = (): Record<string, Record<string, number>> => flownForAutosave;
 
   // Autosave the working state so a closed tab or crash never loses work.
+  useEffect(() => {
+    if (motorLinkMark !== null && motorLinkMark !== currentMark) setMotorLinkMark(null);
+  }, [motorLinkMark, currentMark]);
+
   // Declared here, below the export input, for `flownForAutosave`.
   useEffect(() => {
     if (autosavePaused) return;
     saveSessionDebounced({
       ...designSnapshot,
       configLayers: 1,
+      ...(motorLinkMark === currentMark ? { motorLinkMark } : {}),
       importedDocument,
       motorLengthLimitsMigrated: true,
       // Not part of the design fingerprint, but the only copy of a
@@ -2394,7 +2429,7 @@ export function App() {
   // them costs no runs — and dirtyTick is how they announce a change. `weather`
   // (weather build, step 3) and `flownForAutosave` ride in the same payload,
   // outside the design snapshot, so they are dependencies too.
-  }, [autosavePaused, designSnapshot, importedDocument, dirtyTick, unmatchedRefs, savedMark, flownSinceSave, weather, flownForAutosave, fileMachAlt, designFile, lossySaved, currentMark, lossyFlights]);
+  }, [motorLinkMark, autosavePaused, designSnapshot, importedDocument, dirtyTick, unmatchedRefs, savedMark, flownSinceSave, weather, flownForAutosave, fileMachAlt, designFile, lossySaved, currentMark, lossyFlights]);
 
   const documentNote = (generation: number, text: string, severity: NoticeSeverity = 'info', expand?: boolean, tier?: NoteTier) => {
     if (generation === documentGeneration.current) setFileNote(text, severity, expand, tier);
@@ -2752,6 +2787,7 @@ export function App() {
    * the Flight configurations panel both empty the working set in one click.
    */
   const applyImported = async (imported: ImportedDesign, seq?: number, file: DesignFileRef | null = null) => {
+    clearMotorLink();
     // Which open this is. Every motor in the file can cost a live
     // thrustcurve.org fetch with no timeout, so two opens a second apart
     // finish in whatever order the network decides: at a launch site the
@@ -2761,7 +2797,7 @@ export function App() {
     // `dirty` false so the next Open discarded the work silently.
     const openId = seq ?? openSeq.begin();
     // The awaits of an open: every motor the file names, resolved.
-    const resolved = await resolveImportMotors(imported, ref => matchImportedMotor(ref, { units: prefs.units }));
+    const resolved = imported.resolvedMotors ?? await resolveImportMotors(imported, ref => matchImportedMotor(ref, { units: prefs.units }));
     // EVERY await is behind us; from here on this function writes state. A
     // newer open started while those fetches were outstanding owns the screen
     // now, so this one stops here rather than overwriting it — and, crucially,
@@ -2788,17 +2824,30 @@ export function App() {
     // assembled apart. The launch is merged ONCE, from the mirror, now that
     // every await is behind us (audit 2026-09-22). The history starts over
     // from the opened design: Ctrl+Z does not reach across a file open.
+    const fileImport = linkFileImports.current.get(imported);
+    const filePlan = fileImport && planImport({ ...fileImport.imported, notes: imported.notes, noteTiers: imported.noteTiers, expand: imported.expand }, fileImport.resolved,
+      { launch: launchRef.current, text: statedWeightText, units: prefs.units });
     const plan = planImport(imported, resolved, { launch: launchRef.current, text: statedWeightText, units: prefs.units });
     const quietLines = new Set(planImport(imported, acceptedOtherMakerNotes(resolved),
       { launch: launchRef.current, text: statedWeightText, units: prefs.units }).note.text.split('\n'));
     const acceptedLines = plan.note.text.split('\n').filter(line => !quietLines.has(line));
+    if (filePlan) {
+      // The original motor-free import owns the orphan weighing caution.
+      const lines = [...plan.note.group.lines.filter(n => !n.kind.startsWith('I16.')),
+        ...filePlan.note.group.lines.filter(n => n.kind.startsWith('I16.'))];
+      const group = { ...plan.note.group, lines };
+      plan.note = { ...plan.note, group, text: [group.heading, ...lines.map(n => n.text)].filter(Boolean).join('\n'),
+        severity: highestTier(lines) === 'information' ? plan.note.severity : 'warn' };
+    }
     motorChoices.current.clear();
     setAutosavePaused(false);
     applyImportPlan(plan, {
       history: { reset: resetHistory },
       setMountMotors, setUnmatchedRefs, setSavedConfigs, setActiveConfigId, setDetachedOverrides, setLaunch, setMeasured,
       setLongitudeCheck: (evidence) => setLongitudeReview(evidence ? { evidence, applied: false } : null),
-      setMachAlt: setFileMachAlt, setNote: setGroupNote, setShroudPrompt,
+      setMachAlt: setFileMachAlt, setNote: (text, severity, expand, group) => {
+        setFileNoteState({ text, severity, ...(expand ? { expand: true } : {}), ...(group ? { group } : {}) });
+      }, setShroudPrompt,
       // eslint-disable-next-line no-restricted-syntax -- an import: the design on screen IS the file on disk
       markSaved,
     });
@@ -2813,7 +2862,7 @@ export function App() {
     if (storedCount) {
       const current = loadRuns();
       // The matched configurations, so an unnamed one's runs carry its shown label.
-      const summaryPlan = planSummaryImport(imported, current, plan.snapshot.savedConfigs);
+      const summaryPlan = planSummaryImport(fileImport?.imported ?? imported, current, filePlan?.snapshot.savedConfigs ?? plan.snapshot.savedConfigs);
       let next = current;
       if (summaryPlan.runs.length || summaryPlan.updatedRuns.length) {
         next = appendImportedRuns(summaryPlan.runs, summaryPlan.updatedRuns, summaryPlan.warningMergeBudget);
@@ -2831,8 +2880,9 @@ export function App() {
         { kind: 'I27.stored-runs-rule', tier: 'information',
           text: `Imports fill available spaces up to the ${MAX_RUNS}-run limit in file order; no existing runs were removed or reordered.` },
       ];
-      setGroupNote([plan.note.text, ...runLines.map(l => l.text)].filter(Boolean).join('\n'), plan.note.severity, plan.note.expand,
-        { ...plan.note.group, lines: [...plan.note.group.lines, ...runLines] });
+      setFileNoteState({ text: [plan.note.text, ...runLines.map(l => l.text)].filter(Boolean).join('\n'),
+        severity: plan.note.severity, ...(plan.note.expand ? { expand: true } : {}),
+        group: { ...plan.note.group, lines: [...plan.note.group.lines, ...runLines] } });
     }
     // An opened design (a share link included) that brings launch conditions
     // of its own has replaced the ones the weather record describes.
@@ -2848,6 +2898,13 @@ export function App() {
     setPadMassNote(null);
     setMotorLoadoutRepair(null);
     setSelectedId(null);
+    const flight = preparedFlights.current.get(imported);
+    if (eligibleMotorLinks.current.has(imported)) setMotorLinkMark(designFingerprint(plan.snapshot));
+    if (flight) pendingLinkFlight.current = { ...flight, gen: documentGeneration.current, tree: plan.snapshot.tree,
+      ignition: { ...resolveFlightState(plan.snapshot.tree, plan.snapshot.savedConfigs, plan.snapshot.activeConfigId,
+        plan.snapshot.detachedOverrides ?? {}, plan.snapshot.mountMotors).mountMotors[flight.mountId]!.ignition },
+      motor: plan.snapshot.mountMotors[flight.mountId]!, motorDelay: plan.snapshot.mountMotors[flight.mountId]!.spec.ejectionDelay, previousTree: tree, previousMotor: mountMotors[flight.mountId], committed: false };
+    return plan.snapshot.tree;
   };
 
   /**
@@ -3069,6 +3126,7 @@ export function App() {
   };
 
   const onOpenOrk = async (file: File) => {
+    clearMotorLink();
     sessionDebugLog.record('import-start');
     // Claim the open BEFORE the first await — the parse and the motor fetches
     // that follow can take seconds, and a second Open in the meantime has to
@@ -3128,12 +3186,121 @@ export function App() {
     }
   };
 
+  // No asynchronous resolution is allowed after applying the shared design.
+  const prepareMotorLink = async (imported: ImportedDesign, link: MotorLinkParams, openId: number): Promise<ImportedDesign> => {
+    const addNotes = (notes: LinkNote[]) => {
+      if (notes.length) imported.expand = true;
+      const seen = new Set(imported.notes);
+      for (const note of notes) {
+        if (seen.has(note.text)) continue;
+        seen.add(note.text);
+        imported.notes.push(note.text);
+        (imported.noteTiers ??= []).push({ ...note, kind: 'motor-link' });
+      }
+    };
+    const problems: LinkNote[] = link.problems.map(text => ({ tier: 'caution', text }));
+    if (link.motorId === null) { addNotes(problems); return imported; }
+    // Only the active configuration counts. Raw references include unresolved and EX motors.
+    if (Object.keys(imported.motors).length) {
+      addNotes([...problems, { tier: 'caution', text: noteField("The link's motor was not used because the design already has motors. No flight was run.") }]);
+      return imported;
+    }
+    eligibleMotorLinks.current.add(imported);
+    await catalogueCheckSettled(10_000);
+    const resolved = await resolveImportMotors(imported, ref => matchImportedMotor(ref, { units: prefs.units }));
+    if (!openSeq.isCurrent(openId)) return imported;
+    imported.resolvedMotors = resolved;
+    const snapshot = planImport(imported, resolved, { launch: launchRef.current, text: statedWeightText, units: prefs.units }).snapshot;
+    const plan = planMotorLink({ tree: snapshot.tree, mountIds: motorMounts(snapshot.tree).map(m => m.id!), params: link,
+      loadedMountIds: Object.keys(snapshot.mountMotors), catalogue: getCatalogue(),
+      catalogueDate: getCatalogueOverlay()?.snapshot?.generated ?? MOTOR_DB_DATE });
+    const refusal = snapshot.savedConfigs.find(c => c.id === snapshot.activeConfigId)?.motorLoadoutRefusal;
+    if (refusal) {
+      addNotes([...problems, { tier: 'caution', text: `The link's motor was not loaded: this configuration's motor loadout was refused. ${noteText(refusal)} No flight was run.` }]);
+      return imported;
+    }
+    if (plan.kind === 'no-flight') { addNotes(plan.notes.map(n => link.problems.includes(n.text) ? { ...n, tier: 'caution' } : n)); return imported; }
+    let loaded: Awaited<ReturnType<typeof loadMotorForMount>>;
+    try { loaded = await loadMotorForMount(plan.motor, plan.delay, { units: prefs.units, autoDelay: plan.autoDelay }); }
+    catch { addNotes([...problems, { tier: 'caution', text: motorLinkLoadFailure(plan.motor, plan.delay, plan.autoDelay) }]); return imported; }
+    if (!openSeq.isCurrent(openId)) return imported;
+    const flightNotes = plan.notes.filter(n => !link.problems.includes(n.text));
+    const notes = plan.notes.map(n => link.problems.includes(n.text) ? { ...n, tier: 'caution' as const } : n);
+    linkFileImports.current.set(imported, { imported: { ...imported, motors: { ...imported.motors },
+      configs: imported.configs?.map(c => ({ ...c, motors: { ...c.motors } })) },
+      resolved: { ...resolved, working: { ...resolved.working } } });
+    // Let the ordinary motor-free import own orphan weighing notes. Do not
+    // turn an orphan into a weighing of the newly injected motor.
+    imported.configs = imported.configs?.map(c => c.id === imported.chosenConfigId
+      ? { ...c, padMassKg: undefined, padMassLegacy: undefined } : c);
+    imported.motors[plan.mountId] = { designation: plan.motor.designation, manufacturer: plan.motor.manufacturerAbbrev,
+      diameter: plan.motor.diameter / 1000, length: plan.motor.length / 1000, delay: plan.delay };
+    const mounted = { ...loaded, ignition: ignitionDefaultFor(snapshot.tree, { mountId: plan.mountId, propellant: loaded.meta.propellant }) };
+    resolved.working[plan.mountId] = { motor: mounted, note: '' };
+    const cfg = imported.configs?.find(c => c.id === imported.chosenConfigId);
+    if (cfg) cfg.motors[plan.mountId] = imported.motors[plan.mountId]!;
+    const stage = stageMotors(snapshot.tree, Object.entries({ ...snapshot.mountMotors, [plan.mountId]: mounted })).find(s => s.motors.some(m => m.mountId === plan.mountId));
+    if (stage && numOrNull(findNode(snapshot.tree, stage.stageId)!, 'nozzleExitDiameter') === null) {
+      try {
+        const entries = await Promise.all(stage.motors.map(m => nozzleForMotorId(m.motorId)));
+        const diameter = equivalentExitDiameterM(stage.motors.map((m, i) => ({ count: m.count, exitDiameterM: entries[i]?.exitDiameterM ?? null })));
+        if (diameter !== null) {
+          imported.tree = applyStageNozzles(imported.tree, { [stage.stageId]: diameter });
+        }
+      } catch { notes.push({ tier: 'caution', text: 'The published nozzle exit could not be loaded, so the flight used none — check Motors & Configuration.' }); }
+    }
+    addNotes(notes);
+    preparedFlights.current.set(imported, { mountId: plan.mountId, notes: flightNotes });
+    return imported;
+  };
+  useEffect(() => {
+    const pending = pendingLinkFlight.current;
+    if (!pending) return;
+    if (pending.gen !== documentGeneration.current) {
+      pendingLinkFlight.current = null;
+      return;
+    }
+    const currentMotor = mountMotors[pending.mountId];
+    const currentIgnition = flightState.mountMotors[pending.mountId]?.ignition;
+    // Catalogue relabels replace records and metadata, but preserve the loaded spec.
+    const sameMotor = currentMotor !== undefined
+      && currentMotor.meta.motorId === pending.motor.meta.motorId
+      && currentMotor.spec.ejectionDelay === pending.motorDelay
+      && !!currentMotor.meta.autoDelay === !!pending.motor.meta.autoDelay
+      && currentMotor.padMassKg === pending.motor.padMassKg
+      && currentMotor.padMassWeighedWith === pending.motor.padMassWeighedWith
+      && currentIgnition?.event === pending.ignition.event
+      && currentIgnition?.delay === pending.ignition.delay
+      && currentMotor.spec === pending.motor.spec;
+    if (tree !== pending.tree || !sameMotor) {
+      // An earlier sync render can still carry either pre-import value.
+      // Once committed, a different tree or motor selection cancels this one-shot launch.
+      if (pending.committed || (tree !== pending.tree && tree !== pending.previousTree)
+        || (!sameMotor && currentMotor !== pending.previousMotor)) {
+        pendingLinkFlight.current = null;
+      }
+      return;
+    }
+    pending.committed = true;
+    // flightHoldsHandle includes simulating and reflight work.
+    if (!built || !primaryMountId || nozzlePending || openMotorQuestion || flightHoldsHandle.current) return;
+    pendingLinkFlight.current = null;
+    onLaunch({ fromLink: true, onRun: (runId: string) => {
+      if (pending.gen !== documentGeneration.current) return;
+      setMotorLinkNotes({ gen: pending.gen, physicsKey, motorFlightKey, activeConfigId, launch, runId, notes: pending.notes });
+    } });
+  });
+
   // ---- "Open from a link": #d=<compressed .ork> in the URL fragment ----
   // Decoded once at startup, then the fragment is cleared up front —
   // declined and broken links included — so a reload never re-triggers it.
   // Every failure lands in the file-note with the current design untouched;
   // a bad link must never blank the app.
   const shareHandled = useRef(false);
+  const latestApplyImported = useRef(applyImported);
+  latestApplyImported.current = applyImported;
+  const linkMayReplace = useRef(false);
+  linkMayReplace.current = motorLinkMayReplace({ motorLinkMark, currentMark, designFile, autosavePaused });
   const shareShouldOffer = useRef(false);
   /**
    * Offer the Quick Picks at all? They are the Quick Start's four Estes
@@ -3148,14 +3315,16 @@ export function App() {
   useEffect(() => {
     if (shareHandled.current || !hasSharePayload(window.location.hash)) return;
     shareHandled.current = true; // StrictMode double-invoke guard (the ref survives the remount)
+    clearMotorLink(false);
     const hash = window.location.hash;
+    const link = motorLinkParams(hash);
     // window.history explicitly: the browser's, not the design's undo history.
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
     // Sequenced like every other open, claimed before its first await
     // (importApply.openShareLink).
     void openShareLink(hash, {
       openSeq,
-      read: async (h) => {
+      read: async (h, openId) => {
         // Cheap pre-decode cap: no real share link approaches 1 MB of
         // fragment, and a crafted one can inflate to hundreds of MB — refuse
         // it before base64/inflate ever run (same soft-fail path as a
@@ -3163,13 +3332,14 @@ export function App() {
         if (h.length > MAX_FRAGMENT_CHARS) {
           throw new Error('the link is far longer than any real design — refusing to decode it');
         }
-        return importOrk(await decodeShareFragment(h), { units: prefs.units, presets: await loadPresets(), distanceUnit: prefs.units.altitude,
+        const imported = importOrk(await decodeShareFragment(h), { units: prefs.units, presets: await loadPresets(), distanceUnit: prefs.units.altitude,
           horizontalDistanceUnit: prefs.units.distance });
+        return prepareMotorLink(imported, link, openId);
       },
       // Include non-tree edits and work done while the link was decoding.
-      shouldOffer: () => shareShouldOffer.current,
-      onOffer: setShareOffer,
-      apply: applyImported,
+      shouldOffer: imported => shareShouldOffer.current && !(eligibleMotorLinks.current.has(imported) && linkMayReplace.current),
+      onOffer: imported => { setShareOffer(imported); },
+      apply: async (imported, openId) => { await latestApplyImported.current(imported, openId); },
       // 'warn', not the default 'info'. The message is 165 characters before the
       // reason is appended and the collapsed bar truncates at 157, so as an info
       // notice the reader got the first sentence, an 'i' glyph, no reason, and a
@@ -3992,7 +4162,8 @@ export function App() {
       <DesignConfirms tree={tree} lossDialog={lossDialog} setLossDialog={setLossDialog} saveLossy={saveLossy}
         unprotected={dirty || flownSinceSave.current} confirmNew={confirmNew} setConfirmNew={setConfirmNew} replaceLoss={replaceLoss} startNewDesign={startNewDesign}
         onSaveOrk={onSaveOrk} pendingOpen={pendingOpen} setPendingOpen={setPendingOpen} onOpenOrk={onOpenOrk}
-        shareOffer={shareOffer} setShareOffer={setShareOffer} applyImported={applyImported}
+        shareOffer={shareOffer} setShareOffer={setShareOffer}
+        applyImported={async imported => { await applyImported(imported); }}
         shroudPrompt={shroudPrompt} setShroudPrompt={setShroudPrompt} hasOpenMotorQuestion={openMotorQuestion !== null}
         onConvertShrouds={() => {
           if (!shroudPrompt) return;
@@ -4784,7 +4955,7 @@ export function App() {
                         // Named, not "multiplication x" (audit 2026-09-22).
                         aria-label={`Remove ${mm.label} from ${mountName(m)}`}
                         onClick={() => {
-                          motorChoices.current.delete(m.id!);
+                                                motorChoices.current.delete(m.id!);
                           setMountMotors((prev) => {
                             const next = { ...prev };
                             delete next[m.id!];
@@ -4850,7 +5021,7 @@ export function App() {
                             ariaLabel={`Ejection delay for ${mountName(m)}`}
                             onCommit={(v) => {
                               if (v === null) return;
-                              // Typing a delay overrides auto (mountDelayEdits).
+                                                        // Typing a delay overrides auto (mountDelayEdits).
                               // Edit the raw record, never bake a resolved ignition override
                               // into its default (audit 2026-10-11, FC-4 fixup).
                               setMountMotors((prev) => ({ ...prev, [m.id!]: withDelay(prev[m.id!]!, v) }));
@@ -4867,7 +5038,7 @@ export function App() {
                               // Un-plugging restores the longest prescribed
                               // delay, or 6 s (mountDelayEdits).
                               const plugged = e.target.checked;
-                              setMountMotors((prev) => ({ ...prev, [m.id!]: withPlugged(prev[m.id!]!, plugged) }));
+                                                        setMountMotors((prev) => ({ ...prev, [m.id!]: withPlugged(prev[m.id!]!, plugged) }));
                             }}
                           />
                           plugged
@@ -4881,7 +5052,7 @@ export function App() {
                               style={{ width: 'auto' }}
                               onChange={(e) => {
                                 const auto = e.target.checked;
-                                setMountMotors((prev) => ({ ...prev, [m.id!]: withAuto(prev[m.id!]!, auto) }));
+                                                            setMountMotors((prev) => ({ ...prev, [m.id!]: withAuto(prev[m.id!]!, auto) }));
                               }}
                             />
                             auto (optimal)
@@ -5026,6 +5197,10 @@ export function App() {
 
         {tab === 'results' && (
         <main className="results-column" data-tour="results-panel" ref={resultsMainRef} tabIndex={-1}>
+          {motorLinkNotes && !inspectedSummary && reportRun?.id === motorLinkNotes.runId
+            && result?.runId === motorLinkNotes.runId && launch === motorLinkNotes.launch
+            && linkResultCurrent(motorLinkNotes, { gen: documentGeneration.current, physicsKey, motorFlightKey, activeConfigId })
+            && motorLinkNotes.notes.map((note, i) => <Note key={i} tier={note.tier}>{note.text}</Note>)}
           {/* ALWAYS MOUNTED (audit 2026-09-22): an alert inserted with its text
               already in place is announced unreliably. sr-only while empty, so
               the column's flex gap does not space an empty region. */}

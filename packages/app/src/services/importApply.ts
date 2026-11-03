@@ -72,7 +72,9 @@ export type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors
   & Partial<Pick<OrkImportResult, 'configs' | 'chosenConfigId' | 'configSources' | 'configNotes' | 'configLabelNotes' | 'storedSimulations' | 'desktopPredictions' | 'newerFormat'>>
   // RASAero files carry a Mach-Alt table; the drag panel offers it as a
   // sweep condition so a user can reproduce tunnel-matched Reynolds.
-  & { machAlt?: [number, number][]; sourceFormat?: 'ork' | 'rkt' | 'cdx1' };
+  & {
+    /** In-memory prepared share import: reuse exact catalogue IDs and curves, never designation-match again. */
+    resolvedMotors?: ResolvedImportMotors; machAlt?: [number, number][]; sourceFormat?: 'ork' | 'rkt' | 'cdx1' };
 
 /** One mount's motor in the shape the stated-launch-weight reconcile takes. */
 export function attachedOf(spec: MountMotor['spec']): AttachedMotor {
@@ -901,18 +903,18 @@ export function planConfigSwitch(
 export async function openShareLink(hash: string, deps: {
   openSeq: Sequencer;
   /** Decode and parse the fragment (every await of this path). Throws on a bad link. */
-  read: (hash: string) => Promise<ImportedDesign>;
+  read: (hash: string, openId: number) => Promise<ImportedDesign>;
   /** Ask first (a restored design the user worked on) rather than apply. */
-  shouldOffer: () => boolean;
+  shouldOffer: (imported: ImportedDesign) => boolean;
   onOffer: (imported: ImportedDesign) => void;
   apply: (imported: ImportedDesign, openId: number) => Promise<void>;
   onError: (e: unknown) => void;
 }): Promise<void> {
   const openId = deps.openSeq.begin();
   try {
-    const imported = await deps.read(hash);
+    const imported = await deps.read(hash, openId);
     if (!deps.openSeq.isCurrent(openId)) return;
-    if (deps.shouldOffer()) deps.onOffer(imported);
+    if (deps.shouldOffer(imported)) deps.onOffer(imported);
     else await deps.apply(imported, openId);
   } catch (e) {
     if (!deps.openSeq.isCurrent(openId)) return;
