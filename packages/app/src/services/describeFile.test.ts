@@ -23,7 +23,7 @@ import * as shareLinks from './shareLink.js';
 import { importRkt } from './rocksimFile.js';
 
 /**
- * THE S3 DRAFT DESCRIBE (describeFile.ts), on the committed fixtures only.
+ * THE /describe v1 SERVICE (describeFile.ts), on the committed fixtures only.
  * Every expected number is computed afresh here — from the flight build, the
  * Design tab's own loaded build or the fixture's own XML — never pinned.
  * The tester corpus is local-only and is not run here.

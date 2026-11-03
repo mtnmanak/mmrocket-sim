@@ -20,8 +20,8 @@ import { openHeadlessDesign, planHeadlessImport } from './simulateFile.js';
 import type { ImportPlan } from './importApply.js';
 
 /**
- * S3 DRAFT: ONE UPLOAD → ITS DRY STATICS, ITS MOUNTS AND A MOTOR-INDEPENDENT
- * SHARE FRAGMENT (2026-10-27, for the owner's review before anything ships).
+ * V1 SERVICE: ONE UPLOAD: ITS DRY STATICS, ITS MOUNTS AND A MOTOR-INDEPENDENT
+ * SHARE FRAGMENT.
  *
  * The file opens through the SAME door a headless flight uses
  * (simulateFile.openHeadlessDesign + planHeadlessImport): bundled presets,

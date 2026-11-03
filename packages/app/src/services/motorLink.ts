@@ -1,6 +1,6 @@
 import { noteField } from './noteField.js';
 
-export const LINK_PARAM = { motor: 'motor', delay: 'delay' } as const;
+const LINK_PARAM = { motor: 'motor', delay: 'delay' } as const;
 export const DELAY_HINT_GRAMMAR = /^(?:P|\d{1,3}(?:\.\d{1,2})?)$/;
 export type DelayHint = number | 'plugged';
 export interface MotorLinkParams {

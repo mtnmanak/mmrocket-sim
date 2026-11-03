@@ -1034,7 +1034,7 @@ it('round14 relabel during an inactive motor question still flies exactly once',
   expect(flyBuiltDesign).toHaveBeenCalledOnce();
 }, 20_000);
 
-it.each(['id', 'delay', 'auto', 'spec', 'remove', 'pad-mass', 'weighed-with', 'ignition-event', 'ignition-delay'] as const)('round14 real motor %s change cancels a held flight', async kind => {
+it.each(['id', 'delay', 'auto', 'spec', 'remove', 'pad-mass', 'weighed-with'] as const)('round14 real motor %s change cancels a held flight', async kind => {
   held.build = true;
   await open('&motor=' + motor.motorId);
   await waitFor(() => vi.mocked(applyImportPlan).mock.calls.length === 1);
@@ -1053,8 +1053,6 @@ it.each(['id', 'delay', 'auto', 'spec', 'remove', 'pad-mass', 'weighed-with', 'i
   if (kind === 'spec') changed.spec = { ...original.spec };
   if (kind === 'pad-mass') changed.padMassKg = 0.321;
   if (kind === 'weighed-with') changed.padMassWeighedWith = 'changed-set';
-  if (kind === 'ignition-event') changed.ignition = { ...original.ignition, event: 'never' };
-  if (kind === 'ignition-delay') changed.ignition = { ...original.ignition, delay: original.ignition.delay + 1 };
   held.build = false;
   await act(async () => sinks.setMountMotors(kind === 'remove' ? {} : { [id]: changed }));
   await settle(); await settle();
@@ -1093,4 +1091,35 @@ it('round14 ineligible B offers replacement after untouched flown A', async () =
   await settle();
   expect(host.textContent).toContain('design already has motors');
   expect(flyBuiltDesign).toHaveBeenCalledOnce();
+}, 20_000);
+
+
+it.each(['event', 'delay'] as const)('round16 resetting the effective ignition %s override cancels a held flight', async kind => {
+  held.build = true;
+  const tree = defaultTree();
+  const mountId = motorMounts(tree)[0]!.id!;
+  const ignition = { event: kind === 'event' ? 'never' as const : 'automatic' as const, delay: kind === 'delay' ? 2 : 0 };
+  const fragment = await encodeShareFragment(exportOrk({ name: 'Effective ignition', tree,
+    configs: [{ id: 'link-config', name: 'Link config', motors: {}, isDefault: true,
+      ignitions: { [mountId]: ignition } }], activeConfigId: 'link-config' }));
+  await open('&motor=' + motor.motorId, fragment);
+  await waitFor(() => vi.mocked(applyImportPlan).mock.calls.length === 1);
+  await waitFor(() => !!session().savedConfigs?.[0]?.ignitions);
+  const before = session();
+  expect(Object.values(before.savedConfigs[0].ignitions)).toContainEqual(ignition);
+  await click('Motors & Configuration');
+  const reset = [...host.querySelectorAll<HTMLButtonElement>('button')].find(b =>
+    b.textContent === 'Reset to own setting' && b.parentElement?.querySelector('select[id^="ignition-"]'));
+  expect(reset).toBeDefined();
+  await act(async () => reset!.click());
+  await waitFor(() => Object.keys(session().savedConfigs[0].ignitions ?? {}).length === 0);
+  // This real UI reset changes only the configuration layer, not the raw motor or tree.
+  expect(session().tree).toEqual(before.tree);
+  expect(session().mountMotors).toEqual(before.mountMotors);
+  held.build = false;
+  const [, sinks] = vi.mocked(applyImportPlan).mock.calls[0]!;
+  await act(async () => sinks.setMeasured({ massKg: 0.2, cgM: null }));
+  await settle(); await settle();
+  expect(flyBuiltDesign).not.toHaveBeenCalled();
+  expect(runs()).toHaveLength(0);
 }, 20_000);

@@ -841,7 +841,7 @@ export function App() {
   const linkFileImports = useRef(new WeakMap<ImportedDesign, { imported: ImportedDesign; resolved: NonNullable<ImportedDesign['resolvedMotors']> }>());
   const preparedFlights = useRef(new WeakMap<ImportedDesign, PreparedFlight>());
   const eligibleMotorLinks = useRef(new WeakSet<ImportedDesign>());
-  const pendingLinkFlight = useRef<(PreparedFlight & { gen: number; tree: FlightTree; motor: MountMotor; motorDelay: number; previousTree: FlightTree; previousMotor: MountMotor | undefined; committed: boolean }) | null>(null);
+  const pendingLinkFlight = useRef<(PreparedFlight & { gen: number; tree: FlightTree; motor: MountMotor; motorDelay: number; ignition: IgnitionTuple; previousTree: FlightTree; previousMotor: MountMotor | undefined; committed: boolean }) | null>(null);
   const [motorLinkNotes, setMotorLinkNotes] = useState<{ gen: number; physicsKey: string; motorFlightKey: string;
     activeConfigId: string | null; launch: LaunchConditions; runId: string; notes: LinkNote[] } | null>(null);
   const [motorLinkMark, setMotorLinkMark] = useState<string | null>(restored.session?.motorLinkMark ?? null);
@@ -2901,6 +2901,8 @@ export function App() {
     const flight = preparedFlights.current.get(imported);
     if (eligibleMotorLinks.current.has(imported)) setMotorLinkMark(designFingerprint(plan.snapshot));
     if (flight) pendingLinkFlight.current = { ...flight, gen: documentGeneration.current, tree: plan.snapshot.tree,
+      ignition: { ...resolveFlightState(plan.snapshot.tree, plan.snapshot.savedConfigs, plan.snapshot.activeConfigId,
+        plan.snapshot.detachedOverrides ?? {}, plan.snapshot.mountMotors).mountMotors[flight.mountId]!.ignition },
       motor: plan.snapshot.mountMotors[flight.mountId]!, motorDelay: plan.snapshot.mountMotors[flight.mountId]!.spec.ejectionDelay, previousTree: tree, previousMotor: mountMotors[flight.mountId], committed: false };
     return plan.snapshot.tree;
   };
@@ -3259,6 +3261,7 @@ export function App() {
       return;
     }
     const currentMotor = mountMotors[pending.mountId];
+    const currentIgnition = flightState.mountMotors[pending.mountId]?.ignition;
     // Catalogue relabels replace records and metadata, but preserve the loaded spec.
     const sameMotor = currentMotor !== undefined
       && currentMotor.meta.motorId === pending.motor.meta.motorId
@@ -3266,8 +3269,8 @@ export function App() {
       && !!currentMotor.meta.autoDelay === !!pending.motor.meta.autoDelay
       && currentMotor.padMassKg === pending.motor.padMassKg
       && currentMotor.padMassWeighedWith === pending.motor.padMassWeighedWith
-      && currentMotor.ignition.event === pending.motor.ignition.event
-      && currentMotor.ignition.delay === pending.motor.ignition.delay
+      && currentIgnition?.event === pending.ignition.event
+      && currentIgnition?.delay === pending.ignition.delay
       && currentMotor.spec === pending.motor.spec;
     if (tree !== pending.tree || !sameMotor) {
       // An earlier sync render can still carry either pre-import value.
