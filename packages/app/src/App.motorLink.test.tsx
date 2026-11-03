@@ -724,3 +724,103 @@ it('round11 resolved motors in an inactive configuration keep full active link f
   // Import allocates new component IDs; compare the motor record, not the export ID.
   expect(Object.values(inactive.motors)).toMatchObject([{ meta: { motorId: motor.motorId }, padMassKg: 0.5 }]);
 });
+
+it('round12 nozzle pending at commit waits and then flies exactly once', async () => {
+  held.nozzle = true;
+  await open('&motor=' + motor.motorId);
+  await waitFor(() => vi.mocked(applyImportPlan).mock.calls.length === 1);
+  await settle(); expect(flyBuiltDesign).not.toHaveBeenCalled();
+  held.nozzle = false;
+  await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+  await waitFor(() => runs().length === 1);
+  await settle(); expect(flyBuiltDesign).toHaveBeenCalledOnce();
+});
+async function reloadLink(suffix: string) {
+  await act(async () => root.unmount()); host.remove();
+  await open(suffix);
+}
+it('round12 autosave restore between A and B replaces silently and flies B', async () => {
+  const second = (await Promise.all(getCatalogue().filter(m => m.diameter === 18 && m.motorId !== motor.motorId)
+    .map(async m => await bundleHasCurve(m.motorId) ? m : null))).find(m => m !== null)!;
+  await open('&motor=' + motor.motorId); await waitFor(() => runs().length === 1);
+  await waitFor(() => typeof session().motorLinkMark === 'string');
+  const mark = session().motorLinkMark;
+  await act(async () => root.unmount()); host.remove();
+  window.history.replaceState(null, '', '/');
+  host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+  await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+  await settle();
+  expect(host.textContent).not.toContain('Open design from this link?');
+  expect(flyBuiltDesign).toHaveBeenCalledOnce(); expect(session().motorLinkMark).toBe(mark);
+  await reloadLink('&motor=' + second.motorId);
+  await waitFor(() => runs().length === 2);
+  expect(host.textContent).not.toContain('Open design from this link?');
+  await waitFor(() => Object.values(session().mountMotors ?? {}).some(m => (m as {meta: {motorId: string}}).meta.motorId === second.motorId));
+  expect(flyBuiltDesign).toHaveBeenCalledTimes(2);
+}, 20_000);
+it('round12 edit after A clears origin even after reverting; B waits for acceptance', async () => {
+  await open('&motor=' + motor.motorId); await waitFor(() => runs().length === 1);
+  await waitFor(() => typeof session().motorLinkMark === 'string');
+  const [plan, sinks] = vi.mocked(applyImportPlan).mock.calls[0]!;
+  await act(async () => sinks.setMeasured({ massKg: 0.2, cgM: null }));
+  await waitFor(() => session().motorLinkMark === undefined);
+  await act(async () => sinks.setMeasured(plan.snapshot.measured));
+  await waitFor(() => JSON.stringify(session().measured) === JSON.stringify(plan.snapshot.measured));
+  expect(session().motorLinkMark).toBeUndefined();
+  await reloadLink('&motor=' + motor.motorId);
+  await waitFor(() => host.textContent!.includes('Open design from this link?'));
+  expect(flyBuiltDesign).toHaveBeenCalledOnce();
+  const accept = host.querySelector<HTMLButtonElement>('[aria-label="Open design from link"] .modal-danger')!;
+  await act(async () => accept.click());
+  await waitFor(() => runs().length === 2);
+  expect(flyBuiltDesign).toHaveBeenCalledTimes(2);
+}, 20_000);
+
+it.each(['plain', 'file', 'new'] as const)('round12 %s open clears link origin', async kind => {
+  await open('&motor=' + motor.motorId); await waitFor(() => runs().length === 1);
+  await waitFor(() => typeof session().motorLinkMark === 'string');
+  if (kind === 'new') await newDesign();
+  else if (kind === 'file') {
+    const picker = host.querySelector<HTMLInputElement>('[aria-label="Open a design file"]')!;
+    Object.defineProperty(picker, 'files', { configurable: true, value: [new File([exportOrk({ name: 'File after link', tree: defaultTree() })], 'after.ork')] });
+    await act(async () => picker.dispatchEvent(new Event('change', { bubbles: true })));
+    await waitFor(() => !!host.querySelector('[aria-label="Unsaved changes"]'));
+    const discard = host.querySelector<HTMLButtonElement>('[aria-label="Unsaved changes"] .modal-danger');
+    if (discard) await act(async () => discard.click());
+  } else {
+    await reloadLink('');
+    await waitFor(() => host.textContent!.includes('Open design from this link?'));
+    const accept = host.querySelector<HTMLButtonElement>('[aria-label="Open design from link"] .modal-danger')!;
+    await act(async () => accept.click());
+  }
+  await waitFor(() => session().motorLinkMark === undefined);
+  expect(flyBuiltDesign).toHaveBeenCalledOnce();
+}, 20_000);
+
+it('round12 mark is taken once at commit before flight readiness', async () => {
+  held.build = true;
+  await open('&motor=' + motor.motorId);
+  await waitFor(() => typeof session().motorLinkMark === 'string');
+  expect(flyBuiltDesign).not.toHaveBeenCalled();
+  const [, sinks] = vi.mocked(applyImportPlan).mock.calls[0]!;
+  await act(async () => sinks.setMeasured({ massKg: 0.2, cgM: null }));
+  await waitFor(() => session().motorLinkMark === undefined);
+  held.build = false;
+  await act(async () => sinks.setMeasured({ massKg: 0.21, cgM: null }));
+  await waitFor(() => runs().length === 1);
+  await settle(); expect(session().motorLinkMark).toBeUndefined();
+}, 20_000);
+
+it('round12 plain open clears origin even when its snapshot is identical', async () => {
+  await open('&motor=' + motor.motorId); await waitFor(() => runs().length === 1);
+  await waitFor(() => typeof session().motorLinkMark === 'string');
+  const [old] = vi.mocked(applyImportPlan).mock.calls[0]!;
+  const real = await vi.importActual<typeof import('./services/importApply.js')>('./services/importApply.js');
+  vi.mocked(applyImportPlan).mockImplementationOnce((plan, sinks) => real.applyImportPlan({ ...plan, snapshot: old.snapshot }, sinks));
+  await reloadLink('');
+  await waitFor(() => host.textContent!.includes('Open design from this link?'));
+  const accept = host.querySelector<HTMLButtonElement>('[aria-label="Open design from link"] .modal-danger')!;
+  await act(async () => accept.click());
+  await waitFor(() => session().motorLinkMark === undefined);
+  expect(flyBuiltDesign).toHaveBeenCalledOnce();
+}, 20_000);

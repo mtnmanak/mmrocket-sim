@@ -1,7 +1,7 @@
 import { ignitionDefaultFor } from './services/ignitionDefault.js';
 import { noteField, noteText } from './services/noteField.js';
 import { motorLinkParams, type MotorLinkParams } from './services/motorLink.js';
-import { planMotorLink, motorLinkLoadFailure, type LinkNote } from './services/motorLinkOpen.js';
+import { planMotorLink, motorLinkMayReplace, motorLinkLoadFailure, type LinkNote } from './services/motorLinkOpen.js';
 import { linkResultCurrent } from './services/motorLinkFlight.js';
 import { catalogueCheckSettled } from './services/catalogueAutoCheck.js';
 import { loadMotorForMount } from './services/motorLoad.js';
@@ -843,7 +843,9 @@ export function App() {
   const pendingLinkFlight = useRef<(PreparedFlight & { gen: number; tree: FlightTree; motor: MountMotor; previousTree: FlightTree; previousMotor: MountMotor | undefined; committed: boolean }) | null>(null);
   const [motorLinkNotes, setMotorLinkNotes] = useState<{ gen: number; physicsKey: string; motorFlightKey: string;
     activeConfigId: string | null; launch: LaunchConditions; runId: string; notes: LinkNote[] } | null>(null);
-  const clearMotorLink = () => {
+  const [motorLinkMark, setMotorLinkMark] = useState<string | null>(loadedSession?.motorLinkMark ?? null);
+  const clearMotorLink = (clearOrigin = true) => {
+    if (clearOrigin) setMotorLinkMark(null);
     setShareOffer(null);
     pendingLinkFlight.current = null;
     setMotorLinkNotes(null);
@@ -2378,12 +2380,17 @@ export function App() {
   const flownAutoDelaysNow = (): Record<string, Record<string, number>> => flownForAutosave;
 
   // Autosave the working state so a closed tab or crash never loses work.
+  useEffect(() => {
+    if (motorLinkMark !== null && motorLinkMark !== currentMark) setMotorLinkMark(null);
+  }, [motorLinkMark, currentMark]);
+
   // Declared here, below the export input, for `flownForAutosave`.
   useEffect(() => {
     if (autosavePaused) return;
     saveSessionDebounced({
       ...designSnapshot,
       configLayers: 1,
+      ...(motorLinkMark === currentMark ? { motorLinkMark } : {}),
       importedDocument,
       motorLengthLimitsMigrated: true,
       // Not part of the design fingerprint, but the only copy of a
@@ -2418,7 +2425,7 @@ export function App() {
   // them costs no runs — and dirtyTick is how they announce a change. `weather`
   // (weather build, step 3) and `flownForAutosave` ride in the same payload,
   // outside the design snapshot, so they are dependencies too.
-  }, [autosavePaused, designSnapshot, importedDocument, dirtyTick, unmatchedRefs, savedMark, flownSinceSave, weather, flownForAutosave, fileMachAlt, designFile, lossySaved, currentMark, lossyFlights]);
+  }, [motorLinkMark, autosavePaused, designSnapshot, importedDocument, dirtyTick, unmatchedRefs, savedMark, flownSinceSave, weather, flownForAutosave, fileMachAlt, designFile, lossySaved, currentMark, lossyFlights]);
 
   const documentNote = (generation: number, text: string, severity: NoticeSeverity = 'info', expand?: boolean, tier?: NoteTier) => {
     if (generation === documentGeneration.current) setFileNote(text, severity, expand, tier);
@@ -3239,6 +3246,7 @@ export function App() {
     preparedFlights.current.set(imported, { mountId: plan.mountId, notes: flightNotes });
     return imported;
   };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- observes readiness refs each render; committed limits the mark to one update
   useEffect(() => {
     const pending = pendingLinkFlight.current;
     if (!pending) return;
@@ -3255,6 +3263,7 @@ export function App() {
       }
       return;
     }
+    if (!pending.committed) setMotorLinkMark(currentMark);
     pending.committed = true;
     if (!built || !primaryMountId || simulating || nozzlePending || openMotorQuestion || flightHoldsHandle.current) return;
     pendingLinkFlight.current = null;
@@ -3270,6 +3279,8 @@ export function App() {
   // Every failure lands in the file-note with the current design untouched;
   // a bad link must never blank the app.
   const shareHandled = useRef(false);
+  const linkMayReplace = useRef(false);
+  linkMayReplace.current = motorLinkMayReplace({ motorLinkMark, currentMark, designFile, autosavePaused });
   const shareShouldOffer = useRef(false);
   /**
    * Offer the Quick Picks at all? They are the Quick Start's four Estes
@@ -3284,7 +3295,7 @@ export function App() {
   useEffect(() => {
     if (shareHandled.current || !hasSharePayload(window.location.hash)) return;
     shareHandled.current = true; // StrictMode double-invoke guard (the ref survives the remount)
-    clearMotorLink();
+    clearMotorLink(false);
     const hash = window.location.hash;
     const link = motorLinkParams(hash);
     // window.history explicitly: the browser's, not the design's undo history.
@@ -3306,7 +3317,7 @@ export function App() {
         return prepareMotorLink(imported, link, openId);
       },
       // Include non-tree edits and work done while the link was decoding.
-      shouldOffer: () => shareShouldOffer.current,
+      shouldOffer: () => shareShouldOffer.current && !(link.motorId !== null && linkMayReplace.current),
       onOffer: imported => { setShareOffer(imported); },
       apply: async (imported, openId) => { await applyImported(imported, openId); },
       // 'warn', not the default 'info'. The message is 165 characters before the

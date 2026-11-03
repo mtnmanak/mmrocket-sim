@@ -57,3 +57,11 @@ export function planMotorLink(input: {
     text: copy.others(noteField(stages(tree)[stageIndexOf(tree, mountId)]?.name ?? 'launch-stage'), emptyOthers) });
   return { kind: 'fly', mountId, motor, delay, autoDelay, notes };
 }
+
+/** Only an untouched link design without a file or a paused autosave may be replaced. */
+export function motorLinkMayReplace(s: {
+  motorLinkMark: string | null; currentMark: string;
+  designFile: import('./designFileName.js').DesignFileRef | null; autosavePaused: boolean;
+}): boolean {
+  return s.motorLinkMark === s.currentMark && s.designFile === null && !s.autosavePaused;
+}

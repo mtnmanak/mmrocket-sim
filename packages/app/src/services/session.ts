@@ -160,6 +160,8 @@ export interface SessionState {
    * above.
    */
   savedMark?: string;
+  /** Design fingerprint after a link motor committed; flights do not change it. */
+  motorLinkMark?: string;
   /**
    * Has a flight been run since that mark? Flying does not change the design,
    * so no fingerprint can see it — but the owner asked for it to count, and
@@ -466,6 +468,7 @@ function readSession(restoreRoot: boolean): SessionState | null {
       return null;
     }
     delete s.treeRestoreNotes;
+    if (s.motorLinkMark !== undefined && (typeof s.motorLinkMark !== 'string' || !/^[0-9a-z]{1,7}$/.test(s.motorLinkMark))) delete s.motorLinkMark;
     if (s.importedDocument !== undefined) {
       if (!isTable(s.importedDocument) || typeof s.importedDocument.name !== 'string') {
         delete s.importedDocument;
