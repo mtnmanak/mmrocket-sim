@@ -2,7 +2,7 @@
 
 A Cloudflare module Worker that opens and flies a raw `.ork`, `.rkt` or `.CDX1` through the app's existing headless path and OpenRocket 24.12 Java core compiled with TeaVM. GPL-3.0-or-later; see the repository LICENSE.
 
-Live at `https://api.mmrsim.mountainmanrockets.com` since 2026-10-29 (commit `9978d0ad`, API deploy run 40964828731, dispatched by the owner); redeployed 2026-11-02 from commit `795c1db0` (API deploy run 41532696663, Worker version `0be03fbb`). `/describe` answers still say `api: "s3-draft"`: its contract becomes v1 once S5 defines how a motor is added to its link. `/experimental/fly` is for testing and is not a contract. The Worker changes only when the owner dispatches `api-deploy.yml`; a push to `main` deploys the app, not the API.
+Live at `https://api.mmrsim.mountainmanrockets.com` since 2026-10-29 (commit `9978d0ad`, API deploy run 40964828731, dispatched by the owner); redeployed 2026-11-02 from commit `795c1db0` (API deploy run 41532696663, Worker version `0be03fbb`). This source implements the stable v1 `/describe` contract (`api: "1"`). Links stored now keep working; any future format will be read alongside the old, with every old reader kept. `/experimental/fly` is for testing and is not a contract. The Worker changes only when the owner dispatches `api-deploy.yml`; a push to `main` deploys the app, not the API.
 
 ## Access and limits (live since 2026-10-29)
 
@@ -84,7 +84,7 @@ API flights use a time step of at least 0.05 s, including auto-delay and Mach pr
 
 Results come from the same engine as the app, but the Worker's JavaScript runtime computes some floating-point Math differently. The initial deployed Worker comparison against Node covered 127 responses: 109 HTTP 200 flight results and 18 HTTP 422 refusals. Across those 109 flights, Worker-versus-Node differences reached 0.26% in flight time and 0.026% in apogee; most were in the 11th-13th significant digit. A browser is a third runtime, so app results may also differ slightly; those measurements do not quantify browser differences.
 
-- S1: local Worker/kernel/file-to-flight; S2 measures, S3 describes (draft below, live since 2026-10-29 and still `s3-draft`), S4 measures fragments (147 tester designs, 2026-10-28), S5 (a motor added to the describe link, with the delay hint) is next.
+- S1: local Worker/kernel/file-to-flight; S2 measures, S3 describes (v1 below, endpoint live since 2026-10-29), S4 measures fragments (147 tester designs, 2026-10-28), S5 adds a motor to the describe link, with the delay hint.
 - Thin app-owned headless exports; no moved or copied importer/flight implementation.
 - Engine access uses only `@online-openrocket/engine`'s public API.
 - Fixed `network: 'forbid'`; bundled motor snapshot, no thrustcurve.org calls or caller options.
@@ -132,9 +132,9 @@ Kept-content DOM memory (audit S1-1; 2026-10-28, Node v22.22.0, local workerd 20
 
 The 16,000 budget keeps the heaviest kept shape at its boundary (rows, 60 MiB) under 64 MiB of Node old space; the text-heavy shape needs less than the element shapes at that boundary, so there is no text budget, and the node budget stays at the ×4 default. One rows figure on main (68 MiB at 15,990) is above its neighbours; the bisection reruns its boundary until three passes in a row, so one failed rerun raises it. These are proxies: neither runtime's cap includes ArrayBuffer storage, and they do not establish safety within a 128 MB isolate. The owner re-measures the local corpus's exact kept-element maximum against this budget.
 
-## S3 draft: `POST /describe` (live since 2026-10-29; still a draft contract)
+## V1: `POST /describe` (endpoint live since 2026-10-29)
 
-**Status.** Deployed with go-live on 2026-10-29 and ruled by the owner the same day (rulings below), but still a draft: the shape may change until S5 defines the motor addition, and `api: "s3-draft"` says so on every `/describe` success response. `/health` is unchanged; `/experimental/fly` gains the version stamp's `engine` and `catalogue` beside its `appVersion`.
+**Status.** Stable v1 contract: every `/describe` success response has `api: "1"` and no `experimental` field. Links stored now keep working through later releases. A breaking link change requires a new format (for example, `#d=2.`), read alongside the old format with every old reader kept. `/health` is unchanged; `/experimental/fly` keeps its `experimental: true` marker and version stamps. Deployment remains an owner action; this source change does not establish that v1 is live.
 
 **Request.** `POST /describe?filename=<name>` with the raw `.ork`, `.rkt` or `.CDX1` bytes as the body: the same reader, caps and importer as `/experimental/fly` (the contents identify the format; a mismatched extension produces an import note). There are no caller options: no launch, site, motor, curve, aero or delay fields, and any other query parameter is ignored and cannot enable the network. The bundled motor snapshot is the only motor source (`network: 'forbid'`); a motorless or unmatched-motor design is described like any other. Nothing is flown: no flight, no auto-delay solve and no auto-aero Mach probe.
 
@@ -142,8 +142,7 @@ The 16,000 budget keeps the heaviest kept shape at its boundary (rows, 60 MiB) u
 
 ```ts
 {
-  experimental: true,
-  api: "s3-draft",
+  api: "1",
   name: string,
   sourceFormat: "ork" | "rkt" | "cdx1",
   analysis: {
@@ -190,7 +189,7 @@ The 16,000 budget keeps the heaviest kept shape at its boundary (rows, 60 MiB) u
 }
 ```
 
-Example: `reference.ork` at app 0.195 (the fragment and link are truncated here; the full fragment is about 2,100 characters). The numbers are illustrative and move with the app, kernel and catalogue.
+Historical capture: `reference.ork` at app 0.195, before v1 (the fragment and link are truncated here; the full fragment is about 2,100 characters). Its draft markers record that response and are not the current schema. The numbers are illustrative and move with the app, kernel and catalogue.
 
 ```json
 {
@@ -233,7 +232,7 @@ Example: `reference.ork` at app 0.195 (the fragment and link are truncated here;
 
 `launchMount` names the request-local `mounts[].key` the motor link fills: the bottom-most inline stage with a mount, then core before pod before strap-on, then traversal order. It is null exactly when `mounts` is empty. Keys remain display-only, not caller placement instructions. One mount with N positions gets N copies of the motor; other mounts stay empty with a note. Use the hint if the new motor offers that delay, otherwise use the Motors tab's default. The S5 app reader opens the design, loads the motor and flies automatically; a plain link only opens. A motor that does not fit is loaded and flown with a warning explaining the physical consequence. The file's launch conditions and the viewer's aerodynamics Preferences apply.
 
-For an unknown motor ID, the S5 reader first checks the same motor sources as the Motors tab (bundled catalogue plus any newer published snapshot, including corrections), with a bounded wait for a pending catalogue check. If still absent, it opens the design with the launch mount empty, does not fly, and shows the requested ID and catalogue date, directing the person to the Motors tab. This round adds the describe fields and hint carrier; the app's automatic load-and-fly reader is a later S5 task. `/describe` remains `api: "s3-draft"` until that integration is complete.
+For an unknown motor ID, the S5 reader first checks the same motor sources as the Motors tab (bundled catalogue plus any newer published snapshot, including corrections), with a bounded wait for a pending catalogue check. If still absent, it opens the design with the launch mount empty, does not fly, and shows the requested ID and catalogue date, directing the person to the Motors tab. The app's automatic load-and-fly reader implements this contract; `/describe` is v1 (`api: "1"`).
 
 **Determinism.** Node ids come from a module counter, so they depend on earlier requests in the isolate. The projection renames every node depth-first (`n1`, `n2`, …) on its clone, with every id-keyed map and id-naming record (`mountId`) following; configuration ids already come from the bytes (the `.ork` configid, `rocksim-sim-N`, `rasaero-sim-N`) and are kept; `exportOrk` takes an optional id source (absent in the app, so app saves and share links keep random UUIDs) and the projection passes a counter. The global counter is never reset. Tests repeat identical describes around unrelated describes and flights in one isolate and compare the complete JSON and fragment.
 
@@ -260,9 +259,9 @@ Every row's body carries `appVersion`, `engine` and `catalogue` beside `error`.
 
 **Tests.** `describe.test.ts` runs in real local workerd (a normal and a fetch-trapped Worker): the three formats against a fresh Node `describeFile` oracle (non-time quantities at 1e-10 relative, the S1 tolerance; mounts, notes and the decoded fragment XML exactly, since deflate bytes may differ between runtimes), motorless/unmatched/cluster designs, ignored options, zero fetch attempts and one upload-deadline timer per body read (no kernel timers), determinism around unrelated requests, overlapping describes and flights, a forced build refusal followed by success, the poisoned kernel, every error row above (`LINK_TOO_LARGE` for both the XML-byte and the fragment-character limit) and the body/stream/inflate/XML caps. `packages/app/src/services/describeFile.test.ts` holds the service in Node to the flight build's own dry figures, the Design tab's loaded-build Cd (1e-12 relative: same kernel, same tree), the fixture XML's tube walls, pod, strap-on, cluster, case-airframe and length-limit semantics, a share link written by release v0.100 (`__fixtures__/share-link-v0.100.txt`, made with that release's own code) decoding and describing like its source file, a fixed point through the fragment (the reopened fragment describes to the same analysis and mounts), motor-free inactive configurations, unchanged source state, id-independent projection and lock ordering. The field-shape check covers every committed .ork, .rkt and .CDX1 fixture; generated trees cover nozzle-loss counts, automatic/off values, parallel stages and the no-mount note. `describeLink.test.ts` also exercises the API handler directly with fetch forbidden, checking the link path and oversized-link guidance. The local-only tester corpus is not part of these tests.
 
-**Owner rulings** (2026-10-29; all ruled, API remains `s3-draft` pending S5):
+**Owner rulings** (2026-10-29; all ruled, carried into v1 with S5):
 
-1. **Ruled: carry; mechanism in S5.** `/describe` now emits only the file's stated, representable delay for the active launch motor as an optional `&delay=<seconds|P>` hint outside the motor-free payload. Explicit plugged is required for P. Auto, RockSim every-delay (matched or unmatched), unset, unreadable, overflowing and unrepresentable delays give no hint. ThrustCurve appends only the motor ID; the later S5 reader will keep the hint if that motor offers it, otherwise use the motor's default.
+1. **Ruled: carry; mechanism in S5.** `/describe` now emits only the file's stated, representable delay for the active launch motor as an optional `&delay=<seconds|P>` hint outside the motor-free payload. Explicit plugged is required for P. Auto, RockSim every-delay (matched or unmatched), unset, unreadable, overflowing and unrepresentable delays give no hint. ThrustCurve appends only the motor ID; the S5 reader keeps the hint if that motor offers it, otherwise uses the motor's default.
 2. **Ruled: keep verbatim.** `notes.import` remains the app's full import note, including matched, ambiguous and unloaded motors.
 3. **Ruled: split.** `analysis.aeroModel` is the model name alone (`"classic"` today); `analysis.rogersKbf` is a boolean (`true` today), as on a stored run.
 4. **Ruled: keep.** Mount `key` remains request-local traversal order (`m1`...). It is for display, not a link placement instruction.

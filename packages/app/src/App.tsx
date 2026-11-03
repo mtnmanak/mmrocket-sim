@@ -3264,6 +3264,10 @@ export function App() {
       && currentMotor.meta.motorId === pending.motor.meta.motorId
       && currentMotor.spec.ejectionDelay === pending.motorDelay
       && !!currentMotor.meta.autoDelay === !!pending.motor.meta.autoDelay
+      && currentMotor.padMassKg === pending.motor.padMassKg
+      && currentMotor.padMassWeighedWith === pending.motor.padMassWeighedWith
+      && currentMotor.ignition.event === pending.motor.ignition.event
+      && currentMotor.ignition.delay === pending.motor.ignition.delay
       && currentMotor.spec === pending.motor.spec;
     if (tree !== pending.tree || !sameMotor) {
       // An earlier sync render can still carry either pre-import value.

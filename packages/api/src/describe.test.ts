@@ -14,13 +14,13 @@ import { API_XML_LIMITS } from './xmlLimits.js';
 import { autoBody, bytesOf, clusterBody, orkOf, rktWithMotor, stampOf, unbundledDigestCase } from './fixtures.testSupport.js';
 
 /**
- * S3 DRAFT: POST /describe in real local workerd. Every expected figure is the
+ * V1: POST /describe in real local workerd. Every expected figure is the
  * same describeFile run afresh in this Node host (cross-runtime parity), never
  * a pinned number. The tester corpus is local-only and is not run here.
  */
 type LocalWorker = Awaited<ReturnType<typeof unstable_startWorker>>;
 type Described = Omit<DescribeFileResult, 'fragment'> & {
-  experimental: true; api: string; appVersion: string; fragment: string; link: string;
+  api: string; appVersion: string; fragment: string; link: string;
   engine: { openRocket: string; appVersion: string }; catalogue: { motorsGenerated: string; curvesGenerated: string };
 };
 const APP_URL = 'https://mmrsim.mountainmanrockets.com';
@@ -85,13 +85,13 @@ async function sameAsNode(out: Described, node: DescribeFileResult) {
   expect(await decodeShareFragment(out.fragment)).toBe(await decodeShareFragment(node.fragment));
 }
 
-describe('S3 draft POST /describe in real workerd', () => {
-  it.each(FIXTURES)('%s: draft schema, version stamps, SI basis and Node parity', async (name, format) => {
+describe('V1 POST /describe in real workerd', () => {
+  it.each(FIXTURES)('%s: v1 schema, version stamps, SI basis and Node parity', async (name, format) => {
     const body = bytesOf(name);
     const out = await described(normal!, name, body);
-    expect(Object.keys(out).sort()).toEqual(['analysis', 'api', 'appVersion', 'catalogue', 'engine', 'experimental',
+    expect(Object.keys(out).sort()).toEqual(['analysis', 'api', 'appVersion', 'catalogue', 'engine',
       'fragment', 'launchMount', 'link', 'mounts', 'name', 'notes', 'sourceFormat'].sort());
-    expect({ experimental: out.experimental, api: out.api, sourceFormat: out.sourceFormat }).toEqual({ experimental: true, api: 's3-draft', sourceFormat: format });
+    expect({ api: out.api, sourceFormat: out.sourceFormat }).toEqual({ api: '1', sourceFormat: format });
     const health = await (await normal!.fetch('http://local/health')).json() as Record<string, unknown>;
     expect({ appVersion: out.appVersion, engine: out.engine, catalogue: out.catalogue })
       .toEqual({ appVersion: health['appVersion'], engine: health['engine'], catalogue: health['catalogue'] });

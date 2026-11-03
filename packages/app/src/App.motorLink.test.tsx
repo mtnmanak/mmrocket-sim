@@ -1034,7 +1034,7 @@ it('round14 relabel during an inactive motor question still flies exactly once',
   expect(flyBuiltDesign).toHaveBeenCalledOnce();
 }, 20_000);
 
-it.each(['id', 'delay', 'auto', 'spec', 'remove'] as const)('round14 real motor %s change cancels a held flight', async kind => {
+it.each(['id', 'delay', 'auto', 'spec', 'remove', 'pad-mass', 'weighed-with', 'ignition-event', 'ignition-delay'] as const)('round14 real motor %s change cancels a held flight', async kind => {
   held.build = true;
   await open('&motor=' + motor.motorId);
   await waitFor(() => vi.mocked(applyImportPlan).mock.calls.length === 1);
@@ -1042,10 +1042,19 @@ it.each(['id', 'delay', 'auto', 'spec', 'remove'] as const)('round14 real motor 
   const [id, original] = Object.entries(plan.snapshot.mountMotors)[0]!;
   const changed = { ...original, meta: { ...original.meta } };
   if (kind === 'id') changed.meta.motorId = '000000000000000000000000';
-  // Shared spec isolates the explicit delay stamp from the independent spec-identity fence.
-  if (kind === 'delay') changed.spec.ejectionDelay += 1;
+  if (kind === 'delay') {
+    changed.spec = { ...original.spec, ejectionDelay: original.spec.ejectionDelay + 1 };
+    // Isolate the captured delay fence without mutating the plan we restore below.
+    const pending = held.refs.find(r => r.current && typeof r.current === 'object' && 'gen' in r.current && 'mountId' in r.current)!.current as { motor: typeof original };
+    pending.motor = { ...pending.motor, spec: changed.spec };
+    expect(original.spec.ejectionDelay).not.toBe(changed.spec.ejectionDelay);
+  }
   if (kind === 'auto') changed.meta.autoDelay = !original.meta.autoDelay;
   if (kind === 'spec') changed.spec = { ...original.spec };
+  if (kind === 'pad-mass') changed.padMassKg = 0.321;
+  if (kind === 'weighed-with') changed.padMassWeighedWith = 'changed-set';
+  if (kind === 'ignition-event') changed.ignition = { ...original.ignition, event: 'never' };
+  if (kind === 'ignition-delay') changed.ignition = { ...original.ignition, delay: original.ignition.delay + 1 };
   held.build = false;
   await act(async () => sinks.setMountMotors(kind === 'remove' ? {} : { [id]: changed }));
   await settle(); await settle();
@@ -1054,6 +1063,20 @@ it.each(['id', 'delay', 'auto', 'spec', 'remove'] as const)('round14 real motor 
   await settle();
   expect(flyBuiltDesign).not.toHaveBeenCalled();
 });
+
+it.each([undefined, false])('round15 Auto %s is equivalent to the other unset representation after relabel', async autoDelay => {
+  held.build = true;
+  await open('&motor=' + motor.motorId);
+  await waitFor(() => vi.mocked(applyImportPlan).mock.calls.length === 1);
+  const [plan, sinks] = vi.mocked(applyImportPlan).mock.calls[0]!;
+  const [id, original] = Object.entries(plan.snapshot.mountMotors)[0]!;
+  const pending = held.refs.find(r => r.current && typeof r.current === 'object' && 'gen' in r.current && 'mountId' in r.current)!.current as { motor: typeof original };
+  pending.motor = { ...original, meta: { ...original.meta, autoDelay: autoDelay === false ? undefined : false } };
+  held.build = false;
+  await act(async () => sinks.setMountMotors({ [id]: { ...original, label: 'Relabeled15', meta: { ...original.meta, label: 'Relabeled15', autoDelay } } }));
+  await waitFor(() => runs().length === 1);
+  expect(flyBuiltDesign).toHaveBeenCalledOnce();
+}, 20_000);
 
 it('round14 ineligible B offers replacement after untouched flown A', async () => {
   await open('&motor=' + motor.motorId);
