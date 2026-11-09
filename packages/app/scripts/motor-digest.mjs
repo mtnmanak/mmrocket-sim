@@ -220,10 +220,19 @@ export function javaSplitWs(s) {
  * characters up to U+0020. Not the hexadecimal form, which no motor file uses.
  */
 const JAVA_DOUBLE = /^[+-]?(?:(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?[dDfF]?|NaN|Infinity)$/;
+/**
+ * Java's String.trim(): drop every character up to U+0020 at both ends. A linear
+ * scan, because /^[\u0000- ]+|[\u0000- ]+$/g is quadratic on a long inner run of spaces.
+ */
+export function javaTrim(s) {
+  let start = 0, end = s.length;
+  while (start < end && s.charCodeAt(start) <= 0x20) start++;
+  while (end > start && s.charCodeAt(end - 1) <= 0x20) end--;
+  return s.slice(start, end);
+}
 function parseJavaDouble(s) {
   if (s == null) return NaN;
-  // Java's String.trim() set: every character up to U+0020.
-  const t = s.replace(/^[\u0000- ]+|[\u0000- ]+$/g, '');
+  const t = javaTrim(s);
   if (!JAVA_DOUBLE.test(t)) return NaN;
   return Number(t.replace(/[dDfF]$/, ''));
 }
@@ -349,7 +358,7 @@ export function motorHeaderMasses(text) {
     return null;
   }
   for (const raw of text.split(/\r\n|\r|\n/)) {
-    const line = raw.replace(/^[\u0000- ]+|[\u0000- ]+$/g, '');
+    const line = javaTrim(raw);
     if (!line || line.startsWith(';')) continue;
     const f = javaSplitWs(line);
     if (f.length !== 7) return null;

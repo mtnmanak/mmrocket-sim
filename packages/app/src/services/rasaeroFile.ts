@@ -370,7 +370,12 @@ function javaDoubleText(value: string | null): value is string {
   if (value === null) return false;
   const decimal = '(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?';
   const hex = '0[xX](?:[0-9a-fA-F]+(?:\\.[0-9a-fA-F]*)?|\\.[0-9a-fA-F]+)[pP][+-]?[0-9]+';
-  return new RegExp(`^[+-]?(?:NaN|Infinity|(?:${decimal}|${hex})[fFdD]?)$`).test(value.replace(/^[\x00-\x20]+|[\x00-\x20]+$/g, ''));
+  // Java's String.trim (characters up to U+0020 at both ends) as a linear scan: the
+  // regex form /^[\x00-\x20]+|[\x00-\x20]+$/g is quadratic on a long inner run of spaces.
+  let start = 0, end = value.length;
+  while (start < end && value.charCodeAt(start) <= 0x20) start++;
+  while (end > start && value.charCodeAt(end - 1) <= 0x20) end--;
+  return new RegExp(`^[+-]?(?:NaN|Infinity|(?:${decimal}|${hex})[fFdD]?)$`).test(value.slice(start, end));
 }
 
 export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {

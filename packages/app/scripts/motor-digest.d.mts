@@ -21,3 +21,4 @@ export declare function digestRse(text: string): string[];
 export declare function digestMotorFile(text: string, format?: string | null): string[];
 export declare function motorHeaderMasses(text: string): { totalWeightG: number; propWeightG: number } | null;
 export declare function javaSplitWs(text: string): string[];
+export declare function javaTrim(text: string): string;

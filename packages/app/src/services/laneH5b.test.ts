@@ -57,6 +57,12 @@ describe('H5b import fidelity', () => {
     const r = importCdx1(cdx(body, `<Recovery><Event1>true</Event1><EventType1>Apogee</EventType1><Altitude1>500</Altitude1><Size1>36</Size1><CD1>0.8</CD1><Event2>true</Event2><EventType2>Apogee</EventType2><Size2>36</Size2><CD2>0.8</CD2><Altitude2>${value}</Altitude2></Recovery>`));
     expect(r.noteTiers?.find(n => n.kind === 'I04.recovery-event')?.text).toContain('use an Altitude event');
   });
+  it('trims an altitude with a long inner run of spaces in linear time', () => {
+    // The old regex trim (/^[\x00-\x20]+|[\x00-\x20]+$/g) took ~20 s here: quadratic in the run.
+    const value = `1${' '.repeat(300_000)}x`;
+    const r = importCdx1(cdx(body, `<Recovery><Event1>true</Event1><EventType1>Apogee</EventType1><Altitude1>500</Altitude1><Size1>36</Size1><CD1>0.8</CD1><Event2>true</Event2><EventType2>Apogee</EventType2><Size2>36</Size2><CD2>0.8</CD2><Altitude2>${value}</Altitude2></Recovery>`));
+    expect(r.noteTiers?.find(n => n.kind === 'I04.recovery-event')?.text).toContain('desktop OpenRocket cannot import');
+  });
   it.each(['NoseCone', 'Transition', 'FinSet'])('discloses unsupported %s geometry', tag => {
     const part = `<${tag}><ShapeCode>9</ShapeCode></${tag}>`;
     const r = importRkt(rkt(tag === 'FinSet' ? tube.replace('</BodyTube>', `<AttachedParts>${part}</AttachedParts></BodyTube>`) : part));

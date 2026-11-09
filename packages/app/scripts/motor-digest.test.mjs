@@ -235,3 +235,16 @@ describe('motor-digest.mjs is browser-safe (src/services/motorDigest.ts bundles 
     expect(declared).toEqual(Object.keys(mod).sort());
   });
 });
+
+describe('javaTrim (Java String.trim, linear)', () => {
+  it('drops characters up to U+0020 at both ends only', () => {
+    expect(mod.javaTrim('\u0000\t 1.5d \u001f')).toBe('1.5d');
+    expect(mod.javaTrim('a     b')).toBe('a     b');
+    expect(mod.javaTrim('   ')).toBe('');
+  });
+  it('handles a long inner run of spaces in linear time', () => {
+    // The old /^[\u0000- ]+|[\u0000- ]+$/g took ~20 s on this: quadratic in the run.
+    const s = `1${' '.repeat(300_000)}x`;
+    expect(mod.javaTrim(s)).toBe(s);
+  });
+});
