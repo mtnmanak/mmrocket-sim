@@ -57,7 +57,8 @@ it('clamps through the shared app/API file-to-flight path and reports ejection a
 }, 20_000);
 
 it('repairs current, legacy, inactive and unmatched autosaved motor delays with Caution notes', () => {
-  const motor = { designation: 'C6', ejectionDelay: -2 };
+  const motor = { designation: 'C6', ejectionDelay: -2, diameter: 0.018, length: 0.07,
+    times: [0, 1], thrusts: [0, 0], masses: [0.024, 0.013], cgX: 0.035 };
   const mm = { label: 'C6', spec: motor, meta: {} };
   localStorage.setItem('online-openrocket.session.v1', JSON.stringify({
     tree: { components: [] }, launch: DEFAULT_CONDITIONS, savedAt: 1,

@@ -4,6 +4,8 @@ import {
   anchorStarts, axialLength, offsetForStart, positionOf, snapStart, startFromPosition,
 } from '../tree/position.js';
 import { updateNode } from '../tree/treeModel.js';
+import { applyFieldLimit } from '../tree/schema.js';
+import { POSITION_LIMIT } from '../tree/sanitize.js';
 import { releasedDuring, startsGesture } from '../chartPanZoom.js';
 import type { Grip } from '../tree/schematicLayout.js';
 
@@ -181,7 +183,7 @@ export function useAxialDrag({ tree, onPatchNode, svgRef, viewWidth, pxPerMetre 
     const anchors = anchorStarts(parent, child);
     const epsilon = (6 * 1) / pxPerMetre; // ~6 screen px of magnetism
     const snapped = snapStart(d.relStart + dxModel, anchors, epsilon);
-    const offset = offsetForStart(d.method, snapped, axialLength(child), pLen);
+    const offset = applyFieldLimit(POSITION_LIMIT, offsetForStart(d.method, snapped, axialLength(child), pLen));
     // Inside a snap zone every move lands on the same anchor: nothing to redraw.
     if (offset === d.offset) return 'busy';
     d.offset = offset;

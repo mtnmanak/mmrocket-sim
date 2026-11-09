@@ -12,6 +12,30 @@ import { escapeXml } from './services/xmlUtil.js';
 import { num } from './tree/nodeNum.js';
 import { resolveImportMotors } from './services/importApply.js';
 import { sessionDebugLog } from './services/sessionDebugLog.js';
+import { defaultTree } from './tree/treeModel.js';
+
+it('H1 closes a batch dialog opened while a replacement design is loading', async () => {
+  await act(async () => root.unmount());
+  localStorage.setItem(sessionKey, JSON.stringify({ tree: defaultTree(), launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now() }));
+  root = createRoot(host);
+  await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+  const real = await vi.importActual<typeof import('./services/importApply.js')>('./services/importApply.js');
+  let release!: () => void;
+  let started = false;
+  const gate = new Promise<void>(r => { release = r; });
+  vi.mocked(resolveImportMotors).mockImplementationOnce(async imported => { started = true; await gate; return real.resolveImportMotors(imported); });
+  const picker = host.querySelector<HTMLInputElement>('input[aria-label="Open a design file"]')!;
+  Object.defineProperty(picker, 'files', { configurable: true, value: [new File(['<openrocket version="1.10"><rocket><name>Replacement</name><subcomponents><stage><name>Sustainer</name><subcomponents><bodytube><length>0.5</length><radius>0.016</radius><motormount><ignitionevent>automatic</ignitionevent></motormount></bodytube></subcomponents></stage></subcomponents></rocket></openrocket>'], 'Replacement.ork')] });
+  await act(async () => picker.dispatchEvent(new Event('change', { bubbles: true })));
+  if (button('Open without saving')) await act(async () => button('Open without saving').click());
+  await waitFor(() => started);
+  await act(async () => button('Motors & Configuration').click());
+  await act(async () => button('Batch simulate motors…').click());
+  expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+  await act(async () => release());
+  await waitFor(() => stored().tree.name === 'Replacement');
+  expect(host.querySelector('[role="dialog"]')).toBeNull();
+});
 
 vi.mock('./services/importApply.js', async importOriginal => {
   const real = await importOriginal<typeof import('./services/importApply.js')>();

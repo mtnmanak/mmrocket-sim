@@ -235,6 +235,25 @@ async function pausedAutosave(): Promise<HTMLElement> {
 const RKT = 'rocksimTestRocket1.rkt';
 
 describe('a write the app did not make as the design save, over the saved design file, dirties it', () => {
+  it.each([false, true])('H1 late native close restores its own snapshot mark (edited=%s)', async edited => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    const release = hold('Draft.ork');
+    pickNext('Draft.ork');
+    await saveAs(host, 'Save .ork');
+    if (edited) await act(async () => {
+      const input = host.querySelector<HTMLInputElement>('#rocket-name')!;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Newer design');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await saveOrkTo(host, 'Backup.ork');
+    pickNext('Draft.ork');
+    await saveAs(host, 'Save .rkt');
+    await writtenTo('Draft.ork');
+    await act(async () => release());
+    await settle(50);
+    expect(status(host)).toBe(edited ? 'Unsaved changes' : 'No unsaved changes');
+  }, 30000);
   it('Export flight-data bundle (ZIP) over the saved .ork', async () => {
     const host = await mountApp();
     await waitFor(starterStored, 'starter motor');

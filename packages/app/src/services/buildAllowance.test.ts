@@ -20,6 +20,12 @@ import {
  * balancing at 415 mm, needs 60 g at 540 mm.
  */
 describe('solveBallast', () => {
+  it.each([-1100, 1100])('H1 bounds fallback placement at station %s for reload stability', station => {
+    const tree: RocketTree = { components: [{ type: 'stage', children: [
+      { type: 'bodytube', id: 'tube', length: 999, outerRadius: 0.03 },
+    ] }] };
+    expect(Math.abs(placeAtStation(tree, station, 0.02)!.offset)).toBeLessThanOrEqual(1000);
+  });
   it.each([0.2, 0.7])('replaces conflicting allowance overrides at station %s, including rehoming', async stationM => {
     const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
     const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [

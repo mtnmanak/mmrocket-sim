@@ -1,6 +1,6 @@
 import { Note, type NoteTier } from './Note.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Modal } from './Modal.js';
 import { describeRow, matchingExMotors } from '../services/motorMatch.js';
 import { importMotorFiles } from '../services/importMotorFiles.js';
@@ -24,6 +24,8 @@ export function OpenMotorDialog({ identities, onApply, onLater }: {
   const [noticeTier, setNoticeTier] = useState<NoteTier>('information');
   const fileInputs = useRef(new Map<string, HTMLInputElement>());
   const pending = useRef(false);
+  const importing = useRef<AbortController | null>(null);
+  useEffect(() => () => { importing.current?.abort(); }, []);
   const choose = (key: string, choice: OpenMotorChoice) => setChoices(prev => ({ ...prev, [key]: choice }));
   const later = () => { if (!pending.current) onLater(); };
   const run = async (action: () => Promise<void>) => {
@@ -44,7 +46,12 @@ export function OpenMotorDialog({ identities, onApply, onLater }: {
     return [group.key, motor ? { kind: 'ex', motor } : { kind: 'catalogue', motor: group.candidates[0]! }];
   }));
   const importFiles = (group: OpenMotorIdentity, files: File[]) => run(async () => {
-    const result = await importMotorFiles(files, prefs.units);
+    const operation = new AbortController();
+    importing.current = operation;
+    let result: Awaited<ReturnType<typeof importMotorFiles>>;
+    try { result = await importMotorFiles(files, prefs.units, operation.signal); }
+    catch (e) { if (operation.signal.aborted) return; throw e; }
+    if (operation.signal.aborted) return;
     setError(result.error);
     setNotice(result.notice);
     setTier(result.tier);

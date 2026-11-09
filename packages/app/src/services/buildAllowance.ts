@@ -1,5 +1,7 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { numOpt } from '../tree/nodeNum.js';
+import { applyFieldLimit } from '../tree/schema.js';
+import { POSITION_LIMIT } from '../tree/sanitize.js';
 import { axialLength, offsetForStart } from '../tree/position.js';
 import { addChild, ancestorsOf, findNode, findParent, makeNode, removeNode, suppressingAncestor, updateNode } from '../tree/treeModel.js';
 
@@ -284,6 +286,6 @@ export function placeAtStation(
 
   return {
     parentId: host.node.id,
-    offset: offsetForStart('top', wantFront - host.start, lengthM, host.len),
+    offset: applyFieldLimit(POSITION_LIMIT, offsetForStart('top', wantFront - host.start, lengthM, host.len)),
   };
 }

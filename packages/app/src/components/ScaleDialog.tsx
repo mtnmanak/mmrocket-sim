@@ -66,6 +66,8 @@ export function ScaleDialog({
   const [factor, setFactor] = useState(2);
   const [snapMounts, setSnapMounts] = useState(false);
   const [tubes, setTubes] = useState<Preset[] | null>(null);
+  const [catalogueFailed, setCatalogueFailed] = useState(false);
+  const [catalogueAttempt, setCatalogueAttempt] = useState(0);
   /**
    * The chosen catalogue ROW, as an index into `tubeRows`, held so the <select>
    * is genuinely controlled. Pinning it to value="" instead reset the widget to
@@ -100,9 +102,9 @@ export function ScaleDialog({
       // A finite OD (audit row 522): every later read here casts it to a number.
       .then((all) => { if (live) setTubes(all.filter((p) => p.kind === 'BodyTube'
         && numOpt(p, 'outsideDiameter') !== undefined)); })
-      .catch(() => { if (live) setTubes([]); });
+      .catch(() => { if (live) setCatalogueFailed(true); });
     return () => { live = false; };
-  }, []);
+  }, [catalogueAttempt]);
 
   /**
    * Every catalogue tube, grouped by outside diameter — one <optgroup> per
@@ -268,6 +270,9 @@ export function ScaleDialog({
           <button className="file-btn" onClick={onClose} aria-label="Close scale dialog">✕ Close</button>
         </div>
 
+        <div role="alert">{catalogueFailed && <>Could not load the catalogue. You can still scale by diameter or factor.
+          <button type="button" onClick={() => { setCatalogueFailed(false); setCatalogueAttempt(n => n + 1); }}>Retry</button>
+        </>}</div>
         {baseD <= 0 ? (
           <p className="comp-stats">
             This design has no body tube, nose cone or transition to measure, so there is
@@ -378,7 +383,7 @@ export function ScaleDialog({
                 }}
               >
                 <option value="">
-                  {tubes === null
+                  {catalogueFailed ? 'Catalogue unavailable' : tubes === null
                     ? 'Loading the catalogue…'
                     : `${tubeRows.length} tubes in ${tubeGroups.length} sizes — choose one`}
                 </option>

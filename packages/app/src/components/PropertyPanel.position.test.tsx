@@ -77,6 +77,12 @@ afterEach(() => {
 });
 
 const METHODS = ['top', 'middle', 'bottom'] as const;
+it('H1 bounds a position-method conversion at the reload limit', () => {
+  const node = { id: 'p', type: 'railbutton', position: { method: 'top', offset: -200 } } as ComponentNode;
+  mount(onTube(node, { length: 1000 }), node);
+  pick(methodSelect(), 'bottom');
+  expect(patches.at(-1)).toEqual({ position: { method: 'bottom', offset: -1000 } });
+});
 const PAIRS = METHODS.flatMap((from) => METHODS.filter((to) => to !== from).map((to) => [from, to] as const));
 
 /**

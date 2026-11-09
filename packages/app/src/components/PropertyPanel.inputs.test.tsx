@@ -66,6 +66,30 @@ afterEach(() => {
 });
 
 describe('PropertyPanel recovery and ballast radial placement', () => {
+  it.each([[0.025, '1.969'], [0.0245, '1.929']])('H1 accepts the displayed outside diameter %s as the inner diameter', (outerRadius, displayed) => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'in' } }));
+    const node = tube('b', { outerRadius });
+    show(treeOf(node), node);
+    const input = inputNamed('Inner diameter');
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, displayed);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(input.getAttribute('aria-invalid')).not.toBe('true');
+    expect(patches.at(-1)?.['thickness']).toBe(0);
+  });
+  it('H1 accepts a rounded cross-field vent ceiling and clamps SI', () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'in' } }));
+    const node: ComponentNode = { id: 'p', type: 'parachute', diameter: 0.05 / 0.95 };
+    show(treeOf(node), node);
+    const label = labelStarting('Spill hole');
+    const input = document.getElementById(label.htmlFor) as HTMLInputElement;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '1.969');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(patches.at(-1)?.['spillHoleDiameter']).toBeCloseTo(0.05, 10);
+  });
   it.each(['parachute', 'streamer', 'shockcord', 'masscomponent'] as const)('shows and edits imported %s offsets in SI', (type) => {
     const node: ComponentNode = { id: 'part', type, radialPosition: 0.015, radialDirection: Math.PI / 2 };
     show(treeOf(node), node);

@@ -7,7 +7,7 @@ import { sessionDebugLog } from './sessionDebugLog.js';
 import { decodeXml } from './xmlUtil.js';
 
 // @atestani TRF #162, Eric 2026-10-06: both pickers share parsing, storage and notices.
-export async function importMotorFiles(files: File[], units: UnitSelection = INITIAL_UNITS) {
+export async function importMotorFiles(files: File[], units: UnitSelection = INITIAL_UNITS, signal?: AbortSignal) {
   sessionDebugLog.record('import-start');
   let notice: string | null = null;
   // RockSim XML motor files are often named .txt; main accepted them and the guide says so.
@@ -40,6 +40,7 @@ export async function importMotorFiles(files: File[], units: UnitSelection = INI
   if (skippedFiles) said.push(`Skipped ${skippedFiles} motor files beyond the first ${MAX_EX_IMPORT_FILES} files in path order.`);
 
   for (const f of motorFiles) {
+    signal?.throwIfAborted();
     try {
       if (f.size > MAX_EX_IMPORT_BYTES) throw new Error(EX_IMPORT_BYTES_NOTE);
       const notes: string[] = [];
@@ -74,6 +75,8 @@ export async function importMotorFiles(files: File[], units: UnitSelection = INI
       failed.push(`${noteField(f.name)}: ${noteText(e instanceof Error ? e.message : String(e))}`);
     }
   }
+  // No await occurs between this cancellation check and the library write.
+  signal?.throwIfAborted();
   // Screened BEFORE the write: addExMotors refuses the whole batch on its
   // first invalid motor, so one contrived motor used to drop every good one
   // in the selection (closure audit of v0.194, row A). Its throw stays as

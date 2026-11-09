@@ -1126,6 +1126,8 @@ export function App() {
    * exactly the shape of thing that gets fixed in one place only.
    */
   const startNewDesign = () => {
+    setShowBatch(false);
+    setBundleSource(null);
     clearMotorLink();
     documentGeneration.current++;
     appliedSaveDestination.current = null;
@@ -2597,7 +2599,8 @@ export function App() {
         // a newer lossy write cannot supersede a successful .ork snapshot.
         // For the same picked file, the last close determines its bytes, even
         // when an older snapshot finishes last. Downloads may be renamed.
-        if (saveId > appliedOrkSave.current || (out.kind === 'saved' && out.destination && out.destination === appliedOrkSaveDestination.current)) {
+        if (saveId > appliedOrkSave.current || (out.kind === 'saved' && out.destination
+          && (out.destination === appliedOrkSaveDestination.current || out.destination === appliedSaveDestination.current))) {
           appliedOrkSave.current = Math.max(appliedOrkSave.current, saveId);
           appliedOrkSaveDestination.current = out.kind === 'saved' ? out.destination ?? null : null;
           // eslint-disable-next-line no-restricted-syntax -- a .ork is the one format that round-trips everything
@@ -2801,6 +2804,8 @@ export function App() {
     // work look saved.
     if (!openSeq.isCurrent(openId)) return;
     documentGeneration.current++;
+    setShowBatch(false);
+    setBundleSource(null);
     appliedSaveDestination.current = null;
     appliedOrkSaveDestination.current = null;
     recentNoteSave.current = ++saveCounter.current;

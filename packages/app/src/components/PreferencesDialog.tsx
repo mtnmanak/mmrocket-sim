@@ -46,7 +46,8 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
     return <div className="field" key={key}>
       <label htmlFor={idFor(key)}>{label}{quantity && <> <UnitChip quantity={quantity} /></>}</label>
       <NumField id={idFor(key)} nullable placeholder="Off" min={0}
-        validate={v => (key !== 'maxAirspeedMs' && key !== 'maxMach') || v > 0}
+        validate={v => Number.isFinite(quantity ? uiToSi(quantity, symbol, v) : v)
+          && ((key !== 'maxAirspeedMs' && key !== 'maxMach') || v > 0)}
         value={value === undefined ? undefined : quantity ? siToUi(quantity, symbol, value) : value}
         step={key === 'maxMach' ? 0.1 : 1}
         describedBy={idFor('advice-help')}

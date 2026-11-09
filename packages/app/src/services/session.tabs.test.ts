@@ -111,6 +111,19 @@ describe('a single tab never trips the guard', () => {
 });
 
 describe('two tabs', () => {
+  it('H1 notifies the idle replaced tab after a quota-failed takeover retries', async () => {
+    const a = await openWatchedTab();
+    const b = await openWatchedTab();
+    save(b, 'B');
+    save(a, 'A');
+    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new Error('full'); });
+    a.takeOverSession();
+    spy.mockRestore();
+    a.flushSession();
+    tellOtherTabs();
+    expect(stored()).toBe('A');
+    expect(b.sessionConflicted()).toBe(true);
+  });
   it('the tab that is behind does not overwrite the other\'s work — it raises a conflict', async () => {
     const a = await openTab();
     const b = await openTab();

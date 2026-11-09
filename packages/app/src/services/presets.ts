@@ -1459,11 +1459,22 @@ export function applyPresetLinks(
      */
     const conflicts: string[] = [];
     const byDensity = weighsByDensity(node, patch);
-    for (const [key, value] of Object.entries(patch)) {
+    const conflictPatch = presetPatch(node.type, p, undefined, undefined, { saved: p['savedComponent'] === true });
+    for (const [key, value] of Object.entries(conflictPatch)) {
       if (value === undefined) continue;
-      const field = catalogueField(node.type, key);
+      const savedProfile = p['savedComponent'] === true && (key === 'shapeParameter' || key === 'clipped') && Object.hasOwn(p, key);
+      const shape = String(flown(node, 'shape'));
+      if (key === 'shapeParameter' && (!shapeUsesParameter(shape) || shape !== flown({ type: node.type, ...conflictPatch }, 'shape'))) continue;
+      if (key === 'clipped' && (node.type !== 'transition' || !shapeIsClippable(shape)
+        || shape !== flown({ type: node.type, ...conflictPatch }, 'shape'))) continue;
+      const ordinaryField = catalogueField(node.type, key);
+      const field = savedProfile && ordinaryField
+        ? { ...ordinaryField, differs: key === 'shapeParameter' ? SHAPE_PARAMETER : SAME } : ordinaryField;
       if (!field?.differs) continue;
-      const have = stated(key);
+      let have = stated(key);
+      if (savedProfile && have === undefined) {
+        have = key === 'clipped' ? shapeIsClippable(shape) : shapeParamDefault(shape);
+      }
       if (have === undefined) continue;
       if (isCanopy && (key === 'cd' || key === 'spillHoleDiameter')
         && !PAIR.every((k) => node[k] !== undefined)) continue;
