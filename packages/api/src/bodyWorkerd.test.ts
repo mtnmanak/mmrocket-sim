@@ -129,7 +129,7 @@ it('real workerd keeps half the capacity available when one key trickles to its 
   } finally { await mf.dispose(); }
 });
 
-it('real workerd shrinks three concurrent 6 MiB uploads without a handoff allocation', async () => {
+it('real workerd shrinks three concurrent near-8 MiB uploads without a handoff allocation', async () => {
   const toml = readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8');
   const compatibilityDate = toml.match(/^compatibility_date\s*=\s*"([^"]+)"/m)![1]!;
   const bundle = await build({
@@ -137,10 +137,17 @@ it('real workerd shrinks three concurrent 6 MiB uploads without a handoff alloca
       import { readBody, BodyReservation, reservedBodyBytes } from './body.ts';
       export default { async fetch() {
         const reservations = Array.from({ length: 3 }, () => new BodyReservation());
+        const size = 8 * 1024 * 1024 - 1;
+        const buffers = [];
+        const set = Uint8Array.prototype.set;
+        Uint8Array.prototype.set = function(...args) {
+          if (!buffers.includes(this.buffer)) buffers.push(this.buffer);
+          return set.apply(this, args);
+        };
         const controllers = [];
         const reads = reservations.map((reservation, i) => readBody(new Request('http://local', {
           method: 'POST', body: new ReadableStream({ start(c) {
-            controllers.push(c); c.enqueue(new Uint8Array(6 * 1024 * 1024));
+            controllers.push(c); c.enqueue(new Uint8Array(size));
           } }), duplex: 'half',
         }), reservation, performance.now() + 30000, 'key-' + i));
         try {
@@ -152,8 +159,9 @@ it('real workerd shrinks three concurrent 6 MiB uploads without a handoff alloca
           controllers[1].close(); controllers[2].close();
           const bodies = await Promise.all(reads);
           return Response.json({ before, afterFirst, lengths: bodies.map(b => b.byteLength),
+            identity: bodies.every(b => buffers.includes(b)), capacities: buffers.map(b => b.byteLength),
             resizable: first.resizable, after: reservedBodyBytes() });
-        } finally { reservations.forEach(r => r.release()); }
+        } finally { Uint8Array.prototype.set = set; reservations.forEach(r => r.release()); }
       } };
     ` },
     bundle: true, write: false, format: 'esm', platform: 'browser', logLevel: 'silent',
@@ -164,7 +172,9 @@ it('real workerd shrinks three concurrent 6 MiB uploads without a handoff alloca
   try {
     const response = await mf.dispatchFetch('http://local');
     expect(response.status, await response.clone().text()).toBe(200);
-    expect(await response.json()).toEqual({ before: 18 * 1024 * 1024, afterFirst: 18 * 1024 * 1024,
-      lengths: [6, 6, 6].map(n => n * 1024 * 1024), resizable: true, after: 18 * 1024 * 1024 });
+    const size = 8 * 1024 * 1024 - 1;
+    expect(await response.json()).toEqual({ before: 24 * 1024 * 1024, afterFirst: 24 * 1024 * 1024 - 1,
+      lengths: [size, size, size], identity: true, capacities: [size, size, size],
+      resizable: true, after: 3 * size });
   } finally { await mf.dispose(); }
 });

@@ -6,6 +6,7 @@
  */
 export interface MemoryRun { ok: boolean; kind: 'ok' | 'oom' | 'refused' | 'failed'; status?: number | string; error?: string }
 export const MAX_OLD_SPACE_MIB: number;
+export const PROBE: string;
 export function classifyRun(
   child: { stderr?: string; status: number | null; signal: string | null; error?: { code?: string } },
   line: string | undefined,

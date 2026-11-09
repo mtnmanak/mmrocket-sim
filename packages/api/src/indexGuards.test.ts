@@ -259,7 +259,7 @@ it.each([0.005, 0.01, 0.05, 0.1])('flies at the API floor for an own-file step o
   if (step === 0.005) expect(out.notes.import.text).toMatch(/0\.005 s[\s\S]*0\.01 s/);
 }, 60_000);
 
-it('passes the ten-second watchdog through simulateFile and returns unwrapped 503 with Retry-After', async () => {
+it('passes the ten-second watchdog through simulateFile and returns unwrapped 503 without Retry-After', async () => {
   const body = bytesOf('reference.ork');
   // Load the lazy bundled inputs before advancing the host's fake clock.
   await simulateFile(body, 'reference.ork', { reportSeries: 'summary' });

@@ -10,7 +10,7 @@ export function simulateFile(
 }
 export { setXmlParser, XmlBudgetExceededError } from '../services/xmlParse.js';
 export { jsXmlParser, createJsXmlParser } from '../services/xmlParseJs.js';
-export { KernelUnavailableError, SimulateDesignError } from '../services/simulateDesign.js';
+export { kernelPoisoned, KernelUnavailableError, SimulateDesignError } from '../services/simulateDesign.js';
 export { InflatedFileTooLargeError } from '../services/zipMember.js';
 export { MAX_DESIGN_FILE_BYTES, designFileTooLarge } from '../services/designFile.js';
 export { APP_VERSION } from '../version.js';

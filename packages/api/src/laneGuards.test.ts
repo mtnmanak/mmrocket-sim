@@ -100,6 +100,42 @@ it('logs a poisoned isolate once without private fields and makes no recovery-ti
   expect(log.mock.calls).toEqual([['API kernel unavailable: isolate replacement required.']]);
 });
 
+it.each(['/describe', '/experimental/fly'])('refuses a poisoned kernel before body reservation or work tokens on %s', async route => {
+  vi.spyOn(headless, 'kernelPoisoned').mockReturnValue(true);
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  const prepare = vi.spyOn(body.BodyReservation.prototype, 'prepare');
+  const limit = vi.fn(async (_input: { key: string }) => ({ success: true }));
+  const input = post(route, undefined, 'x');
+  const read = vi.spyOn(input.body!, 'getReader');
+  const response = await worker.fetch(input, { ...testEnv, RATE_LIMITER: { limit } }, ctx);
+  expect(response.status).toBe(503);
+  expect(response.headers.get('Retry-After')).toBeNull();
+  expect(await response.json()).toMatchObject({ error: { code: 'KERNEL_UNAVAILABLE' } });
+  expect(prepare).not.toHaveBeenCalled();
+  expect(read).not.toHaveBeenCalled();
+  expect(limit.mock.calls).toEqual([[{ key: 'refused:test' }]]);
+});
+
+it.each(['/describe', '/experimental/fly'])('refuses poison arising during upload before parsing on %s', async route => {
+  const poison = vi.spyOn(headless, 'kernelPoisoned').mockReturnValue(false);
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  vi.spyOn(body, 'readBody').mockImplementation(async () => {
+    poison.mockReturnValue(true);
+    return new ArrayBuffer(1);
+  });
+  const describe = vi.spyOn(headless, 'describeFile').mockRejectedValue(new Error('must not parse'));
+  const simulate = vi.spyOn(headless, 'simulateFile').mockRejectedValue(new Error('must not parse'));
+  const limit = vi.fn(async (_input: { key: string }) => ({ success: true }));
+  const response = await worker.fetch(post(route, undefined, 'x'), { ...testEnv, RATE_LIMITER: { limit } }, ctx);
+  expect(response.status).toBe(503);
+  expect(response.headers.get('Retry-After')).toBeNull();
+  expect(await response.json()).toMatchObject({ error: { code: 'KERNEL_UNAVAILABLE' } });
+  expect(describe).not.toHaveBeenCalled();
+  expect(simulate).not.toHaveBeenCalled();
+  // The upload was already admitted: its work token cannot be recovered.
+  expect(limit.mock.calls).toEqual([[{ key: 'test' }]]);
+});
+
 it('allows four small unfinished uploads without an arbitrary count cap', async () => {
   const controllers: ReadableStreamDefaultController<Uint8Array>[] = [];
   const limit = vi.fn(async (_input: { key: string }) => ({ success: true }));
