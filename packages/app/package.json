@@ -30,7 +30,7 @@
     "@vitejs/plugin-react": "^6.1.2",
     "@xmldom/xmldom": "^0.9.12",
     "css-select": "^7.0.0",
-    "happy-dom": "^20.14.6",
+    "happy-dom": "^21.0.4",
     "saxes": "^6.0.0",
     "semver": "6.3.1",
     "three-stdlib": "^2.36.1",
