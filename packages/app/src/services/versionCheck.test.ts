@@ -24,6 +24,12 @@ const jsonRes = (body: unknown, ok = true) => ({
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe('fetchLatestVersion', () => {
+  it('cancels an unread HTTP refusal body', async () => {
+    const cancel = vi.fn();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new ReadableStream<Uint8Array>({ cancel }), { status: 503 }));
+    await expect(fetchLatestVersion()).resolves.toBeNull();
+    expect(cancel).toHaveBeenCalledOnce();
+  });
   it('reads a well-formed version.json', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       jsonRes({ version: '0.074', released: '2026-08-27', note: 'hello' }));

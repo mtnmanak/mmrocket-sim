@@ -19,6 +19,13 @@ import { shownStability, stabilityState } from '../services/simReport.js';
 import { BULK_MATERIALS } from './materials.js';
 
 afterEach(() => { vi.unstubAllGlobals(); });
+
+it('cancels an unread HTTP refusal body', async () => {
+  const cancel = vi.fn();
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(new ReadableStream<Uint8Array>({ cancel }), { status: 503 })));
+  await expect(loadExampleFile(EXAMPLE_DESIGNS[0]!)).rejects.toThrow(/could not be loaded/);
+  expect(cancel).toHaveBeenCalledOnce();
+});
 const assetPath = (name: string) => resolve('src/data/examples', name);
 const bytes = (name: string) => readFileSync(assetPath(name));
 const flatten = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap(n => [n, ...flatten(n.children ?? [])]);

@@ -63,6 +63,32 @@ const stalled = (): typeof fetch => (_input, init) => new Promise<Response>((_re
 
 beforeEach(() => { resetThrustcurveBackoffForTests(); localStorage.clear(); setCatalogueOverlay(null); });
 
+it('Stop during the motors digest installs and stores nothing', async () => {
+  const fetchImpl = stubCatalogue([row()]);
+  await fetchImpl.pub; // Fixture hashing must finish before deferring verification.
+  const ctrl = new AbortController();
+  const subtle = globalThis.crypto.subtle;
+  const digest = subtle.digest.bind(subtle);
+  let release!: () => void;
+  let started!: () => void;
+  const pending = new Promise<void>(resolve => { started = resolve; });
+  const spy = vi.spyOn(subtle, 'digest').mockImplementation(async (...args) => {
+    started();
+    await new Promise<void>(resolve => { release = resolve; });
+    return digest(...args);
+  });
+  try {
+    const check = checkForCatalogueUpdates({ fetchImpl, force: true, signal: ctrl.signal })
+      .then(() => null, (err: unknown) => err);
+    await pending;
+    ctrl.abort();
+    release();
+    expect(await check).toMatchObject({ name: 'AbortError' });
+    expect(getCatalogueOverlay()).toBeNull();
+    expect(localStorage.getItem(OVERLAY_KEY)).toBeNull();
+  } finally { spy.mockRestore(); discardCatalogueOverlay(); localStorage.clear(); }
+});
+
 it('keeps the six-hour throttle and snapshot shortcut when overlay storage is full', async () => {
   const fetchImpl = stubCatalogue([row()]);
   const now = Date.now();

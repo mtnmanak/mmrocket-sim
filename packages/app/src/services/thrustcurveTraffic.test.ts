@@ -588,7 +588,8 @@ it('documents no thrustcurve.org requests for known missing curves and the reloa
   // Row 110 / D.7: a missing curve is answered by the curated catalogue, never thrustcurve.org.
   expect(guide).toContain('the app makes no request when you pick one before the catalogue has been checked');
   expect(guide).toContain('the motor stays without one and thrustcurve.org is not asked');
-  expect(guide).toContain('When it loads online, at most every six hours');
+  expect(guide).toContain('it waits six hours after a successful check before checking again');
+  expect(guide).toContain('a failed check is retried on the next load');
   expect(guide).toContain('Loading an uncached motor or opening a design can download its curve');
   expect(guide).toContain('a shipped motor with a cached curve uses that cache without a network request');
   expect(guide.indexOf('The app ships every thrust curve')).toBeLessThan(guide.indexOf('Three filter rows'));

@@ -47,6 +47,24 @@ const GOOD_SAMPLES: TcSample[] = [
 
 const CACHE_KEY = `tc:samples:v7:${QUEST_C6.motorId}`;
 
+it.each([false, true])('cancels an unread HTTP refusal body (cancel rejects: %s)', async rejects => {
+  const tc = await freshModule();
+  const cancel = vi.fn(() => rejects ? Promise.reject(new Error('stream failed')) : undefined);
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(new ReadableStream<Uint8Array>({ cancel }),
+    { status: 503 })));
+  await expect(tc.fetchMotorSpec(QUEST_C6, 5)).rejects.toThrow(/download failed: HTTP 503/);
+  expect(cancel).toHaveBeenCalledOnce();
+});
+
+it('cancels a motor body rejected by its declared size', async () => {
+  const tc = await freshModule();
+  const cancel = vi.fn();
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(new ReadableStream<Uint8Array>({ cancel }),
+    { headers: { 'content-length': String(5 * 1024 * 1024) } })));
+  await expect(tc.fetchMotorSpec(QUEST_C6, 5)).rejects.toThrow(/ran past 4 MB/);
+  expect(cancel).toHaveBeenCalledOnce();
+});
+
 it('does not cache another motor\'s files as no published curve and retries the download', async () => {
   const tc = await freshModule();
   const fetcher = stubDownload([{ motorId: 'some-other-motor', samples: GOOD_SAMPLES }]);

@@ -65,7 +65,8 @@ export function flightExportInput(input: ExportFlightState, hardwareCache: Expor
       const resolved = resolveFlightState(!working && cfg ? configOntoTree(tree, cfg) : tree,
         savedConfigs, id, detachedOverrides, working ? mountMotors : cfg?.motors ?? mountMotors);
       const motors = assignedMotorsOf(resolved.mountMotors, mounts);
-      const getHardwareDeltaKg = () => {
+      let hardwareDelta: number | undefined;
+      const calculateHardwareDeltaKg = () => {
         if (working) return hardwareDeltaKg;
         const primary = primaryMountOf(resolved.tree, motors.map(([mount]) => mount));
         if (!((motors.find(([mount]) => mount === primary)?.[1].padMassKg ?? 0) > 0)) return 0;
@@ -83,6 +84,10 @@ export function flightExportInput(input: ExportFlightState, hardwareCache: Expor
         const delta = 'error' in built ? NaN : hardwareDeltaKgOf(built);
         hardwareCache.set(id, { key, delta });
         return delta;
+      };
+      const getHardwareDeltaKg = () => {
+        hardwareDelta ??= calculateHardwareDeltaKg();
+        return hardwareDelta;
       };
       // The design hash and revision flags do not depend on hardware delta.
       const state = { ...provenanceKeyOf({ tree: resolved.tree, physicsKey: physicsKeyOf(resolved.tree.components),

@@ -934,7 +934,7 @@ export function clearWeatherCache(): void {
 async function cachedWithTime<T>(url: string, load: () => Promise<T>, now: () => number = Date.now): Promise<{ at: number; value: T }> {
   const nowMs = now();
   const hit = answers.get(url);
-  if (hit && nowMs - hit.at < CACHE_TTL_MS) return { at: hit.at, value: hit.value as T };
+  if (hit && nowMs >= hit.at && nowMs - hit.at < CACHE_TTL_MS) return { at: hit.at, value: hit.value as T };
   const value = await load();
   const at = now();
   answers.set(url, { at, value });

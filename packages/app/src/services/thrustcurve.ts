@@ -143,7 +143,10 @@ const MAX_DOWNLOAD_BYTES = 4 * 1024 * 1024;
 async function readJsonCapped(res: Response, designation: string): Promise<unknown> {
   const tooBig = () => new Error(`thrustcurve.org's answer for ${noteField(designation)} ran past `
     + `${MAX_DOWNLOAD_BYTES / (1024 * 1024)} MB, far beyond any real motor file, so it was not read.`);
-  if (Number(res.headers?.get('content-length')) > MAX_DOWNLOAD_BYTES) throw tooBig();
+  if (Number(res.headers?.get('content-length')) > MAX_DOWNLOAD_BYTES) {
+    void res.body?.cancel().catch(() => { /* already errored */ });
+    throw tooBig();
+  }
   if (!res.body) return res.json();
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -816,7 +819,8 @@ function loadSnapshotCurves(snapshot: CatalogueSnapshotRef): Promise<Map<string,
     return Promise.reject(new CatalogueError('integrity', 'The catalogue\'s curves file was refused earlier.'));
   }
   const failure = failedSnapshotCurves.get(sha);
-  if (failure && Date.now() - failure.at < SNAPSHOT_RETRY_MS) return Promise.reject(failure.error);
+  const now = Date.now();
+  if (failure && now >= failure.at && now - failure.at < SNAPSHOT_RETRY_MS) return Promise.reject(failure.error);
   // Not a CatalogueError, so not remembered as a refusal of this file.
   if (!canCheckCatalogueFiles()) return Promise.reject(new Error(NO_HASH_MESSAGE));
   let pending = snapshotCurves.get(sha);
@@ -1565,6 +1569,7 @@ async function curveFilesFromNetwork(motor: TcMotor, ctx: {
       signal: limit.signal,
     });
     if (!res.ok) {
+      void res.body?.cancel().catch(() => { /* already errored */ });
       throw new Error(`thrustcurve.org download failed: HTTP ${res.status}`);
     }
     // Reading the body is inside the deadline too: a connection that answers

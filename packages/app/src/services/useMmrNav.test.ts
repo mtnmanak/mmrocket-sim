@@ -9,6 +9,19 @@ import {
   type MmrNav,
 } from './useMmrNav.js';
 
+const originalFetch = globalThis.fetch;
+
+it('cancels an unread HTTP refusal body', async () => {
+  const cancel = vi.fn();
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(new ReadableStream<Uint8Array>({ cancel }), { status: 503 })));
+  await expect(fetchNav()).resolves.toBeNull();
+  expect(cancel).toHaveBeenCalledOnce();
+});
+
+it('restores fetch after the HTTP refusal test', () => {
+  expect(globalThis.fetch).toBe(originalFetch);
+});
+
 /**
  * The live contract as served on 12 Aug 2026 (menuVersion 480f0531d406),
  * transcribed byte-for-byte. It is the fixture for "a real payload is

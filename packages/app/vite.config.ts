@@ -14,6 +14,23 @@ import { ProjectShardSequencer } from './scripts/project-shard-sequencer.mjs';
 
 assertWorkspaceLinks();
 
+/** Keep full notes in the build-time HTML, but ship only what the dialog reads. */
+function compactChangelog(): Plugin {
+  return {
+    name: 'compact-changelog',
+    apply: 'build',
+    enforce: 'pre',
+    transform(_code, id) {
+      if (!id.replaceAll('\\', '/').endsWith('/src/changelog.ts')) return null;
+      const entries = CHANGELOG.slice(0, 11).map(({ version, date, title, summary, items }, index) => ({
+        version, date, title,
+        ...(index === 0 ? { items: summary ?? items } : {}),
+      }));
+      return { code: `export const CHANGELOG = ${JSON.stringify(entries)};`, map: null };
+    },
+  };
+}
+
 /**
  * Fails `vite build` when the offline precache misses a built file (audit
  * 2026-09-22): globPatterns below names extensions, so an output of a new type
@@ -115,6 +132,7 @@ function brandTokensModule(): Plugin {
 export default defineConfig({
   plugins: [
     react(),
+    compactChangelog(),
     brandTokensModule(),
     // PWA/offline: remote launch sites (Black Rock…) have no internet, so the
     // ENTIRE build precaches — 27 files, about 7.6 MB at v0.168 (precacheCoversBuild, the

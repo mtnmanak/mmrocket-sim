@@ -504,6 +504,18 @@ describe('fetchWeather', () => {
     ? { body: { elevation: [1202.0] } }
     : { body: fixture('forecast-gerlach-0-1202m.json') });
 
+  it('refreshes both answers after the device clock moves backward', async () => {
+    let now = Date.UTC(2026, 8, 22, 14);
+    const f = fakeFetch(route);
+    const q = { place, siteM: 0, date: '2026-09-26', today: '2026-09-22' };
+    const first = await fetchWeather(q, { fetchImpl: f.fetchImpl, now: () => now });
+    now -= 3600_000;
+    const refreshed = await fetchWeather(q, { fetchImpl: f.fetchImpl, now: () => now });
+    expect(f.urls).toHaveLength(4);
+    expect(refreshed.retrievedAt).not.toBe(first.retrievedAt);
+    expect(refreshed.retrievedAt).toBe(new Date(now).toISOString());
+  });
+
   it('asks the terrain first, then one forecast at the site and the ground', async () => {
     const f = fakeFetch(route);
     const a = await fetchWeather({ place, siteM: 0, date: '2026-09-26', today: '2026-09-22' }, { fetchImpl: f.fetchImpl });

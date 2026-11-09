@@ -255,7 +255,10 @@ export function writeCachedNav(nav: MmrNav): void {
 export async function fetchNav(signal?: AbortSignal): Promise<MmrNav | null> {
   try {
     const res = await fetch(CONTRACT, { cache: 'no-cache', signal });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      void res.body?.cancel().catch(() => { /* already errored */ });
+      return null;
+    }
     return parseNav(await res.json());
   } catch {
     return null;

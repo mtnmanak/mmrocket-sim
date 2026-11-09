@@ -113,7 +113,7 @@ describe('an added motor', () => {
     expect(catalogueRequests).toHaveLength(1);
   });
 
-  it('backs off a failed snapshot host for ten minutes, then retries; a new sha retries immediately', async () => {
+  it.each([600_000, -3_600_000])('retries a failed snapshot after expiry or clock rollback (%s ms)', async elapsed => {
     await install({ [curveless.motorId]: [file(40)] });
     await thrusts(curveless);
     const now = Date.now();
@@ -123,7 +123,7 @@ describe('an added motor', () => {
     for (let i = 0; i < 3; i++) expect(Math.max(...await thrusts(curveless))).toBeCloseTo(40, 9);
     expect(catalogueRequests).toHaveLength(1);
     expect(tc.lastCurveFiles(curveless.motorId)?.cacheFallback).toBe('failed');
-    clock.mockReturnValue(now + 10 * 60_000);
+    clock.mockReturnValue(now + elapsed);
     await thrusts(curveless);
     expect(catalogueRequests).toHaveLength(2);
     await install({ [curveless.motorId]: [file(70)] }, { revision: 4 });
