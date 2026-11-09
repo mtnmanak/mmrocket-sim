@@ -403,7 +403,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
               {/* The cause, printed beside the effect: this is why the CP below
                   sits forward of the Design tab's. At zero wind they agree. */}
               <Row label="Angle of attack at launch guide exit"
-                value={run.rodExitAoa == null || !Number.isFinite(run.rodExitAoa) ? '—' : s((run.rodExitAoa * 180) / Math.PI, 1)} unit="°" />
+                value={run.rodExitAoa == null || !Number.isFinite(run.rodExitAoa) ? '—' : fmtSi('angle', prefs.units.angle, run.rodExitAoa, prefs.units.angle === '°' ? 1 : 3)} quantity="angle" />
               <Row label="CG at launch guide exit"
                 value={run.launchCG === null ? '—' : fmtSi('length', len, run.launchCG, 3)} quantity="length" />
               <Row label="CP at launch guide exit"

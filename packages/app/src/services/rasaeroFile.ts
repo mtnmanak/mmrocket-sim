@@ -281,20 +281,24 @@ export type MachAltTable = [number, number][];
  * not tidiness — the engine's interpolator walks the rows assuming each Mach
  * appears once and ascending. First row wins for a repeated Mach.
  */
-function readMachAltTable(doc: XmlDocument): MachAltTable | undefined {
+function readMachAltTable(doc: XmlDocument, notes: string[]): MachAltTable | undefined {
   const el = doc.querySelector('RASAeroDocument > MachAlt');
   if (!el) return undefined;
   const byMach = new Map<number, number>();
+  let dropped = 0;
   for (const item of Array.from(el.querySelectorAll(':scope > Item'))) {
-    const [machStr, altStr] = (item.textContent ?? '').split(',');
-    if (altStr === undefined) continue;
+    const raw = item.textContent ?? '';
+    if (!raw.trim()) continue;
+    const fields = raw.split(',');
+    if (fields.length !== 2) { dropped++; continue; }
+    const [machStr, altStr] = fields;
     // Decimal only, as xmlNum: `Number` read "0x10" as Mach 16 and a blank
     // field (", 4750") as Mach 0 (audit 2026-09-22).
     const mach = parseDecimal(machStr);
     const altFt = parseDecimal(altStr);
     // A negative Mach or a sub-sea-level altitude is not a row RASAero can
     // mean; dropping it beats handing the ISA model an altitude it clamps.
-    if (!Number.isFinite(mach) || !Number.isFinite(altFt) || mach < 0 || altFt < 0) continue;
+    if (!Number.isFinite(mach) || !Number.isFinite(altFt) || mach < 0 || altFt < 0) { dropped++; continue; }
     if (!byMach.has(mach)) {
       if (byMach.size >= MAX_MACH_ALT_ROWS) {
         throw new Error(`Mach-Alt table exceeds the limit of ${MAX_MACH_ALT_ROWS.toLocaleString('en-US')} distinct rows.`);
@@ -302,6 +306,7 @@ function readMachAltTable(doc: XmlDocument): MachAltTable | undefined {
       byMach.set(mach, altFt / FT);
     }
   }
+  if (dropped > 0) cautionNote(notes, 'I04.unreadable-numbers', `Mach-Alt table: dropped ${dropped} unreadable or unsupported row(s). Check the file conditions before using them in Drag analysis; these rows never affect a flight.`);
   if (byMach.size === 0) return undefined;
   return [...byMach.entries()].sort((a, b) => a[0] - b[0]).map(([m, alt]) => [m, alt]);
 }
@@ -1715,7 +1720,7 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
     && stages.every((_, i) => overrideMassKg[i] !== undefined && cgDetail[i] !== undefined);
 
   // ---- design-level conditions table (Mach -> altitude) ----
-  const machAlt = readMachAltTable(doc);
+  const machAlt = readMachAltTable(doc, notes);
 
   // ---- what RASAero can't tell us (be honest, don't invent) ----
   // Leads the honesty block: a substituted dimension changes every number

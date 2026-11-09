@@ -3212,7 +3212,7 @@ export function App() {
     imported.resolvedMotors = resolved;
     const snapshot = planImport(imported, resolved, { launch: launchRef.current, text: statedWeightText, units: prefs.units }).snapshot;
     const plan = planMotorLink({ tree: snapshot.tree, mountIds: motorMounts(snapshot.tree).map(m => m.id!), params: link,
-      loadedMountIds: Object.keys(snapshot.mountMotors), catalogue: getCatalogue(),
+      loadedMountIds: Object.keys(snapshot.mountMotors), catalogue: getCatalogue(), units: prefs.units,
       catalogueDate: getCatalogueOverlay()?.snapshot?.generated ?? MOTOR_DB_DATE });
     const refusal = snapshot.savedConfigs.find(c => c.id === snapshot.activeConfigId)?.motorLoadoutRefusal;
     if (refusal) {

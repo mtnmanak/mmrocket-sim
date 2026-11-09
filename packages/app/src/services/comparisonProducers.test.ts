@@ -1,4 +1,10 @@
 // @vitest-environment happy-dom
+// H2: MotorBrowser 17 -> 13 removes native number-input type literals; NumField
+// comma/invalid/blank boundaries are covered in MotorBrowser.test.tsx.
+// SimResults 50 -> 51 and flightChartModel 10 -> 11 add angle formatters;
+// radians preference regressions cover both display paths beside their code.
+// motorLinkOpen 1 -> 2 adds the shared dimension formatter; imperial fit notes
+// and the browser's existing length tolerance are pinned in motorLinkOpen.test.ts.
 // r119: orkFile 529 -> 528 removes the obsolete elevated-wind rod caution;
 // recovery fills use the existing I19 producer. r119.test covers both changes.
 // noteExplanations 34 -> 35: I19 now describes replacing a lone canopy vent;

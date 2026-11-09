@@ -7,6 +7,7 @@ import { fitsMount, motorLabel, type MotorDbEntry } from './motorDb.js';
 import type { DelayHint, MotorLinkParams } from './motorLink.js';
 import { noteField } from './noteField.js';
 import { defaultDelay, delayOptions, type TcMotor } from './thrustcurve.js';
+import { noticeQuantity, INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
 
 export interface LinkNote { tier: NoteTier; text: string }
 export type MotorLinkPlan =
@@ -26,8 +27,8 @@ export const motorLinkLoadFailure = (motor: TcMotor, delay: number, autoDelay = 
 const copy = {
   unknown: (id: string, date: string) => `The link asked for motor ID “${noteField(id)}”, which this app's motor list (dated ${noteField(date)}) does not have. No motor was loaded from the link — pick one on Motors & Configuration.`,
   noMount: 'This design has no motor mount, so the motor in the link could not be loaded.',
-  diameter: (motor: string, diameter: number, bore: number) => `${motor} is ${diameter} mm across, but this mount takes ${bore} mm. It was loaded and flown anyway as the link asked — the real rocket could not be built this way.`,
-  length: (motor: string, length: number, max: number) => `${motor} is ${length} mm long, longer than this mount's ${max} mm limit. It was loaded and flown anyway — it may hit parts inside the rocket.`,
+  diameter: (motor: string, diameter: string, bore: string) => `${motor} is ${diameter} across, but this mount takes ${bore}. It was loaded and flown anyway as the link asked — the real rocket could not be built this way.`,
+  length: (motor: string, length: string, max: string) => `${motor} is ${length} long, longer than this mount's ${max} limit. It was loaded and flown anyway — it may hit parts inside the rocket.`,
   others: (stage: string, n: number) => `The link set only the ${stage} motor. ${n} other motor mount(s) are empty — add motors on the Motors tab.`,
 };
 
@@ -35,6 +36,7 @@ export function planMotorLink(input: {
   tree: RocketTree; mountIds: string[]; params: MotorLinkParams;
   catalogue: readonly MotorDbEntry[]; catalogueDate: string;
   loadedMountIds?: string[];
+  units?: UnitSelection;
 }): MotorLinkPlan {
   const { tree, params } = input;
   const notes: LinkNote[] = params.problems.map(text => ({ tier: 'information', text }));
@@ -49,9 +51,10 @@ export function planMotorLink(input: {
   const label = noteField(motorLabel(motor, delay, { autoDelay }));
   const mount = findNode(tree, mountId)!;
   const boreMm = mountBore(mount) * 1000;
-  if (!fitsMount(boreMm, motor)) notes.push({ tier: 'caution', text: copy.diameter(label, motor.diameter, boreMm) });
+  const dimension = (m: number, against?: number) => noticeQuantity('motorDimensions', m, input.units ?? INITIAL_UNITS, { against });
+  if (!fitsMount(boreMm, motor)) notes.push({ tier: 'caution', text: copy.diameter(label, dimension(motor.diameter / 1000), dimension(boreMm / 1000)) });
   const max = motorLengthLimit(mount);
-  if (max !== null && motor.length / 1000 > max) notes.push({ tier: 'caution', text: copy.length(label, motor.length, max * 1000) });
+  if (max !== null && motor.length / 1000 > max + 1e-9) notes.push({ tier: 'caution', text: copy.length(label, dimension(motor.length / 1000, max), dimension(max)) });
   const emptyOthers = input.mountIds.filter(id => id !== mountId && !input.loadedMountIds?.includes(id)).length;
   if (emptyOthers > 0) notes.push({ tier: 'information',
     text: copy.others(noteField(stages(tree)[stageIndexOf(tree, mountId)]?.name ?? 'launch-stage'), emptyOthers) });
