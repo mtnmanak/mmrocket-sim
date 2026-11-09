@@ -618,7 +618,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
           <button className="file-btn" disabled={checking || offline}
             title={offline
               ? 'No network — the shipped catalogue is what there is until you are back online'
-              : 'Read the curated motor catalogue and show what has changed since this app\'s copy. The app also checks by itself on load, at most every six hours. Kept in this browser only; nothing is written to the app.'}
+              : 'Read the curated motor catalogue and show what has changed since this app\'s copy. The app also checks by itself on load: it waits six hours after a successful check; a failed check is retried on the next load. Kept in this browser only; nothing is written to the app.'}
             aria-label="Check the motor catalogue for newer motors"
             onClick={() => void runCheck()}>
             {checking ? '↻ checking…' : '↻ Check for newer motors'}

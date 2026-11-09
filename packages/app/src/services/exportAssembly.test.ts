@@ -5,6 +5,7 @@ import type { FlightTree, SavedConfig } from '../model/design.js';
 import { testMotor, testResolution } from './autoDelay.testSupport.js';
 import { prepareOrkExport, exportConfigs, exportMotorsMap, flightExportInput, type ExportHardwareCache } from './exportAssembly.js';
 import * as designBuild from './buildDesign.js';
+import * as dirtyState from './dirtyState.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import { physicsKeyOf, provenanceKeyOf } from './designDerivation.js';
 import { flightDataForExport, flownAutoDelays } from './orkFlightData.js';
@@ -96,9 +97,35 @@ describe('export assembly (S2-8)', () => {
       const renamed = { ...tree, components: [{ ...tree.components[0]!, name: 'Renamed', comment: 'note', color: '#123456' }] };
       const owner = assemble(renamed).configurationState!('B');
       expect(owner.designKey).toBe(assemble().configurationState!('B').designKey);
+      const serialize = vi.spyOn(dirtyState, 'stableJson');
       owner.getHardwareDeltaKg!();
+      const calls = serialize.mock.calls.length;
+      owner.getHardwareDeltaKg!();
+      owner.getHardwareDeltaKg!();
+      expect(serialize).toHaveBeenCalledTimes(calls);
+      serialize.mockRestore();
       expect(buildSpy).toHaveBeenCalledTimes(1);
     } finally { buildSpy.mockRestore(); }
+  });
+  it.each([0, NaN])('memoizes even a cached hardware result of %s', delta => {
+    const aero = { aeroMode: 'classic' as const, effectiveKbf: false, autoSupersonic: false };
+    const hardwareCache: ExportHardwareCache = new Map();
+    const assemble = () => flightExportInput({ tree, runs: [], savedConfigs: [config({ id: 'B',
+      motors: { a: { ...motor, padMassKg: 0.75 } } })], activeConfigId: 'A',
+      assigned: [['a', motor]], mountMotors: { a: motor }, detachedOverrides: {},
+      mounts: tree.components[0]!.children!.slice(0, 2), hardwareDeltaKg: 0, launch: DEFAULT_CONDITIONS,
+      provenanceKey: provenanceKeyOf({ tree, physicsKey: physicsKeyOf(tree.components),
+        assigned: [['a', motor]], hardwareDeltaKg: 0, launch: DEFAULT_CONDITIONS, aero }), ...aero }, hardwareCache);
+    assemble().configurationState!('B').getHardwareDeltaKg!();
+    hardwareCache.get('B')!.delta = delta;
+    const owner = assemble().configurationState!('B');
+    const serialize = vi.spyOn(dirtyState, 'stableJson');
+    try {
+      expect(owner.getHardwareDeltaKg!()).toBe(delta);
+      expect(owner.getHardwareDeltaKg!()).toBe(delta);
+      expect(owner.getHardwareDeltaKg!()).toBe(delta);
+      expect(serialize).toHaveBeenCalledOnce();
+    } finally { serialize.mockRestore(); }
   });
   it('matches an inactive flight against its actual hardware including a refused zero delta', () => {
     const mounts = tree.components[0]!.children!;

@@ -267,7 +267,9 @@ export async function fetchCatalogueFile(file: CatalogueFileRef, maxBytes: numbe
   if (bytes.length !== file.bytes) {
     throw new CatalogueError('integrity', `The catalogue's ${what} is not the size its manifest states, so it was not used.`);
   }
-  if (await sha256Hex(bytes) !== file.sha256) {
+  const hash = await sha256Hex(bytes);
+  if (opts.signal?.aborted) throw new DOMException('The request was cancelled.', 'AbortError');
+  if (hash !== file.sha256) {
     throw new CatalogueError('integrity', `The catalogue's ${what} does not match its manifest, so it was not used.`);
   }
   try {

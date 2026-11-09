@@ -55,7 +55,10 @@ export async function fetchLatestVersion(signal?: AbortSignal): Promise<LatestVe
     // this repo's control, and the service worker is not the only cache in the
     // path (the HTTP cache and any corporate proxy are too).
     const res = await fetch(`./version.json?t=${Date.now()}`, { cache: 'no-store', signal });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      void res.body?.cancel().catch(() => { /* already errored */ });
+      return null;
+    }
     const raw: unknown = await res.json();
     if (typeof raw !== 'object' || raw === null) return null;
     const v = raw as Partial<LatestVersion>;

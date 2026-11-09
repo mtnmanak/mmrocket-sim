@@ -59,7 +59,8 @@ export interface CatalogueChange {
  * BROWSER only — motors.json is never written by the app. Since row 110
  * (2026-10-27) the newer catalogue is the curated snapshot at
  * catalogue.mountainmanrockets.com (catalogueClient.ts), checked by itself on
- * load at most every six hours and on the motor browser's button; an overlay
+ * load six hours after a successful check (failed checks retry on next load),
+ * and on the motor browser's button; an overlay
  * stored before then came from a thrustcurve.org pull and still restores.
  *
  * Why an overlay and not a session flag (owner, 2026-09-05): a session-only

@@ -246,6 +246,22 @@ describe('reading a file: bytes, then size, then sha, then parse', () => {
     await expect(fetchCatalogueFile(pub.entry.motors, MOTORS_MAX_BYTES, 'motors file', { fetchImpl })).rejects.toMatchObject({ kind: 'too-large' });
   });
 
+  it('refuses a file cancelled while its digest is pending', async () => {
+    await valid();
+    const ctrl = new AbortController();
+    const subtle = globalThis.crypto.subtle;
+    const digest = subtle.digest.bind(subtle);
+    const spy = vi.spyOn(subtle, 'digest').mockImplementation(async (...args) => {
+      ctrl.abort();
+      return digest(...args);
+    });
+    try {
+      await expect(fetchCatalogueFile(pub.entry.motors, MOTORS_MAX_BYTES, 'motors file',
+        { signal: ctrl.signal, fetchImpl: async () => stream(pub.motorsBytes) }))
+        .rejects.toMatchObject({ name: 'AbortError' });
+    } finally { spy.mockRestore(); }
+  });
+
   it.each([404, 503, 301])('refuses an HTTP %s answer itself', async status => {
     await valid();
     const fetchImpl = vi.fn(async () => new Response(status === 301 ? null : pub.motorsBytes as Uint8Array<ArrayBuffer>, { status }));

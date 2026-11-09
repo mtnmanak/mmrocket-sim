@@ -39,7 +39,10 @@ export async function loadExampleFile(example: ExampleDesign, signal?: AbortSign
   const { default: url } = await example.asset();
   if (signal?.aborted) throw new DOMException('Example load cancelled.', 'AbortError');
   const response = await fetch(url, signal ? { signal } : {});
-  if (!response.ok) throw new Error(`${example.name} could not be loaded. Try again when the app is available offline or the connection returns.`);
+  if (!response.ok) {
+    void response.body?.cancel().catch(() => { /* already errored */ });
+    throw new Error(`${example.name} could not be loaded. Try again when the app is available offline or the connection returns.`);
+  }
   const bytes = await response.arrayBuffer();
   if (signal?.aborted) throw new DOMException('Example load cancelled.', 'AbortError');
   return new File([bytes], example.fileName, { type: 'application/octet-stream' });

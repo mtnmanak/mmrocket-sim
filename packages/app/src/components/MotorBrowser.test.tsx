@@ -647,6 +647,12 @@ describe('MotorBrowser — the "Check for newer motors" button (audit 2026-09-22
   };
   const checkButton = (h: Harness) => h.host.querySelector<HTMLButtonElement>('button[aria-label="Check the motor catalogue for newer motors"]')!;
 
+  it('explains successful-check throttling and next-load retry in the check tooltip', () => {
+    h = openBrowser({ mountDiameterMm: 24 });
+    expect(checkButton(h).title).toContain('waits six hours after a successful check');
+    expect(checkButton(h).title).toContain('a failed check is retried on the next load');
+  });
+
   it('reports the diff in a status region, and names a maker that came back empty', async () => {
     await stubThrustcurve((m) => m.manufacturerAbbrev !== 'Klima');
     h = openBrowser({ mountDiameterMm: 29 });

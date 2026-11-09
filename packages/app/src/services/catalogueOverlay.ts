@@ -429,7 +429,7 @@ export async function checkForCatalogueUpdates(
   else opts.signal?.addEventListener('abort', relay, { once: true });
   const io = { signal: ctrl.signal, fetchImpl: opts.fetchImpl };
   /** Nothing is installed or stored once a newer check or a Discard has started. */
-  const current = (): void => { if (mine !== generation) throw stopped(); };
+  const current = (): void => { if (mine !== generation || ctrl.signal.aborted) throw stopped(); };
   try {
     let manifest: ManifestSnapshot;
     try {

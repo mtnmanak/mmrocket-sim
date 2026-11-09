@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_MAX_JSON_BYTES, getJsonCapped, NetError } from './net.js';
+import { DEFAULT_MAX_JSON_BYTES, getJsonCapped, getBytesCapped, NetError } from './net.js';
 
 /**
  * services/net.ts — the capped, deadlined JSON GET every weather request goes
@@ -9,6 +9,25 @@ import { DEFAULT_MAX_JSON_BYTES, getJsonCapped, NetError } from './net.js';
  */
 
 const URL_ = 'https://api.open-meteo.com/v1/forecast?x=1';
+
+it.each(['json', 'bytes'])('cancels a declared oversized %s body before reading it', async kind => {
+  const cancel = vi.fn();
+  const body = new ReadableStream<Uint8Array>({ cancel });
+  const fetchImpl: typeof fetch = async () => new Response(body, { headers: { 'content-length': '100' } });
+  const opts = { timeoutMs: 1000, maxBytes: 10, fetchImpl };
+  await expect(kind === 'json' ? getJsonCapped(URL_, opts) : getBytesCapped(URL_, opts))
+    .rejects.toMatchObject({ kind: 'too-large' });
+  expect(cancel).toHaveBeenCalledOnce();
+});
+
+it.each(['http', 'redirected'])('cancels an unread byte response rejected as %s', async kind => {
+  const cancel = vi.fn();
+  const res = new Response(new ReadableStream<Uint8Array>({ cancel }), { status: kind === 'http' ? 503 : 200 });
+  if (kind === 'redirected') Object.defineProperty(res, 'redirected', { value: true });
+  await expect(getBytesCapped(URL_, { timeoutMs: 1000, maxBytes: 10, fetchImpl: async () => res }))
+    .rejects.toMatchObject({ kind });
+  expect(cancel).toHaveBeenCalledOnce();
+});
 
 /** A Response whose body arrives in the given chunks — a real stream, so the capped reader is exercised. */
 function streamed(chunks: string[], init: ResponseInit = {}): Response {

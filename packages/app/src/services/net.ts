@@ -236,9 +236,11 @@ export async function getBytesCapped(url: string, opts: {
       ...(opts.cache !== undefined ? { cache: opts.cache } : {}),
     });
     if (res.redirected || (res.url && originOf(res.url) !== originOf(url))) {
+      void res.body?.cancel().catch(() => { /* already errored */ });
       throw new NetError('redirected', `The answer from ${hostOf(url)} came from somewhere else, so it was not read.`);
     }
     if (res.status < 200 || res.status >= 300) {
+      void res.body?.cancel().catch(() => { /* already errored */ });
       throw new NetError('http', `${hostOf(url)} answered HTTP ${res.status}.`);
     }
     return await readBytesCapped(res, opts.maxBytes);
@@ -258,7 +260,10 @@ export async function getBytesCapped(url: string, opts: {
 
 /** A response body as text, refused past `maxBytes`. */
 async function readTextCapped(res: Response, maxBytes: number): Promise<string> {
-  if (Number(res.headers?.get('content-length')) > maxBytes) throw tooLarge(maxBytes);
+  if (Number(res.headers?.get('content-length')) > maxBytes) {
+    void res.body?.cancel().catch(() => { /* already errored */ });
+    throw tooLarge(maxBytes);
+  }
   if (!res.body) {
     const text = await res.text();
     if (text.length > maxBytes) throw tooLarge(maxBytes);
@@ -271,7 +276,10 @@ const tooLarge = (maxBytes: number) => new NetError('too-large', `The answer ran
 
 /** A response body as bytes, refused past `maxBytes` — and the download stopped the moment it is. */
 async function readBytesCapped(res: Response, maxBytes: number): Promise<Uint8Array> {
-  if (Number(res.headers?.get('content-length')) > maxBytes) throw tooLarge(maxBytes);
+  if (Number(res.headers?.get('content-length')) > maxBytes) {
+    void res.body?.cancel().catch(() => { /* already errored */ });
+    throw tooLarge(maxBytes);
+  }
   if (!res.body) {
     const bytes = new Uint8Array(await res.arrayBuffer());
     if (bytes.length > maxBytes) throw tooLarge(maxBytes);
