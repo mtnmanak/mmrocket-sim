@@ -104,7 +104,7 @@ describe('file-derived names and notes are safe at the API edge', () => {
   }, 60_000);
 });
 
-it.each(['Booster\u200b', 'A\u201cB'])('aligns every component-name carrier for %j', async name => {
+it.each(['Booster\u200b', 'A\u201cB', 'A\u200b\u201cB'])('aligns every component-name carrier for %j', async name => {
   const out = await headless.simulateFile(bytesOf('reference.ork'), 'reference.ork', { reportSeries: 'summary' });
   const mount = out.flight.delayResolution.mounts[0]!;
   mount.mountName = name;
@@ -116,6 +116,7 @@ it.each(['Booster\u200b', 'A\u201cB'])('aligns every component-name carrier for 
   const normal = await headless.describeFile(bytesOf('reference.ork'), 'reference.ork');
   normal.mounts[0]!.name = name;
   normal.mounts[0]!.stageName = name;
+  normal.name = name;
   const fly = vi.spyOn(headless, 'simulateFile').mockResolvedValue(out);
   const describe = vi.spyOn(headless, 'describeFile').mockResolvedValue(normal);
   try {
@@ -134,6 +135,9 @@ it.each(['Booster\u200b', 'A\u201cB'])('aligns every component-name carrier for 
     const described = await (await post('/describe', 'names.ork', bytesOf('reference.ork'))).json() as typeof normal;
     expect(described.mounts[0]!.name).toBe(expected);
     expect(described.mounts[0]!.stageName).toBe(expected);
+    // Ruling 113-14a: standalone design titles retain the display echo.
+    expect(described.name).toBe(displayEcho(name));
+    expect(described.name).not.toBe(expected);
   } finally { fly.mockRestore(); describe.mockRestore(); }
 });
 

@@ -925,29 +925,36 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
   // ---- recovery: two indexed slots on <Recovery> ----
   const recovery = doc.querySelector('RASAeroDocument > Recovery');
   if (recovery) {
+    // Compatibility checks must retain empty elements and Unicode whitespace;
+    // xmlText intentionally normalizes both for the app's own import defaults.
+    const rawRecovery = (field: string) => recovery.querySelector(`:scope > ${field}`)?.textContent ?? null;
     const firstTube = sustainer.children!.find((c) => c.type === 'bodytube');
     const firstEnabled = (text(recovery, ':scope > Event1') ?? 'false').toLowerCase() === 'true'
       && (text(recovery, ':scope > EventType1') ?? 'None') !== 'None';
+    const desktopEnabled = (slot: number) => rawRecovery(`Event${slot}`)?.toLowerCase() === 'true'
+      && rawRecovery(`EventType${slot}`) !== 'None';
     // Desktop parses every supplied double, even in disabled slots, and
     // unboxes all required doubles before creating an enabled parachute.
     const recoveryProblems = [1, 2].map(slot => {
-      const enabled = (text(recovery, `:scope > Event${slot}`) ?? 'false').toLowerCase() === 'true'
-        && (text(recovery, `:scope > EventType${slot}`) ?? 'None') !== 'None'
-        && (slot === 1 || firstEnabled);
-      const device = text(recovery, `:scope > DeviceType${slot}`) ?? 'Parachute';
+      const enabled = desktopEnabled(slot) && (slot === 1 || desktopEnabled(1));
+      const device = rawRecovery(`DeviceType${slot}`);
       const fields = ['Altitude', 'Size', 'CD'].filter(field => {
-        const value = text(recovery, `:scope > ${field}${slot}`);
+        const value = rawRecovery(`${field}${slot}`);
         const required = enabled && (device === 'Parachute' || device === 'None')
           && (field !== 'Size' || device !== 'None');
         return (value !== null || required) && !javaDoubleText(value);
       }).map(field => `${field}${slot}`);
+      if (enabled && rawRecovery(`DeviceType${slot}`) === null) fields.push(`DeviceType${slot}`);
       if (fields.length) {
         const event = text(recovery, `:scope > EventType${slot}`);
         const cd = num(recovery, `CD${slot}`, NaN);
-        const fallback = enabled && (device === 'Parachute' || device === 'None')
-          ? `The app uses ${event === 'Apogee' ? 'apogee' : `${noticeNumber(num(recovery, `Altitude${slot}`, 500))} ft`} deployment, a ${noticeNumber(device === 'None' ? 0 : num(recovery, `Size${slot}`, 36))} inch diameter and ${Number.isFinite(cd) && cd !== 0 ? `Cd ${noticeNumber(cd)}` : 'automatic Cd 0.8'} for this slot.`
+        const appDevice = text(recovery, `:scope > DeviceType${slot}`) ?? 'Parachute';
+        const appEnabled = (text(recovery, `:scope > Event${slot}`) ?? 'false').toLowerCase() === 'true'
+          && (event ?? 'None') !== 'None' && (slot === 1 || firstEnabled);
+        const fallback = appEnabled && (appDevice === 'Parachute' || appDevice === 'None')
+          ? `The app uses ${event === 'Apogee' ? 'apogee' : `${noticeNumber(num(recovery, `Altitude${slot}`, 500))} ft`} deployment, a ${noticeNumber(appDevice === 'None' ? 0 : num(recovery, `Size${slot}`, 36))} inch diameter and ${Number.isFinite(cd) && cd !== 0 ? `Cd ${noticeNumber(cd)}` : 'automatic Cd 0.8'} for this slot.`
           : 'This slot is ignored by the app; no recovery device is added for it.';
-        const inputs = fields.map(field => `${field} (“${noteField(text(recovery, `:scope > ${field}`) ?? '(missing)')}”)`).join(', ');
+        const inputs = fields.map(field => `${field} (“${noteField(rawRecovery(field) ?? '(missing)')}”)`).join(', ');
         cautionNote(notes, 'I04.recovery-event', `RASAero recovery ${inputs} missing or unreadable; desktop OpenRocket cannot import this file. ${fallback} Repair the named fields and check recovery before flying.`);
       }
       return fields;
@@ -957,7 +964,7 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
       const eventType = text(recovery, `:scope > EventType${slot}`) ?? 'None';
       if (eventType === 'None') continue;
       if (slot === 2 && !firstEnabled) {
-        cautionNote(notes, 'I04.recovery-disabled', 'RASAero recovery slot 2 is ignored because slot 1 is disabled or has no event, as in desktop OR. No recovery device is added for slot 2; check recovery before flying.');
+        cautionNote(notes, 'I04.recovery-disabled', 'RASAero recovery slot 2 is ignored because slot 1 is disabled or has no event. Desktop OR ignores slot 2 when its untrimmed Event1 is false or EventType1 is exactly None, if the file opens there. No recovery device is added for slot 2; check recovery before flying.');
         continue;
       }
       const deviceType = text(recovery, `:scope > DeviceType${slot}`) ?? 'Parachute';
@@ -966,10 +973,17 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
         continue;
       }
       if (slot === 2 && eventType === 'Apogee' && text(recovery, ':scope > EventType1') === 'Apogee') {
-        const altitude2 = text(recovery, ':scope > Altitude2');
-        const validAltitude = javaDoubleText(altitude2) && recoveryProblems.every(fields => fields.length === 0);
-        cautionNote(notes, 'I04.recovery-event', `Both RASAero recovery slots say Apogee; the app keeps both at apogee to preserve saved designs. ${validAltitude
-          ? `RASAero itself and desktop OR use an Altitude event for slot 2 at the file’s Altitude2 value “${noteField(altitude2)}” ft. Deployment can differ from apogee; at 0 ft it may not open before landing.`
+        const altitude2 = rawRecovery('Altitude2') ?? '';
+        // The shared check requires altitude only for devices desktop creates.
+        // Disabled slots and unknown devices may omit it without an exception.
+        const validRecovery = recoveryProblems.every(fields => fields.length === 0);
+        const desktopPaired = [1, 2].every(index => desktopEnabled(index)
+          && rawRecovery(`EventType${index}`) === 'Apogee'
+          && ['Parachute', 'None'].includes(rawRecovery(`DeviceType${index}`) ?? ''));
+        cautionNote(notes, 'I04.recovery-event', `Both RASAero recovery slots say Apogee; the app keeps both at apogee to preserve saved designs. ${validRecovery
+          ? desktopPaired
+            ? `RASAero itself and desktop OR use an Altitude event for slot 2 at the file’s Altitude2 value “${noteField(altitude2)}” ft; desktop OR does this when it can import the file; hand-edited numeric fields can prevent that. Deployment can differ from apogee; at 0 ft it may not open before landing.`
+            : 'Desktop OR reads Event, EventType and DeviceType without trimming: empty or padded strings can disable or omit a device, or change its deployment event. Do not assume both devices will be present or deploy as in the app. Check both slots in desktop OR if the file opens there.'
           : 'Recovery fields are missing or unreadable; desktop OpenRocket cannot import this file. Repair the named recovery fields before opening it there.'} Check recovery before flying in those tools.`);
       }
       const cd = num(recovery, `CD${slot}`, NaN);
@@ -982,7 +996,7 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
         position: { method: 'top', offset: 0.02 },
       } as ComponentNode;
       if (deviceType === 'None') {
-        cautionNote(notes, 'I04.recovery-none', `RASAero recovery slot ${slot} has DeviceType None: imported as a zero-diameter parachute, as in desktop OR. It supplies no canopy drag; check recovery before flying.`);
+        cautionNote(notes, 'I04.recovery-none', `RASAero recovery slot ${slot} has DeviceType None: imported as a zero-diameter parachute. Desktop OR uses zero diameter for an enabled slot whose untrimmed DeviceType is exactly None, if the file opens there. It supplies no canopy drag; check recovery before flying.`);
       }
       // Deliberately depart from desktop OR 24.12 RecoveryHandler.java:185,
       // which sets CD literally: real RASAero mains use 0 for an unset Cd.
@@ -1845,7 +1859,7 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
   if (appliedParts.length > 0) {
     const simTxt = chosenSimNr !== undefined ? `simulation ${chosenSimNr}` : 'the RASAero simulation';
     cautionNote(notes, 'I17.stage-overrides', `Applied from ${simTxt}, as stage overrides with the motor backed out (desktop OpenRocket `
-      + `does the same): ${appliedParts.join('; ')}. Each replaces the computed mass or CG for that whole `
+      + `uses this method when it can import the file; hand-edited numeric fields can prevent that): ${appliedParts.join('; ')}. Each replaces the computed mass or CG for that whole `
       + `stage — clear it under Overrides to go back to the ${noticeQuantity('length', 0.002, units)}-wall geometry.`);
   }
   if (catalogueStandIns.size > 0) {
