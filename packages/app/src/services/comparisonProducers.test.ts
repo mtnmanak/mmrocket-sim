@@ -11,6 +11,8 @@
 // N7 round 4 census review: presets 20 -> 21 and userMaterials 11 -> 12
 // add only recovery-copy message declarations. No numeric boundary changed.
 import { createElement, act } from 'react';
+// H9 S5-6: sanitize 29 -> 28 removes the uncalled configuration-separation
+// note. No active numeric comparison or warning boundary changes.
 import { createRoot } from 'react-dom/client';
 import { readFileSync, readdirSync } from 'node:fs';
 import { URL as NodeURL, fileURLToPath } from 'node:url';

@@ -9,6 +9,8 @@ import type { Window as HappyWindow } from 'happy-dom';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { flyBuiltDesign } from './services/simulateDesign.js';
 import { App } from './App.js';
+import * as exportAssembly from './services/exportAssembly.js';
+import * as bundleDialog from './components/FlightDataBundleDialog.js';
 import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
 import type { FlightTree, MountMotor, SavedConfig } from './model/design.js';
 import type { StageMassOverride } from './services/stageMassOverrides.js';
@@ -244,6 +246,41 @@ function storedSession(): SessionState | null {
 
 /** The starter motor has landed and been autosaved: a first visit is settled. */
 const starterStored = () => Object.keys(storedSession()?.mountMotors ?? {}).length > 0;
+
+it('Save, share and bundle use the same prepared fields and Auto-delay notes', async () => {
+  const tree = defaultTree();
+  const mount = motorMounts(tree)[0]!.id!;
+  const db = MOTOR_DB.find(m => m.diameter === 18 && m.delays?.split(',').some(d => /^\d+$/.test(d)))!;
+  const loaded = (await loadCatalogueMotor(db.manufacturerAbbrev, db.designation, 5))!;
+  const motor = { ...loaded, meta: { ...loaded.meta, autoDelay: true } };
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [mount]: motor },
+    launch: DEFAULT_CONDITIONS, savedAt: Date.now(), appVersion: APP_VERSION }));
+  const host = await mountApp();
+  const launch = host.querySelector<HTMLButtonElement>('.vitals-launch')!;
+  await waitFor(() => !launch.disabled, 'ready to fly');
+  await act(async () => { launch.click(); });
+  await waitFor(() => !![...host.querySelectorAll('button')].find(b => b.textContent === 'Export flight-data bundle'), 'flown run');
+  const prepare = vi.spyOn(exportAssembly, 'prepareOrkExport');
+  const writeText = vi.fn(async (_url: string) => {});
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+  const dialog = vi.spyOn(bundleDialog, 'FlightDataBundleDialog').mockReturnValue(<></>);
+  try {
+    await saveAs(host, 'Save .ork');
+    await saveAs(host, 'Copy share link');
+    await waitFor(() => writeText.mock.calls.length === 1, 'copied link');
+    await act(async () => { button(host, 'Export flight-data bundle').click(); });
+    expect(prepare).toHaveBeenCalledTimes(3);
+    const designs = prepare.mock.results.map(r => r.value.design);
+    expect(designs[0]).toEqual(designs[1]);
+    expect(designs[0]).toEqual(designs[2]);
+    expect(designs[0].notes.join(' ')).toContain('Auto (optimal)');
+    expect(dialog.mock.calls.at(-1)?.[0].source.design).toEqual(designs[2]);
+  } finally {
+    prepare.mockRestore();
+    dialog.mockRestore();
+    delete (navigator as { clipboard?: unknown }).clipboard;
+  }
+}, 30_000);
 
 function button(host: ParentNode, text: string): HTMLButtonElement {
   const b = [...host.querySelectorAll('button')].find((x) => x.textContent?.includes(text));

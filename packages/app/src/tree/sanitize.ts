@@ -461,18 +461,6 @@ export function separationEventOrDefault(raw: string): string {
 }
 
 /**
- * The import note for an unknown separation event in a flight configuration
- * other than the one opened — worded like the tree pass's own notes, so the
- * banner reads as one list. The opened configuration's value is on the stage
- * node, where `sanitizeTree` reports it.
- */
-export function configSeparationNote(stage: ComponentNode, raw: string): string {
-  const { fallback } = ENUM_LIMITS['stage']!['separationEvent']!;
-  return `${partName(stage)}: separation event “${noteField(raw)}”, in a flight configuration other than the one `
-    + `opened, is not one the simulation knows — that configuration now uses ${fallback}.`;
-}
-
-/**
  * Everything in `tree` the kernel is known to refuse or that is outside a hard
  * limit, one sentence per problem, naming the part and the field — the
  * sanitize table read as a validator, plus the freeform outline check the fin

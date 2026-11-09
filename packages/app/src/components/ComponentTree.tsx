@@ -224,8 +224,10 @@ export function ComponentTree({
       {list.map((t) => (
         <button key={t} className="add-menu-item"
           onClick={() => {
-            onAdd(parentId, t);
-            setAddOpen(null);
+            keepFocus(() => {
+              onAdd(parentId, t);
+              setAddOpen(null);
+            })('');
           }}>
           {TYPE_ICON[t] ?? '·'} {DISPLAY_NAME[t]}
         </button>

@@ -134,7 +134,7 @@ interface Harness {
 }
 
 function openBrowser(props: { mountDiameterMm: number; maxMotorLengthM?: number | null; filters?: Record<string, unknown>;
-  recoveryAdviceFor?: (delay: number, auto: boolean) => string | null }): Harness {
+  onClose?: () => void; recoveryAdviceFor?: (delay: number, auto: boolean) => string | null }): Harness {
   if (props.filters) localStorage.setItem(FILTERS_KEY, JSON.stringify(props.filters));
   const host = document.createElement('div');
   document.body.appendChild(host);
@@ -151,7 +151,7 @@ function openBrowser(props: { mountDiameterMm: number; maxMotorLengthM?: number 
           specs.push(spec);
           motors.push({ label, spec, meta, ignition: { event: 'automatic', delay: 0 } });
         }}
-        onClose={() => {}} />
+        onClose={props.onClose ?? (() => {})} />
     </PrefsProvider>,
   ));
   return { host, root, selected, specs, motors };
@@ -1193,6 +1193,22 @@ describe('MotorBrowser — two earlier fixes with no test until now (audit 2026-
     await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
     expect(answered).toBe(true);
     expect(vi.mocked(fetch)).toHaveBeenCalledOnce();
+    expect(h.selected).toEqual([]);
+  });
+
+  it('keeps the explicit Close control available during a pending load', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})));
+    const onClose = vi.fn(() => closeBrowser(h));
+    h = openBrowser({ mountDiameterMm: 29, filters: { includeOOP: true }, onClose });
+    search(h, 'G81NET');
+    click(rowFor(h, 'Estes', 'G81NET')!);
+    click(loadButton(h)!);
+    const close = h.host.querySelector<HTMLButtonElement>('[aria-label="Close motor browser"]')!;
+    expect(loadButton(h)!.disabled).toBe(true);
+    expect(close.disabled).toBe(false);
+    click(close);
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(h.host.isConnected).toBe(false);
     expect(h.selected).toEqual([]);
   });
 

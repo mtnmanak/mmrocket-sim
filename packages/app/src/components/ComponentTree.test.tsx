@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { RocketTree } from '@online-openrocket/engine';
 import { ComponentTree } from './ComponentTree.js';
-import { duplicateNode, moveNode, removeNode } from '../tree/treeModel.js';
+import { addChild, makeNode, duplicateNode, moveNode, removeNode } from '../tree/treeModel.js';
 
 /**
  * The component tree is the ONLY complete list of what a design contains. Two
@@ -242,7 +242,11 @@ describe('structural actions keep the keyboard in the tree', () => {
             setTree(next);
             if (newId) setSel(newId);
           }}
-          onAdd={() => {}}
+          onAdd={(parent, type) => {
+            const node = makeNode(type);
+            setTree(addChild(tree, parent, node));
+            setSel(node.id!);
+          }}
           onAddStage={() => {}}
           clipboard={null}
           onCopy={() => {}}
@@ -260,6 +264,15 @@ describe('structural actions keep the keyboard in the tree', () => {
     act(() => { b.click(); });
   };
   const labels = () => [...host.querySelectorAll('.tree-row .tree-label')].map((l) => l.textContent);
+
+  it('Add returns focus to the newly selected row after its menu disappears', () => {
+    act(() => root.render(<Harness />));
+    press([...host.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.includes('Add to Sustainer'))!);
+    press(host.querySelector<HTMLButtonElement>('.add-menu-item')!);
+    expect(host.querySelector('.add-menu')).toBeNull();
+    expect(document.activeElement?.getAttribute('role')).toBe('treeitem');
+    expect(document.activeElement?.getAttribute('aria-selected')).toBe('true');
+  });
 
   // A browser runs the HTML "focus fixup" when a focused node is MOVED (an
   // insertBefore of a connected node is a remove and an insert) and focus
