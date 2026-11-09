@@ -1090,13 +1090,23 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
   // 'NoThrust' is RASAero's placeholder for a stage flying without a motor.
   const parseEngine = (s: string): { designation: string; manufacturer: string; delay?: number; explicitDelay?: number | 'plugged' } | null => {
     const value = s.trim();
-    const separators = [...value.matchAll(/\s{2,}/g)];
-    const makerStart = value.endsWith(')') ? value.lastIndexOf('(') : value.length;
-    const last = separators.filter(m => m.index < makerStart).at(-1);
-    if (!last) return null;
-    let designation = value.slice(0, last.index);
-    const maker = value.slice(last.index + last[0].length);
-    if (!designation || !maker || (/[()]/.test(maker) ? !/^\([^()]*\)$/.test(maker) : /[()]/.test(designation.replace(/^\S+/, '')))) return null;
+    let designation: string, maker: string;
+    if (value.endsWith(')')) {
+      // A parenthesized maker (the app's own writer): the designation may hold repeated spaces.
+      const open = value.lastIndexOf('(');
+      const last = [...value.slice(0, open).matchAll(/\s{2,}/g)].at(-1);
+      if (!last || last.index + last[0].length !== open) return null;
+      designation = value.slice(0, last.index);
+      maker = value.slice(open);
+      if (!/^\([^()]*\)$/.test(maker)) return null;
+    } else {
+      // An unparenthesized maker splits exactly as v0.197 and desktop OR do
+      // (RASAeroMotorsLoader: two parts on a run of spaces), so "G80 (T)  AT" still loads.
+      const parts = value.split(/\s{2,}/);
+      if (parts.length !== 2) return null;
+      [designation, maker] = parts as [string, string];
+    }
+    if (!designation || !maker) return null;
     let delay: number | undefined;
     const dm = designation.match(/-([0-9]+|[pP])$/);
     if (dm) {

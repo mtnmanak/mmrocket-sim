@@ -25,6 +25,13 @@ describe('H5b import fidelity', () => {
     expect(Object.values(r.motors)[0]?.manufacturer).toBe('AT');
     expect(r.noteTiers?.some(n => n.kind === 'I12.unattached-motors')).not.toBe(true);
   });
+  it.each([['G80 (T)  AT', 'G80 (T)', 'AT'], ['X (y)  Estes', 'X (y)', 'Estes']])(
+    'still loads %j as v0.197 and desktop OR do (a parenthesized word after the first)', (engine, designation, maker) => {
+      const r = importCdx1(cdx(body, `<SimulationList><Simulation><SustainerEngine>${engine}</SustainerEngine></Simulation></SimulationList>`));
+      expect(Object.values(r.motors)[0]?.designation).toBe(designation);
+      expect(Object.values(r.motors)[0]?.manufacturer).toBe(maker);
+      expect(r.noteTiers?.some(n => n.kind === 'I12.unattached-motors')).not.toBe(true);
+    });
   it('tells browser users which conditions survive a refused site', () => {
     expect(retainedLaunchNote('rkt', DEFAULT_CONDITIONS, undefined, true)).toContain('settings you had');
   });
