@@ -360,6 +360,14 @@ export async function importCdx1Flown(data: ArrayBuffer | Uint8Array | string, o
 /** Design-level elements RASAero writes as its own computed results, not as inputs (D7 I03). */
 const RASAERO_OUTPUT_TAGS: ReadonlySet<string> = new Set(['CP']);
 
+/** Double.parseDouble syntax, for desktop compatibility notes only. */
+function javaDoubleText(value: string | null): value is string {
+  if (value === null) return false;
+  const decimal = '(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?';
+  const hex = '0[xX](?:[0-9a-fA-F]+(?:\\.[0-9a-fA-F]*)?|\\.[0-9a-fA-F]+)[pP][+-]?[0-9]+';
+  return new RegExp(`^[+-]?(?:NaN|Infinity|(?:${decimal}|${hex})[fFdD]?)$`).test(value.replace(/^[\x00-\x20]+|[\x00-\x20]+$/g, ''));
+}
+
 export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
   /** Optional host cap; browser imports retain the shared 64 MiB default. */
   maxInflatedBytes?: number;
@@ -589,14 +597,14 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
     const lugD = num(el, 'LaunchLugDiameter', 0);
     const lugL = num(el, 'LaunchLugLength', 0);
     if (lugD > 0 && lugL > 0) {
-      const radius = lugD / IN / 2;
-      const parentRadius = tube['outerRadius'] as number;
+      const radius = Math.max(Number.MIN_VALUE, Math.min(MAX_DIMENSION_M, lugD / IN / 2));
+      const parentRadius = Math.max(0, Math.min(MAX_DIMENSION_M, tube['outerRadius'] as number));
       (tube.children ??= []).push({
         type: 'launchlug', id: freshId(), name: 'Launch lug',
         length: lugL / IN, outerRadius: radius, thickness: Math.min(0.001, radius),
         instanceCount: 2, instanceSeparation: (tube['length'] as number) - 0.0508 - lugL / IN,
         position: { method: 'top', offset: 0.0254 },
-        angleOffset: -Math.acos((0.6616 * parentRadius - radius) / (parentRadius + radius)),
+        angleOffset: -Math.acos(Math.max(-1, Math.min(1, (0.6616 * parentRadius - radius) / (parentRadius + radius)))),
       } as ComponentNode);
     }
     readProtuberances(el, tube, name);
@@ -910,6 +918,30 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
     const firstTube = sustainer.children!.find((c) => c.type === 'bodytube');
     const firstEnabled = (text(recovery, ':scope > Event1') ?? 'false').toLowerCase() === 'true'
       && (text(recovery, ':scope > EventType1') ?? 'None') !== 'None';
+    // Desktop parses every supplied double, even in disabled slots, and
+    // unboxes all required doubles before creating an enabled parachute.
+    const recoveryProblems = [1, 2].map(slot => {
+      const enabled = (text(recovery, `:scope > Event${slot}`) ?? 'false').toLowerCase() === 'true'
+        && (text(recovery, `:scope > EventType${slot}`) ?? 'None') !== 'None'
+        && (slot === 1 || firstEnabled);
+      const device = text(recovery, `:scope > DeviceType${slot}`) ?? 'Parachute';
+      const fields = ['Altitude', 'Size', 'CD'].filter(field => {
+        const value = text(recovery, `:scope > ${field}${slot}`);
+        const required = enabled && (device === 'Parachute' || device === 'None')
+          && (field !== 'Size' || device !== 'None');
+        return (value !== null || required) && !javaDoubleText(value);
+      }).map(field => `${field}${slot}`);
+      if (fields.length) {
+        const event = text(recovery, `:scope > EventType${slot}`);
+        const cd = num(recovery, `CD${slot}`, NaN);
+        const fallback = enabled && (device === 'Parachute' || device === 'None')
+          ? `The app uses ${event === 'Apogee' ? 'apogee' : `${noticeNumber(num(recovery, `Altitude${slot}`, 500))} ft`} deployment, a ${noticeNumber(device === 'None' ? 0 : num(recovery, `Size${slot}`, 36))} inch diameter and ${Number.isFinite(cd) && cd !== 0 ? `Cd ${noticeNumber(cd)}` : 'automatic Cd 0.8'} for this slot.`
+          : 'This slot is ignored by the app; no recovery device is added for it.';
+        const inputs = fields.map(field => `${field} (“${noteField(text(recovery, `:scope > ${field}`) ?? '(missing)')}”)`).join(', ');
+        cautionNote(notes, 'I04.recovery-event', `RASAero recovery ${inputs} missing or unreadable; desktop OpenRocket cannot import this file. ${fallback} Repair the named fields and check recovery before flying.`);
+      }
+      return fields;
+    });
     for (const slot of [1, 2] as const) {
       if ((text(recovery, `:scope > Event${slot}`) ?? 'false').toLowerCase() !== 'true') continue;
       const eventType = text(recovery, `:scope > EventType${slot}`) ?? 'None';
@@ -924,7 +956,11 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
         continue;
       }
       if (slot === 2 && eventType === 'Apogee' && text(recovery, ':scope > EventType1') === 'Apogee') {
-        cautionNote(notes, 'I04.recovery-event', `Both RASAero recovery slots say Apogee; the app keeps both at apogee to preserve saved designs. RASAero itself and desktop OR use an Altitude event for slot 2 at the file’s Altitude2 value “${noteField(text(recovery, ':scope > Altitude2') ?? '(missing)')}” ft. Deployment can differ from apogee; at 0 ft it may not open before landing. Check recovery before flying in those tools.`);
+        const altitude2 = text(recovery, ':scope > Altitude2');
+        const validAltitude = javaDoubleText(altitude2) && recoveryProblems.every(fields => fields.length === 0);
+        cautionNote(notes, 'I04.recovery-event', `Both RASAero recovery slots say Apogee; the app keeps both at apogee to preserve saved designs. ${validAltitude
+          ? `RASAero itself and desktop OR use an Altitude event for slot 2 at the file’s Altitude2 value “${noteField(altitude2)}” ft. Deployment can differ from apogee; at 0 ft it may not open before landing.`
+          : 'Recovery fields are missing or unreadable; desktop OpenRocket cannot import this file. Repair the named recovery fields before opening it there.'} Check recovery before flying in those tools.`);
       }
       const cd = num(recovery, `CD${slot}`, NaN);
       const chute: ComponentNode = {
@@ -1048,9 +1084,14 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
   // designation is a delay (AbstractMotorLoader.removeDelay strips it too).
   // 'NoThrust' is RASAero's placeholder for a stage flying without a motor.
   const parseEngine = (s: string): { designation: string; manufacturer: string; delay?: number; explicitDelay?: number | 'plugged' } | null => {
-    const parts = s.trim().split(/\s{2,}/);
-    if (parts.length !== 2) return null;
-    let designation = parts[0]!;
+    const value = s.trim();
+    const separators = [...value.matchAll(/\s{2,}/g)];
+    const makerStart = value.endsWith(')') ? value.lastIndexOf('(') : value.length;
+    const last = separators.filter(m => m.index < makerStart).at(-1);
+    if (!last) return null;
+    let designation = value.slice(0, last.index);
+    const maker = value.slice(last.index + last[0].length);
+    if (!designation || !maker || (/[()]/.test(maker) ? !/^\([^()]*\)$/.test(maker) : /[()]/.test(designation.replace(/^\S+/, '')))) return null;
     let delay: number | undefined;
     const dm = designation.match(/-([0-9]+|[pP])$/);
     if (dm) {
@@ -1059,7 +1100,7 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
     }
     const explicitDelay = dm && /^[pP]$/.test(dm[1]!) ? 'plugged' as const
       : Number.isFinite(delay) ? delay : undefined;
-    return { designation, manufacturer: parts[1]!.replace(/^\(|\)$/g, ''), delay, explicitDelay };
+    return { designation, manufacturer: maker.replace(/^\(|\)$/g, ''), delay, explicitDelay };
   };
   /** RASAero's mount for a stage: its aft-most body tube (desktop getMotorMountForStage). */
   const aftTube = (stage: ComponentNode | undefined): ComponentNode | undefined => {
@@ -2572,7 +2613,8 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
    * `locM` must NOT move for either — a pod occupies no axial length, which is
    * the whole point of this item.
    */
-  const podXml = (host: ComponentNode, hostLen: number, hostLocM: number, kind: 'finCan' | 'boatTail') => {
+  const emittedTails = new Set<ComponentNode>();
+  const podXml = (host: ComponentNode, hostLen: number, hostLocM: number, kind: 'finCan' | 'boatTail', throughStation = Infinity) => {
     for (const pod of (host.children ?? []).filter((c) => (c.type as string) === 'podset')) {
       // Which RASAero part, if any, is cdx1PodPart's call — shared with checkFormatLoss.
       const part = cdx1PodPart(host, pod, transitionEnds);
@@ -2623,6 +2665,8 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
         : pos.method === 'bottom' ? pos.offset + hostLen - axialLength(bt)
           : pos.method === 'middle' ? pos.offset + (hostLen - axialLength(bt)) / 2
             : 0;
+      if (emittedTails.has(pod) || hostLocM + topOff > throughStation + 1e-9) continue;
+      emittedTails.add(pod);
       emit('<BoatTail>');
       emit('<PartType>BoatTail</PartType>');
       emit(`<Length>${fmt(axialLength(bt) * IN)}</Length>`);
@@ -2684,12 +2728,12 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
   // Sustainer chain (flat): cdx1ExternalChain's call — shared with
   // checkFormatLoss through cdx1WrittenParts.
   let pendingTail: { host: ComponentNode; station: number } | undefined;
-  const flushTail = () => {
-    if (pendingTail) podXml(pendingTail.host, axialLength(pendingTail.host), pendingTail.station, 'boatTail');
-    pendingTail = undefined;
+  const flushTail = (throughStation = Infinity) => {
+    if (pendingTail) podXml(pendingTail.host, axialLength(pendingTail.host), pendingTail.station, 'boatTail', throughStation);
+    if (throughStation === Infinity) pendingTail = undefined;
   };
   for (const node of cdx1ExternalChain(stagesIn[0])) {
-    if (node.type !== 'transition') flushTail();
+    flushTail(node.type === 'transition' ? locM : Infinity);
     if (node.type === 'bodytube') pendingTail = { host: node, station: locM };
     if (node.type === 'nosecone') noseXml(node);
     else if (node.type === 'bodytube') tubeXml(node);

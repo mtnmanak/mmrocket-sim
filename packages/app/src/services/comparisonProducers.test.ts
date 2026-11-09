@@ -1,4 +1,21 @@
 // @vitest-environment happy-dom
+// H5b r4: rasaeroFile 269 -> 276 reviews slot enablement, required fields,
+// Java-double validity and the shared Cd fallback predicates. These only select
+// compatibility cautions; auditN6 covers absent/invalid values in both slots,
+// single/paired Apogee and disabled slots. No simulation boundary changes.
+// noteExplanations 36 -> 35 removes the old numeric Altitude-slot phrase;
+// the replacement explains all required numeric recovery fields together.
+// H5b r3: burn agreement now uses max(0.02 s, 2%); the existing comparison
+// census count is unchanged. laneH5b.test covers both sides in both orders.
+// H5b r2: rasaeroFile 267 -> 269 adds the Altitude slot selector and
+// numeric read for desktop parse-failure copy; noteExplanations 35 -> 36
+// adds the matching explanation. No deployment value changes. laneH5b.test
+// covers missing, invalid, decimal suffix, infinity and hexadecimal spellings.
+// H5b (2026-11-08): reviewed the cord override and shape-code predicates
+// (categorical), finite Altitude2 validation, repaired lug radii and boat-tail
+// station ordering. laneH5b.test covers missing/invalid altitude, negative and
+// underflowing dimensions, and stations on both sides of a transition. No
+// published-data tolerance changed; the producer census remains satisfied.
 // H5a r2: orkFile 530 -> 532 adds "replacing" in the pipe-empty material
 // diagnostic and "against" in the ignored tab-method caution. These are copy,
 // not numeric boundaries; laneH5a covers both and material dedup tests stay.

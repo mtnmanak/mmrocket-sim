@@ -960,7 +960,8 @@ describe('lane H regressions', () => {
       if (replacement === 'Open') {
         notesBefore = await importNotes();
         expect(notesBefore).toContain(`Loaded “${RKT_NAME}”.`);
-        expect(notesBefore).toContain('the Launch panel keeps your site and other surface settings');
+        expect(notesBefore).toContain('No launch site was taken from this record');
+        expect(notesBefore).toContain('settings you had');
       }
       const result: SaveOutcome = outcome === 'cancelled' ? { kind: 'cancelled' }
         : outcome === 'saved' ? { kind: 'saved', name: 'Obsolete.ork' }

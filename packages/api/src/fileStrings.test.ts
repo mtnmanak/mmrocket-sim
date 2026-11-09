@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { authenticatedWorker as worker } from './auth.testSupport.js';
 import * as headless from '../../app/src/headless/index.js';
-import { noteEcho, noteStrings, warningEcho } from './fileStrings.js';
+import { noteEcho, noteStrings, warningEcho, warningName } from './fileStrings.js';
 import { noteField } from '../../app/src/services/noteField.js';
 import { displayEcho } from './filenameEcho.js';
 import { bytesOf } from './fixtures.testSupport.js';
@@ -102,6 +102,39 @@ describe('file-derived names and notes are safe at the API edge', () => {
     clean(out.error?.importNote ?? out.notes!.import);
     expect(note).not.toContain(LONG);
   }, 60_000);
+});
+
+it.each(['Booster\u200b', 'A\u201cB'])('aligns every component-name carrier for %j', async name => {
+  const out = await headless.simulateFile(bytesOf('reference.ork'), 'reference.ork', { reportSeries: 'summary' });
+  const mount = out.flight.delayResolution.mounts[0]!;
+  mount.mountName = name;
+  headless.motorMounts(out.state.tree)[0]!.name = name;
+  out.state.tree.name = name;
+  out.result.events.push({ type: 'EXCEPTION', time: 1, source: name });
+  out.build.motorFailures.push({ mountId: mount.mountId, text: 'Refused.' });
+  out.run.simWarnings = [{ key: 'Other', message: `Part "${name}"`, sources: [{ name }] }];
+  const normal = await headless.describeFile(bytesOf('reference.ork'), 'reference.ork');
+  normal.mounts[0]!.name = name;
+  normal.mounts[0]!.stageName = name;
+  const fly = vi.spyOn(headless, 'simulateFile').mockResolvedValue(out);
+  const describe = vi.spyOn(headless, 'describeFile').mockResolvedValue(normal);
+  try {
+    const result = await (await post('/experimental/fly', 'names.ork', bytesOf('reference.ork'))).json() as {
+      motors: { mount: string }[]; motorFailures: { mount: string }[];
+      aborts: { branch: string; event: { source: string } }[];
+      warnings: { message: string; sources: { name: string }[] }[];
+    };
+    const expected = warningName(name);
+    expect(result.warnings[0]!.sources[0]!.name).toBe(expected);
+    expect(result.warnings[0]!.message).toContain(expected);
+    expect(result.motors[0]!.mount).toBe(expected);
+    expect(result.motorFailures[0]!.mount).toBe(expected);
+    expect(result.aborts[0]!.branch).toBe(expected);
+    expect(result.aborts[0]!.event.source).toBe(expected);
+    const described = await (await post('/describe', 'names.ork', bytesOf('reference.ork'))).json() as typeof normal;
+    expect(described.mounts[0]!.name).toBe(expected);
+    expect(described.mounts[0]!.stageName).toBe(expected);
+  } finally { fly.mockRestore(); describe.mockRestore(); }
 });
 
 it('bounds every fly text carrier, including warning source snapshots and abort event sources', async () => {
@@ -224,11 +257,21 @@ it('applies warning limits to kernel, rail and wake flight comments and warnings
     { key: 'Other', message: '[Warning.X] ' + 'T'.repeat(1200) },
     { key: 'HighSpeedDeployment', message: '', quantity: { kind: 'velocity', value: 30 },
       sources: Array.from({ length: 8 }, () => ({ name: 'S'.repeat(180) })) }];
+  const alignedNames = ['A\u202eB', '\u200cA', 'A\u200d', '\u200dA', 'A\u200c', 'Head' + 'X'.repeat(250) + 'Tail',
+    ...['\u200b', '\ufeff', '\u00ad', '\u2060', '\u2061', '\u2062', '\u2063', '\u2064', '\u180e', '\u201c', '\u201d'].map(ch => `A${ch}B`)];
+  for (const name of alignedNames) out.run.simWarnings.push({ key: 'Other', message: `Part "${name}"`, sources: [{ name }] });
+  const importNote = { ...out.importNote, text: alignedNames.map(() => 'Part note.').join('\n'),
+    group: { lines: alignedNames.map(part => ({ part, text: 'Part note.' })) } };
+  out.importNote = importNote;
   const spy = vi.spyOn(headless, 'simulateFile').mockResolvedValue(out);
   try {
     const response = await post('/experimental/fly', 'warnings.ork', bytesOf('reference.ork'));
     expect(response.status).toBe(200);
-    const result = await response.json() as { warnings: { message: string }[]; notes: { flight: { text: string }[] } };
+    const result = await response.json() as { warnings: { message: string; sources?: { name: string }[] }[]; notes: { flight: { text: string }[]; import: { group: { lines: { part: string }[] } } } };
+    for (const [i, warning] of result.warnings.slice(-alignedNames.length).entries()) {
+      expect(warning.message).toBe(`Part “${warning.sources![0]!.name}”`);
+      expect(result.notes.import.group.lines[i]!.part).toBe(warning.sources![0]!.name);
+    }
     expect(result.notes.flight).toHaveLength(comments.length);
     // The raw 1000-point projection precedes removal of the 12-point debug prefix.
     expect(result.warnings[1]!.message).toBe('T'.repeat(987) + '\u2026');
@@ -237,6 +280,10 @@ it('applies warning limits to kernel, rail and wake flight comments and warnings
       for (const match of entry.text.matchAll(/"([^"]*)"|“([^”]*)”/g)) expect(points(match[1] ?? match[2]!)).toBeLessThanOrEqual(200);
     }
   } finally { spy.mockRestore(); }
+});
+it.each(['A\u201cB', 'A\u200bB'])('uses the warning source spelling for note part %j', name => {
+  const projected = noteStrings({ part: name });
+  expect(projected.part).toBe(warningName(name));
 });
 it.each(['/describe', '/experimental/fly'])('%s removes manufacturer and part file controls before note boundaries form', async route => {
   const xml = reference().replace(/<manufacturer>[^<]*<\/manufacturer>/g, '<manufacturer>OTHER&#10;FAKE&#13;&#9;TAB</manufacturer>')

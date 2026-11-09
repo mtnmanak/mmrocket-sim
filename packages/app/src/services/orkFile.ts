@@ -155,8 +155,8 @@ export interface OrkTreeImportResult {
   launch?: Partial<LaunchConditions>;
   /**
    * A .rkt that states a launch site the app did not take (importRkt): its own
-   * note already quotes the site and says the Launch panel keeps the settings
-   * the user had, so the open adds no second sentence (retainedLaunchNote).
+   * note already quotes the refused site. The browser adds the conditions it
+   * retains (retainedLaunchNote); headless callers supply their own conditions.
    */
   launchSiteRefused?: true;
   /** Transient evidence from this open; never written to the file or session. */

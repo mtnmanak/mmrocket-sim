@@ -6,7 +6,7 @@ import {
   simulateFile, SimulateDesignError, type TimedSimulateFileResult, describeFile, type DescribeFileResult, SHARE_TOO_LARGE_ERROR_NAME,
 } from '../../app/src/headless/index.js';
 import { displayEcho, filenameEcho } from './filenameEcho.js';
-import { noteEcho, noteStrings, warningEcho } from './fileStrings.js';
+import { noteEcho, noteStrings, warningEcho, warningName } from './fileStrings.js';
 import { stampedJson } from './stamp.js';
 import { declaredBodySize, MAX_API_BODY_BYTES, BodyReservation, BodyTimeout, BodyTooLarge, readBody, ServerBusy } from './body.js';
 import { checkKey, type Env } from './auth.js';
@@ -68,8 +68,8 @@ function summary(out: TimedSimulateFileResult) {
     ...boosterBranches(out.result),
   ].flatMap(branch => branch.events.filter(event => event.type === 'SIM_ABORT' || event.type === 'EXCEPTION')
     // The kernel's node ids come from a module counter (see motorFailures): never returned.
-    .map(({ sourceId: _sourceId, motorMountId: _motorMountId, ...event }) => ({ branch: displayEcho(branch.name), reason: event.cause ?? event.type,
-      event: { ...event, ...(event.source !== undefined ? { source: displayEcho(event.source) } : {}) } })));
+    .map(({ sourceId: _sourceId, motorMountId: _motorMountId, ...event }) => ({ branch: warningName(branch.name), reason: event.cause ?? event.type,
+      event: { ...event, ...(event.source !== undefined ? { source: warningName(event.source) } : {}) } })));
   const incomplete = out.run.simWarnings?.some(warning => warning.key === 'INCOMPLETE_FLIGHT') ?? false;
   return {
     experimental: true,
@@ -77,7 +77,7 @@ function summary(out: TimedSimulateFileResult) {
     partial: aborts.length > 0 || incomplete,
     aborts,
     // No node id: ids come from a module counter, so they would differ per isolate history.
-    motorFailures: out.build.motorFailures.map(({ mountId, text }) => ({ mount: mountNames[mountId] === undefined ? undefined : displayEcho(mountNames[mountId]), text: noteEcho(text) })),
+    motorFailures: out.build.motorFailures.map(({ mountId, text }) => ({ mount: mountNames[mountId] === undefined ? undefined : warningName(mountNames[mountId]), text: noteEcho(text) })),
     appVersion: out.appVersion,
     apogeeM: maxAltitude,
     maxVelocityMs: maxVelocity,
@@ -88,14 +88,20 @@ function summary(out: TimedSimulateFileResult) {
       // A flown mount with no motor entry (no known input) is left out, not a 500 after the flight.
       if (!motor || motor.ignition?.event === 'never') return [];
       return [{
-        mount: displayEcho(mount.mountName), designation: displayEcho(motor.spec.designation),
+        mount: warningName(mount.mountName), designation: displayEcho(motor.spec.designation),
         manufacturer: displayEcho(motor.meta.manufacturer ?? ''),
         count: mountMotorCount(state.tree, mount.mountId), delayS: mount.flownDelay,
       }];
     }),
     warnings: (out.run.simWarnings ?? []).map(warning => {
-      const safe = { ...warning, message: warningEcho(warning.message),
-        ...(warning.sources ? { sources: warning.sources.map(source => source ? { ...source, name: displayEcho(source.name) } : null) } : {}) };
+      // Match original snapshots before either carrier is bounded or sanitized.
+      // Both carriers then use the same name, including its retained tail.
+      let message = warning.message;
+      for (const source of warning.sources ?? []) {
+        if (source?.name) message = message.replaceAll(`"${source.name}"`, () => `"${warningName(source.name)}"`);
+      }
+      const safe = { ...warning, message: warningEcho(message),
+        ...(warning.sources ? { sources: warning.sources.map(source => source ? { ...source, name: warningName(source.name) } : null) } : {}) };
       const text = formatWarning(safe);
       return { ...safe, message: warningEcho(`${text.label}${text.detail ? ` — ${text.detail}` : ''}`) };
     }),
@@ -117,7 +123,7 @@ function described(out: DescribeFileResult) {
     sourceFormat: out.sourceFormat,
     analysis: out.analysis,
     launchMount: out.launchMount,
-    mounts: out.mounts.map(mount => ({ ...mount, name: displayEcho(mount.name), stageName: displayEcho(mount.stageName) })),
+    mounts: out.mounts.map(mount => ({ ...mount, name: warningName(mount.name), stageName: warningName(mount.stageName) })),
     fragment: out.fragment,
     link: `${APP_URL}/${out.fragment}`,
     notes: { ...notes, import: importNote },
