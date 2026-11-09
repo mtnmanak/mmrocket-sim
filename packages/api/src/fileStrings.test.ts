@@ -14,6 +14,13 @@ const post = (route: string, filename: string, body: Uint8Array) => worker.fetch
 const LONG = 'L'.repeat(5000) + '\u202e';
 const points = (text: string) => Array.from(text).length;
 
+it.each(['\u034f', '\ufe0f', '\u200b'])('marks invisible file names in structured note fields (%s)', ch => {
+  const result = noteStrings({ part: `C6${ch}`, configuration: `${ch}C6` });
+  expect(result.part).toContain('[U+');
+  expect(result.configuration).toContain('[U+');
+  expect(points(noteStrings({ part: 'C\u034f'.repeat(300) }).part)).toBeLessThanOrEqual(200);
+});
+
 it('preserves punctuation and script joiners across API display projections', () => {
   const ordinary = 'Eric\'s 2.6" Goblin’s «Nose» 👨‍🚀 می‌روم';
   expect(displayEcho(ordinary)).toBe(ordinary);

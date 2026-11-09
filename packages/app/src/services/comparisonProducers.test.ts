@@ -1,4 +1,10 @@
 // @vitest-environment happy-dom
+// H5a r2: orkFile 530 -> 532 adds "replacing" in the pipe-empty material
+// diagnostic and "against" in the ignored tab-method caution. These are copy,
+// not numeric boundaries; laneH5a covers both and material dedup tests stay.
+// H5a: orkFile 528 -> 530 adds two selector strings containing ">": the
+// bulk-fillet name lookup and bare separation-event deduplication lookup.
+// These are not numeric comparisons; laneH5a tests both behaviors.
 // r119: orkFile 529 -> 528 removes the obsolete elevated-wind rod caution;
 // recovery fills use the existing I19 producer. r119.test covers both changes.
 // noteExplanations 34 -> 35: I19 now describes replacing a lone canopy vent;

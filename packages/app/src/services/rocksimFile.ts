@@ -2355,7 +2355,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
     const number = cfgSim.get(c)?.number;
     const summary = recoveryNodes.map((n) => {
       const d = c.deployments[n.id!] ?? deploymentFor(n);
-      return (n.name ?? n.type) + ' ' + (d.deployEvent === 'altitude'
+      return noteField(n.name ?? n.type) + ' ' + (d.deployEvent === 'altitude'
         ? 'at ' + deployAltitudeText(d.deployAltitude!, distanceUnit) + ' descending' : d.deployEvent === 'apogee'
           ? 'at apogee' : 'at the ejection charge') + (d.deployDelay ? ' + ' + d.deployDelay + ' s' : '');
     });
@@ -2678,7 +2678,7 @@ const readDeploymentEvents = (
         const value = parseDecimal(raw);
         return value !== 0 && !(field.tagName === 'TestType' && value === 28);
       }));
-    if (num(ev, 'ProEvent', 0) !== 0 || hasProCondition) pro.add(node.name ?? node.type);
+    if (num(ev, 'ProEvent', 0) !== 0 || hasProCondition) pro.add(noteField(node.name ?? node.type));
     const t = rktTrigger(ev, num);
     if (t === null) continue;
     if (typeof t === 'number') {

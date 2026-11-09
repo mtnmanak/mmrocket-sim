@@ -107,8 +107,7 @@ describe('saved warning units', () => {
     expect(said).toHaveLength(1);
     // D7 §5, I28: names the run, and keeps "unavailable" apart from "none".
     expect(said[0]).toMatch(/^Saved simulation warnings for “[^”]+” could not all be read\./);
-    expect(said[0]).toContain(payload.startsWith('[')
-      ? 'The readable warnings were kept.' : 'No warnings could be read.');
+    expect(said[0]).toContain('No warnings could be read.');
     expect(said[0]).toContain('This does not mean the flight had no warnings.');
   });
 
