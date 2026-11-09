@@ -69,7 +69,7 @@ export const isFinSet = (n: ComponentNode, parent?: ComponentNode): boolean => {
 };
 
 export function hasSurfaceSize(n: ComponentNode): boolean {
-  if ((n.type as string) === 'protuberance' && Math.round(num(n, 'count', 1)) < 1) return false;
+  // Flight inputs clamp a bump count to at least one; its drawings do too.
   if (n.type === 'railbutton') return num(n, 'outerDiameter', 0.0097) > 0 && num(n, 'totalHeight', 0.0097) > 0;
   if (n.type === 'fairing' || (n.type as string) === 'protuberance') {
     return axialLength(n) > 0 && kernelNum(n, 'height') > 0 && kernelNum(n, 'width') > 0;
@@ -556,8 +556,8 @@ export function wakeShadowWarnings(tree: RocketTree, units: UnitSelection = INIT
       const st = n.id ? stations.get(n.id) : undefined;
       if (!st) continue;
       if (WAKE_SOURCES.has(n.type as string)) {
-        const height = num(n, 'height', 0);
-        const width = num(n, 'width', 0);
+        const height = kernelNum(n, 'height');
+        const width = kernelNum(n, 'width');
         // No height off the surface, no bluff wake to reason about — and the
         // cutoff below is measured in heights, so it has nothing to divide by.
         if (!(height > 0)) continue;

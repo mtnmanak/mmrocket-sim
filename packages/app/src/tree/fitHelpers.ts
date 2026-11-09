@@ -1,6 +1,6 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { axialLength, positionOf, startFromPosition } from './position.js';
-import { num, numOrNull } from './nodeNum.js';
+import { num } from './nodeNum.js';
 import { applyFieldLimit, fieldLimit } from './schema.js';
 import { isTailCone } from './tailCone.js';
 import { kernelNum } from './kernelDefaults.js';
@@ -20,9 +20,8 @@ import { finTabFront } from './finTab.js';
  *
  * The readers are nodeNum's (the house reader): identical to the inline
  * `typeof … === 'number'` reads they replace for every finite value, while a
- * NaN counts as a missing field, as audit row 522 asks — where a missing
- * radius withholds the button, so does a NaN one, instead of offering a NaN
- * depth.
+ * NaN counts as a missing field, as audit row 522 asks. Omitted tube radii
+ * use the kernel defaults, so neither omission nor NaN offers a NaN depth.
  */
 
 /** A new fin tab spans this fraction of the root chord. */
@@ -40,7 +39,7 @@ export interface FinTabFit {
 /**
  * Tab depth so the tab just touches the motor-mount tube (the owner's
  * real-build default); the tube wall when there is no mount. Only on a fin set
- * whose parent is a body tube with a stated radius, and only when that leaves
+ * whose parent is a body tube, and only when that leaves
  * a depth to fill.
  *
  * A fin with no tab yet gets one 60 % of the ROOT chord — `axialLength`, the
@@ -64,8 +63,7 @@ export interface FinTabFit {
 export function finTabFit(fin: ComponentNode, parent: ComponentNode | 'stage' | null): FinTabFit | null {
   if (!parent || parent === 'stage' || parent.type !== 'bodytube') return null;
   if (parent['filled'] === true) return null;
-  const outerR = numOrNull(parent, 'outerRadius');
-  if (outerR === null) return null;
+  const outerR = kernelNum(parent, 'outerRadius');
   const mountR = mountRadiusAlongside(parent, fin);
   if (mountR === undefined) return null;
   // One-shot sizes obey the typed field's limits too (open-items, 22–23
@@ -133,8 +131,7 @@ function mountRadiusAlongside(parent: ComponentNode, fin: ComponentNode): number
       obstacles.push(...sections);
       continue;
     }
-    const r = numOrNull(tube, 'outerRadius');
-    if (r === null) { obstacles.push(...sections); continue; }
+    const r = kernelNum(tube, 'outerRadius');
     // The tab contacts this tube's exterior, not the mounts inside its holder.
     if (num(tube, 'radialPosition', 0) !== 0 || clusterCount(tube['cluster'] as string | undefined) > 1
       || sections.some(s => Math.hypot(s.y, s.z) + s.r > r + 1e-9)) {
@@ -147,7 +144,7 @@ function mountRadiusAlongside(parent: ComponentNode, fin: ComponentNode): number
   }
   const selected = widestMotor ?? widest;
   if (selected !== null) {
-    const outer = num(parent, 'outerRadius', 0);
+    const outer = kernelNum(parent, 'outerRadius');
     const root = axialLength(fin), half = root / 2;
     const tabLength = num(fin, 'tabLength', 0) > 0 ? num(fin, 'tabLength', 0) : root * NEW_TAB_FRACTION;
     const tab = { ...fin, tabLength,
@@ -191,7 +188,7 @@ export interface ShoulderFit {
  * Snap a nose cone's shoulder into the tube behind it: the next body tube
  * among the nose's SIBLINGS — the enclosing stage's children, or the rocket's
  * top level (`tree.components` holds only stage nodes since v0.009). Never a
- * tube forward of the nose; null when there is none, or it states no radius.
+ * tube forward of the nose; null when there is none.
  * A tube with no stated wall uses the kernel's default. A TAIL CONE's shoulder
  * is at its front (tailCone.ts), so it fits the nearest body tube AHEAD.
  *
@@ -210,8 +207,7 @@ export function shoulderFit(
   const tube = toward.find((n) => n.type === 'bodytube');
   if (!tube) return null;
   if (tube['filled'] === true) return { innerR: 0, patch: { shoulderRadius: 0 }, solid: true };
-  const outerR = numOrNull(tube, 'outerRadius');
-  if (outerR === null) return null;
+  const outerR = kernelNum(tube, 'outerRadius');
   const innerR = applyFieldLimit(fieldLimit(nose.type, 'shoulderRadius')!, outerR - kernelNum(tube, 'thickness'));
   return { innerR, patch: { shoulderRadius: innerR } };
 }

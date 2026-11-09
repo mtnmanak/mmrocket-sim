@@ -716,6 +716,11 @@ export function splitBodyLoop(
           }
         }
       }
+      if (k + 1 < sorted.length && sorted[k + 1]! - floorBacking < safeEnd) {
+        safeEnd = sorted[k + 1]! - floorBacking;
+        reason = 'has insufficient solid backing before the next cut';
+        remedy = 'reduce the joint clearance, or print it whole';
+      }
       if (safeEnd < c + depth) {
         depth = safeEnd - c;
         len = Math.min(len, depth - relief);

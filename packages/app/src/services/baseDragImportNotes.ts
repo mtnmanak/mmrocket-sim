@@ -2,12 +2,13 @@ import { noteField } from './noteField.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 // One finite-number reader for design fields (audit 2026-10-11, S5-3).
 import { numOpt } from '../tree/nodeNum.js';
+import { kernelNum } from '../tree/kernelDefaults.js';
 import { absoluteStations, type AbsoluteStation } from '../tree/position.js';
 import { suppressingAncestor } from '../tree/treeModel.js';
 
 const hint = /base[\s-]*(?:drag|cone)|\bBD\b|drag[\s-]*cone|\bvirtual\b/i;
 const aftRadius = (n: ComponentNode): number | undefined =>
-  numOpt(n, n.type === 'bodytube' ? 'outerRadius' : 'aftRadius');
+  n.type === 'bodytube' ? kernelNum(n, 'outerRadius') : numOpt(n, 'aftRadius');
 
 /** Component-local provenance only; never a mass or aerodynamic override. */
 export const BASE_DRAG_DECLARATION = 'mmrBaseDragDeclaration';

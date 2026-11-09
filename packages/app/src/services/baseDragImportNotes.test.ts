@@ -8,6 +8,11 @@ import { importCdx1 } from './rasaeroFile.js';
 import { parseXml } from './xmlParse.js';
 
 const body: ComponentNode = { id: 'body', type: 'bodytube', name: 'Airframe', length: 0.7, outerRadius: 0.05 };
+
+it('retains base-drag advice behind a body tube with the kernel default radius', () => {
+  const design = tree({ ...body, outerRadius: undefined }, cone());
+  expect(baseDragImportNotes(design)).toHaveLength(1);
+});
 const cone = (extra: Record<string, unknown> = {}): ComponentNode => ({
   id: 'tail', type: 'transition', name: 'Base Drag Model Transition', length: 0.32,
   foreRadius: 1.27e-6, aftRadius: 0.05, thickness: 2.54e-8, filled: false, ...extra,

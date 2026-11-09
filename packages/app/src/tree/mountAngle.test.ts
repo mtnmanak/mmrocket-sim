@@ -79,13 +79,23 @@ describe('zero-size parts have no clock-angle obstruction', () => {
   it.each([
     { type: 'railbutton', outerDiameter: 0 }, { type: 'railbutton', totalHeight: 0 },
     { type: 'launchlug', length: 0 }, { type: 'fairing', length: 0 },
-    { type: 'protuberance', length: 0 }, { type: 'protuberance', count: 0 },
+    { type: 'protuberance', length: 0 },
   ])('ignores collapsed $type in both rail and wake checks', part => {
     const t = tree([{ height: 0.1, width: 0.02, outerRadius: 0.003, ...part,
       id: 'gone', name: 'Collapsed', angleOffset: 0 }, { ...FINS3, position: { method: 'top', offset: 0.2 } },
       { type: 'railbutton', id: 'rail', angleOffset: 0 }]);
     expect(railInterferenceFindings(t).flatMap(f => f.parts.map(p => p.id))).not.toContain('gone');
     expect(wakeShadowWarnings(t)).toEqual([]);
+  });
+  it('checks zero-count bumps as one bump, like flight inputs and drawings', () => {
+    const parts = [{ type: 'protuberance', id: 'bump', length: 0.05, height: 0.1,
+      width: 0.02, count: 0, angleOffset: 0 },
+      { ...FINS3, position: { method: 'top', offset: 0.2 } },
+      { type: 'railbutton', id: 'rail', angleOffset: 0 }];
+    const t = tree(parts);
+    const one = tree(parts.map(p => p.id === 'bump' ? { ...p, count: 1 } : p));
+    expect(railInterferenceFindings(t)).toEqual(railInterferenceFindings(one));
+    expect(wakeShadowWarnings(t)).toEqual(wakeShadowWarnings(one));
   });
   it.each(['rounded', 'airfoil'])('ignores zero-area %s freeform fins', crossSection => {
     expect(finAnglesAmong([{ type: 'freeformfinset', crossSection, points: [[0, 0], [0.05, 0], [0.1, 0]] }])).toEqual([]);

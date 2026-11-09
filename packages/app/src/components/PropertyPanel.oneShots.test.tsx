@@ -259,7 +259,7 @@ describe('Fit tab to motor tube', () => {
     expect(fit(stageOf([
       { id: 't1', type: 'transition', length: 0.1, foreRadius: 0.03, aftRadius: 0.02, children: [FIN] },
     ]))).toBeNull();
-    expect(fit(tube([FIN], { outerRadius: undefined }))).toBeNull();
+    expect(fit(tube([FIN], { outerRadius: undefined }))?.patch?.['tabHeight']).toBeCloseTo(0.0015, 12);
   });
 
   it('is not offered on a solid tube, which has no wall to pass through or motor tube inside', () => {
@@ -331,9 +331,10 @@ describe('Fit shoulder to tube ⌀', () => {
     expect(got!.patch).toEqual({ shoulderRadius: 0.027 - 0.001 });
   });
 
-  it('is not offered with no body tube behind the nose, or one with no radius', () => {
+  it('is not offered with no body tube, and fits the kernel radius when omitted', () => {
     expect(fit(stageOf([NOSE]))).toBeNull();
-    expect(fit(stageOf([NOSE, { id: 'b1', type: 'bodytube', length: 0.5 }]))).toBeNull();
+    expect(fit(stageOf([NOSE, { id: 'b1', type: 'bodytube', length: 0.5 }]))?.patch?.['shoulderRadius'])
+      .toBeCloseTo(0.0117, 12);
   });
 
   it('refuses a solid tube and says why: it has no bore to fit', () => {

@@ -27,6 +27,20 @@ const run = { id: 'selected', rocket: 'Earlier design', motor: 'F40', manufactur
 const input = { tree, info, units: IMPERIAL_UNITS, radiusMode: 'diameter' as const,
   stabilityUnit: 'both' as const, withMotors: true, appVersion: 'test', run, changedSince: ['the design'], };
 function doc(html: string) { return new DOMParser().parseFromString(html, 'text/html').body; }
+it.each([true, false])('r10 reports the correct coupler width reference (direct=%s)', direct => {
+  const tree: RocketTree = { components: [{ type: 'stage', children: [{ type: 'bodytube',
+    length: 0.3, outerRadius: 0.03, children: [
+      { type: 'centeringring', id: 'ring', length: 0.003, innerRadius: direct ? 0.012 : 0.01 },
+      ...(direct ? [{ type: 'innertube', length: 0.3, outerRadius: 0.009 } as ComponentNode] : []),
+      { type: 'tubecoupler', length: 0.3, children: [
+        { type: 'innertube', length: 0.3, outerRadius: direct ? 0.011 : 0.012 },
+      ] },
+    ],
+  }] }] };
+  const text = doc(designPrintHtml({ ...input, tree })).textContent;
+  expect(text).toContain(direct ? "wider than the ring's direct mount tube" : "wider than this ring's hole");
+  if (direct) expect(text).not.toContain('cannot pass through');
+});
 it.each(['trapezoidfinset', 'ellipticalfinset', 'freeformfinset'] as const)('prints the fillet material pair for %s', type => {
   const tree: RocketTree = { components: [{ type: 'stage', children: [
     { type, materialName: 'Balsa', filletRadius: 0.003, filletMaterialName: 'Epoxy', filletDensity: 1100 },

@@ -14,6 +14,7 @@ import { drawnRadius, profileMountOf } from './schematicLayout.js';
 import { noseEnds } from './tailCone.js';
 import { num } from './nodeNum.js';
 import { hiddenPartIds } from './partVisibility.js';
+import { hasSurfaceSize, isFinSet } from './mountAngle.js';
 
 /** A loaded motor seen from aft: the Launch colour, as the side view's case
  *  and the 3D motor (AftView draws it see-through, keyed on this value). */
@@ -130,6 +131,7 @@ export function aftLayout(
     for (const child of parent.children ?? []) {
       if (child.id && hidden.has(child.id)) continue;
       const t = child.type;
+      if (!hasSurfaceSize(child) || (t.endsWith('finset') && !isFinSet(child, parent))) continue;
       if (isAssembly(t)) {
         const podRadius = resolveAssemblyRadius(child, pRadius);
         const count = assemblyInstanceCount(child);

@@ -55,9 +55,11 @@ export interface SolidContext {
   mountOuterRadius?: number;
   /**
    * C-A7: true when a cluster or off-centre tube needs holes that one centred
-   * bore cannot represent. Concentric tubes share one centred opening.
+   * bore cannot represent, or a coupler-held tube exceeds that opening.
    */
   mountLayoutUnresolved?: boolean;
+  /** The refusal is solely a centred coupler-held tube exceeding the hole. */
+  mountCouplerTooWide?: boolean;
   /** parent body outer radius (m) — tube-fin auto sizing */
   bodyRadius?: number;
   /** parent body's resolved wall (m), inherited by tube fins */
@@ -1330,9 +1332,9 @@ export interface PrintableLoop {
  */
 export function ringOuterRadius(node: ComponentNode, ctx: SolidContext): { r: number; assumed: boolean } {
   const own = numOpt(node, 'outerRadius');
-  if (own !== undefined && own > EPS) return { r: own, assumed: false };
+  if (own !== undefined) return { r: Math.max(0, own), assumed: false };
   const bore = ctx.parentInnerRadius;
-  if (bore !== undefined && Number.isFinite(bore) && bore > EPS) return { r: bore, assumed: false };
+  if (bore !== undefined && Number.isFinite(bore)) return { r: Math.max(0, bore), assumed: false };
   return { r: FALLBACK_RADIUS, assumed: true };
 }
 
@@ -1442,6 +1444,7 @@ export function componentLoop(
     case 'tubecoupler':
     case 'engineblock': {
       const { r: R, assumed } = ringOuterRadius(node, ctx);
+      if (!(R > EPS)) return null;
       const wall = kernelNum(node, 'thickness');
       const L = axialLength(node);
       const label = (node.type === 'tubecoupler' ? 'Tube coupler' : 'Engine block')
@@ -1453,6 +1456,7 @@ export function componentLoop(
     }
     case 'centeringring': {
       const { r: R, assumed } = ringOuterRadius(node, ctx);
+      if (!(R > EPS)) return null;
       const L = axialLength(node);
       const bore = centeringRingBore(node, ctx, R);
       if (bore === null) return null;
@@ -1472,6 +1476,7 @@ export function componentLoop(
     }
     case 'bulkhead': {
       const { r: R, assumed } = ringOuterRadius(node, ctx);
+      if (!(R > EPS)) return null;
       const L = axialLength(node);
       return {
         loop: ringLoop(R, 0, L), label: assumed ? 'Bulkhead (assumed size)' : 'Bulkhead',

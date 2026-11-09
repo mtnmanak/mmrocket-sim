@@ -3584,7 +3584,7 @@ export function exportRkt(input: RktExportInput): string {
         emit('<Ring>');
         common(node, parent, 'Ring');
         // A radius the node leaves AUTOMATIC goes out at the size the kernel
-        // flies, resolved by solidContextFor as the STL and DXF resolve it: the
+        // flies, resolved by solidContextFor in file mode: the
         // OD is the bore the ring sits in (a nose cone's or transition's
         // profile included), and a centering ring's ID is the widest inner tube
         // overlapping it, at most its OD, or 0 (a solid disc) when none does
@@ -3599,7 +3599,9 @@ export function exportRkt(input: RktExportInput): string {
         // and EngineBlockDTO extend it; OD from getOuterRadius). The context
         // gives no bore there, and the fallback read the tube's stated wall
         // instead.
-        const ctx = solidContextFor(ringTree, node);
+        // Filled tapered hosts still return radius minus wall in the kernel;
+        // fabrication refuses them, but that refusal must not zero file OD.
+        const ctx = solidContextFor(ringTree, node, 'file');
         const solidHost = parent?.type === 'bodytube' && parent['filled'] === true;
         // A tube that states no radius or wall flies the kernel's (a body
         // tube's 12 mm with its 0.3 mm wall), which the context leaves

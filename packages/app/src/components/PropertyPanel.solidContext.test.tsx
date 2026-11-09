@@ -71,6 +71,89 @@ const circleRadii = (dxf: string): number[] => {
 
 const note = (): HTMLElement | null => host.querySelector('.print-note');
 
+it('r8 shows base inner diameter for a nose with omitted aft radius', () => {
+  const nose: ComponentNode = { type: 'nosecone', id: 'nose', length: 0.1 };
+  mount({ components: [nose] }, nose);
+  const label = [...host.querySelectorAll('label')].find(l => l.textContent?.startsWith('Base inner diameter'));
+  expect(label).toBeDefined();
+  const field = document.getElementById(label!.htmlFor) as HTMLInputElement;
+  expect(Number(field.value)).toBeCloseTo(20, 6); // 12 mm default base radius, 2 mm wall.
+});
+
+it.each([true, false])('r8 cuts contained coupler contents without off-axis advice (direct tube %s)', async direct => {
+  const ring: ComponentNode = { type: 'centeringring', id: 'ring', length: 0.003, innerRadius: direct ? 0.005 : 0.01 };
+  const tree: RocketTree = { components: [{ type: 'bodytube', length: 0.7, outerRadius: 0.03, children: [
+    ring, ...(direct ? [{ type: 'innertube', length: 0.7, outerRadius: 0.009 } as ComponentNode] : []),
+    { type: 'tubecoupler', length: 0.7, children: [
+      { type: 'innertube', length: 0.7, outerRadius: direct ? 0.007 : 0.003, radialPosition: direct ? 0 : 0.002 },
+    ] },
+  ] }] };
+  mount(tree, ring);
+  expect(circleRadii(await dxfText())).toHaveLength(2);
+  expect(host.textContent).not.toContain('cannot lay out');
+  expect(host.textContent).not.toContain('cannot place off-axis holes');
+});
+
+it.each(['bodytube', 'innertube'] as const)('shows inner diameter for a %s with omitted radius', type => {
+  const tube: ComponentNode = { type, id: 'tube', length: 0.3 };
+  mount({ components: [tube] }, tube);
+  expect([...host.querySelectorAll('label')].some(label => label.textContent?.startsWith('Inner diameter'))).toBe(true);
+});
+
+it.each(['bulkhead', 'centeringring'] as const)('explains no bore for automatic %s exports in solid parents', async type => {
+  const ring: ComponentNode = { type, id: 'ring', length: 0.003 };
+  for (const extra of [{ filled: true, thickness: 0.002 }, { thickness: 0.03 }]) {
+    const tree: RocketTree = { components: [{ type: 'bodytube', length: 0.3,
+      outerRadius: 0.03, ...extra, children: [ring] }] };
+    mount(tree, ring);
+    expect(note()!.textContent).toContain('parent has no bore');
+    const made = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:should-not-export');
+    for (const title of ['Flat 1:1', 'Watertight solid STL']) {
+      const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(b => b.title.startsWith(title))!;
+      await act(async () => button.click());
+      expect(host.querySelector('.part-export-alert')!.textContent).toContain('parent has no bore');
+      expect(made).not.toHaveBeenCalled();
+    }
+    vi.restoreAllMocks();
+  }
+});
+
+it.each([true, false])('r9 explains a wider centred coupler tube for STL and DXF (direct=%s)', async direct => {
+  const ring: ComponentNode = { type: 'centeringring', id: 'ring', length: 0.003,
+    innerRadius: direct ? 0.012 : 0.01 };
+  const tree: RocketTree = { components: [{ type: 'bodytube', length: 0.3, outerRadius: 0.03, children: [ring,
+    ...(direct ? [{ type: 'innertube', length: 0.3, outerRadius: 0.009 } as ComponentNode] : []),
+    { type: 'tubecoupler', length: 0.3, children: [
+      { type: 'innertube', length: 0.3, outerRadius: direct ? 0.011 : 0.012 },
+    ] },
+  ] }] };
+  const made = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:should-not-export');
+  mount(tree, ring);
+  for (const title of ['Flat 1:1', 'Watertight solid STL']) {
+    const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(b => b.title.startsWith(title))!;
+    await act(async () => button.click());
+    const text = host.querySelector('.part-export-alert')!.textContent;
+    expect(text).toContain(direct
+      ? "a tube held in a coupler is wider than the ring's direct mount tube"
+      : "a tube held in a coupler is wider than this ring's hole");
+    if (direct) expect(text).not.toContain('cannot pass');
+    expect(text).not.toMatch(/off-centre|off-axis/);
+    expect(made).not.toHaveBeenCalled();
+  }
+});
+
+it('reports zero ring OD as nothing to cut, without blaming mount holes', async () => {
+  const ring: ComponentNode = { type: 'centeringring', id: 'ring', length: 0.003, outerRadius: 0 };
+  const tree: RocketTree = { components: [{ type: 'bodytube', length: 0.3, outerRadius: 0.03, children: [ring] }] };
+  const made = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:should-not-export');
+  mount(tree, ring);
+  const button = [...host.querySelectorAll('button')].find(b => b.textContent!.startsWith('✂'))!;
+  await act(async () => button.click());
+  expect(made).not.toHaveBeenCalled();
+  expect(host.textContent).toContain('Nothing to cut for this component.');
+  expect(host.textContent).not.toContain('cannot lay out');
+});
+
 it.each([undefined, 0.01])('reports an empty ring STL without blaming mount holes (ID radius %s)', async innerRadius => {
   const ring = { type: 'centeringring', id: 'ring', length: 0, innerRadius } as ComponentNode;
   const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [
@@ -139,7 +222,7 @@ describe('PropertyPanel — a ring part sizes to the tube it sits in', () => {
     expect(note()).toBeNull();
   });
 
-  it('a part with no bore to size from says so under the button, and in the cut file', async () => {
+  it('refuses to cut a part at a resolved zero bore without inventing stock', async () => {
     // A bulkhead at the very tip of a nose cone: the inner radius there is 0.
     const tipBulkhead = { ...bulkhead, position: { method: 'top', offset: 0 } } as unknown as ComponentNode;
     const tree = {
@@ -150,14 +233,12 @@ describe('PropertyPanel — a ring part sizes to the tube it sits in', () => {
       }] }],
     } as unknown as RocketTree;
     mount(tree, tipBulkhead);
-    expect(note()!.textContent).toBe(
-      'Diameter assumed: 24 mm (0.945 in) is a placeholder — the app could not find the tube this part '
-      + 'sits in. Measure the bore before you print or cut it.');
-    expect(note()!.className).toContain('print-note-warn');
-    const dxf = await dxfText();
-    expect(circleRadii(dxf)).toEqual([12]);
-    expect(dxf).toContain('OD 24.0 mm | stock thickness 4.0 mm');
-    expect(dxf).toContain('OD ASSUMED: no tube found to size this part from');
+    expect(note()!.textContent).toContain('parent has no bore');
+    const made = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:should-not-export');
+    const button = [...host.querySelectorAll('button')].find(b => b.textContent!.startsWith('✂'))!;
+    await act(async () => button.click());
+    expect(made).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('parent has no bore');
   });
 
   it('a centering ring no inner tube passes through says its bore is assumed, under the button too', async () => {

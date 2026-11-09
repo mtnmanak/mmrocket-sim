@@ -247,6 +247,6 @@ describe('a solid tube is solid everywhere the app reads a tube wall', () => {
     expect(solidContextFor(tree(rod({ thickness: 0.001 })) as unknown as RocketTree, bh).parentInnerRadius)
       .toBeCloseTo(R - 0.001, 12);
     expect(solidContextFor(tree(rod({ filled: true, thickness: 0.001 })) as unknown as RocketTree, bh).parentInnerRadius)
-      .toBeUndefined();
+      .toBe(0);
   });
 });

@@ -38,6 +38,14 @@ export function paperRingDimensions(node: ComponentNode, ctx: SolidContext): { o
   const outer = paperRingOuterRadius(node, ctx);
   if (node.type !== 'centeringring') return { outer };
   if (ctx.mountLayoutUnresolved) {
+    if (ctx.mountCouplerTooWide) {
+      if (ctx.mountOuterRadius !== undefined) {
+        throw new Error("No template: a tube held in a coupler is wider than the ring's direct mount tube. "
+          + 'The app cannot lay out the holes for this ring. Lay out the holes by hand before cutting.');
+      }
+      throw new Error("No template: a tube held in a coupler is wider than this ring's hole. "
+        + 'The tube cannot pass through it. Check the tube and hole dimensions before cutting.');
+    }
     throw new Error('This ring surrounds a cluster or an off-centre tube. The app cannot lay out their '
       + 'holes, so it prints no template with one centred opening. Lay the holes out by hand.');
   }

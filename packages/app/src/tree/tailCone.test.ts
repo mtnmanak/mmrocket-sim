@@ -134,7 +134,7 @@ describe('a part inside a tail cone sizes itself to the profile where it sits', 
     // A conical tail cone's radius at the part's aft face, 4 mm back from the
     // base (the smaller of its two ends), less the 2 mm wall.
     expect(at(tail({ flipped: true }))).toBeCloseTo(BASE * (1 - 0.004 / L) - 0.002, 9);
-    expect(at(tail())).toBeUndefined(); // the point: no bore at all
+    expect(at(tail())).toBe(0); // the point: a resolved zero bore
   });
 });
 
