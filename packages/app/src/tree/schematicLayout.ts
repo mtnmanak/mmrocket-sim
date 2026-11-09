@@ -21,6 +21,7 @@ import { num, numOpt } from './nodeNum.js';
 import { lookupTable } from '../services/xmlUtil.js';
 import { projectSchematicGeometry } from './schematicGeometry.js';
 import { hiddenPartIds } from './partVisibility.js';
+import { hasSurfaceSize, isFinSet } from './mountAngle.js';
 
 /**
  * THE 2D SIDE VIEW'S LAYOUT — pure, and apart from the component that draws it
@@ -113,12 +114,12 @@ const fillOf = (n: ComponentNode, dflt: string): string =>
   typeof n['color'] === 'string' ? (n['color'] as string) : dflt;
 
 /** Every node of a subtree, depth first, mapped. */
-function collect<T>(nodes: ComponentNode[], f: (n: ComponentNode) => T): T[] {
+function collect<T>(nodes: ComponentNode[], f: (n: ComponentNode, parent?: ComponentNode) => T): T[] {
   const out: T[] = [];
-  const walk = (ns: ComponentNode[]) => {
+  const walk = (ns: ComponentNode[], parent?: ComponentNode) => {
     for (const n of ns) {
-      out.push(f(n));
-      walk(n.children ?? []);
+      out.push(f(n, parent));
+      walk(n.children ?? [], n);
     }
   };
   walk(nodes);
@@ -207,8 +208,8 @@ export function schematicFrame(tree: RocketTree, o: SchematicFrameOptions): Sche
   // A fin set's vertical span: freeform fins carry no 'height' key — their
   // reach is the outline's y-max (the 0.03 default clipped tall freeform fins
   // out of the adaptive-height frame).
-  const finSpan = (n: ComponentNode): number => {
-    if (!n.type.endsWith('finset')) return 0;
+  const finSpan = (n: ComponentNode, parent?: ComponentNode): number => {
+    if (!isFinSet(n, parent)) return 0;
     if (n.type === 'freeformfinset') {
       const pts = n['points'];
       if (Array.isArray(pts) && pts.length > 0) {
@@ -221,7 +222,7 @@ export function schematicFrame(tree: RocketTree, o: SchematicFrameOptions): Sche
     return num(n, 'height', kernelDefault(n.type, 'height') ?? 0.03);
   };
   const protuberanceSpan = (n: ComponentNode): number =>
-    (n.type === 'fairing' || (n.type as string) === 'protuberance' ? kernelNum(n, 'height') : 0);
+    (hasSurfaceSize(n) && (n.type === 'fairing' || (n.type as string) === 'protuberance') ? kernelNum(n, 'height') : 0);
   const finH = Math.max(
     0,
     ...collect(tree.components, finSpan),
@@ -757,6 +758,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
     for (const child of parent.children ?? []) {
       if (child.id && hidden.has(child.id)) continue;
       const t = child.type;
+      if (!hasSurfaceSize(child) || (t.endsWith('finset') && !isFinSet(child, parent))) continue;
       // Off-axis assembly: draw its whole chain once per ring instance at the
       // instance's projected baseline (side view projects y, ignores depth z).
       if (isAssembly(t)) {

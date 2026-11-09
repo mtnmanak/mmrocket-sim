@@ -354,6 +354,7 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string,
 
     case 'centeringring': {
       const { r: R, assumed } = ringOuterRadius(node, ctx);
+      if (!(R > EPS)) return null;
       // The ring's own stated bore first, then the mount's OD — the kernel's
       // order, shared with componentLoop (centeringRingBore).
       const raw = centeringRingBore(node, ctx, R);
@@ -395,6 +396,7 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string,
 
     case 'bulkhead': {
       const { r: R, assumed } = ringOuterRadius(node, ctx);
+      if (!(R > EPS)) return null;
       const label = assumed ? 'Bulkhead (assumed size)' : 'Bulkhead';
       const geom = discEnts(R, null);
       const dims = `OD ${dim(R * 2)} ${U} | stock thickness ${dim(axialLength(node))} ${U}`
@@ -412,6 +414,7 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string,
       // label states the axial length so nobody mistakes the section for the
       // whole tube.
       const { r: R, assumed } = ringOuterRadius(node, ctx);
+      if (!(R > EPS)) return null;
       // A wall at or past the radius closes the bore — ringSolid() degrades the
       // printed version to a solid rod for exactly the same input, so the cut
       // profile agreeing with it is the whole point. Reading the bore back

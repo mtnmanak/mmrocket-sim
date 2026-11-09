@@ -573,17 +573,17 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: Re
         // v0.105 only the AFT view drew them (AftView.tsx:215-217), so a split
         // cluster spread out end-on and stacked on the axis in the side and 3D
         // views. Angle 0 is +y, the same convention every radial part uses.
-        const rp = num(child, 'radialPosition', 0);
-        const rd = num(child, 'radialDirection', 0);
+        const rp = child.type === 'innertube' ? num(child, 'radialPosition', 0) : 0;
+        const rd = child.type === 'innertube' ? num(child, 'radialDirection', 0) : 0;
         const ry = rp * Math.cos(rd);
         const rz = rp * Math.sin(rd);
         const motor = child.id ? overrideFor(motors, child.id) : undefined;
         // The pattern turns with the tube's direction as well as sitting along
         // it — the kernel's getPoints(clusterRotation − radialDirection).
-        for (const off of clusterOffsets(
+        for (const off of child.type === 'innertube' ? clusterOffsets(
           child['cluster'] as string | undefined, r,
           num(child, 'clusterScale', 1), num(child, 'clusterRotation', 0), { radialDirection: rd },
-        )) {
+        ) : [{ y: 0, z: 0 }]) {
           if (child.type === 'innertube' && len > 0 && r > 0) place(`inner${k++}`, new THREE.CylinderGeometry(r, r, len, 32), nodeColor(child, MAT.inner),
             [start + len / 2, ry + off.y, rz + off.z], [0, 0, -Math.PI / 2], xform, 'glass');
           if (motor && motor.length > 0 && motor.diameter > 0) {

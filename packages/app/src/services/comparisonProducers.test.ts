@@ -1,4 +1,22 @@
 // @vitest-environment happy-dom
+// H6 r10: direct-mount versus stated-hole refusal copy adds two PropertyPanel
+// branches and one paperTemplates branch. Shared ring-fit tolerance only;
+// no numeric text producer. Geometry, button and build-sheet regressions cover both.
+// H6 r9: PropertyPanel 82 -> 84, paperTemplates 15 -> 16 split centred
+// coupler-too-wide refusal from off-axis copy; no numeric text/threshold added.
+// h6Geometry and PropertyPanel.solidContext cover both causes and contained controls.
+// H6 r8: reviewed coupler envelope/bore precedence and nose aft-radius default;
+// fabrication containment changes no comparison-note producer or census count.
+// H6 r7: kernel radius fallbacks preserve existing fit/base-drag comparisons;
+// centered oversized coupler contents are fit issues, not off-axis layouts.
+// Reviewed these readers: no comparison producer/count is added.
+// H6 r2: reviewed the no-bore refusal explanation; census remains 82.
+// H6 r3: file/fabrication purpose separates filled tapered sizing only; no new numeric comparison producer.
+// H6 r4: recovery parent radius requests kernel sizing; no new numeric comparison producer.
+// H6 r5: omitted tube radii use kernel defaults; no new numeric comparison producer.
+// H6 r6: ringFit uses known kernel radii for omitted inner-tube dimensions;
+// no comparison producer/count change. Sibling/parent controls: ringFit.test.ts.
+// Zero bore versus unknown/positive bore is covered in PropertyPanel.solidContext.test.tsx.
 // H4 r7: census stays 34; independent gram-finiteness guards and the squared
 // cluster bound add no notice producer. h4MotorBounds/orkFile cover overflow.
 // H4 r6: exMotors 35 -> 34 unifies mass ordering in massesDoNotRise;

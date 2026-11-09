@@ -9,6 +9,22 @@ import { finTabFit, shoulderFit } from './fitHelpers.js';
 const node = (o: Record<string, unknown>) => o as unknown as ComponentNode;
 
 describe('finTabFit', () => {
+  it('checks tab obstacles out to the default body radius', () => {
+    const fin = node({ type: 'freeformfinset', finCount: 1, thickness: 0.001,
+      points: [[0, 0], [0.04, 0.05], [0.1, 0]] });
+    const mount = node({ type: 'innertube', length: 0.3, outerRadius: 0.005, motorMount: true });
+    const rod = node({ type: 'innertube', length: 0.3, outerRadius: 0.0005, radialPosition: 0.0115 });
+    expect(finTabFit(fin, node({ type: 'bodytube', length: 0.3, children: [mount, rod, fin] }))).toBeNull();
+  });
+  it.each(['rounded', 'airfoil'])('fits %s tabs using omitted tube radii', crossSection => {
+    const fin = node({ type: 'freeformfinset', crossSection, points: [[0, 0], [0.04, 0.05], [0.1, 0]] });
+    const mount = node({ type: 'innertube', length: 0.3, motorMount: true });
+    const parent = node({ type: 'bodytube', length: 0.3, children: [mount, fin] });
+    expect(finTabFit(fin, parent)).toMatchObject({ toMount: true, depth: expect.closeTo(0.012 - 0.0095, 12) });
+    expect(finTabFit(fin, { ...parent, children: [fin] })?.depth).toBeCloseTo(0.0003, 12);
+    mount['motorMount'] = false;
+    expect(finTabFit(fin, parent)?.depth).toBeCloseTo(0.012 - 0.0095, 12);
+  });
   it.each(['rounded', 'airfoil'])('refuses a %s tab through an offset tube with the kernel default radius', crossSection => {
     const fin = node({ type: 'freeformfinset', crossSection, finCount: 1,
       points: [[0, 0], [0.04, 0.05], [0.1, 0]] });
@@ -205,12 +221,12 @@ describe('finTabFit', () => {
     expect(finTabFit(canards, air([overlapping, canards]))!.depth).toBeCloseTo(0.0381 - 0.0153, 15);
   });
 
-  it('offers nothing off a body tube, without its radius, or with no depth to fill', () => {
+  it('uses default body radii but offers nothing off a body tube or with no depth to fill', () => {
     expect(finTabFit(FIN, null)).toBeNull();
     expect(finTabFit(FIN, 'stage')).toBeNull();
     expect(finTabFit(FIN, node({ id: 't', type: 'transition', foreRadius: 0.03 }))).toBeNull();
-    expect(finTabFit(FIN, tube([FIN], { outerRadius: undefined }))).toBeNull();
-    expect(finTabFit(FIN, tube([FIN], { outerRadius: NaN }))).toBeNull(); // no NaN depth offered
+    expect(finTabFit(FIN, tube([FIN], { outerRadius: undefined }))?.depth).toBeCloseTo(0.0015, 12);
+    expect(finTabFit(FIN, tube([FIN], { outerRadius: NaN }))?.depth).toBeCloseTo(0.0015, 12);
     expect(finTabFit(FIN, tube([node({ ...MMT, outerRadius: 0.0508 })]))).toBeNull();
     expect(finTabFit(FIN, tube([FIN], { thickness: 0 }))).toBeNull();
   });
@@ -258,10 +274,10 @@ describe('shoulderFit', () => {
     expect(shoulderFit(t, NOSE, 'stage')!.innerR).toBeCloseTo(0.02 - 0.0003, 12);
   });
 
-  it('offers nothing with no tube behind, or one without a usable radius', () => {
+  it('offers nothing with no tube behind, and uses kernel radii when omitted or nonfinite', () => {
     expect(fit([NOSE])).toBeNull();
-    expect(fit([NOSE, node({ id: 'b1', type: 'bodytube' })])).toBeNull();
-    expect(fit([NOSE, node({ id: 'b1', type: 'bodytube', outerRadius: NaN })])).toBeNull();
+    expect(fit([NOSE, node({ id: 'b1', type: 'bodytube' })])?.innerR).toBeCloseTo(0.0117, 12);
+    expect(fit([NOSE, node({ id: 'b1', type: 'bodytube', outerRadius: NaN })])?.innerR).toBeCloseTo(0.0117, 12);
   });
 
   it('marks a SOLID tube: its bore is 0, and the panel refuses the fit', () => {

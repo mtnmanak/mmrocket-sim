@@ -1,5 +1,24 @@
 import { describe, expect, it } from 'vitest';
 
+it.each([false, true])('keeps a stated hole beside a wider centered tube (coupler=%s)', wrapped => {
+  const ring: ComponentNode = { type: 'centeringring', id: 'ring', length: 0.003, innerRadius: 0.005 };
+  const tube: ComponentNode = { type: 'innertube', length: 0.3, outerRadius: 0.012 };
+  const tree: RocketTree = { components: [{ type: 'bodytube', length: 0.3, outerRadius: 0.03,
+    children: [ring, wrapped ? { type: 'tubecoupler', length: 0.3, children: [tube] } : tube] }] };
+  const context = solidContextFor(tree, ring);
+  if (wrapped) {
+    expect(context.mountLayoutUnresolved).toBe(true);
+    expect(componentLoop(ring, context)).toBeNull();
+    expect(() => paperTemplateGeometry(ring, context)).toThrow(/wider than this ring's hole/);
+    expect(componentDxf(ring, context, 'Centered tube')).toBeNull();
+    return;
+  }
+  expect(context.mountLayoutUnresolved).not.toBe(true);
+  expect(componentLoop(ring, context)).not.toBeNull();
+  expect(paperTemplateGeometry(ring, context).circles).toEqual([expect.closeTo(0.0297, 12), 0.005]);
+  expect(componentDxf(ring, context, 'Centered tube')).not.toBeNull();
+});
+
 it.each([false, true])('flags an obstructing coupler descendant beside a direct bore tube (coupler first=%s)', couplerFirst => {
   const ring: ComponentNode = { type: 'centeringring', id: 'ring', length: 0.003,
     position: { method: 'top', offset: 0.2 } };
@@ -83,6 +102,7 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { componentDxf } from '../services/dxfExport.js';
 import { finTemplateSvg } from '../services/finTemplate.js';
 import { paperTemplateGeometry } from '../services/paperTemplates.js';
+import { presetPatch } from '../services/presets.js';
 import { massObjectParentRadius, solidContextFor } from './solidContext.js';
 import { componentLoop, componentSolid, finCutOutline, solidVolume } from './solidMesh.js';
 
@@ -112,6 +132,35 @@ const find = (t: RocketTree, id: string): ComponentNode => {
 };
 
 const bulkhead = { id: 'bh', type: 'bulkhead', length: 0.004 };
+
+describe('H6 r5 omitted tube radius', () => {
+  it.each(['bodytube', 'innertube'] as const)('resolves the default %s bore for every automatic ring export', async type => {
+    const radius = type === 'bodytube' ? 0.012 : 0.0095;
+    for (const partType of ['bulkhead', 'centeringring', 'engineblock', 'tubecoupler'] as const) {
+      for (const nested of [false, true]) {
+        const part: ComponentNode = { id: 'part', type: partType, length: 0.002 };
+        const children: ComponentNode[] = nested
+          ? [{ type: 'tubecoupler', length: 0.05, children: [part] }] : [part];
+        for (const wall of [radius, radius + 0.001, 0.001]) {
+          const t = tree({ type, length: 0.3, thickness: wall, children });
+          const ctx = solidContextFor(t, part);
+          const bore = Math.max(0, radius - wall - (nested ? 0.0005 : 0));
+          expect(ctx.parentInnerRadius).toBeCloseTo(bore, 12);
+          if (bore === 0) {
+            expect(componentLoop(part, ctx)).toBeNull();
+            expect(await componentSolid(part, ctx)).toBeNull();
+            expect(componentDxf(part, ctx, 'T')).toBeNull();
+            expect(() => paperTemplateGeometry(part, ctx)).toThrow();
+          } else {
+            expect(componentLoop(part, ctx)?.sizeAssumed).not.toBe(true);
+            expect(await componentSolid(part, ctx)).not.toBeNull();
+            expect(componentDxf(part, ctx, 'T')).not.toBeNull();
+          }
+        }
+      }
+    }
+  });
+});
 
 describe('solidContextFor — the bore a part sits in', () => {
   it('a bulkhead in an Add-menu coupler: the coupler takes the body bore, less its own wall', () => {
@@ -228,7 +277,7 @@ describe('solidContextFor — the bore a part sits in', () => {
     });
   });
 
-  it('resolves nothing it cannot — and the part then SAYS its size is assumed', async () => {
+  it('refuses fabrication at a resolved zero bore rather than assuming stock', async () => {
     // A bulkhead at the very tip of a nose: the kernel's inner radius there is
     // zero, so there is no bore to size from.
     const t = tree({
@@ -237,12 +286,10 @@ describe('solidContextFor — the bore a part sits in', () => {
     });
     const node = find(t, 'bh');
     const ctx = solidContextFor(t, node);
-    expect(ctx.parentInnerRadius).toBeUndefined();
-    const loop = componentLoop(node, ctx)!;
-    expect(loop.label).toBe('Bulkhead (assumed size)');
-    expect(loop.sizeAssumed).toBe(true);
+    expect(ctx.parentInnerRadius).toBe(0);
+    expect(componentLoop(node, ctx)).toBeNull();
     const solid = await componentSolid(node, ctx);
-    expect(solid!.label).toBe('Bulkhead (assumed size)');
+    expect(solid).toBeNull();
     // A node outside the tree, or with no id, gets an empty context.
     expect(solidContextFor(t, { type: 'bulkhead' } as ComponentNode)).toEqual({});
     expect(solidContextFor(t, { id: 'nope', type: 'bulkhead' } as ComponentNode)).toEqual({});
@@ -419,7 +466,7 @@ it.each([['bodytube', 0.0003], ['innertube', 0.0005]] as const)('B6 omitted %s w
  * (MassObject.getMaxParentRadius), which a catalogue canopy pick resolves to.
  */
 describe('massObjectParentRadius', () => {
-  const chute = { id: 'c', type: 'parachute' };
+  const chute: ComponentNode = { id: 'c', type: 'parachute' };
   it('a body tube: its inner radius; a solid one, none', () => {
     const t = tree({ id: 'b', type: 'bodytube', length: 0.5, outerRadius: 0.05, thickness: 0.001, children: [chute] });
     expect(massObjectParentRadius(t, 'c')).toBeCloseTo(0.049, 12);
@@ -446,6 +493,36 @@ describe('massObjectParentRadius', () => {
   });
   it('none for a part not in the tree', () => {
     expect(massObjectParentRadius(tree(), 'c')).toBe(0);
+  });
+  it.each(['nosecone', 'transition'] as const)(
+    'H6 r4 keeps kernel packed sizing in automatic couplers inside a filled %s', type => {
+      for (const nested of [false, true]) {
+        const coupler: ComponentNode = { id: 'cp', type: 'tubecoupler', length: 0.05,
+          thickness: 0.0005, position: { method: 'top', offset: 0.1 },
+          children: nested ? [{ id: 'cp2', type: 'tubecoupler', length: 0.05,
+            thickness: 0.0005, position: { method: 'top', offset: 0 }, children: [chute] }] : [chute] };
+        const host: ComponentNode = { id: 'host', type, length: 0.2, shape: 'conical',
+          aftRadius: 0.03, ...(type === 'transition' ? { foreRadius: 0.03 } : {}),
+          thickness: 0.002, filled: true, children: [coupler] };
+        const t = tree(host);
+        // Conical nose at 100 mm: 15 mm radius; cylindrical transition: 30 mm.
+        const radius = (type === 'nosecone' ? 0.015 : 0.03) - 0.002 - (nested ? 0.001 : 0.0005);
+        const parentRadius = massObjectParentRadius(t, 'c');
+        expect(parentRadius).toBeCloseTo(radius, 12);
+        const patch = presetPatch('parachute', { kind: 'Parachute', manufacturer: 'Test',
+          partNo: 'Packed', description: '', packedDiameter: 0.02, packedLength: 0.1 }, undefined, { parentRadius });
+        expect(patch['packedRadius']).toBeCloseTo(radius, 12);
+        expect(patch['packedLength']).toBeCloseTo(0.01 ** 2 * 0.1 / radius ** 2, 12);
+        // Kernel sizing must not reopen fabrication inside solid material.
+        expect(solidContextFor(t, coupler).parentInnerRadius).toBe(0);
+      }
+    },
+  );
+  it('H6 r4 keeps a filled body tube bore zero through an automatic coupler', () => {
+    const t = tree({ id: 'b', type: 'bodytube', length: 0.2, outerRadius: 0.03,
+      thickness: 0.002, filled: true, children: [{ id: 'cp', type: 'tubecoupler',
+        length: 0.05, thickness: 0.0005, children: [chute] }] });
+    expect(massObjectParentRadius(t, 'c')).toBe(0);
   });
 });
 

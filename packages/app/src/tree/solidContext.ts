@@ -12,6 +12,9 @@ import { profileMountOf } from './schematicLayout.js';
 import { clusterCount } from './cluster.js';
 import { innerTubeSections } from './tubeLayout.js';
 
+/** Radius tolerance (m): 0.5 mm diameter catalogue rounding/clearance. Shared with components/ringFit.ts (tree/ may not import components/). */
+export const RING_FIT_TOLERANCE = 0.00025;
+
 /**
  * Parent-derived diameters for the printable (STL) and cuttable (DXF) exports
  * of ONE component: rings, bulkheads, couplers and engine blocks size to the
@@ -42,8 +45,10 @@ import { innerTubeSections } from './tubeLayout.js';
  * Anything else leaves the bore unset, and the exporters then label the part
  * "(assumed size)" and say so under the 🖨 button rather than printing a
  * placeholder disc as if it were measured.
+ * File mode preserves the kernel's radius-minus-wall sizing in filled tapered
+ * hosts; the default fabrication mode refuses stock inside those solid hosts.
  */
-export function solidContextFor(tree: RocketTree, node: ComponentNode): SolidContext {
+export function solidContextFor(tree: RocketTree, node: ComponentNode, purpose: 'fabrication' | 'file' = 'fabrication'): SolidContext {
   const ctx: SolidContext = {};
   tree = resolveTransitionRadii(tree);
   if (node.type === 'transition' && node.id) {
@@ -69,13 +74,14 @@ export function solidContextFor(tree: RocketTree, node: ComponentNode): SolidCon
       ? num(parent, 'outerRadius', kernelDefault('bodytube', 'outerRadius')!)
       : num(parent, 'thickness', kernelDefault('bodytube', 'thickness')!);
   }
-  const bore = boreAt(chain, 0, node);
+  const bore = boreAt(chain, 0, node, purpose === 'fabrication');
   if (bore !== undefined) ctx.parentInnerRadius = bore;
   const pOuter = numOpt(parent, 'outerRadius');
   if (pOuter !== undefined) ctx.bodyRadius = pOuter;
-  const { widest: mountOuter, unresolved } = overlappingTubes(parent, node);
+  const { widest: mountOuter, unresolved, couplerTooWide } = overlappingTubes(parent, node);
   if (mountOuter !== undefined) ctx.mountOuterRadius = mountOuter;
   if (unresolved) ctx.mountLayoutUnresolved = true;
+  if (couplerTooWide) ctx.mountCouplerTooWide = true;
   if (TABBED_FINS.has(node.type)) {
     const depth = tabMaxDepth(parent, node);
     if (depth !== undefined) ctx.tabMaxDepth = depth;
@@ -115,7 +121,8 @@ export function massObjectParentRadius(tree: RocketTree, id: string): number {
     case 'bodytube':
       return parent['filled'] === true ? 0 : inner(num(parent, 'outerRadius', kernelDefault('bodytube', 'outerRadius')!));
     case 'innertube': return inner(num(parent, 'outerRadius', kernelDefault('innertube', 'outerRadius')!));
-    case 'tubecoupler': return inner(numOpt(parent, 'outerRadius') ?? boreAt(chain, 1, parent));
+    // Packed recovery follows kernel sizing, including filled tapered hosts.
+    case 'tubecoupler': return inner(numOpt(parent, 'outerRadius') ?? boreAt(chain, 1, parent, false));
     default: return 0;
   }
 }
@@ -134,7 +141,7 @@ export function massObjectParentRadius(tree: RocketTree, id: string): number {
  * with the bore of the 29 mm motor mount listed before it — and `.ork` writes
  * `auto` for every automatic ring, so that was the common case.
  */
-function overlappingTubes(parent: ComponentNode, node: ComponentNode): { widest?: number; unresolved: boolean } {
+function overlappingTubes(parent: ComponentNode, node: ComponentNode): { widest?: number; unresolved: boolean; couplerTooWide?: boolean } {
   const pLen = axialLength(parent);
   const span = (n: ComponentNode): [number, number] => {
     const len = axialLength(n);
@@ -165,8 +172,15 @@ function overlappingTubes(parent: ComponentNode, node: ComponentNode): { widest?
     widest = Math.max(widest ?? r, r);
   }
   // A coupler cannot set the kernel bore, but its contents can cross one.
-  if (widest !== undefined && couplerSections.some(s => Math.hypot(s.y, s.z) + s.r > widest + 1e-9)) unresolved = true;
-  return { widest, unresolved };
+  const stated = numOpt(node, 'innerRadius');
+  const bore = widest ?? (stated !== undefined && stated > 0 ? stated : undefined);
+  const obstructing = bore === undefined ? [] : couplerSections.filter(s =>
+    Math.hypot(s.y, s.z) + s.r > bore + (widest === undefined ? RING_FIT_TOLERANCE : 1e-9));
+  const offAxis = obstructing.some(s => Math.hypot(s.y, s.z) > 1e-9 || s.clustered);
+  // Keep off-axis advice when both causes occur; never use it for a solely
+  // centred tube wider than the direct mount tube or the stated hole.
+  const couplerTooWide = !unresolved && !offAxis && obstructing.length > 0;
+  return { widest, unresolved: unresolved || obstructing.length > 0, couplerTooWide };
 }
 
 /** The node's ancestors, nearest first (stage last), or null if it is not in the tree. */
@@ -187,12 +201,15 @@ function ancestry(tree: RocketTree, id: string): ComponentNode[] | null {
  * it, or undefined when it cannot be resolved. `chain[i + 1]` is that host's
  * own parent, which an automatic-radius coupler needs.
  */
-function boreAt(chain: ComponentNode[], i: number, child: ComponentNode): number | undefined {
+function boreAt(chain: ComponentNode[], i: number, child: ComponentNode, fabrication = true): number | undefined {
   const host = chain[i];
   if (!host) return undefined;
   switch (host.type) {
     case 'nosecone':
     case 'transition': {
+      // Transition.getInnerRadius subtracts the wall even when filled. File
+      // writers keep that kernel size; fabrication cannot fit stock in a solid.
+      if (fabrication && host['filled'] === true) return 0;
       // The profile's radius at both ends of the part (`profileRadiiAt`, the
       // kernel bridge's defaults), less the wall (2 mm by default). A
       // transition radius it omits is AUTOMATIC there — taken from the
@@ -205,25 +222,25 @@ function boreAt(chain: ComponentNode[], i: number, child: ComponentNode): number
       const radii = profileRadiiAt(host, [start, start + len]);
       if (!radii) return undefined;
       const r = Math.min(...radii) - Math.max(num(host, 'thickness', 0.002), 0);
-      return Number.isFinite(r) && r > 0 ? r : undefined;
+      return Number.isFinite(r) ? Math.max(0, r) : undefined;
     }
     case 'tubecoupler': {
       // Automatic unless it states its own: the kernel bridge sets
       // outerRadiusAutomatic exactly when the node has no outerRadius.
-      const outer = numOpt(host, 'outerRadius') ?? boreAt(chain, i + 1, host);
+      const outer = numOpt(host, 'outerRadius') ?? boreAt(chain, i + 1, host, fabrication);
       if (outer === undefined) return undefined;
       const r = outer - Math.max(num(host, 'thickness', 0.0005), 0);
-      return r > 0 ? r : undefined;
+      return Math.max(0, r);
     }
     default: {
       // Body tube, inner tube, and any other parent stating an outer radius:
-      // unchanged from the rule this replaced, 0.5 mm floor included. A SOLID
+      // preserve a resolved zero bore rather than inventing printable stock. A SOLID
       // body tube has no bore at all (BodyTube.getInnerRadius is 0 when
       // filled), so a part inside it has nothing to size itself to.
-      if (host.type === 'bodytube' && host['filled'] === true) return undefined;
-      const outer = numOpt(host, 'outerRadius');
+      if (host.type === 'bodytube' && host['filled'] === true) return 0;
+      const outer = numOpt(host, 'outerRadius') ?? kernelDefault(host.type, 'outerRadius');
       if (outer === undefined) return undefined;
-      return Math.max(0.0005, outer - num(host, 'thickness', kernelDefault(host.type, 'thickness') ?? 0.001));
+      return Math.max(0, outer - num(host, 'thickness', kernelDefault(host.type, 'thickness') ?? 0.001));
     }
   }
 }

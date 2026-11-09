@@ -2,9 +2,10 @@ import { noteField } from '../services/noteField.js';
 import { INITIAL_UNITS, noticeComparison, type UnitSelection } from '../prefs/units.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { numOpt } from '../tree/nodeNum.js';
+import { kernelDefault } from '../tree/kernelDefaults.js';
 import { axialLength, positionOf, resolveAbsolutePositions, startFromPosition } from '../tree/position.js';
 import { DISPLAY_NAME } from '../tree/schema.js';
-import { solidContextFor } from '../tree/solidContext.js';
+import { RING_FIT_TOLERANCE, solidContextFor } from '../tree/solidContext.js';
 import { findParent } from '../tree/treeModel.js';
 
 interface RingFitComparison {
@@ -13,6 +14,8 @@ interface RingFitComparison {
   expectedRadius: number;
   tube: ComponentNode;
 }
+
+export { RING_FIT_TOLERANCE };
 
 /** Pick-only advice: compare written catalogue dimensions only in certain layouts. */
 export function ringFitFor(tree: RocketTree, node: ComponentNode, written: { outside: boolean; inside: boolean }, units: UnitSelection = INITIAL_UNITS): {
@@ -55,7 +58,7 @@ export function ringFitFor(tree: RocketTree, node: ComponentNode, written: { out
   if (overlapping.filter(tube => tube.type === 'innertube').length > 1) return result;
   for (const tube of overlapping) {
     const r = numOpt(tube, 'outerRadius')
-      ?? (tube.type === 'tubecoupler' ? solidContextFor(tree, tube).parentInnerRadius : undefined);
+      ?? (tube.type === 'tubecoupler' ? solidContextFor(tree, tube).parentInnerRadius : kernelDefault(tube.type, 'outerRadius'));
     // An enclosing sibling can be the real container (av-bay bulkheads), and
     // the kernel's automatic size still follows the parent. Stay silent.
     const ringOutside = outside ?? bore;
@@ -65,7 +68,7 @@ export function ringFitFor(tree: RocketTree, node: ComponentNode, written: { out
   if (parent.type === 'innertube' || parent.type === 'tubecoupler') {
     const hostCtx = solidContextFor(tree, parent);
     const parentOuter = numOpt(parent, 'outerRadius')
-      ?? (parent.type === 'tubecoupler' ? hostCtx.parentInnerRadius : undefined);
+      ?? (parent.type === 'tubecoupler' ? hostCtx.parentInnerRadius : kernelDefault(parent.type, 'outerRadius'));
     if (outside !== undefined && parentOuter !== undefined && outside > parentOuter) {
       const host = parent.id ? findParent(tree, parent.id) : null;
       if (!host || host === 'stage' || !isTube(host) || hostCtx.mountLayoutUnresolved) return result;
@@ -85,7 +88,7 @@ export function ringFitFor(tree: RocketTree, node: ComponentNode, written: { out
     }
   }
   // A 0.5 mm diameter tolerance allows ordinary catalogue rounding/clearance.
-  const tolerance = 0.00025;
+  const tolerance = RING_FIT_TOLERANCE;
   // A sleeve around a tube need not reach the host bore. Only actual wall
   // interference proves an outside misfit in that layout.
   if (written.outside && outside !== undefined && bore !== undefined
@@ -94,7 +97,7 @@ export function ringFitFor(tree: RocketTree, node: ComponentNode, written: { out
     result.comparisons.push({ dimension: 'outside', actualRadius: outside, expectedRadius: bore, tube: boreTube });
   }
   const mount = mountTube === parent ? numOpt(parent, 'outerRadius')
-    ?? (parent.type === 'tubecoupler' ? solidContextFor(tree, parent).parentInnerRadius : undefined)
+    ?? (parent.type === 'tubecoupler' ? solidContextFor(tree, parent).parentInnerRadius : kernelDefault(parent.type, 'outerRadius'))
     : ctx.mountOuterRadius;
   if (written.inside && node.type === 'centeringring' && inside !== undefined && mount !== undefined && mountTube
     && mount > inside + tolerance) {

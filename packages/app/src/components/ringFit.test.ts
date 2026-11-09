@@ -3,6 +3,22 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { ringFitFor } from './ringFit.js';
 
 describe('Round 5 certain-or-silent catalogue fit', () => {
+  it.each(['sibling', 'parent'] as const)('H6 r6 compares an omitted-radius inner tube as a %s', placement => {
+    const ring: ComponentNode = { id: 'ring', type: 'centeringring', length: 0.003,
+      outerRadius: 0.03, innerRadius: 0.008 };
+    const mount: ComponentNode = { id: 'mount', type: 'innertube', name: 'Default mount', length: 0.3,
+      ...(placement === 'parent' ? { children: [ring] } : {}) };
+    const tree: RocketTree = { components: [{ id: 'body', type: 'bodytube', length: 0.3,
+      outerRadius: 0.033, thickness: 0.001,
+      children: placement === 'parent' ? [mount] : [ring, mount] }] };
+    const result = ringFitFor(tree, ring, { outside: true, inside: true });
+    expect(result.comparisons.map(c => c.dimension)).toEqual(placement === 'parent' ? ['inside'] : ['outside', 'inside']);
+    expect(result.comparisons.find(c => c.dimension === 'inside')!.expectedRadius).toBeCloseTo(0.0095, 10);
+    expect(result.notes.join(' ')).toContain('Default mount');
+    // Explicit sizes, including zero, must not be replaced by the default.
+    mount['outerRadius'] = 0;
+    expect(ringFitFor(tree, ring, { outside: false, inside: true }).comparisons).toEqual([]);
+  });
   it('keeps catalogue advice silent for concentric tubes even though one centred export bore is resolved', () => {
     const { tree, ring } = fit(0.04, 0.015);
     tree.components[0]!.children!.push({ id: 'sleeve', type: 'innertube', length: 0.3, outerRadius: 0.008 });

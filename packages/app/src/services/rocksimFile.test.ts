@@ -23,6 +23,41 @@ import { DEFAULT_CONDITIONS } from './launchConditions.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+describe('H6 r3 automatic rings in filled tapered hosts', () => {
+  it.each(['nosecone', 'transition'] as const)('keeps kernel OD in a filled %s', type => {
+    for (const ringType of ['bulkhead', 'centeringring', 'engineblock', 'tubecoupler'] as const) {
+      for (const nested of [false, true]) {
+        const ring: ComponentNode = { type: ringType, id: 'ring', name: 'Sized ring', length: 0.002,
+          position: { method: 'top', offset: nested ? 0.01 : 0.1 } };
+        const children: ComponentNode[] = nested ? [{ type: 'tubecoupler', id: 'coupler', length: 0.05,
+          thickness: 0.0005, position: { method: 'top', offset: 0.1 }, children: [ring] }] : [ring];
+        const design = (filled: boolean) => ({ name: 'Filled host', tree: { components: [
+          { type, length: 0.2, shape: 'conical', foreRadius: 0.03, aftRadius: 0.03,
+            thickness: 0.002, filled, children },
+        ] } });
+        const od = (xml: string) => {
+          const doc = new DOMParser().parseFromString(xml, 'text/xml');
+          const saved = [...doc.querySelectorAll('Ring')].find(r => r.querySelector('Name')?.textContent === ring.name)!;
+          return Number(saved.querySelector('OD')!.textContent);
+        };
+        const xml = exportRkt(design(true));
+        const expected = od(exportRkt(design(false)));
+        expect(expected).toBeGreaterThan(0);
+        expect(od(xml)).toBeCloseTo(expected, 10);
+        const find = (nodes: ComponentNode[]): ComponentNode | undefined => {
+          for (const node of nodes) {
+            if (node.name === ring.name) return node;
+            const hit = find(node.children ?? []);
+            if (hit) return hit;
+          }
+          return undefined;
+        };
+        expect(find(importRkt(xml).tree.components)?.['outerRadius']).toBeCloseTo(expected / 2000, 10);
+      }
+    }
+  });
+});
+
 const rktSaveLosses = (tree: RocketTree) => checkFormatLoss('rkt', {
   tree, motors: {}, launch: { ...DEFAULT_CONDITIONS }, configs: [], activeConfigId: null,
   measured: { massKg: null, cgM: null }, flightData: {},

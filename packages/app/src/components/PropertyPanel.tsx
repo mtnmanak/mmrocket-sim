@@ -34,7 +34,7 @@ import { shroudEnds } from '../tree/shroud.js';
 import { finTabFit, shoulderFit } from '../tree/fitHelpers.js';
 import { ventLimit } from '../tree/canopyVent.js';
 import { num, numOpt } from '../tree/nodeNum.js';
-import { KERNEL_DEFAULT_MATERIALS, kernelNum } from '../tree/kernelDefaults.js';
+import { KERNEL_DEFAULT_MATERIALS, kernelDefault, kernelNum } from '../tree/kernelDefaults.js';
 import { tubeFinRadius, tubeFinWall } from '../tree/tubefins.js';
 import { RAIL_BUTTON_AFT_GAP, railButtonPlacement } from '../services/railButtonPlacement.js';
 
@@ -903,6 +903,12 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
    * and that tube's own ancestors (tree/solidContext.ts).
    */
   const printer = prefs.printer;
+  const noParentBore = (node.type === 'bulkhead' || node.type === 'centeringring'
+    || node.type === 'engineblock' || node.type === 'tubecoupler')
+    && numOpt(node, 'outerRadius') === undefined
+    && solidContextFor(tree, node).parentInnerRadius === 0;
+  const noBoreNote = 'The parent has no bore at this position, so the app cannot size this part. '
+    + 'No cut or print file can be made from an automatic diameter here. Move the part to a hollow section or fabricate it separately using measured dimensions.';
   const offer = useMemo(
     () => (PRINTABLE.has(node.type)
       ? printOffer(node, solidContextFor(tree, node), toPrinterVolume(printer), printerName(printer), prefs.units)
@@ -1441,8 +1447,14 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
             // a planform that collapses under three distinct corners, and a
             // button that silently does nothing reads as a broken button.
             if (!dxf) {
-              setExportNote(node.type === 'centeringring'
-                ? 'The app cannot lay out this mount’s holes; one centred opening would not fit. Lay out the holes by hand. The ring’s stated ID cannot place off-axis holes.'
+              const ctx = solidContextFor(tree, node);
+              setExportNote(node.type === 'centeringring' && centeringRingBore(node, ctx, ringOuterRadius(node, ctx).r) === null
+                ? ctx.mountCouplerTooWide
+                  ? ctx.mountOuterRadius !== undefined
+                    ? "No DXF: a tube held in a coupler is wider than the ring's direct mount tube. The app cannot lay out the holes for this ring. Lay out the holes by hand before cutting."
+                    : "No DXF: a tube held in a coupler is wider than this ring's hole. The tube cannot pass through it. Check the tube and hole dimensions before cutting."
+                  : 'The app cannot lay out this mount’s holes; one centred opening would not fit. Lay out the holes by hand. The ring’s stated ID cannot place off-axis holes.'
+                : noParentBore ? noBoreNote
                 : node.type.endsWith('finset')
                 ? 'This fin outline crosses itself or encloses no area — fix the '
                   + 'fin points before exporting.'
@@ -1491,7 +1503,12 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
                   // button that silently does nothing reads as a broken button.
                   if (!solid) {
                     setExportNote(node.type === 'centeringring' && centeringRingBore(node, ctx, ringOuterRadius(node, ctx).r) === null
-                      ? 'The app cannot lay out this mount’s holes; one centred opening would not fit. Lay out the holes by hand. The ring’s stated ID cannot place off-axis holes.'
+                      ? ctx.mountCouplerTooWide
+                        ? ctx.mountOuterRadius !== undefined
+                          ? "No STL: a tube held in a coupler is wider than the ring's direct mount tube. The app cannot lay out the holes for this ring. Lay out the holes by hand before printing."
+                          : "No STL: a tube held in a coupler is wider than this ring's hole. The tube cannot pass through it. Check the tube and hole dimensions before printing."
+                        : 'The app cannot lay out this mount’s holes; one centred opening would not fit. Lay out the holes by hand. The ring’s stated ID cannot place off-axis holes.'
+                      : noParentBore ? noBoreNote
                       : node.type === 'tubefinset' && numOpt(node, 'outerRadius') === 0
                       ? `This tube-fin set has an Outer ${prefs.radiusMode} of 0, so there is nothing to print — `
                         + `clear the field for automatic sizing or enter a ${prefs.radiusMode}.`
@@ -1515,6 +1532,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
             }}>
             {offer?.button ?? SINGLE_BUTTON}
           </button>
+          {noParentBore && <p className="print-note print-note-warn">{noBoreNote}</p>}
           {offer?.note && (
             <p className={offer.tone === 'warn' ? 'print-note print-note-warn' : 'print-note'}>
               {offer.note}
@@ -1760,7 +1778,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
           // .getInnerRadius is 0 when filled), and the box showed the stated
           // wall's bore — 38 mm on a solid 40 mm rod with a 1 mm wall.
           const outerR = numOpt(node, 'outerRadius')
-            ?? (node.type === 'nosecone' ? numOpt(node, 'aftRadius') : tubeFinDefaultRadius);
+            ?? (node.type === 'nosecone' ? numOpt(node, 'aftRadius') ?? kernelDefault('nosecone', 'aftRadius') : tubeFinDefaultRadius)
+            ?? kernelDefault(node.type, 'outerRadius');
           const wall = numOpt(node, 'thickness') ?? blankFor('thickness');
           if (f.key === 'thickness' && outerR !== undefined && wall !== undefined && node['filled'] !== true) {
             const innerSi = Math.max(0, outerR - wall) * 2;
