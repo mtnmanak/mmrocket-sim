@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OrkRocket, resetEngine, type ComponentNode, type MotorSpec, type RocketTree } from '@online-openrocket/engine';
 import { defaultTree, engineTree, motorMounts, normalizeTree } from '../tree/treeModel.js';
-import { addExMotors, deleteExMotor, exToDbEntry, getExMotor, loadExMotors, parseEng, parseRse, restoreExMotors, type ExMotor } from './exMotors.js';
+import { exToMotorSpec, addExMotors, deleteExMotor, exToDbEntry, getExMotor, loadExMotors, parseEng, parseRse, restoreExMotors, type ExMotor } from './exMotors.js';
 import { archiveExMotors, MAX_EMBEDDED_EX_MOTORS, MAX_EX_ARCHIVE_BYTES, validArchivedExMotor } from './exMotorArchive.js';
 import { MAX_EX_MOTOR_SAMPLES } from './exMotorLimits.js';
 import { exportOrk, importOrk, type OrkExportMotor } from './orkFile.js';
@@ -184,7 +184,7 @@ describe('hostile EX archives', () => {
       samples: [{ time: 0, thrust: 10 }, { time: 0, thrust: 10 }], sampleMassesKg: undefined };
     const opened = importOrk(payload(xml, [bad, synthetic()]));
     expect(opened.embeddedExMotors).toEqual([synthetic()]);
-    expect(opened.notes.join(' ')).toContain('Embedded EX motor LegacyBad was not loaded: fewer than two distinct thrust points');
+    expect(opened.notes.join(' ')).toContain('Embedded EX motor LegacyBad was not loaded: source thrust curve has fewer than two distinct thrust points');
     expect(opened.notes.join(' ')).not.toContain('Embedded EX motors were refused');
     expect(Object.values(opened.motors)[0]!.exMotorId).toBe(synthetic().motorId);
   });
@@ -230,6 +230,21 @@ describe('hostile EX archives', () => {
   it.each(invalid)('refuses %s with a note and never loads an existing or catalogue twin', async (_name, damage) => {
     const { xml } = saved();
     const broken = damage(synthetic());
+    if (_name.startsWith('mass ') && _name !== 'mass pair') {
+      // Optional masses never invalidate usable headers and thrust (r4 ruling).
+      expect(validArchivedExMotor(broken)).toBe(true);
+      const opened = importOrk(payload(xml, [broken]));
+      const motor = opened.embeddedExMotors![0]!;
+      expect(motor.sampleMassesKg).toBeUndefined();
+      expect(opened.notes.join(' ')).toMatch(/stored per-point masses.*burn-off/);
+      const spec = exToMotorSpec(motor, Infinity);
+      expect(spec.masses.every((m, i) => i === 0 || m <= spec.masses[i - 1]!)).toBe(true);
+      const findDb = vi.fn();
+      expect((await matchImportedMotor(Object.values(opened.motors)[0]!, { findDb })).motor).toBeDefined();
+      expect(findDb).not.toHaveBeenCalled();
+      expect(loadExMotors()).toEqual([synthetic()]);
+      return;
+    }
     expect(validArchivedExMotor(broken)).toBe(false);
     const opened = importOrk(payload(xml, [broken]));
     expect(opened.notes.join(' ')).toContain('Embedded EX motors were refused');

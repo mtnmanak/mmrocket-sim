@@ -1812,7 +1812,7 @@ describe('lane C2 save and share fidelity', () => {
       await saveAs(host, 'Copy share link');
       await waitFor(() => writeText.mock.calls.length === 1, 'EX share copy');
       await settle();
-      expect(host.textContent).toContain('EX motor C6: its library definition is missing or invalid; saved the loaded snapshot.');
+      expect(host.textContent).toContain('EX motor C6: its library definition is missing or invalid; saved its captured source definition.');
       const xml = await decodeShareFragment(new URL(writeText.mock.calls[0]![0]).hash);
       expect(importOrk(xml).embeddedExMotors).toEqual([ex]);
       expect(prompt).toHaveBeenCalledTimes(fallback ? 1 : 0);

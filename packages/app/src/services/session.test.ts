@@ -21,12 +21,13 @@ import { mountMotorFromDb } from './motorMatch.js';
 import { autosavedDesignFile } from './autosaveBackup.js';
 import { designStateFromSession } from './sessionRestore.js';
 import { defaultTree, findNode, motorMounts, normalizeTree } from '../tree/treeModel.js';
-import { exToDbEntry, exToMotorSpec, loadExMotorIdentities, type ExMotor } from './exMotors.js';
+import { parseEng, validFlightSnapshot, exToDbEntry, exToMotorSpec, loadExMotorIdentities, type ExMotor } from './exMotors.js';
 import { exportConfigs, exportMotorsMap } from './exportAssembly.js';
 import { assignedMotorsOf } from './designDerivation.js';
 import { exportOrk } from './orkFile.js';
 import type { SessionState } from './session.js';
 import { MAX_STORED_WARNINGS } from './storedWarnings.js';
+import { MAX_EX_MOTOR_SAMPLES } from './exMotorLimits.js';
 import { tierLines } from './importNotes.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import { checkFormatLoss } from './formatLoss.js';
@@ -47,6 +48,109 @@ const state = () => ({
     pressureHPa: null,
     latitudeDeg: 45,
   } as LaunchConditions,
+});
+
+it('refuses unrepairable standalone EX mass gains in every restore location with one sanitized note', () => {
+  discardSession();
+  const definition = parseEng('Bad 29 100 P 0.05 0.1 Home\n0 0\n0.5 40\n1 0')[0]!;
+  const spec = { ...exToMotorSpec(definition, Infinity), designation: 'Bad\u202e', exDefinition: undefined, masses: [0.1, 0.15, 0.25] };
+  const motor = { spec, meta: { exMotorId: definition.motorId }, label: 'Bad' };
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), motor: spec, motorMeta: motor.meta,
+    mountMotors: { m: motor }, savedConfigs: [{ id: 'c', name: 'C', motors: { m: motor } }] }));
+  const loaded = loadSession()!;
+  expect(loaded.motor).toBeUndefined();
+  expect(loaded.mountMotors).toEqual({});
+  expect(loaded.savedConfigs![0]!.motors).toEqual({});
+  expect(loaded.treeRestoreNotes?.filter(n => n.includes('Bad[U+202E]'))).toEqual([
+    'EX motor Bad[U+202E]: its stored mass curve could not be repaired; the motor was removed and its mount is empty.',
+  ]);
+});
+
+it.each([null, {}, 'broken', [0.1, 'bad', 0.05], [0.1, 0.05, -0.01]]
+  .flatMap(masses => [true, false].map(captured => ({ masses, captured }))))(
+  'keeps legacy EX masses $masses without losing the autosaved design, captured: $captured', ({ masses, captured }) => {
+    discardSession();
+    const definition = parseEng('Legacy 29 100 P 0.05 0.1 Home\n0 0\n0.5 40\n1 0')[0]!;
+    const spec = { ...exToMotorSpec(definition, 5), exDefinition: captured ? definition : undefined, masses };
+    const motor = { spec, meta: { exMotorId: definition.motorId }, label: 'Legacy' };
+    const saved = { ...state(), motor: spec, motorMeta: motor.meta,
+      mountMotors: { m: motor }, savedConfigs: [{ id: 'c', name: 'C', motors: { m: motor } }] };
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify(saved));
+    const loaded = loadSession();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.tree).toEqual(saved.tree);
+    for (const restored of [loaded!.motor, loaded!.mountMotors?.m?.spec, loaded!.savedConfigs?.[0]?.motors.m?.spec]) {
+      expect(restored).toEqual(JSON.parse(JSON.stringify(spec)));
+    }
+    expect(loaded!.treeRestoreNotes?.filter(n => n.includes('EX motor')) ?? []).toEqual([]);
+  },
+);
+
+it('keeps the v0.197 prepended zero point above the EX sample ceiling in every restore location', () => {
+  discardSession();
+  // Recreate the stored definition with exactly the file's samples, before
+  // conversion prepends zero (the current parser applies its ceiling earlier).
+  const samples = Array.from({ length: MAX_EX_MOTOR_SAMPLES }, (_, i) => ({ time: i + 1, thrust: i === MAX_EX_MOTOR_SAMPLES - 1 ? 0 : 10 }));
+  const definition = { ...parseEng('Limit 29 100 P 0.05 0.1 Home\n0 0\n1 10\n2 0')[0]!, samples };
+  expect(definition.samples).toHaveLength(MAX_EX_MOTOR_SAMPLES);
+  const spec = exToMotorSpec(definition, 5);
+  expect(spec.times).toHaveLength(MAX_EX_MOTOR_SAMPLES + 1);
+  expect(spec.times[0]).toBe(0);
+  expect(validFlightSnapshot(spec)).toBe(false);
+  const motor = { spec, meta: { exMotorId: definition.motorId }, label: 'Limit' };
+  // Compare the complete autosaved payload, including the captured definition.
+  const storedSpec = JSON.parse(JSON.stringify(spec));
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), motor: spec, motorMeta: motor.meta,
+    mountMotors: { m: motor }, savedConfigs: [{ id: 'c', name: 'C', motors: { m: motor } }] }));
+  const loaded = loadSession()!;
+  for (const restored of [loaded.motor, loaded.mountMotors?.m?.spec, loaded.savedConfigs?.[0]?.motors.m?.spec]) {
+    expect(restored).toEqual(storedSpec);
+  }
+  expect(loaded.treeRestoreNotes?.filter(n => n.includes('EX motor')) ?? []).toEqual([]);
+});
+
+it.each(['cgX', 'thrusts'] as const)('keeps legacy EX %s validation failures when the masses are usable', field => {
+  discardSession();
+  const definition = parseEng('Legacy 29 100 P 0.05 0.1 Home\n0 0\n0.5 40\n1 0')[0]!;
+  const spec = { ...exToMotorSpec(definition, 5), ...(field === 'cgX' ? { cgX: 1 } : { thrusts: [0, -1, 0] }) };
+  expect(validFlightSnapshot(spec)).toBe(false);
+  const motor = { spec, meta: { exMotorId: definition.motorId }, label: 'Legacy' };
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), motor: spec, motorMeta: motor.meta,
+    mountMotors: { m: motor }, savedConfigs: [{ id: 'c', name: 'C', motors: { m: motor } }] }));
+  const loaded = loadSession()!;
+  for (const restored of [loaded.motor, loaded.mountMotors?.m?.spec, loaded.savedConfigs?.[0]?.motors.m?.spec]) {
+    expect(restored).toEqual(spec);
+  }
+  expect(loaded.treeRestoreNotes?.filter(n => n.includes('EX motor')) ?? []).toEqual([]);
+});
+
+it.each([true, false])('keeps v0.197 measured mass residue in every restore location, captured definition: %s', captured => {
+  discardSession();
+  const masses = [0.007200000000000001, 0.0058, 0.0043];
+  const definition = { ...parseEng('Small 29 100 P 0.0029 0.0072 Home\n0 0\n0.2 40\n0.5 0')[0]!, sampleMassesKg: masses };
+  const spec = { ...exToMotorSpec(definition, Infinity), exDefinition: captured ? definition : undefined, masses };
+  const motor = { spec, meta: { exMotorId: definition.motorId }, label: 'Small' };
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), motor: spec, motorMeta: motor.meta,
+    mountMotors: { m: motor }, savedConfigs: [{ id: 'c', name: 'C', motors: { m: motor } }] }));
+  const loaded = loadSession()!;
+  for (const restored of [loaded.motor!, loaded.mountMotors!.m!.spec, loaded.savedConfigs![0]!.motors.m!.spec]) {
+    expect(restored.masses).toEqual(masses);
+  }
+  expect(loaded.treeRestoreNotes?.filter(n => n.includes('EX motor')) ?? []).toEqual([]);
+});
+
+it.each([true, false])('repairs v0.197 EX autosave mass gains in all restored spec locations, captured definition: %s', captured => {
+  const definition = parseEng('Old 29 100 P 0.05 0.1 Home\n0 0\n0.5 40\n1 0')[0]!;
+  const spec = { ...exToMotorSpec(definition, Infinity), exDefinition: captured ? definition : undefined, masses: [0.1, 0.06, 0.09] };
+  const motor = { spec, meta: { exMotorId: definition.motorId }, label: 'Old' };
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), motor: spec, motorMeta: motor.meta,
+    mountMotors: { m: motor }, savedConfigs: [{ id: 'c', name: 'C', motors: { m: motor } }] }));
+  const loaded = loadSession()!;
+  for (const restored of [loaded.motor!, loaded.mountMotors!.m!.spec, loaded.savedConfigs![0]!.motors.m!.spec]) {
+    expect(validFlightSnapshot(restored)).toBe(true);
+    expect(restored.masses).toEqual([0.1, expect.closeTo(captured ? 0.075 : 0.095, 12), captured ? 0.05 : 0.09]);
+  }
+  expect(loaded.treeRestoreNotes?.filter(n => n.includes('stored per-point masses'))).toHaveLength(1);
 });
 
 it.each([[[]], ['bad'], [null], [{ m: 1 }], [{ m: null }]])('refuses unreadable saved motor-load notes: %j', motorLoadNotes => {

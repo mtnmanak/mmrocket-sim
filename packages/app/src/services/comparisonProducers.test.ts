@@ -1,4 +1,17 @@
 // @vitest-environment happy-dom
+// H4 r7: census stays 34; independent gram-finiteness guards and the squared
+// cluster bound add no notice producer. h4MotorBounds/orkFile cover overflow.
+// H4 r6: exMotors 35 -> 34 unifies mass ordering in massesDoNotRise;
+// the legacy-writer grid covers header/prepended/dry-mass residue and Save/restore.
+// H4 r5: exMotors 34 -> 35 admits header-mass floating residue with the same
+// noticeEqual as fresh RSE imports; h4MotorBounds pins preservation and Save/reopen.
+// H4 r4: exMotors 33 -> 34 separately names a degenerate source thrust curve
+// even when its snapshot is usable; h4MotorBounds covers zero/coincident points.
+// H4 r3: archive 8 -> 7 moves the refusal reason into exMotors (30 -> 33).
+// New producers name measurement-band mass refusal and non-finite impulse;
+// h4MotorBounds covers band residue, gross rise, overflow and good siblings.
+// H4 r2: exMotors 28 -> 30 adds the rising/above-loaded mass fallback and
+// equality-residue normalization. h4MotorBounds and exMotors R10 cover these.
 // r119: orkFile 529 -> 528 removes the obsolete elevated-wind rod caution;
 // recovery fills use the existing I19 producer. r119.test covers both changes.
 // noteExplanations 34 -> 35: I19 now describes replacing a lone canopy vent;

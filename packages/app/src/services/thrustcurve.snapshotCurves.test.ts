@@ -90,6 +90,10 @@ describe('an added motor', () => {
     for (const motor of [addedMotor, other]) await thrusts(motor);
     expect(catalogueRequests).toHaveLength(1);
     vi.doMock('../data/motorCurves.json', () => shipped);
+    // A recovered chunk is retried after the shared failure cooldown, not per candidate.
+    await expect(tc.requireCurveBundle()).rejects.toThrow();
+    const retryTime = Date.now() + 30_000;
+    vi.spyOn(Date, 'now').mockReturnValue(retryTime);
     await tc.requireCurveBundle();
     expect(await tc.knownNoPublishedCurve(curveless.motorId)).toBe(false);
     expect(Math.max(...await thrusts(curveless))).toBeCloseTo(60, 9);

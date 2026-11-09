@@ -11,7 +11,7 @@ import { TUBE_HOLE_DEFAULTS } from './tubeHoles.js';
 import { num } from './nodeNum.js';
 import { clusterCount } from './cluster.js';
 import {
-  applyFieldLimit, canonicalEnum, DISPLAY_NAME, ENUM_LIMITS, FIELDS, fieldLimit, MAX_DIMENSION_M, SEPARATION_EVENT_VALUES,
+  applyFieldLimit, canonicalEnum, DISPLAY_NAME, ENUM_LIMITS, FIELDS, fieldLimit, MAX_DIMENSION_M, MAX_EXPANDED_INSTANCES, SEPARATION_EVENT_VALUES,
   type EnumLimit, type FieldDef, type FieldLimit, type LimitKind,
 } from './schema.js';
 
@@ -290,7 +290,7 @@ export const MAX_DESIGN_PARTS = 2000;
  * The 138 tester files measured on 2026-10-17 top out at 62; 10,000 leaves
  * ample room for real assemblies while bounding multiplicative nesting.
  */
-export const MAX_EXPANDED_INSTANCES = 10_000;
+export { MAX_EXPANDED_INSTANCES } from './schema.js';
 export const TOO_MANY_INSTANCES_ERROR_NAME = 'TooManyInstancesError';
 
 /** Count without allocating copies; saturate hostile products at a safe integer. */

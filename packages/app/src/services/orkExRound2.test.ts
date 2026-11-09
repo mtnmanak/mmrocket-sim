@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { beforeEach, expect, it, vi } from 'vitest';
 import { defaultTree, motorMounts } from '../tree/treeModel.js';
-import { addExMotors, deleteExMotor, exToDbEntry, loadExMotors, restoreExMotors, type ExMotor } from './exMotors.js';
+import { exToMotorSpec, addExMotors, deleteExMotor, exToDbEntry, loadExMotors, restoreExMotors, type ExMotor } from './exMotors.js';
 import { MAX_EX_ARCHIVE_BYTES, validArchivedExMotor, validFlightSnapshot } from './exMotorArchive.js';
 import { exportOrk, importOrk } from './orkFile.js';
 import { fetchMotorSpec, type RepairedMotorSpec } from './thrustcurve.js';
@@ -310,5 +310,8 @@ it.each([
   const { loaded } = await fixture();
   const snapshot = { ...loaded.spec, ...damage };
   expect(validFlightSnapshot(snapshot)).toBe(false);
-  expect(validArchivedExMotor({ ...motor(), flightSnapshot: snapshot })).toBe(false);
+  const archived = { ...motor(), flightSnapshot: snapshot };
+  const optionalMass = _name.startsWith('mass ') || _name === 'initial mass';
+  expect(validArchivedExMotor(archived)).toBe(optionalMass);
+  if (optionalMass) expect(validFlightSnapshot(exToMotorSpec(archived, Infinity))).toBe(true);
 });

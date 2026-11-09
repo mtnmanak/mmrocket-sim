@@ -150,10 +150,13 @@ it('S1c-5 drops legacy invalid fields at the library boundary and retains the va
   const good = motor();
   const bad = [{ totalWeightG: 0, propWeightG: 0 }, { propWeightG: null },
     { propWeightG: 101 }, { diameter: 0 }, { length: -1 }, { flightSnapshot: {} },
-    { sampleMassesKg: [0, 0, 0] }, { exitDiameterM: 1 }];
+    { exitDiameterM: 1 }];
   localStorage.setItem('online-openrocket.ex-motors.v1', JSON.stringify([
-    ...bad.map((over, i) => ({ ...good, designation: `BAD${i}`, ...over })), good,
+    ...bad.map((over, i) => ({ ...good, designation: `BAD${i}`, ...over })),
+    { ...good, designation: 'Repaired', sampleMassesKg: [0, 0, 0] }, good,
   ]));
-  expect(loadExMotors()).toEqual([good]);
-  expect(loadExMotors()).toEqual([good]);
+  const notes: string[] = [];
+  expect(loadExMotors(notes)).toEqual([{ ...good, designation: 'Repaired', sampleMassesKg: undefined }, good]);
+  expect(notes.join(' ')).toMatch(/Repaired.*stored per-point masses.*burn-off/);
+  expect(loadExMotors()).toEqual([{ ...good, designation: 'Repaired', sampleMassesKg: undefined }, good]);
 });
