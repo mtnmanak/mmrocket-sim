@@ -525,6 +525,13 @@ describe('RASAero import — supersonic airfoils, launch site, simulations', () 
     expect(plain.notes.join(' ')).not.toMatch(/Mach-Alt/);
   });
 
+  it('drops ambiguous comma-decimal Mach-Alt rows and warns about file conditions', () => {
+    const xml = fixture('RMA53D02 - 2.CDX1').replace(/<MachAlt>\s*<Item>/,
+      '<MachAlt><Item>0,5, 4750</Item><Item>');
+    const r = importCdx1(xml);
+    expect(r.machAlt![0]).toEqual([0, 0]);
+    expect(r.noteTiers?.some(n => n.kind === 'I04.unreadable-numbers' && /Mach-Alt.*dropped.*file.*conditions/s.test(n.text))).toBe(true);
+  });
   it('reads no hex or blank Mach-Alt field as a number', () => {
     // `Number('0x10')` is 16 and `Number(' ')` is 0, so these two rows used to
     // become Mach 16 and Mach 0 (audit 2026-09-22). Decimal only, as xmlNum.

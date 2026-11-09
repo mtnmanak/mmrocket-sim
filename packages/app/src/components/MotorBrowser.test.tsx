@@ -4,6 +4,9 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import type { MotorSpec } from '@online-openrocket/engine';
 import { MotorBrowser } from './MotorBrowser.js';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import type { MountMotor } from '../model/design.js';
 import { withAuto, withDelay, withPlugged } from '../services/mountDelayEdits.js';
@@ -1244,8 +1247,36 @@ describe('MotorBrowser — two earlier fixes with no test until now (audit 2026-
     expect(h.selected).toEqual([]);
   });
 
-  it('a negative or partial window bound is not persisted as a bound no motor meets (windowBound)', () => {
+  it('keeps all four bound inputs inside the existing inline width rule', () => {
     h = openBrowser({ mountDiameterMm: 29, filters: { showAll: true } });
+    const inputs = h.host.querySelectorAll('input[aria-label$="seconds"], input[aria-label$="newton-seconds"]');
+    expect(inputs).toHaveLength(4);
+    for (const input of inputs) {
+      const wrapper = input.closest<HTMLElement>('.inline-numfield');
+      expect(wrapper).not.toBeNull();
+      expect(wrapper?.style.width).toBe('74px');
+      expect(input.parentElement?.classList.contains('numfield')).toBe(true);
+    }
+    const styles = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../styles.css'), 'utf8');
+    expect(styles).toMatch(/\.inline-numfield \.numfield input\s*\{\s*width: 100%;\s*box-sizing: border-box;/);
+  });
+
+  it.each([
+    ['Shortest burn time, seconds', 'burnMin'], ['Longest burn time, seconds', 'burnMax'],
+    ['Smallest total impulse, newton-seconds', 'impulseMin'], ['Largest total impulse, newton-seconds', 'impulseMax'],
+  ])('accepts comma decimals and preserves the last valid %s bound', (label, key) => {
+    h = openBrowser({ mountDiameterMm: 29, filters: { showAll: true } });
+    const input = h.host.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
+    act(() => input.focus());
+    typeInto(input, '1,5');
+    expect(JSON.parse(localStorage.getItem(FILTERS_KEY)!)[key]).toBe(1.5);
+    typeInto(input, '-5');
+    expect(JSON.parse(localStorage.getItem(FILTERS_KEY)!)[key]).toBe(1.5);
+    typeInto(input, '');
+    expect(JSON.parse(localStorage.getItem(FILTERS_KEY)!)[key]).toBeNull();
+  });
+  it('a negative or partial window bound is not persisted as a bound no motor meets', () => {
+    h = openBrowser({ mountDiameterMm: 29, filters: { showAll: true, burnMax: null, impulseMin: null } });
     const before = bodyRows(h).length;
     typeInto(h.host.querySelector<HTMLInputElement>('input[aria-label="Longest burn time, seconds"]')!, '-5');
     typeInto(h.host.querySelector<HTMLInputElement>('input[aria-label="Smallest total impulse, newton-seconds"]')!, '1e');

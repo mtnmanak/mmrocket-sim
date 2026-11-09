@@ -1241,6 +1241,33 @@ it.each(['opening', 'descent'] as const)('S3a-4: marks an unknown %s check as no
 });
 
 // A saved report must react immediately to a preference change, without re-flying.
+it.each([
+  ['°', 0.1, '5.7 °'],
+  ['°', 0.01, '0.6 °'],
+  ['rad', 1.23456, '1.235 rad'],
+] as const)('keeps guide exit AoA precision in %s for %s rad', (angle, rodExitAoa, expected) => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { angle } }));
+  render(<SimRunDetails run={{ ...run(), rodExitAoa }} />);
+  act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Show all details')!.click());
+  const row = [...host.querySelectorAll('tr')].find(r => r.firstElementChild?.textContent === 'Angle of attack at launch guide exit')!;
+  const cell = row.lastElementChild!;
+  const chip = cell.querySelector('select')!;
+  expect(`${cell.firstChild?.textContent} ${chip.value}`).toBe(expected);
+});
+
+it('formats guide exit angle of attack using the current angle preference', () => {
+  function SwitchUnits() {
+    const { prefs, setPrefs } = usePrefs();
+    return <button onClick={() => setPrefs({ ...prefs, units: { ...prefs.units, angle: 'rad' } })}>Use radians</button>;
+  }
+  render(<><SwitchUnits /><SimRunDetails run={{ ...run(), rodExitAoa: 0.1 }} /></>);
+  act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Show all details')!.click());
+  act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Use radians')!.click());
+  const row = [...host.querySelectorAll('tr')].find(r => r.textContent?.includes('Angle of attack at launch guide exit'))!;
+  expect(row.textContent).toContain('0.1');
+  expect(row.textContent).toContain('rad');
+  expect(row.textContent).not.toContain('5.7');
+});
 it('reformats saved warning quantities when the current units change', () => {
   const saved = run();
   saved.simWarnings = [{ key: 'HighSpeedDeployment', message: 'old speed',

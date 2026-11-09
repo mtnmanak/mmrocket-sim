@@ -1,11 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import type { FlightSeries } from '@online-openrocket/engine';
-import { PRESETS, comparisonMembers, convertedValues, phaseData, phaseRuns, seriesCatalog, usableSeries, withStabilityPercent } from './flightChartModel.js';
+import { PRESETS, arbitraryCatalog, comparisonMembers, convertedValues, phaseData, phaseRuns, seriesCatalog, usableSeries, withStabilityPercent } from './flightChartModel.js';
 import { stabilityPercent } from './services/simReport.js';
 import { METRIC_UNITS, IMPERIAL_UNITS } from './prefs/units.js';
 import { LIGHT_PALETTE } from './chartTheme.js';
 
 const catalog = (imperial = false) => seriesCatalog({ units: imperial ? IMPERIAL_UNITS : METRIC_UNITS }, LIGHT_PALETTE);
+it('honors radians for angle of attack in both chart catalogs', () => {
+  const prefs = { units: { ...METRIC_UNITS, angle: 'rad' } };
+  const input = { time: [0, 1], aoa: [Math.PI / 6, Math.PI / 6] } as FlightSeries;
+  for (const defs of [seriesCatalog(prefs, LIGHT_PALETTE), arbitraryCatalog(input, prefs, LIGHT_PALETTE)]) {
+    const aoa = defs.find(d => d.key === 'aoa')!;
+    expect(aoa).toMatchObject({ quantity: 'angle', unit: 'rad' });
+    expect(convertedValues(input, aoa)[0]).toBeCloseTo(Math.PI / 6, 12);
+    expect(aoa.toSI!(0.5)).toBeCloseTo(0.5, 12);
+  }
+});
 const series = (altitude: (number | null)[], velocity = altitude.map((_, i) => i + 10)) => ({
   time: altitude.map((_, i) => i), altitude, velocity,
   acceleration: altitude.map(() => 3), Vz: altitude.map(() => -2),

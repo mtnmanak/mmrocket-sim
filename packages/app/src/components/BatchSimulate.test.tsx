@@ -159,6 +159,21 @@ describe('the batch dialog', () => {
     ));
   }
 
+  it('keeps batch criteria free of motor-browser bound sizing', () => {
+    mount();
+    const row = host.querySelector('#batch-rod')!.closest('.motor-filter-row')!;
+    const fields = row.querySelectorAll<HTMLElement>('.numfield');
+    expect(fields).toHaveLength(4);
+    for (const field of fields) {
+      expect(field.className).toBe('numfield');
+      expect(field.getAttribute('style')).toBeNull();
+      expect(field.closest('.inline-numfield')).toBeNull();
+      expect(field.querySelector('input')!.getAttribute('style')).toBeNull();
+    }
+    const styles = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../styles.css'), 'utf8');
+    expect(styles).not.toMatch(/\.motor-filter-row \.numfield(?: input)?\s*\{/);
+  });
+
   it('S3a-g3: criteria labels target the number rather than the unit', () => {
     mount();
     for (const name of ['Minimum rod-exit velocity', 'Minimum apogee', 'Maximum apogee']) {

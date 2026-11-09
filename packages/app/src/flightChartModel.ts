@@ -119,7 +119,7 @@ export function seriesCatalog(prefs: Pick<Preferences, 'units'>, C: readonly str
     { key: 'stabilityPercent', title: 'Stability margin (% of active length)', unit: '%', token: 'reference' },
     { key: 'cpLocation', title: 'CP location', unit: u.length, quantity: 'length', token: null, f: (v) => siToUi('length', u.length, v) },
     { key: 'cgLocation', title: 'CG location', unit: u.length, quantity: 'length', token: null, f: (v) => siToUi('length', u.length, v) },
-    { key: 'aoa', title: 'Angle of attack', unit: '°', token: null, f: (v) => (v * 180) / Math.PI, toSI: (v) => v * Math.PI / 180 },
+    { key: 'aoa', title: 'Angle of attack', unit: u.angle, quantity: 'angle', token: null, f: (v) => siToUi('angle', u.angle, v) },
     { key: 'dynamicPressure', title: 'Dynamic pressure', unit: u.pressure, quantity: 'pressure', token: 'pressure', f: (v) => siToUi('pressure', u.pressure, v) },
     { key: 'qAlpha', title: 'q·α', unit: `${u.pressure}·rad`, token: null, f: (v) => siToUi('pressure', u.pressure, v), toSI: (v) => uiToSi('pressure', u.pressure, v) },
   ];

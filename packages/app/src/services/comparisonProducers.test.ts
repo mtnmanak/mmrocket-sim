@@ -1,4 +1,10 @@
 // @vitest-environment happy-dom
+// H2: MotorBrowser 17 -> 13 removes native number-input type literals; NumField
+// comma/invalid/blank boundaries are covered in MotorBrowser.test.tsx.
+// SimResults 50 -> 51 and flightChartModel 10 -> 11 add angle formatters;
+// radians preference regressions cover both display paths beside their code.
+// motorLinkOpen 1 -> 2 adds the shared dimension formatter; imperial fit notes
+// and the browser's existing length tolerance are pinned in motorLinkOpen.test.ts.
 // H6 r10: direct-mount versus stated-hole refusal copy adds two PropertyPanel
 // branches and one paperTemplates branch. Shared ring-fit tolerance only;
 // no numeric text producer. Geometry, button and build-sheet regressions cover both.

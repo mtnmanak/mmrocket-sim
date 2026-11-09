@@ -4,9 +4,34 @@ import { getCatalogue, MOTOR_DB_DATE } from './motorDb.js';
 import { defaultDelay, delayOptions } from './thrustcurve.js';
 import { chooseLinkDelay, planMotorLink, motorLinkLoadFailure } from './motorLinkOpen.js';
 import type { MotorLinkParams } from './motorLink.js';
+import { IMPERIAL_UNITS, INITIAL_UNITS, noticeQuantity } from '../prefs/units.js';
 
 const catalogue = getCatalogue();
-const motor = catalogue.find(m => m.diameter <= 29 && delayOptions(m).filter(Number.isFinite).length >= 2)!;
+it.each([INITIAL_UNITS, IMPERIAL_UNITS])('distinguishes a motor just above its rounded length limit (%s)', units => {
+  const check = input();
+  const sample = { ...motor, length: 200 };
+  const limit = 0.1999999;
+  check.tree = { components: [{ type: 'stage', id: 's', children: [tube('m', 0.029, limit)] }] };
+  const plan = planMotorLink({ ...check, catalogue: [sample], units });
+  expect(plan.notes).toHaveLength(1);
+  const bound = noticeQuantity('motorDimensions', limit, units);
+  expect(plan.notes[0]!.text).toContain(`is just above ${bound} long, longer than this mount's ${bound} limit`);
+});
+it('formats both fit warnings in preferred motor units without conversion noise', () => {
+  const check = input();
+  check.tree = { components: [{ type: 'stage', id: 's', children: [tube('m', 0.0127, 0.0254)] }] };
+  const plan = planMotorLink({ ...check, units: { ...IMPERIAL_UNITS, motorDimensions: 'in' } });
+  expect(plan.notes).toHaveLength(2);
+  expect(plan.notes[0]!.text).toContain('0.5 in');
+  expect(plan.notes[1]!.text).toContain('1 in');
+});
+it('uses the motor browser length tolerance at the mount limit', () => {
+  const check = input();
+  check.tree = { components: [{ type: 'stage', id: 's', children: [tube('m', 0.029, motor.length / 1000 - 5e-10)] }] };
+  expect(planMotorLink(check).notes).toEqual([]);
+});
+// Diameter > 14 mm so the 12.7 mm-bore case never fits within fitsMount's 1 mm allowance, whatever the catalogue order.
+const motor = catalogue.find(m => m.diameter > 14 && m.diameter <= 29 && delayOptions(m).filter(Number.isFinite).length >= 2)!;
 const tube = (id: string, bore = 0.029, limit = 10): ComponentNode => ({
   type: 'bodytube', id, motorMount: true, outerRadius: bore / 2, thickness: 0,
   length: limit, maxMotorLength: limit, children: [],
