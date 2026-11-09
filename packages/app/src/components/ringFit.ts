@@ -1,5 +1,5 @@
 import { noteField } from '../services/noteField.js';
-import { INITIAL_UNITS, noticeComparison, type UnitSelection } from '../prefs/units.js';
+import { INITIAL_UNITS, noticeComparison, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { numOpt } from '../tree/nodeNum.js';
 import { kernelDefault } from '../tree/kernelDefaults.js';
@@ -7,6 +7,8 @@ import { axialLength, positionOf, resolveAbsolutePositions, startFromPosition } 
 import { DISPLAY_NAME } from '../tree/schema.js';
 import { RING_FIT_TOLERANCE, solidContextFor } from '../tree/solidContext.js';
 import { findParent } from '../tree/treeModel.js';
+import { innerTubeSections } from '../tree/tubeLayout.js';
+import { centeringRingBore, ringOuterRadius } from '../tree/solidMesh.js';
 
 interface RingFitComparison {
   dimension: 'outside' | 'inside';
@@ -16,6 +18,31 @@ interface RingFitComparison {
 }
 
 export { RING_FIT_TOLERANCE };
+
+/** Persistent fabrication advice for the accepted, no-direct-tube fit band. */
+export function couplerRingFitNote(tree: RocketTree, node: ComponentNode, units: UnitSelection = INITIAL_UNITS): string | undefined {
+  if (node.type !== 'centeringring' || !node.id) return undefined;
+  tree = resolveAbsolutePositions(tree);
+  const parent = findParent(tree, node.id);
+  if (!parent || parent === 'stage') return undefined;
+  node = parent.children?.find(child => child.id === node.id) ?? node;
+  const inside = numOpt(node, 'innerRadius');
+  if (inside === undefined || inside <= 1e-9) return undefined;
+  const ctx = solidContextFor(tree, node);
+  if (ctx.mountLayoutUnresolved || ctx.mountOuterRadius !== undefined) return undefined;
+  // Fabrication substitutes an assumed bore when the stated hole cannot fit.
+  // Ask the export resolver rather than asserting it retains an unusable ID.
+  if (centeringRingBore(node, ctx, ringOuterRadius(node, ctx).r) !== inside) return undefined;
+  const length = axialLength(parent);
+  const fore = startFromPosition(positionOf(node), axialLength(node), length);
+  const aft = fore + axialLength(node);
+  const sections = (parent.children ?? []).filter(n => n.type === 'tubecoupler')
+    .flatMap(n => innerTubeSections(n, length)).filter(s => s.end >= fore && s.start <= aft);
+  const required = Math.max(inside, ...sections.map(s => Math.hypot(s.y, s.z) + s.r));
+  // Match the export's upper bound exactly; ignore coordinate roundoff below it.
+  if (required <= inside + 1e-9 || required > inside + RING_FIT_TOLERANCE) return undefined;
+  return `The stated hole is ${noticeQuantity('length', 2 * (required - inside), units)} smaller in diameter than the opening needed for a tube held in a coupler. The tube cannot pass through the stated hole. Exports keep that hole size. Check the tube and hole dimensions before cutting or printing.`;
+}
 
 /** Pick-only advice: compare written catalogue dimensions only in certain layouts. */
 export function ringFitFor(tree: RocketTree, node: ComponentNode, written: { outside: boolean; inside: boolean }, units: UnitSelection = INITIAL_UNITS): {

@@ -1,4 +1,5 @@
-import type { ComponentNode } from '@online-openrocket/engine';
+import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { couplerRingFitNote } from '../components/ringFit.js';
 import { kernelNum } from '../tree/kernelDefaults.js';
 import { numOpt } from '../tree/nodeNum.js';
 import { outerProfile } from '../tree/shapeProfile.js';
@@ -58,7 +59,7 @@ export function paperRingDimensions(node: ComponentNode, ctx: SolidContext): { o
 }
 
 /** C-A7: fabrication only; never invent dimensions or modify the design. */
-export function paperTemplateGeometry(node: ComponentNode, ctx: SolidContext, units: Pick<UnitSelection, 'length'> = INITIAL_UNITS): PaperTemplateGeometry {
+export function paperTemplateGeometry(node: ComponentNode, ctx: SolidContext, units: Pick<UnitSelection, 'length'> = INITIAL_UNITS, tree?: RocketTree): PaperTemplateGeometry {
   for (const key of ['length', 'outerRadius', 'innerRadius', 'foreRadius', 'aftRadius']) {
     // eslint-disable-next-line no-restricted-syntax -- Reject non-finite authored numbers before kernelNum substitutes its default.
     if (typeof node[key] === 'number' && !Number.isFinite(node[key])) throw new Error('Check the finite dimensions before printing.');
@@ -77,6 +78,9 @@ export function paperTemplateGeometry(node: ComponentNode, ctx: SolidContext, un
       if (bore === 0) g.notes.push('The stated zero ID makes a solid disc with no centre opening.');
     }
     g.notes.push('No cutting allowance. The design has no additional drilling-hole fields; no holes are invented.');
+    const advice = tree && couplerRingFitNote(tree, node, { ...INITIAL_UNITS, ...units });
+    // Wrap this travelling caution without shifting unrelated profile station tables.
+    if (advice) g.notes.push(...(`Caution: ${advice}`.match(/.{1,110}(?:\s|$)/g) ?? []).map(s => s.trim()));
     return g;
   }
   if (node.type !== 'nosecone' && node.type !== 'transition') throw new Error('Select a ring, bulkhead, nose cone or transition.');

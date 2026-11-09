@@ -1,4 +1,4 @@
-import { ringFitFor } from './ringFit.js';
+import { couplerRingFitNote, ringFitFor } from './ringFit.js';
 import { GlossaryHelp } from './GlossaryHelp.js';
 import { componentTerm, fieldTerm } from '../tree/glossaryTerms.js';
 import { Note, type NoteTier } from './Note.js';
@@ -903,6 +903,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
    * and that tube's own ancestors (tree/solidContext.ts).
    */
   const printer = prefs.printer;
+  const couplerFitNote = couplerRingFitNote(tree, node, prefs.units);
   const noParentBore = (node.type === 'bulkhead' || node.type === 'centeringring'
     || node.type === 'engineblock' || node.type === 'tubecoupler')
     && numOpt(node, 'outerRadius') === undefined
@@ -1432,6 +1433,11 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
       {wrapTube && WRAP_FINS.has(node.type) && (
         <FinAlignmentJigMenu key={`jig-${node.id ?? ''}`} tree={tree} tube={wrapTube} fin={node} />
       )}
+      {couplerFitNote && (
+        <Note as="p" tier="caution" className="print-note print-note-warn">
+          {couplerFitNote}
+        </Note>
+      )}
       {PAPER_TEMPLATE_TYPES.has(node.type) && <PaperTemplateButton key={node.id} tree={tree} node={node} />}
       {DXF_CUTTABLE.has(node.type) && (
         // Scissors, NOT the 📐 the fin-template button above already owns. The
@@ -1442,7 +1448,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
           title={`Flat 1:1 cut profile as R12 DXF in ${dxfUnitWord(dxfUnitFor(prefs.units.length))} — it follows your ${QUANTITY_LABEL.length} unit (Preferences → Units of measure): inches for in or ft, millimetres otherwise. For laser/router/waterjet CAM and Fusion 360 sketch import. Fin sets export ONE fin as a single closed contour with the through-the-wall tab merged into it (airfoil shaping, cant and sweep-into-the-tube are NOT represented); rings, bulkheads and couplers take their own stated diameter, else the bore of the tube, coupler, nose or transition they sit in (the label says so when neither can be found), and a centering ring's bore from its own stated ID, else the motor mount. Cut geometry is on the CUT layer only — REFERENCE (root chord, centre marks) and TEXT are guides; switch them off before cutting.`}
           onClick={() => {
             const dxf = componentDxf(node, solidContextFor(tree, node), tree.name ?? 'Rocket',
-              dxfUnitFor(prefs.units.length));
+              dxfUnitFor(prefs.units.length), tree);
             // Same reason as the STL button below: componentDxf returns null for
             // a planform that collapses under three distinct corners, and a
             // button that silently does nothing reads as a broken button.

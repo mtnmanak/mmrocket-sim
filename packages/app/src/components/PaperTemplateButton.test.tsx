@@ -6,6 +6,7 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { PropertyPanel } from './PropertyPanel.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { openPrintDocument } from '../services/printDocument.js';
+import { couplerRingFitNote } from './ringFit.js';
 
 vi.mock('../services/printDocument.js', async original => ({
   ...await original<typeof import('../services/printDocument.js')>(), openPrintDocument: vi.fn(),
@@ -20,6 +21,30 @@ const mount = (node: ComponentNode) => {
   act(() => root.render(<PrefsProvider><PropertyPanel tree={tree} node={node} onPatch={() => {}} /></PrefsProvider>));
 };
 const button = () => [...host.querySelectorAll('button')].find(b => b.textContent!.includes('Paper template (1:1)'));
+it.each([0.0099, 0.0101, 0.01025, 0.0103])('HF7 r3 carries the fit caution on the sheet for radius %s m', radius => {
+  const ring: ComponentNode = { type: 'centeringring', id: 'ring', length: 0.003, innerRadius: 0.01 };
+  const tree: RocketTree = { components: [{ type: 'bodytube', length: 0.3, outerRadius: 0.03,
+    children: [ring, { type: 'tubecoupler', length: 0.3,
+      children: [{ type: 'innertube', length: 0.3, outerRadius: radius }] }] }] };
+  act(() => root.render(<PrefsProvider><PropertyPanel tree={tree} node={ring} onPatch={() => {}} /></PrefsProvider>));
+  act(() => button()!.click());
+  if (radius === 0.0103) {
+    expect(openPrintDocument).not.toHaveBeenCalled();
+    expect(alertTexts().join(' ')).toContain('The tube cannot pass through it');
+  } else {
+    const html = vi.mocked(openPrintDocument).mock.calls[0]![0];
+    const sheet = new DOMParser().parseFromString(html, 'text/html');
+    const text = [...sheet.querySelectorAll('svg text')].map(t => t.textContent).join(' ').replace(/\s+/g, ' ');
+    expect(text.includes('Caution: The stated hole is')).toBe(radius !== 0.0099);
+    if (radius !== 0.0099) {
+      expect(text).toContain(`Caution: ${couplerRingFitNote(tree, ring)}`);
+      expect(text).toContain(radius === 0.0101 ? '0.2 mm' : '0.5 mm');
+      expect(text).toContain('The tube cannot pass through the stated hole.');
+      expect(text).toContain('Check the tube and hole dimensions before cutting or printing.');
+    }
+    expect([...sheet.querySelectorAll('circle')].some(c => c.getAttribute('r') === '10.0000')).toBe(true);
+  }
+});
 afterEach(() => { act(() => root.render(null)); vi.resetAllMocks(); localStorage.clear(); });
 it.each(['bulkhead', 'centeringring', 'transition', 'nosecone'])('offers a calibrated template on %s without changing the design', type => {
   const node = { id: 'part', type, outerRadius: 0.05, innerRadius: 0.015, aftRadius: 0.05, foreRadius: 0.02, length: 0.1 } as ComponentNode;

@@ -16,6 +16,7 @@ import { aeroModelLabel, commentsOf, formatRunStability, formatRunWhenProse, for
   runLabelText, type DeploymentReport, type SimRun, type StabilityUnit } from './simReport.js';
 import { escapeXml } from './xmlUtil.js';
 import { printDocument } from './printDocument.js';
+import { couplerRingFitNote } from '../components/ringFit.js';
 
 export interface DesignPrintInput {
   tree: RocketTree; info: StaticInfo | null; units: UnitSelection;
@@ -78,6 +79,8 @@ export function designPrintHtml(input: DesignPrintInput): string {
         ringDimensions.push(`Outside diameter: ${val('length', 2 * outer, 3)}`);
         const { bore } = paperRingDimensions(n, ctx);
         if (bore !== undefined) ringDimensions.push(`Opening diameter: ${val('length', 2 * bore, 3)}`);
+        const advice = couplerRingFitNote(tree, n, u);
+        if (advice) ringCaution = note(advice, 'caution');
       } catch (error) {
         if (!ringDimensions.length) ringDimensions.push('Outside diameter: Unknown');
         if (n.type === 'centeringring') ringDimensions.push('Opening diameter: Unknown');

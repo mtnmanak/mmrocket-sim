@@ -40,7 +40,7 @@
     "components/RecentDesignsDialog.tsx": 1,
     "components/recoveryContext.ts": 1,
     "components/RecoverySizingPanel.tsx": 17,
-    "components/ringFit.ts": 12,
+    "components/ringFit.ts": 14,
     "components/Rocket3D.tsx": 8,
     "components/RollControl.tsx": 1,
     "components/RulerGuides.tsx": 1,

@@ -11,6 +11,7 @@ import { defaultTree, motorMounts } from '../tree/treeModel.js';
 import type { MountMotor } from '../model/design.js';
 import { importedSummaryRuns } from './orkFlightData.js';
 import { importOrk } from './orkFile.js';
+import { couplerRingFitNote } from '../components/ringFit.js';
 
 const tree: RocketTree = { name: 'Current <script>rocket</script>', components: [
   { type: 'stage', id: 'stage', children: [{ type: 'bodytube', id: 'tube', name: 'Tube', length: 0.254, outerRadius: 0.0254, materialName: 'Paper' }] },
@@ -27,6 +28,22 @@ const run = { id: 'selected', rocket: 'Earlier design', motor: 'F40', manufactur
 const input = { tree, info, units: IMPERIAL_UNITS, radiusMode: 'diameter' as const,
   stabilityUnit: 'both' as const, withMotors: true, appVersion: 'test', run, changedSince: ['the design'], };
 function doc(html: string) { return new DOMParser().parseFromString(html, 'text/html').body; }
+it.each([0.0099, 0.0101, 0.01025, 0.0103])('HF7 r2 prints the shared advice beside the ring opening for tube radius %s m', radius => {
+  const ring: ComponentNode = { type: 'centeringring', id: 'ring', innerRadius: 0.01, length: 0.003 };
+  const tree: RocketTree = { components: [{ type: 'bodytube', length: 0.3, outerRadius: 0.03,
+    children: [ring, { type: 'tubecoupler', length: 0.3,
+      children: [{ type: 'innertube', length: 0.3, outerRadius: radius }] }] }] };
+  const d = doc(designPrintHtml({ ...input, tree, units: INITIAL_UNITS }));
+  const cell = d.querySelectorAll('tbody tr')[1]!.querySelector('td:nth-child(3)')!;
+  const advice = couplerRingFitNote(tree, ring);
+  if (radius === 0.0101 || radius === 0.01025) {
+    expect(cell.textContent).toContain('Opening diameter: 20 mm');
+    expect(cell.querySelector('.note.caution')?.textContent).toBe(`Caution: ${advice}`);
+  } else {
+    expect(cell.textContent).not.toContain('Exports keep that hole size');
+    if (radius === 0.0103) expect(cell.textContent).toContain('Do not cut from unresolved dimensions');
+  }
+});
 it.each([true, false])('r10 reports the correct coupler width reference (direct=%s)', direct => {
   const tree: RocketTree = { components: [{ type: 'stage', children: [{ type: 'bodytube',
     length: 0.3, outerRadius: 0.03, children: [

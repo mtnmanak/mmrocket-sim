@@ -1,5 +1,6 @@
 import type { ComponentNode } from '@online-openrocket/engine';
-import { fmtSig, noticeNumber } from '../prefs/units.js';
+import { fmtSig, noticeNumber, INITIAL_UNITS } from '../prefs/units.js';
+import { couplerRingFitNote } from '../components/ringFit.js';
 import {
   centeringRingBore, collapseLoop, finCutContours, ringOuterRadius, type SolidContext,
 } from '../tree/solidMesh.js';
@@ -275,7 +276,7 @@ function labelEnts(geom: Ent[], lines: string[]): Ent[] {
  * sensible plate representation. Geometry is in METERS — the writer alone
  * converts it; `u` only words the label block.
  */
-function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string, u: DrawingUnits): Part | null {
+function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string, u: DrawingUnits, advice?: string): Part | null {
   const name = node.name ?? '';
   const dim = (meters: number): string => dimVal(u, meters);
   const U = u.sym;
@@ -391,7 +392,9 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string,
         + ` | stock thickness ${dim(axialLength(node))} ${U}`
         + (assumed ? OD_ASSUMED : '')
         + (known ? '' : ` | BORE ASSUMED: ${why} — set to half the OD`);
-      return { label, ents: [...geom, ...labelEnts(geom, [head(label), dims, foot])] };
+      // R12 TEXT strings are limited to 255 characters; keep the caution readable.
+      const caution = advice ? (`Caution: ${advice}`.match(/.{1,110}(?:\s|$)/g) ?? []).map(s => s.trim()) : [];
+      return { label, ents: [...geom, ...labelEnts(geom, [head(label), dims, foot, ...caution])] };
     }
 
     case 'bulkhead': {
@@ -616,9 +619,11 @@ export function componentDxf(
   ctx: SolidContext,
   rocketName: string,
   unit: DxfUnit = 'mm',
+  tree?: import('@online-openrocket/engine').RocketTree,
 ): { text: string; label: string } | null {
   const u = DRAWING_UNITS[unit];
-  const part = partProfile(node, ctx, ascii(rocketName || 'Rocket'), u);
+  const advice = tree ? couplerRingFitNote(tree, node, { ...INITIAL_UNITS, length: unit }) : undefined;
+  const part = partProfile(node, ctx, ascii(rocketName || 'Rocket'), u, advice);
   if (!part) return null;
   return { text: writeDxf(part.ents, u), label: part.label };
 }
