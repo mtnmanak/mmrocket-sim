@@ -48,15 +48,15 @@ describe('GitHub REST source eligibility', () => {
     }
   });
 
-  it('T3 path: accepts ref-suffixed REST paths or the workflow name, and rejects another workflow', () => {
-    for (const path of ['.github/workflows/motors-refresh.yml', '.github/workflows/motors-refresh.yml@main', 'other/motors-refresh.yml@refs/heads/main']) {
+  it('T3 path: accepts only the authoritative workflow path', () => {
+    for (const path of ['.github/workflows/motors-refresh.yml']) {
       const data = fixture(); data.run.path = path; data.run.name = 'different';
       expect(selectSource(data).eligible).toBe(true);
     }
-    const data = fixture(); data.run.path = 'unexpected';
-    expect(selectSource(data).eligible).toBe(true);
-    data.run.name = 'Other';
-    expect(selectSource(data)).toMatchObject({ eligible: false, failed: false, reason: expect.stringContaining('workflow') });
+    for (const path of ['unexpected', 'other/motors-refresh.yml', '.github/workflows/motors-refresh.yml@main']) {
+      const data = fixture(); data.run.path = path;
+      expect(selectSource(data)).toMatchObject({ eligible: false, failed: false, reason: expect.stringContaining('workflow') });
+    }
   });
 
   it('T3: explains neutral branch/event/repository/unfinished/gate outcomes and red missing/expired/ambiguous inputs', () => {

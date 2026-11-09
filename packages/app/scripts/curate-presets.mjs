@@ -41,7 +41,8 @@
  * change no data and raise an upstream issue instead, because a rename-and-drop
  * there would trade a catalogue mass for a computed one.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { atomicWriteFileSync } from './atomic-write.mjs';
+import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { presetKey } from './manufacturers.mjs';
@@ -290,7 +291,7 @@ export function planCurations(rows, curations = CURATIONS) {
       // Already applied? The target name is present and the source group no
       // longer holds a matching row under the old key.
       const done = rows.find((p) => String(p.partNo) === c.to
-        && presetKey({ ...p, partNo: c.to }) === presetKey(p) && matches(p, c));
+        && presetKey({ ...p, partNo: c.key.split('|')[2] }) === c.key && matches(p, c));
       if (done && hits.length === 0) {
         // Done only if the renamed row is ALONE on its number: a rename that
         // already landed on an occupied one (Quest PNC35N, until 2026-09-22) is
@@ -393,7 +394,7 @@ function main() {
     || a.manufacturer.localeCompare(b.manufacturer)
     || String(a.partNo).localeCompare(String(b.partNo)));
   db.count = db.presets.length;
-  writeFileSync(DB_PATH, JSON.stringify(db, null, 1) + '\n');
+  atomicWriteFileSync(DB_PATH, JSON.stringify(db, null, 1) + '\n');
   console.log(`\ndatabase updated — ${db.presets.length} rows remain.`);
 }
 

@@ -614,6 +614,17 @@ describe('uploadPublication', () => {
 
 describe('verifyPublication', () => {
   const base = 'https://catalogue.example.invalid';
+  it.each(['manifest', 'snapshot'])('cancels refused public %s bodies before retrying', async kind => {
+    const { dir, final } = await uploaded();
+    const cancel = vi.fn(async () => { throw new Error('cleanup failed'); });
+    const bad = { ...response('', 503), body: { cancel } };
+    const fetchImpl = vi.fn().mockResolvedValue(bad);
+    if (kind === 'snapshot') fetchImpl.mockResolvedValueOnce(response(final));
+    const sleep = vi.fn(async () => { expect(cancel).toHaveBeenCalled(); });
+    await expect(verifyPublication(dir, { base, fetchImpl, sleep, attempts: 2, delayMs: 0 }))
+      .rejects.toThrow(/did not converge/);
+    expect(cancel).toHaveBeenCalledTimes(2);
+  });
   it('R3/K26: retries HTTP, transport and hash failures for EACH snapshot and validates the receipt hash', async () => {
     const { dir, final } = await uploaded();
     const sleep = vi.fn(), fetchImpl = vi.fn().mockResolvedValueOnce(response(final));
@@ -695,13 +706,16 @@ describe('CLI main (all external dependencies faked)', () => {
     expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual(['https://catalogue.mountainmanrockets.com/v1/2026-10-22/motors.json',
       'https://catalogue.mountainmanrockets.com/v1/2026-10-22/motorCurves.json']);
     expect(readFileSync(summary, 'utf8')).toContain('Curves: 1 motors changed');
-    for (const bad of [response('', 503), response('wrong hash')]) {
+    const cancel = vi.fn(async () => { throw new Error('cleanup failed'); });
+    for (const bad of [{ ...response('', 503), body: { cancel } }, response('wrong hash')]) {
       expect(await main(args, { ...options, fetchImpl: vi.fn().mockResolvedValue(bad) })).toBe(0);
       const text = readFileSync(summary, 'utf8');
       expect(text).toContain('**UNAVAILABLE: previous motors diff');
       expect(text).toContain('**UNAVAILABLE: previous curves diff');
       expect(readPublication(out).changed).toBe(true);
     }
+    // Both prior snapshots exhaust the default seven attempts without leaking bodies.
+    expect(cancel).toHaveBeenCalledTimes(14);
     // Same content must still repair an unreadable current snapshot; its recorded
     // content hashes alone must not suppress the approval for replacement files.
     writeFileSync(curves, old.curvesBytes);

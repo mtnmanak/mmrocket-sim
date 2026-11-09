@@ -21,7 +21,8 @@
  * Publication still requires the owner's approval.
  */
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, appendFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, appendFileSync } from 'node:fs';
+import { atomicWriteFileSync as writeFileSync } from './atomic-write.mjs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -479,7 +480,10 @@ export async function verifyPublication(dir, { base, fetchImpl = fetch,
   for (let i = 0; i < attempts; i++) {
     try {
       const response = await fetchImpl(new URL('manifest.json', root).href, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => {});
+        throw new Error(`HTTP ${response.status}`);
+      }
       const bytes = Buffer.from(await response.arrayBuffer());
       const manifest = JSON.parse(bytes.toString('utf8'));
       if (manifest.current === receipt.snapshotId && hash(bytes) === receipt.sha256) {
@@ -495,7 +499,10 @@ export async function verifyPublication(dir, { base, fetchImpl = fetch,
     for (let attempt = 0; attempt < attempts; attempt++) {
       try {
         const response = await fetchImpl(new URL(key, root).href, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) {
+          await response.body?.cancel().catch(() => {});
+          throw new Error(`HTTP ${response.status}`);
+        }
         const bytes = Buffer.from(await response.arrayBuffer());
         if (hash(bytes) === hash(upload.bytes)) { verified = true; break; }
       } catch { /* Retry transient snapshot failures, with the same cache budget. */ }
@@ -557,7 +564,10 @@ export async function main(argv = process.argv.slice(2), { env = process.env, st
               else {
                 const response = await fetchImpl(new URL(current[kind].path, PUBLIC_BASE).href,
                   { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                if (!response.ok) {
+                  await response.body?.cancel().catch(() => {});
+                  throw new Error(`HTTP ${response.status}`);
+                }
                 data = Buffer.from(await response.arrayBuffer());
               }
               if (hash(data) !== current[kind].sha256) throw new Error('sha256 mismatch');

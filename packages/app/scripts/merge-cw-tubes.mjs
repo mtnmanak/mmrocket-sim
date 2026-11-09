@@ -75,7 +75,8 @@
  * twice in a row is a no-op the second time.
  */
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { atomicWriteFileSync } from './atomic-write.mjs';
+import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { presetKey } from './manufacturers.mjs';
@@ -220,7 +221,7 @@ function main() {
   }
   if (added > 0 || refreshed > 0) {
     db.count = db.presets.length;
-    writeFileSync(DB_PATH, JSON.stringify(db, null, 1) + '\n');
+    atomicWriteFileSync(DB_PATH, JSON.stringify(db, null, 1) + '\n');
   }
   console.log(`cw-tubes: ${added} appended, ${refreshed} refreshed, ${already} already current`
     + ` — database ${added > 0 || refreshed > 0 ? 'updated' : 'unchanged'}.`);

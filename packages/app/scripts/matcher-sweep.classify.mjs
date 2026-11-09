@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { atomicWriteFileSync as writeFileSync } from './atomic-write.mjs';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 const oracle = JSON.parse(readFileSync(new URL('./matcher-sweep.oracle.json', import.meta.url), 'utf8')).identities;

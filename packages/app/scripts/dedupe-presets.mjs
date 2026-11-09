@@ -24,7 +24,8 @@
  *   node packages/app/scripts/dedupe-presets.mjs          # report only
  *   node packages/app/scripts/dedupe-presets.mjs --write  # apply
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { atomicWriteFileSync } from './atomic-write.mjs';
+import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { partKey } from './manufacturers.mjs';
 import { fileURLToPath } from 'node:url';
@@ -84,7 +85,7 @@ function main() {
   const doomed = new Set(drop.map((d) => d.index));
   db.presets = db.presets.filter((_, i) => !doomed.has(i));
   db.count = db.presets.length;
-  writeFileSync(DB_PATH, JSON.stringify(db, null, 1) + '\n');
+  atomicWriteFileSync(DB_PATH, JSON.stringify(db, null, 1) + '\n');
   console.log(`\ndatabase updated — ${drop.length} row(s) removed, ${db.presets.length} remain.`);
 }
 

@@ -26,6 +26,13 @@ const engineRoot = resolve(here, '..');
 // on every machine, so its location is configured rather than hard-coded —
 // --source, OPENROCKET_SRC, or a gitignored .openrocket-src at the repo root.
 const argIdx = process.argv.indexOf('--source');
+for (let i = 2; i < process.argv.length; i++) {
+  if (process.argv[i] === '--source'
+      && (!process.argv[i + 1] || process.argv[i + 1].startsWith('--'))) {
+    console.error('--source requires a value');
+    process.exit(1);
+  }
+}
 const explicit = argIdx >= 0 ? process.argv[argIdx + 1] : undefined;
 // --source names the java root directly; the configured root names the
 // openrocket-release-24.12 root, so it needs the core/... suffix.

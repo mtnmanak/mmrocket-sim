@@ -103,11 +103,17 @@ it('reads a complete cache without downloading, even when a curveless motor has 
 
 it('downloads fresh raw files for changed content on the same date', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'digest-census-')); dirs.push(dir);
-  const good = stand(ids => ids.map(raw));
+  let payload = 'cmF3';
+  const good = stand(ids => ids.map(id => ({ ...raw(id), data: payload })));
   const first = await cachedRawFiles(bundle, dir, { download: good.download, log: () => {} });
+  const held = readFileSync(first, 'utf8');
+  payload = 'bmV3';
   const changed = structuredClone(bundle);
   changed.curves.a[0].samples.push([1, 9]);
   const second = await cachedRawFiles(changed, dir, { download: good.download, log: () => {} });
   expect(second).not.toBe(first);
   expect(good.calls).toHaveLength(2);
+  expect(readFileSync(first, 'utf8')).toBe(held);
+  expect(Object.values(JSON.parse(held)).map(file => file.data)).toEqual(['cmF3', 'cmF3']);
+  expect(Object.values(JSON.parse(readFileSync(second, 'utf8'))).map(file => file.data)).toEqual(['bmV3', 'bmV3']);
 });

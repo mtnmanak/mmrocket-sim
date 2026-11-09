@@ -78,7 +78,7 @@ let dir;
 afterEach(() => { if (dir) rmSync(dir, { recursive: true, force: true }); dir = undefined; });
 
 /** A Cert Docs folder holding `letters` (folder/name.pdf -> lines) and a blank page at every transcribed path. */
-function run(letters) {
+function run(letters, changedScan = false) {
   dir = mkdtempSync(join(tmpdir(), 'tmt-letters-'));
   const tra = join(dir, 'Cert Docs', 'TRA');
   const spec = Object.fromEntries([
@@ -95,13 +95,21 @@ function run(letters) {
   });
   writeFileSync(join(dir, 'Cert Docs', 'Download-CertDocs.ps1'), `$Drawings = @(\n${entries.join('\n')}\n)\n`);
   const out = join(dir, 'out.json');
-  const res = spawnSync(python, [extractor, '--source', dir, '--out', out], { encoding: 'utf8' });
+  // Synthetic scans stand in for reviewed bytes. Keep the production hash manifest immutable.
+  const driver = `import importlib.util, hashlib, os, sys\nsys.path.insert(0, os.path.dirname(sys.argv[1]))\nspec = importlib.util.spec_from_file_location('certified', sys.argv[1])\nm = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(m)\nroot = os.path.join(sys.argv[2], 'Cert Docs', 'TRA')\nm.TRANSCRIBED_HASHES = {p: hashlib.sha256(open(os.path.join(root, p), 'rb').read()).hexdigest() for p in m.TRANSCRIBED}\nif sys.argv[4] == 'changed':\n    p = os.path.join(root, next(iter(m.TRANSCRIBED)))\n    with open(p, 'ab') as f: f.write(b'\\n% revised scan bytes\\n')\nsys.argv = [sys.argv[1], '--source', sys.argv[2], '--out', sys.argv[3]]\nsys.exit(m.main(sys.argv[1:]))\n`;
+  const res = spawnSync(python, ['-c', driver, extractor, dir, out, changedScan ? 'changed' : 'same'], { encoding: 'utf8' });
   return { ...res, json: existsSync(out) ? JSON.parse(readFileSync(out, 'utf8')) : null };
 }
 
 // Each case spawns Python twice (build the PDFs, then extract); under a full-suite
 // load that has run past Vitest's 5 s default on the desktop (2026-10-10, twice).
 describe.skipIf(!hasPyMuPDF)('extract-aerotech-certified.py reads a letter by position and unit', { timeout: 30_000 }, () => {
+  it('refuses changed image-only bytes at a transcribed path', () => {
+    const { status, stdout, stderr, json } = run({}, true);
+    expect(status).not.toBe(0);
+    expect(stdout + stderr).toContain('source hash changed');
+    expect(json).toBeNull();
+  });
   it('reads the SI figure from its own column when the imperial cell beside it is empty', () => {
     const { status, stderr, json } = run({ 'Test/X99T.pdf': letter() });
     expect(status, stderr).toBe(0);

@@ -25,8 +25,9 @@
  * (src/services/motorDigest.census.test.ts), which imports each design with
  * the app's own importer and matcher and writes DIR/results.json.
  */
+import { atomicWriteFileSync } from './atomic-write.mjs';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -86,12 +87,16 @@ export async function cachedRawFiles(bundle, out, { download = downloadRawFiles,
     if (problem !== 'absent') log(`  cached raw files at ${rawPath} are ${problem}; downloading again\n`);
     const raw = await download(Object.keys(bundle.curves), { previous: bundle, log });
     log('\n');
-    writeFileSync(rawPath, JSON.stringify(raw));
+    atomicWriteFileSync(rawPath, JSON.stringify(raw));
   }
   return rawPath;
 }
 
 export async function main(argv = process.argv.slice(2)) {
+  for (const [i, flag] of argv.entries()) {
+    if (['--out', '--dropbox', '--list'].includes(flag)
+      && (!argv[i + 1] || argv[i + 1].startsWith('--'))) throw new Error(`${flag} requires a value`);
+  }
   const opt = (name) => {
     const i = argv.indexOf(name);
     return i >= 0 ? argv[i + 1] : undefined;
@@ -116,7 +121,7 @@ export async function main(argv = process.argv.slice(2)) {
   const rawPath = await cachedRawFiles(JSON.parse(readFileSync(CURVES, 'utf8')), out);
 
   const manifest = join(out, 'manifest.json');
-  writeFileSync(manifest, JSON.stringify({ files, raw: rawPath, results: join(out, 'results.json') }));
+  atomicWriteFileSync(manifest, JSON.stringify({ files, raw: rawPath, results: join(out, 'results.json') }));
   const vitest = join(ROOT, 'node_modules', 'vitest', 'vitest.mjs');
   const run = spawnSync(process.execPath, [vitest, 'run', 'src/services/motorDigest.census.test.ts', '--project', 'app'], {
     cwd: APP, stdio: 'inherit', env: { ...process.env, DIGEST_CENSUS: manifest },

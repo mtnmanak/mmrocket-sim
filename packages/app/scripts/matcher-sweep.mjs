@@ -2,11 +2,16 @@
 // Optional: --baseline 01d6bee --out .matcher-sweep --batch 6 --limit 12
 // Local corpus required; deliberately not part of npm test. One bounded child
 // at a time, JSONL flushed after each file, explicit per-batch completion.
-import { readFileSync, writeFileSync, mkdirSync, appendFileSync, readdirSync } from 'node:fs';
+import { readFileSync, mkdirSync, appendFileSync, readdirSync } from 'node:fs';
+import { atomicWriteFileSync as writeFileSync } from './atomic-write.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { freemem } from 'node:os';
+for (const [i, flag] of process.argv.entries()) {
+  if (['--manifest', '--baseline', '--out', '--batch', '--limit'].includes(flag)
+    && (!process.argv[i + 1] || process.argv[i + 1].startsWith('--'))) throw new Error(`${flag} requires a value`);
+}
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, v, i, all) => i % 2 ? a : [...a, [v.slice(2), all[i + 1]]], []));
 if (!args.manifest) throw new Error('--manifest required');
 const root = process.cwd().replaceAll('\\', '/');

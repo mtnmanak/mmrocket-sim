@@ -5,7 +5,8 @@
 // components/LaunchPanel.tsx from its file readers. The working tree's import
 // pipeline loads no React component (services/launchConditions.test.ts holds it
 // to that), so a .tsx reached from it is refused, not compiled.
-import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync } from 'node:fs';
+import { atomicWriteFileSync as writeFileSync } from './atomic-write.mjs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';

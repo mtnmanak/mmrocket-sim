@@ -25,7 +25,8 @@
  * future regeneration cannot silently strand or double-apply a correction.
  */
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { atomicWriteFileSync } from './atomic-write.mjs';
+import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { presetKey } from './manufacturers.mjs';
@@ -437,7 +438,7 @@ function main() {
   }
 
   if (applied > 0) {
-    writeFileSync(DB_PATH, JSON.stringify(db, null, 1) + '\n');
+    atomicWriteFileSync(DB_PATH, JSON.stringify(db, null, 1) + '\n');
   }
   // Saved designs can still carry these overrides after the catalogue changes.
   // Generate browser-safe history from the SAME correction table, including
@@ -452,7 +453,7 @@ function main() {
     }
   }
   for (const { key, bad } of RETIRED_MASS_CORRECTIONS) (retiredMasses[key] ??= []).push(bad);
-  writeFileSync(RETIRED_MASSES_PATH, JSON.stringify(retiredMasses, null, 1) + '\n');
+  atomicWriteFileSync(RETIRED_MASSES_PATH, JSON.stringify(retiredMasses, null, 1) + '\n');
   console.log(`corrections: ${applied} field(s) applied, ${already} already in place — database ${applied > 0 ? 'updated' : 'unchanged'}.`);
 }
 

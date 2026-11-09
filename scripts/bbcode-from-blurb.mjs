@@ -44,7 +44,8 @@
  * The CLI lives in main() behind an entry-point guard so the helpers above can be imported
  * and unit-tested; importing this module must never run the CLI or call process.exit.
  */
-import { existsSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { atomicWriteFileSync as writeFileSync } from '../packages/app/scripts/atomic-write.mjs';
 import { basename, dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 

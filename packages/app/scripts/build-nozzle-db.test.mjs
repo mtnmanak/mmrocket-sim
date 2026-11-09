@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -953,13 +954,40 @@ describe('main', () => {
     writeFileSync(motorsPath, JSON.stringify(CATALOGUE()));
     const extract = vi.fn(() => RAW());
     // The shipped instruction-sheet entry names a sheet this synthetic set never read.
-    expect(main({ argv: [], source: dir, lokiSource: dir, outPath, motorsPath, extract })).toBe(1);
+    expect(main({ argv: [], source: dir, lokiSource: dir, outPath, motorsPath, extract, lokiSheets: [] })).toBe(1);
     expect(existsSync(outPath)).toBe(false);
     // The extractor is handed the instruction sheets the builder transcribes, and only those.
     expect(INSTRUCTION_SHEET_NOZZLES.length).toBeGreaterThan(0);
     expect(extract).toHaveBeenCalledWith(dir, INSTRUCTION_SHEET_NOZZLES.map((e) => e.file));
     expect(errors[0]).toBe('An instruction-sheet nozzle row in INSTRUCTION_SHEET_NOZZLES does not hold:');
     expect(errors[1]).toMatch(/: the extractor did not read it/);
+  });
+
+  it.each(['replaced', 'missing', 'unrecorded'])('refuses %s Loki transcription sources without replacing output', async (change) => {
+    const { main } = await builder();
+    const outPath = join(dir, 'nozzles.json');
+    const motorsPath = join(dir, 'motors.json');
+    const file = 'scan.pdf';
+    const baseline = '%PDF synthetic image-only baseline';
+    writeFileSync(outPath, 'previous bytes');
+    writeFileSync(motorsPath, JSON.stringify(CATALOGUE()));
+    if (change !== 'missing') writeFileSync(join(dir, file), change === 'replaced' ? '%PDF revised image-only scan' : baseline);
+    const lokiHashes = change === 'unrecorded' ? {} : { [file]: createHash('sha256').update(baseline).digest('hex') };
+    expect(main({ argv: [], source: dir, lokiSource: dir, outPath, motorsPath,
+      extract: () => RAW(), lokiSheets: [{ file, rows: [['H90', 16, 0.250]] }], lokiHashes })).toBe(1);
+    expect(errors.join('\n')).toMatch(/Loki transcription source.*(changed|missing|unrecorded)/);
+    const { readFileSync } = await import('node:fs');
+    expect(readFileSync(outPath, 'utf8')).toBe('previous bytes');
+  });
+
+  it('accepts unchanged Loki source bytes before checking the sheet readings', async () => {
+    const { verifyLokiSources } = await builder();
+    const file = 'scan.pdf';
+    const bytes = '%PDF synthetic image-only baseline';
+    writeFileSync(join(dir, file), bytes);
+    expect(() => verifyLokiSources(dir, [{ file }], {
+      [file]: createHash('sha256').update(bytes).digest('hex'),
+    })).not.toThrow();
   });
 });
 
@@ -1001,7 +1029,7 @@ describe('running the builder as a command', () => {
     // treats a junction.
     const real = join(dir, 'real');
     mkdirSync(real);
-    for (const f of ['build-nozzle-db.mjs', 'nozzle-db-helpers.mjs']) copyFileSync(join(here, f), join(real, f));
+    for (const f of ['build-nozzle-db.mjs', 'nozzle-db-helpers.mjs', 'atomic-write.mjs']) copyFileSync(join(here, f), join(real, f));
     const link = join(dir, 'link');
     symlinkSync(real, link, 'junction'); // a junction on Windows; the type is ignored elsewhere
     const r = run(join(link, 'build-nozzle-db.mjs'));

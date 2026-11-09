@@ -38,7 +38,8 @@
  * Run it after merge-cw-tubes.mjs and before apply-preset-corrections.mjs.
  * IDEMPOTENT: a second run reports 0 changes.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { atomicWriteFileSync } from './atomic-write.mjs';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mfrKey } from './manufacturers.mjs';
@@ -158,6 +159,7 @@ export function mergeFruityChutes(db, data) {
         ? +(kin.lineLength * (m.diameterM / kin.diameter)).toFixed(6)
         : +(m.diameterM * 1.15).toFixed(6)),
       source: 'fruitychutes.com',
+      ...(aliasTargets.has(fcKey(m.sku)) ? { altPartNos: [...aliasTargets.get(fcKey(m.sku))].sort() } : {}),
     };
     rows.push(row);
     added.push({ action: 'add', partNo: m.sku, sku: m.sku, after: row, kin: kin.partNo });
@@ -188,6 +190,6 @@ if (isMain) {
   for (const a of added) console.log(`  add    ${a.partNo.padEnd(12)}  ${a.after.description}  [materials from ${a.kin}]`);
   if (!write) { console.log('\nReport only. Re-run with --write to apply.'); process.exit(0); }
   db.count = db.presets.length;
-  writeFileSync(DB_PATH, `${JSON.stringify(db, null, 1)}\n`);
+  atomicWriteFileSync(DB_PATH, `${JSON.stringify(db, null, 1)}\n`);
   console.log(`\nWrote ${DB_PATH} (${db.count} rows)`);
 }

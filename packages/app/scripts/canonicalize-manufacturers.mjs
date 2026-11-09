@@ -18,7 +18,8 @@
  * re-dimensioned here — deduplicating rows is a separate decision with its own
  * per-part evidence, and bundling the two would hide it inside a 177-row diff.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { atomicWriteFileSync } from './atomic-write.mjs';
+import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mfrDisplay, spellingConflicts } from './manufacturers.mjs';
@@ -70,7 +71,7 @@ function main() {
   console.log(`manufacturers: ${before.size} -> ${after.size}; ${changed} row(s) renamed — `
     + `database ${changed > 0 ? 'updated' : 'unchanged'}.`);
 
-  if (changed > 0) writeFileSync(DB_PATH, JSON.stringify(db, null, 1) + '\n');
+  if (changed > 0) atomicWriteFileSync(DB_PATH, JSON.stringify(db, null, 1) + '\n');
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

@@ -289,11 +289,12 @@ export function createThrustcurveFetch({
   // property of the client, not of each caller's loop.
   let queue = Promise.resolve();
 
-  async function paced(url, init) {
+  async function paced(url, init, begin) {
     const interval = intervalMs ?? intervalFromEnv();
     const due = Math.max((last ?? now()) + interval, retryNotBefore);
     // Re-checked after each sleep: a timer can fire a millisecond early.
     for (let wait = due - now(); wait > 0; wait = due - now()) await sleep(Math.ceil(wait));
+    begin();
     try {
       return await fetchImpl(url, init);
     } finally {
@@ -311,9 +312,9 @@ export function createThrustcurveFetch({
     if (!headers.has('user-agent')) headers.set('user-agent', USER_AGENT);
     const request = { ...options, headers };
     for (let attempt = 0; ; attempt++) {
-      const started = now();
+      let started;
       let res;
-      try { res = await paced(url, request); }
+      try { res = await paced(url, request, () => { started = now(); }); }
       catch (error) {
         throw transportFailure(error, url, started, advisory);
       }

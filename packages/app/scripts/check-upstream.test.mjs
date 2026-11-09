@@ -506,6 +506,8 @@ describe('a stop on one service skips only the checks that need it', () => {
     expect(probe.status).not.toBe(2);
     expect(probe.out).toContain('partly run: catalogue population probe failed');
     expect(probe.out).toContain(`HTTP ${probeStatus}`);
+    expect(probe.out.slice(probe.out.indexOf('Coverage notes:'))).toContain('partly run: catalogue population probe failed');
+    expect(probe.out.indexOf('Coverage notes:')).toBeGreaterThan(probe.out.indexOf('metadata.json: 1 manufacturers live'));
     expect(probe.out).toContain('metadata.json: 1 manufacturers live');
     expect(probe.asked).toHaveLength(2 + MOTOR_CORRECTIONS.length);
     expect(probe.asked[1].at - probe.asked[0].at).toBe(45_000);

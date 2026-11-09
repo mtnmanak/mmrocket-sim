@@ -114,6 +114,23 @@ it('an advisory outage shares pacing without retries or stopping required traffi
   expect(sent[1].at - sent[0].at).toBe(30_000);
 });
 
+it('does not charge advisory pacing against required failed attempts', async () => {
+  let clock = 0;
+  let calls = 0;
+  const client = createThrustcurveFetch({ intervalMs: 0, now: () => clock,
+    sleep: async ms => { clock += ms; }, log: () => {},
+    fetchImpl: async () => {
+      calls++;
+      if (calls === 1) return new Response('', { status: 503, headers: { 'retry-after': '120' } });
+      clock += 100_000;
+      return new Response('', { status: 524 });
+    },
+  });
+  await client('https://www.thrustcurve.org/probe', { advisory: true });
+  await client('https://www.thrustcurve.org/required');
+  expect(calls).toBe(5);
+});
+
 it('a challenge on an advisory request still stops required traffic', async () => {
   const { client, sent } = harness([challenge]);
   await expect(client('https://www.thrustcurve.org/probe', { advisory: true })).rejects.toBeInstanceOf(ThrustcurveChallengeError);

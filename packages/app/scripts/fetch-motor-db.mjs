@@ -35,7 +35,8 @@
  * holding a THIRD figure stops the write, as a short page does, and so does a
  * corrected motor that does not come back at all.
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { atomicWriteFileSync } from './atomic-write.mjs';
+import { mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -80,7 +81,10 @@ const UA = { 'user-agent': 'mmrocket-sim-upstream-check' };
 export async function fetchCatalogue({ fetchImpl = thrustcurveFetch, log = (s) => process.stdout.write(s), fields = FIELDS } = {}) {
   async function getJson(url) {
     const res = await fetchImpl(url, { headers: UA });
-    if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      throw new Error(`HTTP ${res.status} for ${url}`);
+    }
     return res.json();
   }
   /** One search: its rows, and how many the API says match it in all. */
@@ -189,11 +193,11 @@ export async function main({ outPath = OUT, fullOutPath, fetchImpl = thrustcurve
   for (const s of corrected.already) console.log(`thrustcurve.org now gives ${s} itself: retire that entry from motor-corrections.mjs`);
   const today = new Date().toISOString().slice(0, 10);
   const appRows = corrected.motors.map((m) => project(m, FIELDS));
-  writeFileSync(outPath, JSON.stringify(catalogueDocument(appRows, today)));
+  atomicWriteFileSync(outPath, JSON.stringify(catalogueDocument(appRows, today)));
   if (fullOutPath) {
     mkdirSync(dirname(fullOutPath), { recursive: true });
     const { motors: fullRows, ...metadata } = catalogueDocument(corrected.motors, today);
-    writeFileSync(fullOutPath, JSON.stringify({
+    atomicWriteFileSync(fullOutPath, JSON.stringify({
       ...metadata, fields: FULL_FIELDS, motors: fullRows,
     }));
     console.log(`Wrote ${corrected.motors.length} full rows to ${fullOutPath}`);
