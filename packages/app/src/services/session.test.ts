@@ -125,7 +125,8 @@ it('keeps the v0.197 prepended zero point above the EX sample ceiling in every r
     expect(restored).toEqual(storedSpec);
   }
   expect(loaded.treeRestoreNotes?.filter(n => n.includes('EX motor')) ?? []).toEqual([]);
-});
+  // 100,000-sample payload: 1.7 s locally, 5.4 s on CI's runner (run 42680508156).
+}, 30_000);
 
 it.each(['cgX', 'thrusts'] as const)('keeps legacy EX %s validation failures when the masses are usable', field => {
   discardSession();
