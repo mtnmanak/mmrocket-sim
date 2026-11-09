@@ -1,5 +1,5 @@
 {
-  "version": "0.197",
-  "released": "2026-11-03",
-  "note": "Motor links from thrustcurve.org (they appear once thrustcurve.org offers them); scored tester flights unchanged; 14 RASAero files change from launch-lug and finish import fixes (completed flights move 0.07–2.3%, one flight that already tumbled under thrust tops out 4.74% lower); many file, storage and catalogue fixes."
+  "version": "0.198",
+  "released": "2026-11-09",
+  "note": "Engineering-audit fixes: file reading and saving, stored-motor repair and restore, recovery advice, printing and cutting checks, units and locale; flight results for the scored tester flights and the tester corpus unchanged."
 }
