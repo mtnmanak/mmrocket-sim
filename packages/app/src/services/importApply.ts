@@ -147,7 +147,9 @@ export function retainedLaunchNote(
   // the importer takes it, or names in its own note the site it would not take.
   if (format === 'rkt') {
     if (!fromFile || !('latitudeDeg' in fromFile)) {
-      if (!siteRefusedNoted && kept.length) message = 'From a .rkt the app reads only the launch site, and none was taken from this one — the Launch panel keeps the settings you had for the surface conditions.';
+      if (kept.length) message = siteRefusedNoted
+        ? 'The Launch panel keeps the settings you had for the surface conditions, including the launch site. Those settings will be used for the next flight.'
+        : 'From a .rkt the app reads only the launch site, and none was taken from this one — the Launch panel keeps the settings you had for the surface conditions.';
     } else if (kept.length) {
       const took = 'launchAltitudeM' in fromFile ? 'latitude, longitude and site altitude' : 'latitude and longitude';
       message = `From a .rkt the app reads only the launch site (${took}) — the Launch panel keeps the settings you had for the other surface conditions.`;

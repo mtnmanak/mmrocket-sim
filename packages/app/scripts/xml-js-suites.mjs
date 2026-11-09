@@ -150,6 +150,7 @@ export const XML_JS_SUITES = [
   'src/services/rocksimAttachRules.test.ts',
   'src/services/rocksimFile.lossNotes.test.ts',
   'src/services/rocksimLaunchSite.test.ts',
+  'src/services/laneH5b.test.ts',
   'src/services/rocksimPackedChute.test.ts',
   'src/services/statedLaunchWeight.test.ts',
   'src/services/transitionShoulders.test.ts',

@@ -6,6 +6,7 @@ import { inlineXmlCdata } from '../src/services/xmlUtil.ts';
 import { contentFormat } from '../src/services/designFile.ts';
 import { gunzipCapped, unzipMember } from '../src/services/zipMember.ts';
 import { simulationNumbers } from './matcher-inventory.mjs';
+import { matcherEngineName } from './matcher-engine-name.mjs';
 const root = process.cwd().replaceAll('\\', '/');
 const emit = row => appendFileSync(process.env.MATCHER_OUT, JSON.stringify(row) + '\n');
 writeFileSync(`${process.env.MATCHER_OUT}.pid`, String(process.pid));
@@ -67,11 +68,11 @@ for (const file of JSON.parse(readFileSync(process.env.MATCHER_LIST, 'utf8'))) {
           : [...doc.querySelectorAll('SustainerEngine, Booster1Engine, Booster2Engine')].map((el, ordinal) => {
             const s = simOwners.get(el);
             const name = el.textContent.trim();
-            const parts = name.split(/\s{2,}/);
+            const parts = matcherEngineName(name);
             const enabled = el.tagName === 'SustainerEngine' || text(s, el.tagName.replace('Engine', '').replace('Booster', 'IncludeBooster')).toLowerCase() === 'true';
-            return { ordinal, designation: parts[0]?.replace(/-([0-9]+|[pP])$/, ''), manufacturer: parts[1]?.replace(/^\(|\)$/g, ''), original: name,
+            return { ordinal, designation: parts?.[0]?.replace(/-([0-9]+|[pP])$/, ''), manufacturer: parts?.[1], original: name,
               config: `rasaero-sim-${simNumbers.get(el) ?? 0}`, slot: el.tagName,
-              excluded: !enabled ? 'disabled booster' : name.includes('NoThrust') || !name ? 'empty/NoThrust' : parts.length !== 2 ? 'unreadable engine string' : undefined };
+              excluded: !enabled ? 'disabled booster' : name.includes('NoThrust') || !name ? 'empty/NoThrust' : !parts ? 'unreadable engine string' : undefined };
           });
       const input = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
       const imported = kind === 'rkt' ? lib.importRkt(input) : kind === 'ork' ? lib.importOrk(input) : lib.importCdx1(input);

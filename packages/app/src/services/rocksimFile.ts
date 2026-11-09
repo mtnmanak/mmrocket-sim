@@ -570,7 +570,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
     const density = num(el, 'Density', NaN);
     if (!(Number.isFinite(density) && density >= 0)) return;
     if (kind === 'line' && rawDensityType === 0) {
-      cautionNote(notes, 'I04.cord-density', `“${noteField(node.name ?? node.type)}”: the app's conversion of this cord's bulk-typed density uses thickness (or keeps the default material if thickness is unusable); desktop OpenRocket reads the density as kg/m without thickness. The cord mass can differ between the programs. Check cord material, mass, CG and stability before flying.`);
+      cautionNote(notes, 'I04.cord-density', `“${noteField(node.name ?? node.type)}”: the app's conversion of this cord's bulk-typed density uses thickness (or keeps the default material if thickness is unusable); desktop OpenRocket reads the density as kg/m without thickness. ${node['overrideMass'] !== undefined ? 'The active mass override is preserved; density conversion does not change that mass unless the override is removed.' : 'The cord mass can differ between the programs.'} Check cord material, mass, CG and stability before flying.`);
     }
     if (rawDensityType !== 0 && rawDensityType !== 1 && rawDensityType !== 2
       && (kind === 'line' || densityType !== 0)) {
@@ -787,7 +787,9 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
         n['length'] = num(el, 'Len', 70) / LEN;
         n['aftRadius'] = num(el, 'BaseDia', 24) / RAD;
         n['thickness'] = num(el, 'WallThickness', 2) / LEN;
-        n['shape'] = NOSE_SHAPES[String(Math.round(num(el, 'ShapeCode', 1)))] ?? 'ellipsoid';
+        const shapeCode = Math.round(num(el, 'ShapeCode', 1));
+        n['shape'] = NOSE_SHAPES[String(shapeCode)] ?? 'ellipsoid';
+        if (!NOSE_SHAPES[String(shapeCode)]) cautionNote(notes, 'I04.enum', `Unknown RockSim nose shape code ${shapeCode}; imported as Ellipsoid. Substituted geometry changes mass and aerodynamics; check the shape before flying.`);
         readShapeParameter(num, el, n);
         // Written EITHER WAY, not only when solid (audit 2026-09-22): <ConstructionType>
         // is the file saying solid (0) or hollow (1), and a catalogue link
@@ -817,7 +819,9 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
         n['foreRadius'] = num(el, 'FrontDia', 24) / RAD;
         n['aftRadius'] = num(el, 'RearDia', 24) / RAD;
         n['thickness'] = num(el, 'WallThickness', 2) / LEN;
-        n['shape'] = NOSE_SHAPES[String(Math.round(num(el, 'ShapeCode', 0)))] ?? 'conical';
+        const shapeCode = Math.round(num(el, 'ShapeCode', 0));
+        n['shape'] = NOSE_SHAPES[String(shapeCode)] ?? 'conical';
+        if (!NOSE_SHAPES[String(shapeCode)]) cautionNote(notes, 'I04.enum', `Unknown RockSim transition shape code ${shapeCode}; imported as Conical. Substituted geometry changes mass and aerodynamics; check the shape before flying.`);
         // Desktop reads it for transitions too (TransitionHandler.java:102-107,
         // the exact mirror of NoseConeHandler.java:96-107); this branch never did.
         readShapeParameter(num, el, n);
@@ -904,6 +908,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
       case 'FinSet':
       case 'CustomFinSet': {
         const shapeCode = tag === 'CustomFinSet' ? 2 : Math.round(num(el, 'ShapeCode', 0));
+        if (![0, 1, 2].includes(shapeCode)) cautionNote(notes, 'I04.enum', `Unknown RockSim fin shape code ${shapeCode}; imported as a trapezoid. Substituted geometry changes mass and aerodynamics; check the fin outline before flying.`);
         // RockSim allows a FinSet inside a Transition's AttachedParts, but the
         // kernel (like desktop OpenRocket) accepts ONLY freeform fins there —
         // a trapezoid/elliptical set makes buildTree throw and the whole
@@ -2173,7 +2178,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
   const cfgSim = new Map<OrkFlightConfig, { number: number | null; name: string | null }>();
   const foldedSources = new Map<OrkFlightConfig, string[]>();
   const foldedDiagnostics = new Map<OrkFlightConfig, string[]>();
-  const seenSets = new Map<string, OrkFlightConfig>();
+  const seenSets = new Map<string, OrkFlightConfig[]>();
   let engineSims = 0;
   for (const g of simGroups) {
     const missing = g.sets.map(e => missingMotorCounts.get(e)).find(n => n !== undefined);
@@ -2242,8 +2247,19 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
       r.ignitionEvent ?? '', r.ignitionDelay ?? '', r.autoDelay ? 'auto' : '',
       r.rktEveryDelay ? 'every' : '', /^(26[- _]*E31[- _]+WH[- _]+15A|K700[- _]*BB)$/i.test(r.designation)
         ? comparisonJson(r.matchContext) : ''].join('|')).sort().join('\n'));
-    const same = seenSets.get(key);
+    // Absence of burn evidence is not a conflicting duration. Keep any evidence
+    // when folding; RockSim time-step noise within 0.02 s or 2% agrees.
+    const same = seenSets.get(key)?.find(cfg => entries.every(([id, ref]) => {
+      const burn = cfg.motors[id]?.rktBurnTimeS;
+      return burn === undefined || ref.rktBurnTimeS === undefined
+        || Math.abs(burn - ref.rktBurnTimeS) <= Math.max(0.02, 0.02 * Math.max(burn, ref.rktBurnTimeS));
+    }));
     if (same) {
+      for (const [id, ref] of entries) {
+        if (same.motors[id] && same.motors[id]!.rktBurnTimeS === undefined && ref.rktBurnTimeS !== undefined) {
+          same.motors[id]!.rktBurnTimeS = ref.rktBurnTimeS;
+        }
+      }
       // Numbered: the unnumbered loose sets are the first group, so only a
       // simulation after them can fold into one already seen.
       const label = `Simulation ${g.number!}${g.name?.trim() ? ` (“${noteField(g.name.trim())}”)` : ''}`;
@@ -2278,7 +2294,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
       ...(Object.keys(ignitions).length ? { ignitions } : {}),
       ...(motorLoadoutRefusal ? { motorLoadoutRefusal } : {}),
     };
-    seenSets.set(key, cfg);
+    seenSets.set(key, [...(seenSets.get(key) ?? []), cfg]);
     foldedSources.set(cfg, []);
     foldedDiagnostics.set(cfg, []);
     cfgSim.set(cfg, { number: g.number, name });
@@ -2504,8 +2520,8 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
         // unreadable one quoted, a missing one named.
         const said = (raw: string | null, v: number, what: string): string => raw === null ? `no ${what}`
           : Number.isFinite(v) ? `${what} ${String(v)}°` : `${what} “${noteField(raw.trim(), 40)}”`;
-        // One sentence for the whole of it: the open adds no "none was taken"
-        // line of its own after this one (retainedLaunchNote).
+        // The reader names the refused site; the browser separately explains
+        // the conditions it retains (retainedLaunchNote).
         cautionNote(notes, 'I24.site-retained', `${chosen ? simLabel(chosen) : 'The file’s first simulation'} states its launch site as `
           + `${said(latRaw, site.latitudeDeg, 'latitude')}, ${said(lonRaw, site.longitudeDeg, 'longitude')}`
           + `${Number.isFinite(alt) ? `, site altitude ${noticeQuantity('altitude', alt, units)}` : ''}; `
@@ -2516,7 +2532,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
               + 'range and the latitude is not 90° (or π/2), and reads'
             : 'the app takes a site only when its latitude and longitude are both non-zero and in range, and reads')
           + ' no other launch condition from a '
-          + '.rkt, so the Launch panel keeps your site and other surface settings.');
+          + '.rkt. No launch site was taken from this record. Check the launch conditions before flying.');
         launchSiteRefused = true;
       }
     }

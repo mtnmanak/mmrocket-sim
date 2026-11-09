@@ -131,7 +131,10 @@ describe('N6 RASAero import regressions', () => {
     const r = importCdx1(design(tube, recovery(slot(1), second)));
     const note = r.noteTiers?.find(n => n.kind === 'I04.recovery-event')?.text;
     // Hostile text: the line break is dropped and the bidi control shown as a visible marker (lane N2's note rules).
-    expect(note).toContain(`Altitude2 value “${altitude.includes('&') ? '750[U+202E]' : altitude}” ft`);
+    if (altitude.includes('&')) {
+      expect(note).toContain('desktop OpenRocket cannot import');
+      expect(note).toContain('750[U+202E]');
+    } else expect(note).toContain(`Altitude2 value “${altitude}” ft`);
     expect(note).not.toMatch(/[\n\u202e]/u);
     expect(explanationFor('I04.recovery-event').meaning).toContain('Altitude2');
     expect(explanationFor('I04.recovery-event').meaning).not.toContain('Altitude 0 ft');
@@ -146,6 +149,30 @@ describe('N6 RASAero import regressions', () => {
     expect(nodes(back.tree.components).filter(n => n.type === 'parachute').map(c => c['deployEvent'])).toEqual(['apogee', 'apogee']);
     expect(notes.filter(n => n.includes('two apogee'))).toHaveLength(1);
     expect(notes.find(n => n.includes('two apogee'))).toContain('Altitude2 is written as “0” ft');
+  });
+  it.each([1, 2])('discloses every missing or invalid numeric recovery field in slot %s', i => {
+    for (const field of ['Altitude', 'Size', 'CD']) for (const value of [undefined, 'bad', '0x10']) {
+      for (const paired of [false, true]) {
+        if (i === 2 && !paired) continue;
+        const original = slot(i);
+        const changed = original.replace(new RegExp(`<${field}${i}>[^<]*</${field}${i}>`),
+          value === undefined ? '' : `<${field}${i}>${value}</${field}${i}>`);
+        const r = importCdx1(design(tube, recovery(i === 1 ? changed : slot(1), paired ? (i === 2 ? changed : slot(2)) : '')));
+        const notes = r.noteTiers?.filter(n => n.kind === 'I04.recovery-event').map(n => n.text).join(' ') ?? '';
+        expect(notes).toContain('desktop OpenRocket cannot import this file');
+        expect(notes).toContain(`${field}${i}`);
+        expect(notes).toContain('app');
+        expect(notes).toContain('apogee');
+        expect(notes).not.toContain('use an Altitude event');
+      }
+    }
+  });
+  it.each(['Altitude', 'Size', 'CD'])('discloses invalid %s even in a disabled slot', field => {
+    const second = slot(2, 'Apogee', 'Parachute', false).replace(new RegExp(`<${field}2>[^<]*</${field}2>`), `<${field}2>bad</${field}2>`);
+    const r = importCdx1(design(tube, recovery(slot(1), second)));
+    const notes = r.noteTiers?.filter(n => n.kind === 'I04.recovery-event').map(n => n.text).join(' ');
+    expect(notes).toContain('desktop OpenRocket cannot import this file');
+    expect(notes).toContain('ignored');
   });
   it.each([slot(1, 'Apogee', 'Parachute', false), slot(1, 'None'), ''])(
   'C-F4-4 ignores slot 2 when slot 1 is disabled: %s', first => {

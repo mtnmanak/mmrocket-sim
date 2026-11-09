@@ -32,7 +32,7 @@ const rkt = (sims: { lat?: string; lon?: string; alt?: string; motor?: string }[
       <MountSerialNo>1</MountSerialNo><EjectionDelay>6.</EjectionDelay></EngineSet></Stage3Engines>
   </SimulationResults>`).join('')}</SimulationResultsList></RockSimDocument>`;
 
-const siteNote = (notes: string[]) => notes.find((n) => /launch site/.test(n) && /keeps your site and other surface settings/.test(n));
+const siteNote = (notes: string[]) => notes.find((n) => /launch site/.test(n) && /No launch site was taken/.test(n));
 
 describe('.rkt launch site (board row 80)', () => {
   it('imports a real site — latitude, longitude and the site altitude', () => {
@@ -66,7 +66,7 @@ describe('.rkt launch site (board row 80)', () => {
     expect(r.launchSiteRefused).toBe(true);
   });
 
-  it('the open says it once: the importer’s sentence, and no second "none was taken" line', () => {
+  it('the open describes the refused site and the conditions retained for flight', () => {
     const TEXT = { mass: (kg: number) => `${kg} kg`, length: (m: number) => `${m} m` };
     const opened = (xml: string) => {
       const r = importRkt(xml);
@@ -74,11 +74,13 @@ describe('.rkt launch site (board row 80)', () => {
         .note.text.split('\n').filter((l) => /launch site/.test(l));
     };
     const refused = opened(rkt([{ lat: '37.', lon: '0.', alt: '213.36' }]));
-    expect(refused).toHaveLength(1);
+    expect(refused).toHaveLength(2);
     const unset = opened(rkt([{ lat: '1.571', lon: '-101.593', alt: '0.' }]));
-    expect(unset).toHaveLength(1);
-    expect(unset[0]).toMatch(/latitude 1\.571°, longitude -101\.593°, site altitude 0 m \(0 ft\); that latitude looks unset .* so the Launch panel keeps your site and other surface settings\.$/);
-    expect(refused[0]).toMatch(/states its launch site as latitude 37°, longitude 0°, site altitude 213\.4 m \(700 ft\); .* reads no other launch condition from a \.rkt, so the Launch panel keeps your site and other surface settings\.$/);
+    expect(unset).toHaveLength(2);
+    expect(refused[1]).toContain('Those settings will be used for the next flight');
+    expect(unset[1]).toContain('including the launch site');
+    expect(unset[0]).toMatch(/latitude 1\.571°, longitude -101\.593°, site altitude 0 m \(0 ft\); that latitude looks unset .* No launch site was taken from this record\. Check the launch conditions before flying\.$/);
+    expect(refused[0]).toMatch(/states its launch site as latitude 37°, longitude 0°, site altitude 213\.4 m \(700 ft\); .* reads no other launch condition from a \.rkt\. No launch site was taken from this record\. Check the launch conditions before flying\.$/);
     // A file that states no site at all still hears the open's own line.
     expect(opened(rkt([{}]))).toEqual([
       'From a .rkt the app reads only the launch site, and none was taken from this one — the Launch panel keeps the settings you had for the surface conditions. Check Launch conditions before flying.',
@@ -194,7 +196,7 @@ describe('.rkt launch site (board row 80)', () => {
       .toBe('From a .rkt the app reads only the launch site, and none was taken from this one — the Launch panel keeps the settings you had for the surface conditions. Check Launch conditions before flying.');
     expect(retainedLaunchNote('rkt', DEFAULT_CONDITIONS, { latitudeDeg: 40.8, longitudeDeg: -119.1, launchAltitudeM: 1190 }))
       .toBe('From a .rkt the app reads only the launch site (latitude, longitude and site altitude) — the Launch panel keeps the settings you had for the other surface conditions. Check Launch conditions before flying.');
-    expect(retainedLaunchNote('rkt', DEFAULT_CONDITIONS, undefined, true)).toBeNull();
+    expect(retainedLaunchNote('rkt', DEFAULT_CONDITIONS, undefined, true)).toContain('settings you had');
   });
 
   // Tester files are gitignored; this runs locally and skips on CI.

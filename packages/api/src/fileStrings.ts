@@ -27,7 +27,8 @@ export function noteStrings<T>(value: T): T {
   if (Array.isArray(value)) return value.map(item => noteStrings(item)) as T;
   if (value && typeof value === 'object') {
     const result = Object.fromEntries(Object.entries(value).map(([key, item]) => [key,
-      (key === 'part' || key === 'configuration') && typeof item === 'string' ? displayEcho(item) : noteStrings(item)]));
+      key === 'part' && typeof item === 'string' ? warningName(item)
+        : key === 'configuration' && typeof item === 'string' ? displayEcho(item) : noteStrings(item)]));
     const group = result.group as { heading?: string; lines?: { text: string }[] } | undefined;
     if (typeof result.text === 'string' && Array.isArray(group?.lines)) {
       const raw = value as unknown as { text: string; group: { heading?: string; lines: { text: string }[] } };
@@ -53,6 +54,12 @@ export function noteStrings<T>(value: T): T {
 
 /** A quoted name: a straight "\u2026" pair, or \u201c\u2026\u201d paired by direction; an opening quote with no close runs to the end. */
 const NAME_SPAN = /"([^"]*)("|$)|\u201c([^\u201d]*)(\u201d|$)/g;
+/** Project source metadata exactly as quoted warning names will be shown. */
+export function warningName(name: string): string {
+  // Supply the delimiters used in messages so boundary ASCII joiners are
+  // marked here too, before either carrier is sanitized again.
+  return noteEcho(noteField(`"${displayEcho(name)}"`).slice(1, -1), 200);
+}
 /**
  * Bound each quoted name to the display rule and the whole message to WARNING_ECHO_MAX.
  * App text outside a span is cut only by the message bound: \u2019 is the app's own
