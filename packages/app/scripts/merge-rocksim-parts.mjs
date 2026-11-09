@@ -51,6 +51,7 @@
  * synthetic CSVs.
  */
 
+import { atomicWriteFileSync } from './atomic-write.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -172,7 +173,7 @@ const unmappedMaterials = new Map(); // name -> count, for one run's report (mai
 export function mapMaterial(name, table, type) {
   const key = (name ?? '').trim().toLowerCase();
   if (!key || key === 'material') return undefined;
-  let hit = table[key];
+  let hit = Object.hasOwn(table, key) ? table[key] : undefined;
   // G10 spellings vary ('G10 (PML 0.062")', 'G10 (PML 0.062in)', 'G10
   // fiberglass'); as a BULK material they are all fiberglass laminate.
   if (!hit && type === 'BULK' && key.startsWith('g10')) hit = ['Fiberglass', 1850];
@@ -218,7 +219,7 @@ export function displayFor(manufacturer, catalogueSpelling) {
 export function mapShape(s) {
   const t = (s ?? '').trim().toLowerCase();
   const codes = { 0: 'CONICAL', 1: 'OGIVE', 2: 'ELLIPSOID', 3: 'ELLIPSOID', 4: 'POWER', 5: 'PARABOLIC', 6: 'HAACK' };
-  if (t in codes) return codes[t];
+  if (Object.hasOwn(codes, t)) return codes[t];
   if (t === '' || t === 'conical' || t === 'cone' || t === 'conic') return 'CONICAL';
   if (t === 'ogive') return 'OGIVE';
   if (t === 'elliptical') return 'ELLIPSOID';
@@ -391,6 +392,10 @@ export function main({
   dryRun = argv.includes('--dry-run'),
   jsonOut = argv.includes('--json') ? argv[argv.indexOf('--json') + 1] : undefined,
 } = {}) {
+  for (const [i, flag] of argv.entries()) {
+    if (['--csv-dir', '--json'].includes(flag)
+      && (!argv[i + 1] || argv[i + 1].startsWith('--'))) throw new Error(`${flag} requires a value`);
+  }
   unmappedMaterials.clear();
   const db = JSON.parse(fs.readFileSync(presetsPath, 'utf8'));
 
@@ -578,7 +583,7 @@ need this to regenerate it.`);
   if (!dryRun) {
     db.presets.push(...newPresets);
     db.count = db.presets.length;
-    fs.writeFileSync(presetsPath, JSON.stringify(db, null, 1) + '\n', 'utf8');
+    atomicWriteFileSync(presetsPath, JSON.stringify(db, null, 1) + '\n', 'utf8');
   }
 
   // ---------------------------------------------------------------- summary
@@ -606,7 +611,7 @@ need this to regenerate it.`);
 
   // Optional machine-readable dump: --json <path>
   if (jsonOut) {
-    fs.writeFileSync(
+    atomicWriteFileSync(
       jsonOut,
       JSON.stringify({ ...report, skippedFiles: SKIPPED_FILES, unmapped: [...unmappedMaterials.entries()] }, null, 2),
     );

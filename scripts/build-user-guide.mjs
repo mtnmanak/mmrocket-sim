@@ -35,7 +35,8 @@
  * content survives any editor/codepage mishap on the way through a Windows
  * checkout.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { atomicWriteFileSync as writeFileSync } from '../packages/app/scripts/atomic-write.mjs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MOTOR_CORRECTIONS } from '../packages/app/scripts/motor-corrections.mjs';
@@ -334,7 +335,7 @@ function guideTokens(data, corrections) {
   let files = 0;
   for (const list of Object.values(curves.curves ?? {})) {
     for (const f of list) {
-      if (!(f.source in bySource)) fail(`motorCurves.json has a file with source "${f.source}" — the guide names only cert, user and mfr`);
+      if (!Object.hasOwn(bySource, f.source)) fail(`motorCurves.json has a file with source "${f.source}" — the guide names only cert, user and mfr`);
       bySource[f.source] += 1;
       files += 1;
     }

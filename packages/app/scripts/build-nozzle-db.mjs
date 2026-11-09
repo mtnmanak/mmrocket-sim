@@ -64,8 +64,10 @@
  * `BuildRefused`, which main() prints line by line before exiting 1, the
  * output the `process.exit(1)` at each check used to give.
  */
+import { atomicWriteFileSync } from './atomic-write.mjs';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // The unit conversion, the store-page reader, the LIST OF MATERIAL row readers,
@@ -1616,6 +1618,44 @@ const LOKI_SHEETS = [
 
 const LOKI_TECH_INFO = 'lokiresearch.com Tech Info (published nozzle exit diameter table)';
 
+// Source bytes for the existing sheet readings, measured 2026-11-08.
+// A replacement requires reviewing the sheet and its transcription together.
+const LOKI_SHEET_HASHES = {
+  "38mm Red.pdf": "4e41f22ff4b4ce33c380c0d096bf0e278a6e14ae714e0ddce5e0afb9fc01d74d",
+  "38mm Spitfire.pdf": "6e4391623681f5f6aa0d33477c9751cbe3f0fc94dec7bd2dd31203858453318e",
+  "38mm White.pdf": "a04d64149876b6ca2086916f5e8f12737ad65289f587d130ea8984a2fbacceab",
+  "38mm blue.pdf": "21a28af05f36d7c01f196e2649de0735071af57dba0115cb20b18175f498448f",
+  "38mm cocktail.pdf": "3d658c258c575176ad94dcf644b00f2cef3bad8822fd84c55204900168f07f95",
+  "38mm Blue 1200 case.pdf": "2819b9ad746e9a0a70fefe5860d40912754f4c1dcd6d92890248707825412ff2",
+  "38mm Red Blue Cocktail 1200 case.pdf": "bfa0287c1dff989c228e9e1ed2cadc859f84181ab1cbbbae8c024e82c0ada0e3",
+  "38mm Spitfire 1200 case.pdf": "ce241c1cd7321b7e4a1386f72a456c20f4bbe807f6feccd9690747bafeea8cd6",
+  "54mm White 1200.pdf": "b7df5bf326676300433ba644d4d06c35092223fe408246ed19b17a685e04d643",
+  "54mm Spitfire.pdf": "19bba4afd5e4d07b87efea63faf3c4cb967ee3aa49139c7caedf15fbc1b3131b",
+  "54mm White 2000 case.pdf": "45bbfde69fd051795dbfbd5133ee5c584d9b4bc3ef7e90ed639efbbf6358b69a",
+  "54mm_K350_L1400_instructions.pdf": "9e655ca1927343a1bff6339f27b5dbb8fe0e740790d0c4da0cb0257578fa7edb",
+  "76mm Red.pdf": "cc3025f76e12f66e1230cceb553c75b96045c2bc9f63da1b827032408c67fe79",
+  "76mm Spitfire.pdf": "95f5ae5f94baf0304e3a0eb77db61cd50284f09f80c91e41c54b294f7e03d17d",
+  "76mm White.pdf": "73e5279c65815e3b0b3ebda178a6596b26e72f7627a3728284e938303291fff8",
+  "76mm Blue.pdf": "36d4928e0e43a4685a1d82fcfb00ec32ef5f84d33924c40a022fd1b6178e8e73",
+  "76mm_L930_M1882_instructions.pdf": "399294298b89430822d4b2ca6393f01def7c68de3e59e3c36772badc1cc71aa8",
+  "76mm White M3k.pdf": "e06857876708af170e7caf8858311bb69089997436b9431883241ca333970fd0",
+  "76mm Blue 8000 case.pdf": "917441fe49a31dc488224ad64b5045956fff0067a97f3214e594e411aebdd373",
+  "76mm M1969 Spitfire.pdf": "e5dd92364551ee3e464ff39ec8f883ede9c5ad366f465294110a90e13cf61549",
+  "98mm_N3800_instructions.pdf": "27e95a2fa93ab87048c92104823abf40d534fdf2344954de04f2bb775ab2feef"
+};
+
+export function verifyLokiSources(source, sheets = LOKI_SHEETS, hashes = LOKI_SHEET_HASHES) {
+  for (const { file } of sheets) {
+    let bytes;
+    try { bytes = readFileSync(join(source, file)); } catch {
+      throw new BuildRefused([`Loki transcription source missing: ${file}. Restore or review the sheet before rebuilding.`]);
+    }
+    if (!Object.hasOwn(hashes, file) || createHash('sha256').update(bytes).digest('hex') !== hashes[file]) {
+      throw new BuildRefused([`Loki transcription source changed or unrecorded: ${file}. Review the sheet, transcription and hash together.`]);
+    }
+  }
+}
+
 /**
  * LOKI WILL MACHINE A 76 MM EXIT WIDER THAN THE ONE IN THE TABLE, and say so on
  * the same page (2026-09-13, Eric's ruling (b) on `issues-2026-09-13b.md`):
@@ -2490,12 +2530,12 @@ export function main({
   argv = process.argv.slice(2),
   source = flagIn(argv, '--source') ?? process.env.RCS_SCHEMATICS
     ?? join(here, '..', '..', '..', 'docs', 'RCS Schematics'),
-  // Loki's instruction sheets are TRANSCRIBED above (LOKI_SHEETS), so the build
-  // does not need this folder to run; it is read only for the `generated` date,
-  // which has to move when a sheet does.
+  // Transcribed sheets must match their recorded source bytes before reuse.
   lokiSource = flagIn(argv, '--loki') ?? process.env.LOKI_DATA
     ?? join(here, '..', '..', '..', 'docs', 'Loki Data'),
   report = argv.includes('--report'),
+  lokiSheets = LOKI_SHEETS,
+  lokiHashes = LOKI_SHEET_HASHES,
   outPath = OUT,
   motorsPath = MOTORS,
   python = process.env.PYTHON ?? 'python',
@@ -2503,6 +2543,10 @@ export function main({
     encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
   })),
 } = {}) {
+  for (const [i, flag] of argv.entries()) {
+    if (['--source', '--loki'].includes(flag)
+      && (!argv[i + 1] || argv[i + 1].startsWith('--'))) throw new Error(`${flag} requires a value`);
+  }
   if (!existsSync(source)) {
     console.error(`No RCS document set at ${source}.`);
     console.error('It is LOCAL-ONLY (docs/ is gitignored). Pass --source "<folder>" or set RCS_SCHEMATICS.');
@@ -2515,13 +2559,14 @@ export function main({
   const mtimeMs = ({ root, file }) => statSync(join(roots[root], file)).mtimeMs;
   let built;
   try {
-    built = buildNozzleDb({ raw, motorsDb, mtimeMs });
+    verifyLokiSources(lokiSource, lokiSheets, lokiHashes);
+    built = buildNozzleDb({ raw, motorsDb, mtimeMs, lokiSheets });
   } catch (err) {
     if (!(err instanceof BuildRefused)) throw err;
     for (const line of err.lines) console.error(line);
     return 1;
   }
-  writeFileSync(outPath, `${JSON.stringify(built.db, null, 1)}\n`);
+  atomicWriteFileSync(outPath, `${JSON.stringify(built.db, null, 1)}\n`);
   printReport(built, { outPath, report });
   return 0;
 }

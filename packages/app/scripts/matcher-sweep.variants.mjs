@@ -1,7 +1,8 @@
 // Catalogue self-matches and generated spellings, both catalogue orders.
 // This is supplementary differential evidence, not an oracle for ambiguous names.
 import { execFileSync, spawnSync } from 'node:child_process';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
+import { atomicWriteFileSync as writeFileSync } from './atomic-write.mjs';
 import { pathToFileURL } from 'node:url';
 const root = process.cwd().replaceAll('\\', '/');
 if (!process.env.MATCHER_BASELINE) {

@@ -33,6 +33,22 @@ import { MOTOR_CORRECTIONS } from './motor-corrections.mjs';
 
 const committed = () => readFileSync(OUT, 'utf8').replace(/\r\n/g, '\n');
 
+it('refuses inherited curve-source names instead of undercounting source shares', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'guide-source-'));
+  try {
+    for (const file of ['motors.json', 'nozzles.json']) copyFileSync(join(DATA, file), join(dir, file));
+    const curves = JSON.parse(readFileSync(join(DATA, 'motorCurves.json'), 'utf8'));
+    const file = Object.values(curves.curves).find((list) => list.length)[0];
+    for (const source of ['constructor', '__proto__', 'toString']) {
+      file.source = source;
+      writeFileSync(join(dir, 'motorCurves.json'), JSON.stringify(curves));
+      expect(() => compileGuide({ dataDir: dir })).toThrow(`source "${source}"`);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 it('file-saving and Saved simulation glossary explain tagged historical imports consistently', () => {
   const markdown = readFileSync(SRC, 'utf8');
   const fileSection = markdown.split('**Flight results travel too.**')[1].split('**Where the file goes.**')[0];

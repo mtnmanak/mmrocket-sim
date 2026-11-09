@@ -35,7 +35,8 @@
  * against a stubbed GitHub, never the network.
  */
 
-import { writeFileSync, mkdirSync, readdirSync, readFileSync, existsSync } from 'node:fs';
+import { atomicWriteFileSync } from './atomic-write.mjs';
+import { mkdirSync, readdirSync, readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { openrocketSrcRoot } from '../../../scripts/openrocket-src.mjs';
 import { markupAttributes, markupTagEnd } from '../../../scripts/markup-scan.mjs';
@@ -308,26 +309,31 @@ export function childElements(block) {
 
 export function convertLength(value, unit, context) {
   if (!unit) return value; // no Unit attribute => already SI (meters)
-  const f = LENGTH_UNITS[unit.trim()];
+  const f = Object.hasOwn(LENGTH_UNITS, unit.trim()) ? LENGTH_UNITS[unit.trim()] : undefined;
   if (f === undefined) throw new Error(`unknown length unit "${unit}" (${context})`);
+  if (!Number.isFinite(value * f)) throw new Error(`non-finite length (${context})`);
   return value * f;
 }
 
 export function convertMass(value, unit, context) {
   if (!unit) return value; // already kg
-  const f = MASS_UNITS[unit.trim().toLowerCase()];
+  const key = unit.trim().toLowerCase();
+  const f = Object.hasOwn(MASS_UNITS, key) ? MASS_UNITS[key] : undefined;
   if (f === undefined) throw new Error(`unknown mass unit "${unit}" (${context})`);
+  if (!Number.isFinite(value * f)) throw new Error(`non-finite mass (${context})`);
   return value * f;
 }
 
 export function convertDensity(value, unitsOfMeasure, type, context) {
-  const table = DENSITY_UNITS[type];
+  const table = Object.hasOwn(DENSITY_UNITS, type) ? DENSITY_UNITS[type] : undefined;
   if (!table) throw new Error(`unknown material type "${type}" (${context})`);
   if (!unitsOfMeasure) return value; // already SI
-  const f = table[unitsOfMeasure.trim().toLowerCase().replace(/\s+/g, '')];
+  const key = unitsOfMeasure.trim().toLowerCase().replace(/\s+/g, '');
+  const f = Object.hasOwn(table, key) ? table[key] : undefined;
   if (f === undefined) {
     throw new Error(`unknown density unit "${unitsOfMeasure}" for ${type} (${context})`);
   }
+  if (!Number.isFinite(value * f)) throw new Error(`non-finite density (${context})`);
   return value * f;
 }
 
@@ -385,6 +391,14 @@ export function parseOrc(xml, fileName, globalMaterials) {
   const presets = [];
   let skippedComponents = 0;
 
+  // Section fragments are supported, but a document root must be complete.
+  // A cut just after Materials otherwise looks like a materials-only file.
+  try {
+    extractBlock(xml, 'OpenRocketComponent');
+  } catch (err) {
+    return { presets, skippedComponents, skippedFiles: 1, warnings: [`${fileName}: FILE SKIPPED: ${err.message}`] };
+  }
+
   const materials = parseMaterials(xml, fileName, warnings);
   const lookupDensity = (name, type) => {
     let n = name;
@@ -411,7 +425,7 @@ export function parseOrc(xml, fileName, globalMaterials) {
   const componentsBlock = extractBlock(xml, 'Components');
   if (componentsBlock === null) {
     warnings.push(`${fileName}: no <Components> section found`);
-    return { presets, skippedComponents, warnings };
+    return { presets, skippedComponents, warnings, skippedFiles: extractBlock(xml, 'Materials') === null ? 1 : 0 };
   }
 
   // Top-level children of <Components> are the presets themselves.
@@ -502,6 +516,7 @@ export async function fetchWithRetry(url, { headers, fetchImpl = fetch, sleep = 
         headers: { 'User-Agent': 'online-openrocket-preset-fetcher', ...headers },
       });
       if (res.status === 403 || res.status === 429) {
+        await res.body?.cancel().catch(() => {});
         const reset = res.headers.get('x-ratelimit-reset');
         const retryAfter = res.headers.get('retry-after');
         let waitMs = 10_000 * (i + 1);
@@ -516,7 +531,10 @@ export async function fetchWithRetry(url, { headers, fetchImpl = fetch, sleep = 
         await sleep(waitMs);
         continue;
       }
-      if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+      if (!res.ok) {
+        await res.body?.cancel().catch(() => {});
+        throw new Error(`HTTP ${res.status} for ${url}`);
+      }
       return res;
     } catch (err) {
       lastErr = err;
@@ -609,7 +627,8 @@ export async function main({
   // files deduped against everything already collected.
   const seen = new Set();
   for (const { name, xml } of fetched) {
-    const { presets, skippedComponents: sk, warnings } = parseOrc(xml, name, globalMaterials);
+    const { presets, skippedComponents: sk, warnings, skippedFiles: sf = 0 } = parseOrc(xml, name, globalMaterials);
+    skippedFiles += sf;
     for (const p of presets) seen.add(presetKey(p));
     allPresets.push(...presets);
     skippedComponents += sk;
@@ -617,7 +636,8 @@ export async function main({
     console.log(`  ${name}: ${presets.length} presets${sk ? ` (${sk} skipped)` : ''}`);
   }
   for (const { name, xml } of localFiles) {
-    const { presets, skippedComponents: sk, warnings } = parseOrc(xml, name, globalMaterials);
+    const { presets, skippedComponents: sk, warnings, skippedFiles: sf = 0 } = parseOrc(xml, name, globalMaterials);
+    skippedFiles += sf;
     let dupes = 0;
     for (const p of presets) {
       const key = presetKey(p);
@@ -720,7 +740,7 @@ export async function main({
   };
 
   mkdirSync(dirname(outPath), { recursive: true });
-  writeFileSync(outPath, JSON.stringify(out, null, 1) + '\n');
+  atomicWriteFileSync(outPath, JSON.stringify(out, null, 1) + '\n');
   console.log(`\nWrote ${outPath} (${allPresets.length} presets)`);
   return 0;
 }

@@ -2,7 +2,7 @@
   "run": {
     "id": 123,
     "name": "Weekly motor catalogue refresh",
-    "path": ".github/workflows/motors-refresh.yml@main",
+    "path": ".github/workflows/motors-refresh.yml",
     "event": "schedule",
     "head_branch": "main",
     "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",

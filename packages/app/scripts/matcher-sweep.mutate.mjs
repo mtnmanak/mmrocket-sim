@@ -1,6 +1,7 @@
 // Hand-run, sequential mutation guards. Every file is restored in finally;
 // test process exit codes are captured directly, with a full log per mutant.
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, mkdirSync } from 'node:fs';
+import { atomicWriteFileSync as writeFileSync } from './atomic-write.mjs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 export const mutations = [

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -191,6 +191,41 @@ describe('byNtfsName', () => {
 });
 
 describe('main', () => {
+  it('accepts materials-only files without treating them as missing components', () => {
+    const result = parseOrc('<OpenRocketComponent><Materials><Material><Name>paper</Name><Type>BULK</Type><Density>950</Density></Material></Materials></OpenRocketComponent>', 'materials.orc', new Map());
+    expect(result.skippedFiles ?? 0).toBe(0);
+  });
+  it.each(['', '<html>error</html>', '<OpenRocketComponent><Materials></Materials>'])('refuses a successful non-ORC response: %j', async xml => {
+    const dir = mkdtempSync(join(tmpdir(), 'presets-invalid-'));
+    const outPath = join(dir, 'presets.json');
+    const held = '{"presets": ["previous"]}\n';
+    writeFileSync(outPath, held);
+    try {
+      const code = await main({ outPath, desktopDir: '', sleep: async () => {}, fetchImpl: async url =>
+        url.includes('api.github.com') ? { ok: true, json: async () => ['a', 'b'].map(name => ({ type: 'file', name: `${name}.orc`, download_url: `https://raw/${name}.orc` })) }
+          : { ok: true, text: async () => url.endsWith('/a.orc') ? xml
+            : '<OpenRocketComponent><Components><BodyTube><Manufacturer>Quest</Manufacturer><PartNumber>test</PartNumber><Length>0.1</Length></BodyTube></Components></OpenRocketComponent>' } });
+      expect(code).toBe(2);
+      expect(readFileSync(outPath, 'utf8')).toBe(held);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it.each(['constructor', '__proto__', 'toString'])('skips components with inherited unit %s', unit => {
+    for (const tag of ['OutsideDiameter', 'Mass']) {
+      const parsed = parseOrc(`<Components><BodyTube><${tag} Unit="${unit}">1</${tag}></BodyTube></Components>`, 'bad.orc', new Map());
+      expect(parsed.skippedComponents).toBe(1);
+      expect(parsed.presets).toEqual([]);
+    }
+    expect(() => convertDensity(1, unit, 'BULK', 'test')).toThrow(/unknown density/);
+    expect(() => convertDensity(1, 'kg/m3', unit, 'test')).toThrow(/unknown material type/);
+  });
+
+  it('refuses non-finite converted values', () => {
+    expect(() => convertLength(Number.MAX_VALUE, 'ft', 'test')).not.toThrow();
+    expect(() => convertMass(Number.MAX_VALUE, 'lb', 'test')).not.toThrow();
+    expect(() => convertDensity(Number.MAX_VALUE, 'g/cm3', 'BULK', 'test')).toThrow(/non-finite density/);
+  });
+
   it('counts prototype-named manufacturers accurately in the report', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const xml = '<Components>' + ['constructor', '__proto__', 'toString'].map(maker =>

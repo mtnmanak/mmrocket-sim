@@ -63,7 +63,8 @@
  * the CLI runs only when this file is the entry point, so
  * fetch-motor-curves.test.mjs drives it against a stubbed API.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { atomicWriteFileSync } from './atomic-write.mjs';
+import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { digestMotorFile, motorHeaderMasses } from './motor-digest.mjs';
@@ -197,7 +198,10 @@ export async function downloadRawFiles(ids, {
         headers: { 'content-type': 'application/json', 'user-agent': 'mmrocket-sim-upstream-check' },
         body: JSON.stringify({ motorIds: batch, data: 'file' }),
       });
-      if (!res.ok) throw new Error(`thrustcurve.org download failed: HTTP ${res.status}`);
+      if (!res.ok) {
+        await res.body?.cancel().catch(() => {});
+        throw new Error(`thrustcurve.org download failed: HTTP ${res.status}`);
+      }
       // A file for a motor this batch did not ask for is not this batch's answer.
       const asked = new Set(batch);
       const listed = downloadResults(await res.json());
@@ -251,7 +255,10 @@ export async function fetchCurves(motors, {
         body: JSON.stringify({ motorIds: batch.map((m) => m.motorId), data: 'both' }),
       });
       stopRequests = stopsDownloads(res);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        await res.body?.cancel().catch(() => {});
+        throw new Error(`HTTP ${res.status}`);
+      }
       body = await res.json();
       downloadResults(body);
     } catch (err) {
@@ -284,7 +291,10 @@ export async function fetchCurves(motors, {
             body: JSON.stringify({ motorIds: [m.motorId], data: 'both' }),
           });
           stopRequests = stopsDownloads(res);
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          if (!res.ok) {
+            await res.body?.cancel().catch(() => {});
+            throw new Error(`HTTP ${res.status}`);
+          }
           const listed = downloadResults(await res.json());
           if (!listed.length) {
             // An empty answer is not a withdrawal of curves the last bundle had (ci-3 / owner Q2): fail, as a clean batch does.
@@ -378,7 +388,7 @@ export async function main({
 
   const doc = curvesDocument(got, db.generated, new Date().toISOString().slice(0, 10));
   const json = JSON.stringify(doc);
-  writeFileSync(outPath, json);
+  atomicWriteFileSync(outPath, json);
 
   const noCurve = motors.filter((m) => !curves[m.motorId]);
   console.log(`Wrote ${outPath}`);
@@ -405,6 +415,7 @@ export async function addDigestsMain({ outPath = OUT, fetchImpl = thrustcurveFet
   const got = await fetchCurves(motors, {
     fetchImpl: async (url, opts) => {
       const res = await fetchImpl(url, opts);
+      // fetchCurves owns refusal and cancellation; only intercept successful bodies.
       if (!res.ok) return res;
       const body = await res.json();
       for (const f of downloadResults(body)) record(f);
@@ -418,7 +429,7 @@ export async function addDigestsMain({ outPath = OUT, fetchImpl = thrustcurveFet
     return 1;
   }
   const counts = addDigests(bundle, results);
-  writeFileSync(outPath, JSON.stringify(bundle));
+  atomicWriteFileSync(outPath, JSON.stringify(bundle));
   console.log(`Wrote ${outPath}: digests on ${counts.added} files; ${counts.changed} revised upstream since the `
     + `bundle was built and ${counts.missing} no longer downloadable, left without one.`);
   return 0;

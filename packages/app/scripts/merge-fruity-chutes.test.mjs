@@ -95,12 +95,15 @@ describe('mergeFruityChutes', () => {
       { kind: 'Parachute', manufacturer: 'Fruity Chutes', partNo: small.sku, material: 'Ripstop nylon',
         lineMaterial: 'Nylon line', diameter: small.diameterM, lineLength: 0.5 },
     ] };
-    const { added } = mergeFruityChutes(db, { models: [small, big] });
+    const data = { models: [small, big], rocksimAliases: { legacy: big.sku } };
+    const { added } = mergeFruityChutes(db, data);
     expect(added.map((a) => a.sku)).toEqual([big.sku]);
     const row = db.presets.find((r) => r.partNo === big.sku);
     expect(row.material).toBe('Ripstop nylon');
     expect(row.lineMaterial).toBe('Nylon line');
     expect(row.spillHoleDiameter).toBe(big.spillHoleM);
     expect(row.source).toBe('fruitychutes.com');
+    expect(row.altPartNos).toEqual(['legacy']);
+    expect(mergeFruityChutes(db, data)).toMatchObject({ changes: [], added: [] });
   });
 });

@@ -50,7 +50,7 @@ describe.each(Object.entries(retiredMasses).filter(([key]) => !(key in retiredCo
     dir = mkdtempSync(join(scratch, 'preset-corrections-'));
     mkdirSync(join(dir, 'scripts'));
     mkdirSync(join(dir, 'src/data'), { recursive: true });
-    for (const file of ['apply-preset-corrections.mjs', 'manufacturers.mjs']) {
+    for (const file of ['apply-preset-corrections.mjs', 'manufacturers.mjs', 'atomic-write.mjs']) {
       copyFileSync(join(here, file), join(dir, 'scripts', file));
     }
     script = join(dir, 'scripts/apply-preset-corrections.mjs');
@@ -123,7 +123,7 @@ describe.each(Object.entries(retiredCorrections))('%s: a retired correction', (k
     dir = mkdtempSync(join(scratch, 'preset-corrections-'));
     mkdirSync(join(dir, 'scripts'));
     mkdirSync(join(dir, 'src/data'), { recursive: true });
-    for (const file of ['apply-preset-corrections.mjs', 'manufacturers.mjs']) {
+    for (const file of ['apply-preset-corrections.mjs', 'manufacturers.mjs', 'atomic-write.mjs']) {
       copyFileSync(join(here, file), join(dir, 'scripts', file));
     }
     script = join(dir, 'scripts/apply-preset-corrections.mjs');

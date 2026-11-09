@@ -1,4 +1,5 @@
-import { readFileSync, appendFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, appendFileSync } from 'node:fs';
+import { atomicWriteFileSync as writeFileSync } from './atomic-write.mjs';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { Window } from 'happy-dom';

@@ -1,9 +1,27 @@
 import { describe, expect, it, vi } from 'vitest';
 import { digestMotorFile } from './motorDigest.js';
+import { motorHeaderMasses } from '../../scripts/motor-digest.mjs';
 
 const rasp = (points: string[]) => 'X1 18 70 P 0.01 0.02 Home\n' + points.join('\n');
 
 describe('E3 bounded motor digest work', () => {
+  it('reads header masses with linear work through deep ignored elements', () => {
+    const text = '<engine-list>'.repeat(1000) + '<x>' + '<engine>'.repeat(1000);
+    const every = vi.spyOn(Array.prototype, 'every');
+    let visits = 0;
+    every.mockImplementation(function (this: unknown[], predicate, thisArg) {
+      for (let i = 0; i < this.length; i++) {
+        visits++;
+        if (!predicate.call(thisArg, this[i], i, this)) return false;
+      }
+      return true;
+    });
+    let result;
+    try { result = motorHeaderMasses(text); } finally { every.mockRestore(); }
+    expect(result).toBeNull();
+    expect(visits).toBeLessThan(5000);
+    expect(motorHeaderMasses('<engine-list><x></x><engine initWt="20" propWt="10"/>')).toEqual({ totalWeightG: 20, propWeightG: 10 });
+  });
   it('sorts descending samples without repeated adjacent swaps', () => {
     const text = rasp(Array.from({ length: 120 }, (_, i) => `${120 - i} ${i % 7}`));
     const iterator = Array.prototype[Symbol.iterator];

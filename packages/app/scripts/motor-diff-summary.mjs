@@ -56,7 +56,8 @@
  * The CLI lives in main() behind an entry-point guard so the helpers can be imported and
  * unit-tested; importing this module must never run the CLI or call process.exit.
  */
-import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs';
+import { atomicWriteFileSync as writeFileSync } from './atomic-write.mjs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { FIELDS } from './fetch-motor-db.mjs';
@@ -674,6 +675,10 @@ function loadSide(label, dir) {
 }
 
 function main(argv) {
+  for (const [i, flag] of argv.entries()) {
+    if (['--before', '--after', '--markdown', '--title', '--commit-message', '--github-output'].includes(flag)
+      && (!argv[i + 1] || argv[i + 1].startsWith('--'))) throw new Error(`${flag} requires a value`);
+  }
   const arg = (flag) => {
     const i = argv.indexOf(flag);
     return i > 0 && i + 1 < argv.length ? argv[i + 1] : undefined;

@@ -335,12 +335,15 @@ export function motorHeaderMasses(text) {
   if (text.trimStart().startsWith('<')) {
     try {
       const stack = [];
+      let ignored = 0;
       for (const ev of xmlEvents(text)) {
-        if (ev.close) { stack.pop(); continue; }
-        if (ev.open === 'engine' && stack.every(name => ['engine-database', 'engine-list'].includes(name))) {
+        if (ev.close) { if (stack.pop()) ignored--; continue; }
+        if (ev.open === 'engine' && ignored === 0) {
           return checked(ev.attrs.get('initWt'), ev.attrs.get('propWt'));
         }
-        stack.push(ev.open);
+        const skip = ev.open !== 'engine-database' && ev.open !== 'engine-list';
+        stack.push(skip);
+        if (skip) ignored++;
       }
     } catch { return null; }
     return null;

@@ -110,6 +110,7 @@ const UA = { 'User-Agent': 'mmrocket-sim-upstream-check' };
 let moved = 0;
 let checked = 0;
 const notes = [];
+const coverageNotes = [];
 
 const say = (s = '') => console.log(s);
 const flag = (s) => { moved++; console.log('  ** ' + s); };
@@ -147,7 +148,10 @@ async function request(url, read, signal, init = {}) {
     // thrustcurve.org goes through the shared paced client (its operator's rate limit, 27 Oct 2026).
     const send = new URL(url).hostname === 'www.thrustcurve.org' ? thrustcurveFetch : fetch;
     const res = await send(url, { ...init, headers: UA, ...(signal ? { signal } : {}) });
-    if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status} for ${url}`), { status: res.status });
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      throw Object.assign(new Error(`HTTP ${res.status} for ${url}`), { status: res.status });
+    }
     return await read(res);
   } catch (err) {
     failedHosts.add(host);
@@ -416,11 +420,11 @@ export async function checkThrustCurve(getJson = json) {
       stopIn(service, checkThrustCurve.section);
       const partial = `${checkThrustCurve.section} — partly run: ${service} stopped answering (${e.message})`;
       say(`  note ${partial}`);
-      notes.push(partial);
+      coverageNotes.push(partial);
     } else {
       const partial = `${checkThrustCurve.section} — partly run: catalogue population probe failed (${e.message})`;
       say(`  note ${partial}`);
-      notes.push(partial);
+      coverageNotes.push(partial);
     }
     say(`  note could not reach thrustcurve.org to compare catalogue size (${e.message}) — the age check above still stands.`);
   }
@@ -875,6 +879,7 @@ export async function main(checks = DEFAULT_CHECKS, advisories = checkAdvisories
   moved = 0;
   checked = 0;
   notes.length = 0;
+  coverageNotes.length = 0;
   fileCache.clear();
   failedHosts.clear();
   stops.clear();
@@ -919,6 +924,11 @@ export async function main(checks = DEFAULT_CHECKS, advisories = checkAdvisories
       say('None of this is applied automatically. Decide, then edit apply-preset-corrections.mjs (parts) '
         + 'or packages/app/scripts/motor-corrections.mjs (motors), or re-read the AeroTech delay sources.');
       status = 1;
+    }
+    if (coverageNotes.length) {
+      say('');
+      say('Coverage notes:');
+      for (const n of coverageNotes) say(`  - ${n}`);
     }
   } catch (err) {
     console.error('');

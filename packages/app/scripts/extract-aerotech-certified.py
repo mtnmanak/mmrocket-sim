@@ -30,7 +30,7 @@ section 1(b)).
   - 13 are scans with no text layer, and this machine has no OCR. They were
     read by eye from the page rendered at 170 dpi, and their cells are typed
     into TRANSCRIBED exactly as printed, typos included; the run refuses one
-    that has since gained a text layer, so a transcription never stands in for
+    whose SHA-256 changed or that has since gained a text layer, so a transcription never stands in for
     text that could be read. Every page of all 52 scans in the folder was
     looked at to find them; the other 39 are the older forms.
 
@@ -66,10 +66,12 @@ instead of writing, and exits 1 when the committed file is not what the
 letters give.
 """
 import argparse
+import hashlib
 import json
 import os
 import re
 import sys
+from atomic_write import atomic_write
 from urllib.parse import quote
 
 # `import pymupdf`, not `import fitz` (extract-nozzle-pdfs.py: the old name's
@@ -81,6 +83,8 @@ pymupdf.set_messages(stream=sys.stderr)
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_SOURCE = os.path.join(HERE, '..', '..', '..', 'docs', 'RCS Schematics')
 DEFAULT_OUT = os.path.join(HERE, 'aerotech-certified.json')
+with open(os.path.join(HERE, 'aerotech-certified-hashes.json'), encoding='utf-8') as fh:
+    TRANSCRIBED_HASHES = json.load(fh)
 
 # The manufacturer's own page linking every letter read here (read 2026-10-01).
 PUBLISHED_ON = 'https://www.rocketmotorparts.com/page/nar-tra-certification-docs'
@@ -639,6 +643,10 @@ def read_all(source):
             if rel in TRANSCRIBED:
                 if has_text:
                     raise SystemExit(f'{rel} now has a text layer: read it, and retire its TRANSCRIBED entry')
+                with open(os.path.join(folder, name), 'rb') as fh:
+                    digest = hashlib.sha256(fh.read()).hexdigest()
+                if digest != TRANSCRIBED_HASHES.get(rel):
+                    raise SystemExit(f'{rel}: source hash changed; re-render and review the scan')
                 seen_transcribed.add(rel)
                 t = TRANSCRIBED[rel]
                 row = interpret(t['rows'], rel)
@@ -690,8 +698,7 @@ def main(argv):
         print('aerotech-certified.json is what the letters give' if same else
               'aerotech-certified.json DIFFERS from what the letters give: re-run without --check')
         return 0 if same else 1
-    with open(args.out, 'w', encoding='utf-8', newline='\n') as fh:
-        fh.write(text)
+    atomic_write(args.out, text)
     print(f'wrote {args.out}')
     return 0
 

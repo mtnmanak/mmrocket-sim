@@ -80,6 +80,7 @@ import json
 import os
 import re
 import sys
+from atomic_write import atomic_write
 from urllib.parse import quote
 
 # `import pymupdf`, not `import fitz` (extract-nozzle-pdfs.py: the old name's
@@ -655,8 +656,7 @@ def main(argv):
                   f'{os.path.basename(path)} DIFFERS from what the documents give: re-run without --check')
         return 0 if same else 1
     for path, text in outputs.items():
-        with open(path, 'w', encoding='utf-8', newline='\n') as fh:
-            fh.write(text)
+        atomic_write(path, text)
         print(f'wrote {path}')
     return 0
 

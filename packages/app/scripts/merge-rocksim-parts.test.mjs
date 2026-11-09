@@ -57,6 +57,7 @@ describe('the unit tables', () => {
     expect(mapShape('')).toBe('CONICAL');
     expect(mapShape('sears-haack')).toBe('HAACK');
     expect(mapShape('bulbous')).toBeUndefined();
+    for (const name of ['constructor', '__proto__', 'toString']) expect(mapShape(name)).toBeUndefined();
   });
 });
 
@@ -93,6 +94,21 @@ describe('main, on synthetic CSVs', () => {
   }
   const bt205 = { kind: 'BodyTube', manufacturer: 'Estes', partNo: 'BT205', insideDiameter: 0.018034,
     outsideDiameter: 0.0186944, length: 0.4572 };
+
+  it('omits and reports inherited material names from CSV cells', () => {
+    const w = world(['constructor', 'toString', '__proto__'].map((material, i) =>
+      `Estes,TEST-${i},tube,0,1,1.1,${12 + i},${material},,2,20`), []);
+    try {
+      expect(w.run()).toBe(0);
+      expect(w.presets()).toHaveLength(3);
+      for (const p of w.presets()) expect(p).not.toHaveProperty('material');
+      for (const name of ['constructor', 'toString', '__proto__']) {
+        expect(w.report().unmapped).toContainEqual([name, 1]);
+      }
+    } finally {
+      rmSync(w.dir, { recursive: true, force: true });
+    }
+  });
 
   it('appends a new part in SI, marked as RockSim\'s', () => {
     const w = world(['Estes,BT-60,tube,0,1.595,1.637,18,Kraft phenolic,,2,20'], [bt205]);

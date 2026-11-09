@@ -1526,6 +1526,9 @@ export function main(argv) {
     return args.help ? 0 : 1;
   }
   try {
+    for (const name of ['baro', 'accel-scale', 'mach-band', 'altitude-unit', 'accel-column', 'time-column', 'csv']) {
+      if (args[name] !== undefined && typeof args[name] !== 'string') fail('R9', `--${name} was given with no value.`);
+    }
     const diameterIn = numFlag(args, 'diameter-in');
     const machBandRaw = typeof args['mach-band'] === 'string' ? args['mach-band'].split(',').map(Number) : null;
     if (machBandRaw && (machBandRaw.length !== 2 || !machBandRaw.every(Number.isFinite))) {

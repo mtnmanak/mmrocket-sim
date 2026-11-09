@@ -43,8 +43,8 @@ const latest = (jobs) => jobs.reduce((a, b) => (b.run_attempt > a.run_attempt ? 
 export function selectSource({ run, attempts, artifacts }) {
   const neutral = (reason) => ({ eligible: false, failed: false, reason });
   try {
-    const workflowPath = String(run.path ?? '').split('@')[0];
-    if (!workflowPath.endsWith(`/${SOURCE_WORKFLOW_FILE}`) && run.name !== SOURCE_WORKFLOW_NAME) {
+    // Owner ruling ci-5: exact REST workflow path only, never display-name identity.
+    if (run.path !== `.github/workflows/${SOURCE_WORKFLOW_FILE}`) {
       return neutral('source run is not the motor refresh workflow');
     }
     if (run.repository?.full_name !== SOURCE_REPO || run.head_repository?.full_name !== SOURCE_REPO) return neutral('source run is from another repository');

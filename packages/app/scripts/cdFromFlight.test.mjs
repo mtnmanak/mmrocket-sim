@@ -27,10 +27,21 @@
  *   The expected numbers are written into the source anyway, so a regression is
  *   legible in a diff even where the test skips.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdtempSync, readdirSync, rmSync, symlinkSync, lstatSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// Model a writable device with no writable sibling namespace on every OS.
+vi.mock('node:fs', async (importOriginal) => {
+  const real = await importOriginal();
+  return { ...real, writeFileSync: (path, ...args) => {
+    if (path === '/virtual-device/stdout') return;
+    if (String(path).startsWith('/virtual-device/')) throw new Error('EACCES: device directory');
+    return real.writeFileSync(path, ...args);
+  } };
+});
 import {
   ATM_PA,
   FT,
@@ -852,6 +863,33 @@ describe('the CSV reader', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('importing this module', () => {
+  it('writes CSV to devices and through symlinks without replacing them', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'flight-csv-'));
+    const log = console.log;
+    const error = console.error;
+    try {
+      console.log = () => {};
+      console.error = () => {};
+      const fx = synthFlight();
+      writeFileSync(join(dir, 'flight.csv'), fx.accelCsv);
+      const device = '/virtual-device/stdout';
+      expect(main(['node', 'cdFromFlight.mjs', join(dir, 'flight.csv'), '--mass-kg', String(fx.massKg),
+        '--diameter-m', String(fx.diameterM), '--site-elevation-m', '0', '--csv', device, '--json'])).toBe(0);
+      expect(readdirSync(dir)).toEqual(['flight.csv']);
+      if (process.platform !== 'win32') {
+        writeFileSync(join(dir, 'target.csv'), 'old');
+        symlinkSync(join(dir, 'target.csv'), join(dir, 'output.csv'));
+        expect(main(['node', 'cdFromFlight.mjs', join(dir, 'flight.csv'), '--mass-kg', String(fx.massKg),
+          '--diameter-m', String(fx.diameterM), '--site-elevation-m', '0', '--csv', join(dir, 'output.csv'), '--json'])).toBe(0);
+        expect(lstatSync(join(dir, 'output.csv')).isSymbolicLink()).toBe(true);
+        expect(readFileSync(join(dir, 'target.csv'), 'utf8')).not.toBe('old');
+      }
+    } finally {
+      console.log = log;
+      console.error = error;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
   // `scripts/bbcode-from-blurb.test.mjs:206-210` is the precedent: that script's
   // CLI body ran at module top level, so importing its helpers called
   // process.exit(1) before a test could run, and its two rules had no test at
@@ -874,7 +912,7 @@ describe('importing this module', () => {
     expect(lines.join('\n')).toContain('BURNOUT mass');
   });
 
-  it('refuses a bare numeric flag rather than reading it as 1', () => {
+  it.each(['mass-kg', 'baro', 'accel-scale', 'mach-band', 'altitude-unit', 'accel-column', 'time-column', 'csv'])('refuses bare --%s before reading any input', (flag) => {
     // `--mass-kg` with no value parses as boolean true, and Number(true) is 1.
     // Before this refusal, `--mass-kg --diameter-in 1.17` on the real F10 file
     // printed "burnout mass 1.0000 kg", a headline Cd of 1.84, and exited 0 —
@@ -884,12 +922,12 @@ describe('importing this module', () => {
     const realErr = console.error;
     console.error = (...a) => errs.push(a.join(' '));
     try {
-      expect(main(['node', 'cdFromFlight.mjs', 'nonexistent.csv', '--mass-kg', '--diameter-in', '1.17']))
+      expect(main(['node', 'cdFromFlight.mjs', 'nonexistent.csv', `--${flag}`, '--diameter-in', '1.17']))
         .toBe(1);
     } finally {
       console.error = realErr;
     }
-    expect(errs.join('\n')).toMatch(/R9: --mass-kg was given with no value/);
+    expect(errs.join('\n')).toContain(`R9: --${flag} was given with no value`);
   });
 });
 
