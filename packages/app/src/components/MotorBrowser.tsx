@@ -291,7 +291,9 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const filtersNow = useRef(filters);
   const mounted = useRef(false);
   const importing = useRef<AbortController | null>(null);
-  const close = () => { importing.current?.abort(); onClose(); };
+  // Close cancels a pending catalogue load and EX import itself, so neither can
+  // reach the design even if the host keeps this component mounted.
+  const close = () => { importing.current?.abort(); loadAbort.current?.abort(); onClose(); };
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; importing.current?.abort(); };

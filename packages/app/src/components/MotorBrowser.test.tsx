@@ -1247,6 +1247,30 @@ describe('MotorBrowser — two earlier fixes with no test until now (audit 2026-
     expect(h.selected).toEqual([]);
   });
 
+  it('Close cancels a pending load even when the host keeps the browser mounted', async () => {
+    // The answer ignores the abort and arrives after Close; only the aborted
+    // load signal keeps it out of the design while the component stays mounted.
+    let answered = false;
+    vi.stubGlobal('fetch', vi.fn(() => new Promise((resolve) => setTimeout(() => {
+      answered = true;
+      resolve({
+        ok: true, status: 200,
+        json: async () => ({ results: [{ motorId: 'overlay-network-g81', format: 'RASP', samples: [{ time: 0.1, thrust: 80 }, { time: 1.5, thrust: 0 }] }] }),
+      } as unknown as Response);
+    }, 30))));
+    const onClose = vi.fn();
+    h = openBrowser({ mountDiameterMm: 29, filters: { includeOOP: true }, onClose });
+    search(h, 'G81NET');
+    click(rowFor(h, 'Estes', 'G81NET')!);
+    click(loadButton(h)!);
+    click(h.host.querySelector<HTMLButtonElement>('[aria-label="Close motor browser"]')!);
+    for (let i = 0; i < 300 && !answered; i++) await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    expect(answered).toBe(true);
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(h.selected).toEqual([]);
+  });
+
   it('keeps all four bound inputs inside the existing inline width rule', () => {
     h = openBrowser({ mountDiameterMm: 29, filters: { showAll: true } });
     const inputs = h.host.querySelectorAll('input[aria-label$="seconds"], input[aria-label$="newton-seconds"]');
