@@ -543,7 +543,9 @@ interface BundledSimFile {
 }
 
 let bundledCurves: Promise<Record<string, BundledSimFile[]>> | null = null;
-let bundleRetryAt = Infinity;
+/** When the bundle chunk last failed to load (NaN: no failure on record). */
+let bundleFailedAt = NaN;
+const BUNDLE_RETRY_MS = 30_000;
 let bundledCatalogueGenerated: string | undefined;
 let bundledComplete = false;
 const shippedMotorIds = new Set(MOTOR_DB.map((m) => m.motorId));
@@ -563,8 +565,11 @@ const shippedMotorIds = new Set(MOTOR_DB.map((m) => m.motorId));
  * app any more; this bundle is the offline path.
  */
 async function loadBundledCurves(): Promise<Record<string, BundledSimFile[]>> {
-  if (!bundledCurves || Date.now() >= bundleRetryAt) {
-    bundleRetryAt = Infinity;
+  const now = Date.now();
+  // A failure is retried after the cooldown, or at once if the clock moved
+  // backward past it (as loadSnapshotCurves does).
+  if (!bundledCurves || now < bundleFailedAt || now - bundleFailedAt >= BUNDLE_RETRY_MS) {
+    bundleFailedAt = NaN;
     // Through `unknown`: resolveJsonModule types the literal's samples as
     // number[][], which is not comparable to the [t, F] pair type the runtime
     // relies on. The build script is what guarantees the pairs.
@@ -577,7 +582,7 @@ async function loadBundledCurves(): Promise<Record<string, BundledSimFile[]>> {
       })
       .catch((err) => {
         // Reuse the rejection across lookup paths and candidates, but allow recovery.
-        bundleRetryAt = Date.now() + 30_000;
+        bundleFailedAt = Date.now();
         throw err;
       });
   }

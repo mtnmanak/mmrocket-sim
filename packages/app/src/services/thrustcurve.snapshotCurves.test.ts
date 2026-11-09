@@ -101,6 +101,21 @@ describe('an added motor', () => {
     expect(tcRequests).toEqual([]);
   });
 
+  it.each([[29_999, false], [30_000, true], [-1, true]])(
+    'retries a failed curve bundle only after the cooldown or a clock rollback (%s ms later: %s)', async (elapsed, retried) => {
+      const shipped = await vi.importActual<typeof import('../data/motorCurves.json')>('../data/motorCurves.json');
+      vi.resetModules();
+      vi.doMock('../data/motorCurves.json', () => { throw new Error('chunk failed'); });
+      tc = await import('./thrustcurve.js');
+      const failedAt = Date.now();
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(failedAt);
+      await expect(tc.requireCurveBundle()).rejects.toThrow();
+      vi.doMock('../data/motorCurves.json', () => shipped);
+      clock.mockReturnValue(failedAt + elapsed);
+      if (retried) await expect(tc.requireCurveBundle()).resolves.toBeUndefined();
+      else await expect(tc.requireCurveBundle()).rejects.toThrow();
+    });
+
   it.each([false, true])('memoizes snapshot parsing with a failed bundle (host fails: %s)', async hostFails => {
     vi.resetModules();
     vi.doMock('../data/motorCurves.json', () => { throw new Error('chunk failed'); });
