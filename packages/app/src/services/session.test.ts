@@ -91,9 +91,15 @@ it.each([null, {}, 'broken', [0.1, 'bad', 0.05], [0.1, 0.05, -0.01]]
     const loaded = loadSession();
     expect(loaded).not.toBeNull();
     expect(loaded!.tree).toEqual(saved.tree);
+    // Integration (H1 S1d-g1 x H4 r9): a non-number mass series is unreadable in
+    // every map, so H1's restore screen removes the motor with its generic note
+    // (keeping it crashes attachedSet on spec.masses[0]); the design survives.
+    // A finite, non-rising series (negative tail) is kept byte-for-byte.
+    const readable = Array.isArray(masses) && masses.every(m => typeof m === 'number');
     for (const restored of [loaded!.motor, loaded!.mountMotors?.m?.spec, loaded!.savedConfigs?.[0]?.motors.m?.spec]) {
-      expect(restored).toEqual(JSON.parse(JSON.stringify(spec)));
+      expect(restored).toEqual(readable ? JSON.parse(JSON.stringify(spec)) : undefined);
     }
+    expect(loaded!.treeRestoreNotes?.some(n => n.includes('Unreadable motor records were removed.')) ?? false).toBe(!readable);
     expect(loaded!.treeRestoreNotes?.filter(n => n.includes('EX motor')) ?? []).toEqual([]);
   },
 );
