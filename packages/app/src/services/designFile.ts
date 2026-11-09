@@ -8,7 +8,8 @@ import type { Preset } from './presets.js';
 import { importCdx1Flown } from './rasaeroFile.js';
 import { importRkt } from './rocksimFile.js';
 import { decodeXml } from './xmlUtil.js';
-import { gunzipCapped, unzipMember } from './zipMember.js';
+import { gunzipCapped, InflatedFileTooLargeError, unzipMember } from './zipMember.js';
+import { XmlBudgetExceededError } from './xmlParse.js';
 import { cautionNote, noteFlags } from './importNotes.js';
 import { noteField } from './noteField.js';
 
@@ -39,16 +40,21 @@ export function designFileTooLarge(byteLength: number, fileName: string): string
     + 'a rocket design. Nothing was opened.';
 }
 
-/**
- * Why a file could not be opened, naming the format the user actually picked.
- * Open… takes .ork, .rkt and .CDX1, and hard-coding ".ork" made a precise
- * importer message read as nonsense — "Could not open that .ork file: This is
- * an older BINARY RockSim file…".
- */
+class DesignReaderError extends Error {
+  readonly format: DesignFormat;
+  constructor(format: DesignFormat, err: unknown) {
+    super(err instanceof Error ? err.message : String(err));
+    this.format = format;
+  }
+}
+
+/** Preserve the public refusal wording, naming the content-selected reader. */
 export function designFileOpenFailure(fileName: string, err: unknown): string {
-  const ext = /\.(rkt|cdx1|ork)$/i.exec(fileName);
-  const kind = ext ? `.${ext[1]!.toLowerCase().replace('cdx1', 'CDX1')}` : '';
-  return `Could not open that${kind ? ` ${kind}` : ''} file: `
+  const detectedFormat = err instanceof Error && 'format' in err ? err.format : undefined;
+  const format = detectedFormat === 'ork' || detectedFormat === 'rkt' || detectedFormat === 'cdx1'
+    ? detectedFormat : /\.(ork|rkt|cdx1)$/i.exec(fileName)?.[1]?.toLowerCase();
+  const kind = format === 'cdx1' ? '.CDX1' : format ? `.${format}` : '';
+  return `Could not open that ${kind ? kind + ' ' : ''}file: `
     + `${err instanceof Error ? err.message : String(err)}`;
 }
 
@@ -150,7 +156,17 @@ export async function parseDesignFile(
     throw new Error(`Not a readable ${kind} file — nested archives are not supported.`);
   }
   const format = contentFormat(decodeXml(bytes.subarray(0, 16 * 1024)).xml) ?? namedFormat;
-  const imported = await readDesignFile(bytes, format, opts);
+  let imported: ImportedDesign;
+  try {
+    imported = await readDesignFile(bytes, format, opts);
+  } catch (err) {
+    if (err instanceof XmlBudgetExceededError || err instanceof InflatedFileTooLargeError) {
+      Object.assign(err, { format });
+      throw err;
+    }
+    if (format !== namedFormat) throw new DesignReaderError(format, err);
+    throw err;
+  }
   if (format !== namedFormat) {
     const notes: string[] = [];
     cautionNote(notes, 'I22.file-format', `“${noteField(fileName, 200)}”: its content is ${format === 'ork' ? 'OpenRocket' : format === 'rkt' ? 'RockSim' : 'RASAero'} despite its extension; it was opened with the matching reader.`);

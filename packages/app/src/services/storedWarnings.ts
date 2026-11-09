@@ -54,7 +54,7 @@ export function boundedWarningEvidence(warnings: unknown[], cache?: StoredWarnin
   return true;
 }
 
-function readableWarning(warning: unknown): warning is EngineWarning {
+export function readableWarning(warning: unknown): warning is EngineWarning {
   if (!warning || typeof warning !== 'object' || Array.isArray(warning)) return false;
   const row = warning as Record<string, unknown>;
   return typeof row['key'] === 'string' && (row['message'] === undefined || typeof row['message'] === 'string');

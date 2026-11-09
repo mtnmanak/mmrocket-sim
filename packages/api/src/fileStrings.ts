@@ -27,7 +27,7 @@ export function noteStrings<T>(value: T): T {
   if (Array.isArray(value)) return value.map(item => noteStrings(item)) as T;
   if (value && typeof value === 'object') {
     const result = Object.fromEntries(Object.entries(value).map(([key, item]) => [key,
-      (key === 'part' || key === 'configuration') && typeof item === 'string' ? displayEcho(item) : noteStrings(item)]));
+      (key === 'part' || key === 'configuration') && typeof item === 'string' ? noteEcho(displayEcho(item), 200) : noteStrings(item)]));
     const group = result.group as { heading?: string; lines?: { text: string }[] } | undefined;
     if (typeof result.text === 'string' && Array.isArray(group?.lines)) {
       const raw = value as unknown as { text: string; group: { heading?: string; lines: { text: string }[] } };

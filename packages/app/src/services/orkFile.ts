@@ -1,5 +1,6 @@
 import { noteField } from './noteField.js';
-import { boundedWarningEvidence, restoredWarnings, storedWarnings, validStoredWarnings, storedWarningLimitNote } from './storedWarnings.js';
+import { boundedWarningEvidence, readableWarning, restoredWarnings, storedWarnings, validStoredWarnings, storedWarningLimitNote } from './storedWarnings.js';
+import { finRootChord } from '../tree/finTab.js';
 import { readDesignProvenance, writeDesignProvenance } from './designProvenance.js';
 import { importedEjectionDelay } from './ejectionDelay.js';
 import { cleanDocumentMaterials, readDocumentMaterials } from './documentMaterials.js';
@@ -618,8 +619,7 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
   }
   const configs = [...configById.values()];
   // The app's own files, including those written before the 2026-08 rename (same test as `appFile` below).
-  const ownFile = doc.documentElement?.getAttribute('creator') === ORK_CREATOR
-    || doc.documentElement?.getAttribute('creator') === 'Online OpenRocket';
+  const ownFile = isAppCreator(doc.documentElement?.getAttribute('creator'));
   // Desktop creates configurations when a motor references an undeclared id.
   let excessConfigs = false;
   let inferredConfigs = 0;
@@ -711,8 +711,8 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
       for (const src of block ? [el, block] : [el]) {
         const event = text(src, ':scope > deployevent');
         if (event) o.deployEvent = event;
-        if (text(src, ':scope > deployaltitude') !== null) o.deployAltitude = num(src, 'deployaltitude', 200, notes, ALTITUDE);
-        if (text(src, ':scope > deploydelay') !== null) o.deployDelay = num(src, 'deploydelay', 0, notes);
+        if (text(src, ':scope > deployaltitude') !== null) o.deployAltitude = num(src, 'deployaltitude', o.deployAltitude, notes, ALTITUDE, true);
+        if (text(src, ':scope > deploydelay') !== null) o.deployDelay = num(src, 'deploydelay', o.deployDelay, notes, undefined, true);
       }
       const own: DeploymentTuple = { deployEvent: String(node['deployEvent'] ?? 'ejection'),
         deployAltitude: nodeNum(node, 'deployAltitude', 200), deployDelay: nodeNum(node, 'deployDelay', 0) };
@@ -738,8 +738,8 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
       for (const src of srcs) {
         const event = text(src, ':scope > deployevent');
         if (event) d.deployEvent = event;
-        if (text(src, ':scope > deployaltitude') !== null) d.deployAltitude = num(src, 'deployaltitude', 200, scratch);
-        if (text(src, ':scope > deploydelay') !== null) d.deployDelay = num(src, 'deploydelay', 0, scratch);
+        if (text(src, ':scope > deployaltitude') !== null) d.deployAltitude = num(src, 'deployaltitude', d.deployAltitude, scratch, undefined, true);
+        if (text(src, ':scope > deploydelay') !== null) d.deployDelay = num(src, 'deploydelay', d.deployDelay, scratch, undefined, true);
       }
       return d;
     };
@@ -770,16 +770,16 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
           // does. Never pass an unknown enum outside the sanitized tree.
           const known = separationEventOf(event);
           if (known !== null) o.separationEvent = known;
-          if (known === null && src !== el) {
+          if (known === null && src !== el && event !== text(el, ':scope > separationevent')) {
             outsideTreeEnums.set(`${String(node.id)}\u0000separation\u0000${event}`,
               `“${noteField(String(node.name ?? 'Stage'))}”: unknown separation event “${noteField(event)}” was ignored; the stage's event was kept (${noteField(o.separationEvent)}). Check separation before flying.`);
           }
         }
         if (text(src, ':scope > separationdelay') !== null) {
-          o.separationDelay = num(src, 'separationdelay', 0, notes);
+          o.separationDelay = num(src, 'separationdelay', o.separationDelay, notes, undefined, true);
         }
         if (text(src, ':scope > separationaltitude') !== null) {
-          o.separationAltitude = num(src, 'separationaltitude', 200, notes, ALTITUDE);
+          o.separationAltitude = num(src, 'separationaltitude', o.separationAltitude, notes, ALTITUDE, true);
         }
       }
       const own: SeparationTuple = { separationEvent: separationEventOf(String(node['separationEvent'] ?? 'ejection')) ?? 'ejection',
@@ -824,7 +824,7 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
           + ' knows, so it lights on Automatic. Desktop OpenRocket ignores it too, with a warning.');
       }
       return { event: rawEvent === null ? base.event : knownEvent ?? 'automatic',
-        delay: text(src, ':scope > ignitiondelay') === null ? base.delay : num(src, 'ignitiondelay', 0, notes) };
+        delay: text(src, ':scope > ignitiondelay') === null ? base.delay : num(src, 'ignitiondelay', base.delay, notes, undefined, true) };
     };
     let ownIgnition = readIgnition(mountEl, { event: 'automatic', delay: 0 },
       text(configScoped(mountEl, 'motor') ?? mountEl, ':scope > designation') ?? String(node['name'] ?? 'mount'));
@@ -1124,7 +1124,6 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
         const csF = text(el, ':scope > crosssection');
         if (csF && csF !== 'square') n['crossSection'] = csF;
         readAirfoil(el, n, notes, units);
-        readFinTabs(el, n, notes);
         readFinRotation(el, n, notes);
         // CAPPED before validation, not after: `finOutlineProblem` is O(n^2)
         // with no early exit on a non-crossing outline, so an uncapped list is
@@ -1171,6 +1170,7 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
           if (ptEls.length > 0) cautionNote(notes, 'I05.fin-outline', `Fin set “${noteField(n.name ?? 'freeform')}”: its outline was not used — ${outlineProblem} `
             + 'The set keeps a default outline; redraw it in the fin editor.');
         }
+        readFinTabs(el, n, notes);
         return n;
       }
       case 'ellipticalfinset': {
@@ -1796,8 +1796,7 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
   const root = doc.documentElement;
   // Historical writers stamped only their name; .ork's version="1.10" is
   // the OpenRocket format, not the app version. Share links carry this XML too.
-  const appFile = root?.getAttribute('creator') === ORK_CREATOR
-    || root?.getAttribute('creator') === 'Online OpenRocket';
+  const appFile = isAppCreator(root?.getAttribute('creator'));
   // The part limit (board row 84): refused here, before a motor is matched or the kernel builds anything.
   refuseTooManyParts(components);
   const provenance = readDesignProvenance(rocketEl, notes);
@@ -1891,6 +1890,10 @@ export const MIN_IMPORTED_TIME_STEP_S: number = DEFAULT_TIME_STEP_S;
  * about) from a foreign one (whose settings they have never seen).
  */
 export const ORK_CREATOR = 'MMRocket Sim';
+
+function isAppCreator(creator: string | null | undefined): boolean {
+  return creator === ORK_CREATOR || creator === 'Online OpenRocket';
+}
 
 /**
  * A `<timestep>` arrives as a raw double parsed from XML, and a tool-written
@@ -2045,7 +2048,7 @@ function readLaunchConditions(
   };
   // A file THIS APP wrote: its <timestep> and its <geodeticmethod> are
   // settings the user chose here, not a stranger's desktop defaults (below).
-  const ourOwnFile = doc.documentElement?.getAttribute('creator') === ORK_CREATOR;
+  const ourOwnFile = isAppCreator(doc.documentElement?.getAttribute('creator'));
 
   // Every launch value is believed only inside the bounds the panel enforces on
   // a typed one (audit 2026-09-22) — the rule `<atmosphere>` below has followed
@@ -2687,9 +2690,13 @@ function readStoredSimulations(simEls: XmlElement[], notes: string[]): OrkStored
           // A too-wide warning never reaches matching. Keep a bounded, explicit
           // unavailable record, including readable stop/HIGH evidence.
           data.simWarnings = restoredWarnings(parsed as EngineWarning[]);
-          cautionNote(notes, 'I28.stored-warnings', Array.isArray(parsed) && !boundedWarningEvidence(parsed)
-            ? `${unreadable} Only stop and high-priority warnings were kept, without oversized details. ${storedWarningLimitNote} ${missingEvidence}`
-            : `${unreadable} ${Array.isArray(parsed) ? 'The readable warnings were kept.' : 'No warnings could be read.'} ${missingEvidence}`);
+          const kept = data.simWarnings?.some(w => w.key !== 'StoredWarningsUnavailable');
+          const readable = Array.isArray(parsed) && parsed.some(readableWarning);
+          const oversized = Array.isArray(parsed) && !boundedWarningEvidence(parsed);
+          cautionNote(notes, 'I28.stored-warnings', readable && oversized
+              ? `${unreadable} Only stop and high-priority warnings were kept, without oversized details. ${storedWarningLimitNote} ${missingEvidence}`
+              : kept ? `${unreadable} The readable warnings were kept. ${missingEvidence}`
+                : `${unreadable} No warnings could be read. ${oversized ? storedWarningLimitNote + ' ' : ''}${missingEvidence}`);
         }
       } catch {
         data.simWarnings = storedWarnings([null] as unknown as EngineWarning[]);
@@ -3104,7 +3111,7 @@ export function exportOrk({
     const evDelay = own?.delay ?? bare?.ignitionDelay ?? 0;
     // Desktop ignores unknown attributes, unlike unknown child elements.
     const appIgnitions = writeConfigs.flatMap(c => {
-      const ignition = nodeId && c.ignitions?.[nodeId];
+      const ignition = nodeId && c.ignitions && Object.hasOwn(c.ignitions, nodeId) ? c.ignitions[nodeId] : undefined;
       return ignition && !Object.hasOwn(c.motors, nodeId!)
         ? [[c.id, knownIgnitionEvent(ignition.event) ?? 'automatic', ignition.delay]] : [];
     });
@@ -4002,7 +4009,10 @@ export function exportOrk({
   const storedMaterials = cleanDocumentMaterials((tree as FlightTree).documentMaterials, notes);
   // Only preserve the document's list. Part materials remain on their parts.
   // OR substitutes spaces for pipes; deduplicate on the resulting trimmed name.
-  const documentMaterials = cleanDocumentMaterials(storedMaterials.map(m => ({ ...m, name: m.name.replaceAll('|', ' ') })));
+  const normalizedMaterials = storedMaterials.map(m => ({ ...m, name: m.name.replaceAll('|', ' ') }));
+  const emptied = normalizedMaterials.filter(m => !m.name.trim()).length;
+  if (emptied) notes?.push(`Document materials: ${emptied} ${emptied === 1 ? 'entry' : 'entries'} removed because replacing pipes with spaces emptied their names.`);
+  const documentMaterials = cleanDocumentMaterials(normalizedMaterials);
   if (documentMaterials.length) {
     emit(1, '<docprefs>');
     emit(2, '<docmaterials>');
@@ -4448,13 +4458,14 @@ function invalidNumberNote(el: XmlElement, tag: string, notes: string[], action 
  */
 type NumDefault = readonly ['length' | 'motorDimensions' | 'altitude' | 'mass', UnitSelection] | 'degrees' | 'unused';
 
-function fallbackAction(fallback: number, shown?: NumDefault): string {
+function fallbackAction(fallback: number, shown?: NumDefault, retained = false): string {
+  if (Array.isArray(shown) && shown[0] === 'motorDimensions' && fallback === 0) return 'this dimension does not restrict the motor match. Check the matched motor before flying';
   if (!Number.isFinite(fallback) || shown === 'unused') return 'the value was not used';
   if (shown === 'degrees') return `using the default (${noticeQuantity('angle', fallback * Math.PI / 180, '°')})`;
-  return `using the default (${shown ? noticeQuantity(shown[0], fallback, shown[1], { parenthesized: true }) : fallback})`;
+  return `${retained ? 'keeping the previous or default value' : 'using the default'} (${shown ? noticeQuantity(shown[0], fallback, shown[1], { parenthesized: true }) : fallback})`;
 }
 
-function num(el: XmlElement, tag: string, fallback: number, notes: string[], shown?: NumDefault): number {
+function num(el: XmlElement, tag: string, fallback: number, notes: string[], shown?: NumDefault, retained = false): number {
   const field = el.querySelector(`:scope > ${tag}`);
   if (!field) return fallback;
   const t = (field.textContent ?? '').trim();
@@ -4465,7 +4476,7 @@ function num(el: XmlElement, tag: string, fallback: number, notes: string[], sho
   const v = parseDecimal(t);
   if (Number.isFinite(v)) return v;
   const label = text(el, ':scope > name') ?? el.tagName;
-  const note = `“${noteField(label)}”: invalid <${tag}> value; ${fallbackAction(fallback, shown)}.`;
+  const note = `“${noteField(label)}”: invalid <${tag}> value; ${fallbackAction(fallback, shown, retained)}.`;
   noteInvalidNumber(notes, note);
   return fallback;
 }
@@ -4584,6 +4595,10 @@ function readFillet(el: XmlElement, node: ComponentNode, notes: string[], units:
   // radius after reopening must use the density the user already selected.
   const m = el.querySelector(':scope > filletmaterial');
   if (!m) return;
+  if ((m.getAttribute('type') ?? 'bulk') !== 'bulk') {
+    cautionNote(notes, 'I21.material-type', `“${noteField(text(el, ':scope > name') ?? el.tagName)}”: fillet material type “${noteField(m.getAttribute('type') ?? '')}” is not bulk and was ignored. Check the selected fillet material and fin mass before flying.`);
+    return;
+  }
   const d = parseDecimal(m.getAttribute('density'));
   if (Number.isFinite(d) && d > 0) node['filletDensity'] = d;
   else if (d === 0) {
@@ -4646,7 +4661,7 @@ function readFinRotation(el: XmlElement, node: ComponentNode, notes: string[]): 
 /**
  * Fin tabs: <tabheight>, <tablength>, <tabposition relativeto="...">. Desktop
  * files carry TWO tabposition elements (legacy front/center/end + modern
- * top/middle/bottom) — like the desktop reader, the last one wins.
+ * top/middle/bottom) — replay them in order, retaining valid numeric offsets.
  */
 function readFinTabs(el: XmlElement, node: ComponentNode, notes: string[]): void {
   const h = num(el, 'tabheight', 0, notes);
@@ -4655,16 +4670,23 @@ function readFinTabs(el: XmlElement, node: ComponentNode, notes: string[]): void
   node['tabHeight'] = h;
   node['tabLength'] = len;
   const positions = Array.from(el.querySelectorAll(':scope > tabposition'));
-  const last = positions[positions.length - 1];
-  if (last) {
-    const rel = (last.getAttribute('relativeto') ?? 'middle').toLowerCase();
+  const span = finRootChord(node) - len;
+  let front = span / 2;
+  for (const last of positions) {
+    const rel = (last.getAttribute('relativeto') ?? '').trim();
     const method = rel.includes('front') || rel === 'top' ? 'top'
       : rel.includes('end') || rel === 'bottom' ? 'bottom'
-      : 'middle';
+      : rel.includes('center') || rel === 'middle' ? 'middle' : null;
+    if (!method) {
+      cautionNote(notes, 'I21.axial-position', `“${noteField(node.name ?? node.type)}”: fin tab position has a missing or unsupported relative method “${noteField(rel)}”; that setter was ignored. Check the tab placement against the built fin.`);
+      continue;
+    }
+    const origin = method === 'top' ? 0 : method === 'bottom' ? span : span / 2;
     node['tabOffsetMethod'] = method;
+    node['tabOffset'] = front - origin;
     const v = parseDecimal(last.textContent);
-    if (!Number.isFinite(v)) invalidNumberNote(el, 'tabposition', notes, 'using the default (0)');
-    node['tabOffset'] = Number.isFinite(v) ? v : 0;
+    if (!Number.isFinite(v)) invalidNumberNote(el, 'tabposition', notes, 'keeping the previous or default tab position');
+    else { node['tabOffset'] = v; front = origin + v; }
   }
 }
 
@@ -4690,10 +4712,10 @@ function readDeployment(el: XmlElement, node: ComponentNode, configEl: XmlElemen
     const event = text(src, ':scope > deployevent');
     if (event) node['deployEvent'] = event;
     if (text(src, ':scope > deployaltitude') !== null) {
-      node['deployAltitude'] = num(src, 'deployaltitude', 200, notes, ['altitude', units]);
+      node['deployAltitude'] = num(src, 'deployaltitude', nodeNum(node, 'deployAltitude', 200), notes, ['altitude', units], true);
     }
     if (text(src, ':scope > deploydelay') !== null) {
-      node['deployDelay'] = num(src, 'deploydelay', 0, notes);
+      node['deployDelay'] = num(src, 'deploydelay', nodeNum(node, 'deployDelay', 0), notes, undefined, true);
     }
   }
 }
@@ -4710,8 +4732,8 @@ function readSeparation(el: XmlElement, node: ComponentNode, configEl: XmlElemen
       if (known !== null) event = known;
       else cautionNote(notes, 'I21.separation-event', `“${noteField(String(node.name ?? 'Stage'))}”: unknown separation event “${noteField(raw)}” was ignored; the stage's event was kept (${noteField(event)}). Check separation before flying.`);
     }
-    if (text(src, ':scope > separationdelay') !== null) delay = num(src, 'separationdelay', 0, notes);
-    if (text(src, ':scope > separationaltitude') !== null) altitude = num(src, 'separationaltitude', 200, notes, ['altitude', units]);
+    if (text(src, ':scope > separationdelay') !== null) delay = num(src, 'separationdelay', delay, notes, undefined, true);
+    if (text(src, ':scope > separationaltitude') !== null) altitude = num(src, 'separationaltitude', altitude, notes, ['altitude', units], true);
   }
   if (event !== 'ejection') node['separationEvent'] = event;
   if (delay !== 0) node['separationDelay'] = delay;
@@ -4729,7 +4751,7 @@ function readPosition(el: XmlElement, notes: string[]): ComponentPosition | unde
     if (off.tagName !== 'axialoffset' && off.tagName !== 'position') continue;
     const method = [off.getAttribute('method'), off.getAttribute('type')].map(m => m?.trim()).find(m => m !== undefined && AXIAL_METHODS.includes(m));
     if (!method) {
-      if (!invalidMethodNoted) cautionNote(notes, 'I21.axial-position', `“${noteField(text(el, ':scope > name') ?? el.tagName)}”: invalid or missing axial position method; the previous or default position was kept, as in desktop OR. Check part placement before flying.`);
+      if (!invalidMethodNoted) cautionNote(notes, 'I21.axial-position', `“${noteField(text(el, ':scope > name') ?? el.tagName)}”: invalid or missing axial position method, or a method unsupported by the app; the previous or default position was kept. Check part placement before flying.`);
       invalidMethodNoted = true;
       continue;
     }

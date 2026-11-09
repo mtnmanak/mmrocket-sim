@@ -74,6 +74,12 @@ describe('a caller filename echoed in an error is bounded and made safe for disp
     expectBounded(message);
   });
 
+  it.each(ROUTES)('%s: a misnamed RockSim document keeps its typed XML budget refusal', async route => {
+    const body = `<RockSimDocument>${'<x/>'.repeat(API_XML_LIMITS.maxElements)}</RockSimDocument>`;
+    const message = await refused(await post(route, 'broken.ork', body), 413, 'FILE_TOO_LARGE');
+    expect(message).toContain(`XML element limit is ${API_XML_LIMITS.maxElements.toLocaleString('en-US')}.`);
+  });
+
   it('/describe: a design too large for a share link', async () => {
     const reference = strFromU8(unzipSync(bytesOf('reference.ork'))['rocket.ork']!);
     const xml = reference.replace('<name>Nose Cone</name>', `<name>Nose Cone</name><comment>${'x'.repeat(4 * 1024 * 1024 + 1)}</comment>`);

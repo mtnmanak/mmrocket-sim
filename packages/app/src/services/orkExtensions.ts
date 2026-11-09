@@ -157,7 +157,7 @@ export function preserveSimulationExtensions(
     } else if (normalized === 'info.openrocket.core.simulation.extension.impl.JavaCode') kinds.add('Java code');
     // Own keys only: a file-sourced id like "constructor" must not read Object.prototype.
     else if (Object.hasOwn(EXAMPLE_NAMES, normalized)) kinds.add(EXAMPLE_NAMES[normalized]!);
-    else kinds.add(id ? id.slice(0, 160) : 'unknown extension');
+    else kinds.add(id ? noteField(id, 160) : 'unknown extension');
   }
   cautionNote(notes, 'I02.not-run', `This file contains ${extensions.length} simulation extension${extensions.length === 1 ? '' : 's'} `
     + `(${[...kinds].join(', ')}): the app keeps them when you save as .ork but does not run them; flights here run without them.`
