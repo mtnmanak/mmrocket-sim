@@ -8,11 +8,6 @@ export const MAX_WARNING_EVIDENCE_VALUES = MAX_STORED_WARNINGS * 4;
 export const MAX_WARNING_FIELDS = 32;
 export const storedWarningLimitNote = `The saved summary has more than ${MAX_STORED_WARNINGS.toLocaleString('en-US')} warnings, more than ${MAX_WARNING_FIELDS} fields in one warning, or warning details nested too deeply or too large to read safely.`;
 
-export function wideStoredWarning(warnings: unknown[]): boolean {
-  return warnings.some(warning => warning !== null && typeof warning === 'object'
-    && Reflect.ownKeys(warning).length > MAX_WARNING_FIELDS);
-}
-
 /** Payloads are immutable during one synchronous import. Cache nested walks,
  * including normalization of source snapshots, across duplicate summaries. */
 export interface StoredWarningCache {

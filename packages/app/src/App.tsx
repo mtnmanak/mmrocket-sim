@@ -16,7 +16,7 @@ import { DesignConfirms } from './components/DesignConfirms.js';
 import { RecentDesignsDialog } from './components/RecentDesignsDialog.js';
 import { rememberRecentDesign } from './services/recentDesigns.js';
 import { assignMotorRecords, planMotorAssignment, retireLoadoutNote } from './services/motorAssignment.js';
-import { exportConfigs as assembleExportConfigs, exportMotorsMap as assembleExportMotors,
+import { prepareOrkExport, exportMotorsMap as assembleExportMotors,
   flightExportInput as assembleFlightExportInput } from './services/exportAssembly.js';
 import { OpenMotorDialog } from './components/OpenMotorDialog.js';
 import { acceptedOtherMakerNotes, applyOpenMotorChoices, collectOpenMotorIdentities, commitOpenMotorChoices, type OpenMotorIdentity, type OpenMotorState } from './services/openMotorChoices.js';
@@ -119,7 +119,7 @@ import { flyBuiltDesign } from './services/simulateDesign.js';
 import { buildDesign, KERNEL_HANDLES, type DesignBuild } from './services/buildDesign.js';
 import { preflightAudit, readAuditMasses } from './services/preflightAudit.js';
 import { loadExMotorIdentities, loadExMotors } from './services/exMotors.js';
-import { autoDelaySaveNote, exportOrk, importOrk, type MeasuredFigures, type OrkExportFlightData, type OrkMotorRef } from './services/orkFile.js';
+import { exportOrk, importOrk, type MeasuredFigures, type OrkExportFlightData, type OrkMotorRef } from './services/orkFile.js';
 import {
   decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS, shareLinkOpenFailure,
 } from './services/shareLink.js';
@@ -212,7 +212,7 @@ import {
 import { RecoverySizingPanel } from './components/RecoverySizingPanel.js';
 import {
   applyConfigSwitchPlan, applyImportPlan, attachedSet, openShareLink, planConfigSwitch, planImport,
-  planNewDesign, planOrkSave, resolveImportMotors, starterMotorMayLand, type ImportedDesign,
+  planNewDesign, resolveImportMotors, starterMotorMayLand, type ImportedDesign,
 } from './services/importApply.js';
 import { ScaleDialog } from './components/ScaleDialog.js';
 import { WeatherDialog } from './components/WeatherDialog.js';
@@ -1509,6 +1509,15 @@ export function App() {
   [flightTree.components, assigned, effectiveKbf, effectiveSupersonic, effectiveHybrid, measured.massKg, primaryMountId, currentSetKey,
     prefs.units]);
   const built = 'error' in buildResult ? null : buildResult;
+  const warningTexts = built?.info.warningTexts;
+  const warningComponents = tree.components;
+  const designWarningGroups = useMemo(() => {
+    const railFindings = warningTexts?.length
+      ? railInterferenceFindings({ components: warningComponents }, prefs.units)
+        .filter(f => staticWarningTier(f.text) === 'information') : [];
+    const railTexts = new Set(railFindings.map(f => f.text));
+    return { railFindings, rest: (warningTexts ?? []).filter(t => !railTexts.has(t)) };
+  }, [warningComponents, warningTexts, prefs.units]);
   const auditCanReadMass = built !== null;
   const auditMasses = useMemo(() => auditCanReadMass ? readAuditMasses(flightTree) : {},
     // The diagnostic reads only components; motor picks and rocket renames do
@@ -2454,14 +2463,14 @@ export function App() {
   };
 
   /**
-   * Stage B: the stored presets in exportOrk's shape. Stable ids ride
-   * through; the writer swaps the ACTIVE config's motors for the live
-   * working set, so in-app edits persist into the saved file. `configs`
-   * defaults to state; onSaveOrk passes the set it has just written the
-   * working set back into, so the file and the mark agree.
+   * Save, share and bundle export one synchronized snapshot. The service
+   * prepares configurations, live motors and delay notes together; only
+   * Save applies the returned mark and synchronized configuration state.
    */
-  const exportConfigs = (configs: SavedConfig[] = savedConfigs, flown: FlownAutoDelays = {}) =>
-    assembleExportConfigs(configs, tree, loadExMotorIdentities, flown);
+  const prepareCurrentOrk = (context?: 'share') => prepareOrkExport({
+    snapshot: snapshotNow(), assigned, unmatchedRefs, exLibrary: loadExMotorIdentities,
+    flown: flownAutoDelaysNow(), flightData: flightDataForExport(), context,
+  });
 
   /**
    * Save a design/export file. On Chrome and Edge this opens a REAL Save-As
@@ -2573,26 +2582,13 @@ export function App() {
       // Everything live — motors, references and what the tree holds for the
       // active configuration — is written back into it FIRST and the mark taken
       // over the synced set (importApply.planOrkSave says why).
-      const { savedConfigs: synced, mark } = planOrkSave(snapshotNow(), unmatchedRefs);
+      const { savedConfigs: synced, mark, design } = prepareCurrentOrk();
       const flightsAtSnapshot = flightCount.current;
       if (synced !== savedConfigs) setSavedConfigs(synced);
-      // Every Auto mount at the delay it flew, and a line for each the file
-      // cannot carry that way (autoDelaySaveNote) — once per motor, though the
-      // active configuration's goes through both maps.
-      const flown = flownAutoDelaysNow();
-      const motors = exportMotorsMap(flown);
-      const configs = exportConfigs(synced, flown);
-      const losses = [...new Set([...Object.values(motors), ...configs.flatMap((c) => Object.values(c.motors))]
-        .map((m) => autoDelaySaveNote(m, '.ork')).filter((n): n is string => n !== null))];
-      // WITH launch: the .ork's first <simulation> carries the pad and weather,
-      // so the file (and the desktop app) round-trips the whole flight setup.
+      const losses = design.notes!;
       let omittedMotor = losses.length > 0;
-      const out = await download(exportOrk({ onOmittedMotor: () => { omittedMotor = true; }, workingOverrides: detachedOverrides,
-        name: tree.name ?? 'My Rocket', tree, motors, launch,
-        configs, activeConfigId, measured,
-        flightData: flightDataForExport(),
-        notes: losses,
-      }), 'ork', '', losses, omittedMotor ? 'caution' : highestTier(noteFlags(losses)), generation, saveId);
+      const out = await download(exportOrk({ ...design, onOmittedMotor: () => { omittedMotor = true; } }),
+        'ork', '', losses, omittedMotor ? 'caution' : highestTier(noteFlags(losses)), generation, saveId);
       // Only a real write counts. 'cancelled' means the user backed out of the
       // picker, and treating that as saved is how work gets discarded silently.
       if (generation === documentGeneration.current
@@ -3359,23 +3355,10 @@ export function App() {
   const onCopyShareLink = async () => {
     const generation = documentGeneration.current;
     try {
-      const flown = flownAutoDelaysNow();
-      const motors = exportMotorsMap(flown);
-      const { savedConfigs: synced } = planOrkSave(snapshotNow(), unmatchedRefs);
-      const configs = exportConfigs(synced, flown);
-      const saveNotes = [...new Set([...Object.values(motors), ...configs.flatMap(c => Object.values(c.motors))]
-        .map(m => autoDelaySaveNote(m, '.ork', 'share')).filter((n): n is string => n !== null))];
+      const { design } = prepareCurrentOrk('share');
+      const saveNotes = design.notes!;
       let omittedMotor = saveNotes.length > 0;
-      const xml = exportOrk({ onOmittedMotor: () => { omittedMotor = true; }, workingOverrides: detachedOverrides,
-        name: tree.name ?? 'My Rocket', tree, motors, launch,
-        // Included so a share link reproduces exactly what saving the file
-        // reproduces — the recipient sees the sender's weighed build, which is
-        // the rocket the "Build allowance" in the tree belongs to.
-        configs, activeConfigId, measured,
-        // Same rule: a link must open to the same file a save would write.
-        flightData: flightDataForExport(),
-        notes: saveNotes,
-      });
+      const xml = exportOrk({ ...design, onOmittedMotor: () => { omittedMotor = true; } });
       const frag = await encodeShareFragment(xml);
       const url = `${window.location.origin}${window.location.pathname}${window.location.search}${frag}`;
       // DELIBERATELY does not clear the unsaved-changes mark. The payload is
@@ -4691,11 +4674,7 @@ export function App() {
               // block, each with the parts it names one click away, where the
               // rail button's snap controls are. The same sentences buildDesign
               // appended, matched by identity, so nothing is said twice.
-              const warningTexts = built?.info.warningTexts ?? [];
-              const railFindings = warningTexts.length > 0
-                ? railInterferenceFindings(tree, prefs.units).filter(f => staticWarningTier(f.text) === 'information') : [];
-              const railTexts = new Set(railFindings.map(f => f.text));
-              const rest = warningTexts.filter(t => !railTexts.has(t));
+              const { railFindings, rest } = designWarningGroups;
               // One ALWAYS-MOUNTED live region per tier and one for rail fit,
               // each holding its note as a conditional child (audit 2026-09-22):
               // a region inserted with its text already in place is announced
@@ -5282,15 +5261,9 @@ export function App() {
           {reportRun && <div className="panel">
             <button className="file-btn" onClick={() => {
               try {
-                const { savedConfigs: synced } = planOrkSave(snapshotNow(), unmatchedRefs);
-                const flown = flownAutoDelaysNow();
-                const motors = exportMotorsMap(flown);
-                const configs = exportConfigs(synced, flown);
-                const losses = [...new Set([...Object.values(motors), ...configs.flatMap(c => Object.values(c.motors))]
-                  .map(m => autoDelaySaveNote(m, '.ork')).filter((n): n is string => n !== null))];
+                const { design } = prepareCurrentOrk();
                 setBundleSource({
-                  design: { name: tree.name ?? 'My Rocket', tree, motors, launch, configs, activeConfigId,
-                    measured, workingOverrides: detachedOverrides, flightData: flightDataForExport(), notes: losses },
+                  design,
                   run: reportRun, changedSince: inspectedSummary ? null : changedSince,
                   ...(!inspectedSummary && shownResult ? { result: shownResult } : {}),
                 });

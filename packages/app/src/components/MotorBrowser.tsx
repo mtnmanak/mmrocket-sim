@@ -626,7 +626,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
           {checking && (
             <button className="file-btn" onClick={() => checkAbort.current?.abort()} aria-label="Stop the catalogue check">Stop</button>
           )}
-          <button className="file-btn" onClick={onClose} disabled={busy} aria-label="Close motor browser">✕ Close</button>
+          <button className="file-btn" onClick={onClose} aria-label="Close motor browser">✕ Close</button>
         </div>
         <div className="motor-check-alert" role="alert">
           {checkError && <p className="print-note print-note-warn">{checkError}</p>}

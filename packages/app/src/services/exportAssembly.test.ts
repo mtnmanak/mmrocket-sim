@@ -3,7 +3,7 @@ import { OrkRocket, resetEngine } from '@online-openrocket/engine';
 import { engineTree } from '../tree/treeModel.js';
 import type { FlightTree, SavedConfig } from '../model/design.js';
 import { testMotor, testResolution } from './autoDelay.testSupport.js';
-import { exportConfigs, exportMotorsMap, flightExportInput, type ExportHardwareCache } from './exportAssembly.js';
+import { prepareOrkExport, exportConfigs, exportMotorsMap, flightExportInput, type ExportHardwareCache } from './exportAssembly.js';
 import * as designBuild from './buildDesign.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import { physicsKeyOf, provenanceKeyOf } from './designDerivation.js';
@@ -22,6 +22,29 @@ const exLibrary = () => [];
 afterEach(() => resetEngine());
 
 describe('export assembly (S2-8)', () => {
+  it('prepares matching fields and delay notes for Save, share and bundle from one design', () => {
+    const input = { snapshot: { tree, launch: DEFAULT_CONDITIONS, activeConfigId: 'A',
+      savedConfigs: [config({ motors: { a: testMotor(false, 11) } })], mountMotors: { a: motor },
+      measured: { massKg: 1, cgM: 0.2 }, detachedOverrides: {} },
+      assigned: [['a', motor]] as [string, typeof motor][], unmatchedRefs: {}, exLibrary,
+      flown: { A: { a: 7 } }, flightData: {} };
+    const save = prepareOrkExport(input);
+    const share = prepareOrkExport({ ...input, context: 'share' });
+    const bundle = prepareOrkExport(input);
+    expect(save.design).toEqual(bundle.design);
+    expect(save.design).toEqual(share.design);
+    expect(save.design.motors?.a?.delay).toBe(7);
+    expect(save.design.configs?.[0]?.motors.a?.delay).toBe(7);
+    expect(save.design.notes).toHaveLength(1);
+    expect(save.design.notes?.[0]).toContain('Auto (optimal)');
+    expect(save.savedConfigs[0]?.motors.a).toEqual(motor);
+    // A provisional delay has route-specific advice, retained by the seam.
+    const provisionalSave = prepareOrkExport({ ...input, flown: {} });
+    const provisionalShare = prepareOrkExport({ ...input, flown: {}, context: 'share' });
+    expect(provisionalSave.design.notes?.join(' ')).toContain('Launch, then save');
+    expect(provisionalShare.design.notes?.join(' ')).toContain('Launch, then copy the share link again');
+    expect(input.snapshot.savedConfigs[0]?.motors.a?.spec.ejectionDelay).toBe(11);
+  });
   it('does not build inactive hardware for stale design, conditions or model', () => {
     const savedConfigs = [config(), config({ id: 'B', motors: { a: { ...motor, padMassKg: 0.75 } } })];
     const aero = { aeroMode: 'classic' as const, effectiveKbf: false, autoSupersonic: false };

@@ -4,13 +4,35 @@ import type { FlightOverrides, FlightTree, MountMotor, SavedConfig } from '../mo
 import { primaryMountOf, stagesWithNozzle } from '../tree/treeModel.js';
 import { assignedMotorsOf, physicsKeyOf, provenanceKeyOf, currentSetKeyOf, hardwareDeltaKgOf } from './designDerivation.js';
 import { resolveFlightState } from './flightState.js';
-import { configOntoTree } from './importApply.js';
-import type { OrkExportConfig, OrkExportMotor, OrkMotorRef } from './orkFile.js';
+import { configOntoTree, planOrkSave } from './importApply.js';
+import { autoDelaySaveNote, type OrkExportConfig, type OrkExportMotor, type OrkMotorRef, type OrkTreeExportInput } from './orkFile.js';
 import type { FlightDataForExportInput } from './orkFlightData.js';
 import { orkMotorSet, type ExLibrary, type FlownAutoDelays } from './orkExportMotors.js';
 import { motorSetKeyOf, type DesignMatchKey } from './simReport.js';
 import { buildDesign, KERNEL_HANDLES } from './buildDesign.js';
-import { stableJson } from './dirtyState.js';
+import { stableJson, type DesignSnapshot } from './dirtyState.js';
+
+/** One synchronous snapshot for Save, share and the flight-data bundle.
+ * Route-specific callbacks and save bookkeeping remain with the caller. */
+export function prepareOrkExport(input: {
+  snapshot: DesignSnapshot;
+  assigned: readonly (readonly [string, MountMotor])[];
+  unmatchedRefs: Record<string, OrkMotorRef>;
+  exLibrary: ExLibrary;
+  flown: FlownAutoDelays;
+  flightData: NonNullable<OrkTreeExportInput['flightData']>;
+  context?: 'share';
+}): { design: OrkTreeExportInput; savedConfigs: SavedConfig[]; mark: string } {
+  const { snapshot, assigned, unmatchedRefs, exLibrary, flown, flightData, context } = input;
+  const { tree, activeConfigId, launch, measured, detachedOverrides } = snapshot;
+  const plan = planOrkSave(snapshot, unmatchedRefs);
+  const motors = exportMotorsMap({ assigned, unmatchedRefs, tree, activeConfigId, exLibrary }, flown);
+  const configs = exportConfigs(plan.savedConfigs, tree, exLibrary, flown);
+  const notes = [...new Set([...Object.values(motors), ...configs.flatMap(c => Object.values(c.motors))]
+    .map(m => autoDelaySaveNote(m, '.ork', context)).filter((n): n is string => n !== null))];
+  return { ...plan, design: { name: tree.name ?? 'My Rocket', tree, motors, launch, configs,
+    activeConfigId, measured, workingOverrides: detachedOverrides, flightData, notes } };
+}
 
 export type ExportHardwareCache = Map<string | null, { key: string; delta: number }>;
 

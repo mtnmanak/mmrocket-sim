@@ -18,6 +18,15 @@ function compareVersions(a: string, b: string): number {
   return 0;
 }
 
+function areConsecutiveVersions(newer: string, older: string): boolean {
+  const [newMajor, newRelease] = newer.split('.').map(Number);
+  const [oldMajor, oldRelease] = older.split('.').map(Number);
+  // Keep integer release increments (including 999 -> 1000) and the
+  // historical three-digit major rollover, without ignoring either segment.
+  return (newMajor === oldMajor && newRelease! - oldRelease! === 1)
+    || (newMajor! - oldMajor! === 1 && newRelease === 0 && oldRelease === 999);
+}
+
 /**
  * The release tooling reads these two files as TEXT, not by importing them,
  * so their shape is a contract (audit 2026-09-22, row 510, which moved the
@@ -66,10 +75,10 @@ describe('APP_VERSION / CHANGELOG / version.json pairing', () => {
   });
 
   it('entries run strictly downward with no duplicates', () => {
-    for (let i = 1; i < CHANGELOG.length; i++) {
-      const newer = Number(CHANGELOG[i - 1]!.version);
-      const older = Number(CHANGELOG[i]!.version);
-      expect(older, `${CHANGELOG[i]!.version} listed after ${CHANGELOG[i - 1]!.version}`).toBeLessThan(newer);
+    for (const versions of [CHANGELOG.map(e => e.version), ['0.1000', '0.999']]) {
+      for (let i = 1; i < versions.length; i++) {
+        expect(compareVersions(versions[i]!, versions[i - 1]!)).toBeLessThan(0);
+      }
     }
   });
 
@@ -78,14 +87,27 @@ describe('APP_VERSION / CHANGELOG / version.json pairing', () => {
    * the deployed v0.136 entry to 0.137 and added one item to it, so What's New
    * jumped from 0.137 to 0.135 and version.json's "everything in v0.136 still
    * applies" pointed at an entry that no longer existed. Every release since
-   * 0.001 has its own entry, so consecutive entries differ by exactly one.
+   * 0.001 has its own entry: increment the release or roll 0.999 to 1.000.
    */
-  it('every release has its own entry: consecutive versions differ by exactly 0.001', () => {
-    for (let i = 1; i < CHANGELOG.length; i++) {
-      const newer = Math.round(Number(CHANGELOG[i - 1]!.version) * 1000);
-      const older = Math.round(Number(CHANGELOG[i]!.version) * 1000);
-      expect(newer - older, `${CHANGELOG[i - 1]!.version} is followed by ${CHANGELOG[i]!.version}`).toBe(1);
+  it('every release has its own entry: versions are consecutive', () => {
+    for (const versions of [CHANGELOG.map(e => e.version), ['0.1000', '0.999'], ['1.000', '0.999']]) {
+      for (let i = 1; i < versions.length; i++) {
+        expect(areConsecutiveVersions(versions[i - 1]!, versions[i]!),
+          `${versions[i - 1]} is followed by ${versions[i]}`).toBe(true);
+      }
     }
+  });
+
+  it.each([
+    ['0.1000', '0.999', true],
+    ['1.000', '0.999', true],
+    ['1.198', '0.197', false],
+    ['0.199', '0.197', false],
+    ['1.000', '0.998', false],
+    ['2.000', '0.999', false],
+    ['0.197', '0.197', false],
+  ])('checks consecutive versions %s after %s: %s', (newer, older, consecutive) => {
+    expect(areConsecutiveVersions(newer, older)).toBe(consecutive);
   });
 
   it('every entry carries a date, a title and at least one item', () => {

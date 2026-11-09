@@ -7,6 +7,7 @@ import { act } from 'react';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { createRoot, type Root } from 'react-dom/client';
 import { App } from './App.js';
+import * as mountAngle from './tree/mountAngle.js';
 import { testResolution } from './services/autoDelay.testSupport.js';
 import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
@@ -2605,6 +2606,15 @@ describe('rail fit on the Design view', () => {
     const host = await mountApp();
     await settle(50);
     const block = host.querySelector('.rail-fit-findings');
+    const scan = vi.spyOn(mountAngle, 'railInterferenceFindings');
+    const roll = host.querySelector<HTMLInputElement>('input[aria-label="Roll the view about the rocket\'s long axis"]')!;
+    expect(roll).not.toBeNull();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(roll, '30');
+      roll.dispatchEvent(new Event('input', { bubbles: true }));
+      roll.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(scan).not.toHaveBeenCalled();
     expect(block, 'the rail-fit block').not.toBeNull();
     expect(block!.textContent).toMatch(/^Rail fit on the pad/);
     expect(block!.textContent).toContain('“Fwd button”');
@@ -2616,6 +2626,8 @@ describe('rail fit on the Design view', () => {
     expect(select).toBeTruthy();
     await act(async () => { select.click(); });
     await settle(20);
+    expect(scan).not.toHaveBeenCalled();
+    scan.mockRestore();
     // The selected part's panel, with the snap control that corrects it.
     expect((host.querySelector('.design-props input[id$="-name"]') as HTMLInputElement).value).toBe('Fwd button');
     expect(host.querySelector('.design-props')!.textContent).toContain('⟂ between fins');
