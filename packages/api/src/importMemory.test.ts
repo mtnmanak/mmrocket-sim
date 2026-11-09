@@ -1,5 +1,51 @@
 import { describe, expect, it } from 'vitest';
-import { classifyRun, smallestOldSpace, type MemoryRun } from '../scripts/import-memory.mjs';
+import { classifyRun, smallestOldSpace, PROBE, type MemoryRun } from '../scripts/import-memory.mjs';
+import { build } from 'esbuild';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+
+describe('import-memory CLI value options', () => {
+  for (const name of ['baseline', 'changed', 'points', 'columns', 'reps', 'mode', 'shape']) {
+    it.each(['', '--other'])(`rejects --${name} without a value before doing any work (%j)`, next => {
+      // Block writes and external work rather than creating scratch files or probes.
+      const preload = `import fs from 'node:fs';
+        import cp from 'node:child_process';
+        import { syncBuiltinESMExports } from 'node:module';
+        const blocked = () => { throw new Error('unexpected side effect'); };
+        fs.mkdtempSync = fs.writeFileSync = fs.rmSync = cp.spawnSync = blocked;
+        globalThis.fetch = blocked;
+        syncBuiltinESMExports();`;
+      const script = fileURLToPath(new URL('../scripts/import-memory.mjs', import.meta.url));
+      const args = name === 'baseline' ? [] : ['--baseline', '.'];
+      const child = spawnSync(process.execPath, ['--import', 'data:text/javascript,' + encodeURIComponent(preload),
+        script, 'measure', ...args, `--${name}`, ...(next ? [next] : [])], { encoding: 'utf8', timeout: 10_000 });
+      expect(child.error).toBeUndefined();
+      expect(child.status).toBe(1);
+      expect(child.stderr).toContain(`--${name} requires a value`);
+      expect(child.stderr).not.toContain('unexpected side effect');
+      expect(child.stdout).toBe('');
+    });
+  }
+});
+
+it('the real fly probe reaches a flight result with local synthetic credentials', async () => {
+  const scratch = mkdtempSync(join(tmpdir(), 'api-probe-test-'));
+  const root = fileURLToPath(new URL('../../../', import.meta.url)).replaceAll('\\', '/');
+  try {
+    const outfile = join(scratch, 'probe.mjs');
+    await build({ stdin: { contents: PROBE.replaceAll('@tree/', root), resolveDir: root }, outfile,
+      bundle: true, format: 'esm', platform: 'node', logLevel: 'silent',
+      conditions: ['workerd', 'worker', 'browser'], mainFields: ['browser', 'module', 'main'],
+      banner: { js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" } });
+    const child = spawnSync(process.execPath, [outfile, 'fly', root + 'packages/app/src/services/__fixtures__/reference.ork'],
+      { encoding: 'utf8', timeout: 60_000 });
+    expect(child.status, child.stderr).toBe(0);
+    expect(JSON.parse(child.stdout.trim())).toMatchObject({ ok: true, status: 200, apogeeM: expect.any(Number) });
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+}, 60_000);
 
 /**
  * The measurement script's bisection, with a stub runner and no child process

@@ -78,7 +78,7 @@ async function generate(points, columns, shape = 'samples') {
   return { xml, zip, stats: { ...xmlStats(xml), zipBytes: zip.byteLength } };
 }
 
-const PROBE = `
+export const PROBE = `
 import { readFileSync } from 'node:fs';
 import worker from '@tree/packages/api/src/index.ts';
 import { importOrk } from '@tree/packages/app/src/services/orkFile.ts';
@@ -91,8 +91,13 @@ if (mode === 'import') {
     outcome = { ok: true, status: 200, components: out.tree.components.length };
   } catch (e) { outcome = { ok: false, status: e?.name === 'XmlBudgetExceededError' || e?.name === 'InflatedFileTooLargeError' ? 413 : 400, error: String(e?.message ?? e) }; }
 } else {
-  const response = await worker.fetch(new Request('http://local/experimental/fly?filename=stored.ork', { method: 'POST', body: bytes }),
-    undefined, { waitUntil() {} });
+  // Fixed synthetic credentials are local to the probe, never production keys.
+  const credential = 'mmrsim-local-memory-probe';
+  const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(credential))),
+    byte => byte.toString(16).padStart(2, '0')).join('');
+  const response = await worker.fetch(new Request('http://local/experimental/fly?filename=stored.ork', {
+    method: 'POST', body: bytes, headers: { Authorization: 'Bearer ' + credential },
+  }), { API_KEYS: 'memory-probe:' + hash, RATE_LIMITER: { async limit() { return { success: true }; } } }, { waitUntil() {} });
   const json = await response.json();
   outcome = { ok: response.status === 200, status: response.status, apogeeM: json.apogeeM, error: json.error?.message };
 }
@@ -172,14 +177,25 @@ export async function smallestOldSpace(run, probe, mode, file, reps) {
   return { mib: high, failedAt: high - 1 >= low ? low : null };
 }
 
-async function measure(argv) {
-  const opt = (name, fallback) => { const i = argv.indexOf(`--${name}`); return i < 0 ? fallback : argv[i + 1]; };
+function measureOptions(argv) {
+  const opt = (name, fallback) => {
+    const i = argv.indexOf(`--${name}`);
+    if (i < 0 && fallback !== undefined) return fallback;
+    if (i < 0 || argv[i + 1] === undefined || argv[i + 1].startsWith('--')) {
+      throw new Error(`--${name} requires a value`);
+    }
+    return argv[i + 1];
+  };
   const trees = { baseline: resolve(opt('baseline')), changed: resolve(opt('changed', repo)) };
   const points = opt('points', '1000,4000,16000,40000').split(',').map(Number);
   const columns = Number(opt('columns', '52'));
   const reps = Number(opt('reps', '3'));
   const mode = opt('mode', 'import');
   const shape = opt('shape', 'samples');
+  return { trees, points, columns, reps, mode, shape };
+}
+
+async function measure({ trees, points, columns, reps, mode, shape }) {
   const probes = { baseline: await probeFor(trees.baseline, 'baseline'), changed: await probeFor(trees.changed, 'changed') };
   const git = root => spawnSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
   const rows = [];
@@ -203,14 +219,16 @@ async function measure(argv) {
 }
 
 async function main() {
+  const [command, ...rest] = process.argv.slice(2);
+  // Validate every measurement option before creating scratch files or probes.
+  const options = command === 'measure' ? measureOptions(rest) : undefined;
   work = mkdtempSync(join(tmpdir(), 'import-memory-'));
   try {
-    const [command, ...rest] = process.argv.slice(2);
     if (command === 'gen') {
       const { zip, stats } = await generate(Number(rest[0]), Number(rest[1] ?? 52), rest[3] ?? 'samples');
       if (rest[2]) writeFileSync(rest[2], zip);
       console.log(JSON.stringify(stats));
-    } else if (command === 'measure') await measure(rest);
+    } else if (command === 'measure') await measure(options);
     else throw new Error('Usage: import-memory.mjs gen <points> [columns] [out.ork] | measure --baseline <tree> [...]');
   } finally {
     rmSync(work, { recursive: true, force: true });

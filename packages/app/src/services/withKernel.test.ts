@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { KernelUnavailableError, resetKernelForTests, withKernel } from './simulateDesign.js';
+import { kernelPoisoned, KernelUnavailableError, resetKernelForTests, withKernel } from './simulateDesign.js';
 
 beforeEach(() => { resetKernelForTests(); vi.useFakeTimers(); });
 afterEach(() => { vi.useRealTimers(); resetKernelForTests(); });
 
 describe('withKernel dead-holder guard', () => {
   it('poisons a stuck holder and refuses later calls with and without the option', async () => {
+    expect(kernelPoisoned()).toBe(false);
     void withKernel(() => new Promise(() => {}));
     await Promise.resolve();
     const fn = vi.fn();
@@ -13,11 +14,13 @@ describe('withKernel dead-holder guard', () => {
     const rejection = expect(waiting).rejects.toBeInstanceOf(KernelUnavailableError);
     await vi.advanceTimersByTimeAsync(100);
     await rejection;
+    expect(kernelPoisoned()).toBe(true);
     await expect(withKernel(fn)).rejects.toBeInstanceOf(KernelUnavailableError);
     await expect(withKernel(fn, undefined, { deadHolderMs: 100 })).rejects.toBeInstanceOf(KernelUnavailableError);
     expect(fn).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
     resetKernelForTests();
+    expect(kernelPoisoned()).toBe(false);
     await expect(withKernel(() => 'clean')).resolves.toBe('clean');
   });
 

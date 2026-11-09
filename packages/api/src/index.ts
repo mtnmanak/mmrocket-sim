@@ -1,7 +1,7 @@
 import { noticeNumber } from '../../app/src/prefs/units.js';
 import { boosterBranches } from '@online-openrocket/engine';
 import {
-  KernelUnavailableError, InflatedFileTooLargeError,
+  kernelPoisoned, KernelUnavailableError, InflatedFileTooLargeError,
   commentsOf, formatWarning, createJsXmlParser, XmlBudgetExceededError, mountMotorCount, mountNamesOf, motorMounts, resolveFlightState, setXmlParser,
   simulateFile, SimulateDesignError, type TimedSimulateFileResult, describeFile, type DescribeFileResult, SHARE_TOO_LARGE_ERROR_NAME,
 } from '../../app/src/headless/index.js';
@@ -31,6 +31,14 @@ function bodySizeError(received: number, declared: boolean, filename: string): R
 
 function uploadBusyError(): Response {
   return error('SERVER_BUSY', 'The API is busy with other uploads. Retry in a few seconds.', 503, { 'Retry-After': '5' });
+}
+
+function kernelUnavailableError(): Response {
+  if (!kernelUnavailableLogged) {
+    kernelUnavailableLogged = true;
+    console.error('API kernel unavailable: isolate replacement required.');
+  }
+  return error('KERNEL_UNAVAILABLE', 'A previous flight on this server instance was stopped part-way. Please retry later; this instance cannot recover until it is replaced.', 503);
 }
 
 async function rateLimit(limiter: NonNullable<Env['RATE_LIMITER']>, key: string): Promise<Response | undefined> {
@@ -146,7 +154,8 @@ export const worker = {
       const refusal = !filename ? error('FILENAME_REQUIRED', 'Supply the design filename in ?filename=.', 400)
         : !request.body || declared === 0 ? error('EMPTY_FILE', 'Supply a raw design file as the request body.', 400)
           : declared !== undefined && declared > MAX_API_BODY_BYTES ? bodySizeError(declared, true, filename)
-            : kernelBusy() ? error('KERNEL_BUSY', 'The API is busy with other designs. Retry in a few seconds.', 503, { 'Retry-After': '5' }) : undefined;
+            : kernelPoisoned() ? kernelUnavailableError()
+              : kernelBusy() ? error('KERNEL_BUSY', 'The API is busy with other designs. Retry in a few seconds.', 503, { 'Retry-After': '5' }) : undefined;
       if (refusal) return (await rateLimit(env.RATE_LIMITER, 'refused:' + key.name)) ?? refusal;
       // Reserve the first 64 KiB atomically before awaiting the work limiter.
       try { reservation.setKey(key.name); reservation.prepare(); }
@@ -200,7 +209,7 @@ export const worker = {
         totalMs: performance.now() - started,
       } });
     } catch (e) {
-      // Display only: the full trimmed name already chose the importer.
+      // Display only: content selects the importer, with the full trimmed filename as fallback.
       if (e instanceof BodyTimeout) return error('BODY_TIMEOUT', e.message, 408);
       if (e instanceof BodyTooLarge) {
         return bodySizeError(e.received, e.declared, filename);
@@ -222,11 +231,7 @@ export const worker = {
         return uploadBusyError();
       }
       if (e instanceof KernelUnavailableError) {
-        if (!kernelUnavailableLogged) {
-          kernelUnavailableLogged = true;
-          console.error('API kernel unavailable: isolate replacement required.');
-        }
-        return error('KERNEL_UNAVAILABLE', 'A previous flight on this server instance was stopped part-way. Please retry later; this instance cannot recover until it is replaced.', 503);
+        return kernelUnavailableError();
       }
       if (e instanceof SimulateDesignError) {
         const codes = { file: 'FILE_TOO_LARGE', parse: 'INVALID_FILE', build: 'DESIGN_BUILD_FAILED',

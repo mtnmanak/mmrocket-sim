@@ -1,6 +1,86 @@
 import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 
+function isolatedPinnedWorkflow(text: string): boolean {
+  const source = text.replace(/\r\n/g, '\n').replace(/^\s*#[^\n]*/gm, '');
+  const uses = [...source.matchAll(/\buses:\s*(\S+)/g)].map(match => match[1]!);
+  if (!uses.length || !uses.every(action => action.startsWith('./') || /^[\w-]+\/[\w-]+@[a-f0-9]{40}$/.test(action))) return false;
+  const secretReference = /\bsecrets\s*(?:\.|\[)/;
+  // Workflow/job keys are unordered. Bound each value by the next peer key.
+  const properties = (block: string, indent = 4) => {
+    const keys = [...block.matchAll(new RegExp(`^ {${indent}}([\\w-]+):`, 'gm'))];
+    return keys.map((key, i) => ({ name: key[1], text: block.slice(key.index, keys[i + 1]?.index) }));
+  };
+  const root = properties(source, 0);
+  const jobs = properties(root.find(field => field.name === 'jobs')?.text ?? '', 2);
+  const job = (name: string) => jobs.find(field => field.name === name)?.text ?? '';
+  if (['build', 'deploy', 'delete'].some(name => !/^ {4}runs-on: ubuntu-24\.04(?:\s*#.*)?$/m.test(job(name)))) return false;
+  if (secretReference.test(job('build')) || /^ {4}environment:/m.test(job('build'))) return false;
+  // Job/global env could expose secrets to npm before step-level checks apply.
+  for (const name of ['deploy', 'delete']) {
+    const fields = properties(job(name));
+    if (fields.some(field => field.name !== 'steps' && secretReference.test(field.text))) return false;
+    const steps = (fields.find(field => field.name === 'steps')?.text ?? '').split(/^ {6}- /m).slice(1);
+    if (!steps.some(step => /run: npm install\b/.test(step))) return false;
+    if (steps.some(step => /run: npm (?:install|ci)\b/.test(step) && secretReference.test(step))) return false;
+  }
+  return !root.some(field => field.name !== 'jobs' && secretReference.test(field.text));
+}
+
+it('guards API action SHAs, runner parity and secret-free build/install steps', () => {
+  const workflow = readFileSync(new URL('../../../.github/workflows/api-deploy.yml', import.meta.url), 'utf8');
+  expect(isolatedPinnedWorkflow(workflow)).toBe(true);
+  for (const match of workflow.matchAll(/uses: (?!\.\/)(\S+)|runs-on: ubuntu-24\.04/g)) {
+    const replacement = match[1] ? 'uses: ' + match[1].replace(/@.*/, '@v4') : 'runs-on: ubuntu-latest';
+    const changed = workflow.slice(0, match.index) + replacement + workflow.slice(match.index! + match[0].length);
+    expect(isolatedPinnedWorkflow(changed), match[0]).toBe(false);
+  }
+  for (const addition of ['    environment: api-production', '    env:\n      TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}']) {
+    expect(isolatedPinnedWorkflow(workflow.replace('  build:', '  build:\n' + addition))).toBe(false);
+  }
+  for (const [from, to] of [
+    ['  deploy:', '  deploy:\n    env:\n      TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}'],
+    ['jobs:', 'env:\n  TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}\n\njobs:'],
+  ]) {
+    expect(workflow).toContain(from);
+    const changed = workflow.replace(from!, to!);
+    expect(changed).not.toBe(workflow);
+    expect(isolatedPinnedWorkflow(changed), from).toBe(false);
+  }
+  for (const match of workflow.matchAll(/run: npm (?:install|ci)[^\n]*/g)) {
+    const changed = workflow.slice(0, match.index! + match[0].length) + '\n        env:\n          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}' + workflow.slice(match.index! + match[0].length);
+    expect(isolatedPinnedWorkflow(changed), match[0]).toBe(false);
+  }
+});
+
+it.each(['deploy', 'delete'])('rejects %s job env after steps in either secret syntax', name => {
+  const workflow = readFileSync(new URL('../../../.github/workflows/api-deploy.yml', import.meta.url), 'utf8');
+  for (const reference of ['secrets.CLOUDFLARE_API_TOKEN', "secrets['X']"]) {
+    const changed = workflow.replace(new RegExp(`(\\n  ${name}:[\\s\\S]*?)(?=\\n  [a-z][\\w-]*:|$)`),
+      `$1\n    env:\n      TOKEN: \u0024{{ ${reference} }}\n`);
+    expect(changed).not.toBe(workflow);
+    expect(isolatedPinnedWorkflow(changed), reference).toBe(false);
+  }
+});
+
+it('rejects bracket secret references anywhere in build and inherited workflow env', () => {
+  const workflow = readFileSync(new URL('../../../.github/workflows/api-deploy.yml', import.meta.url), 'utf8');
+  for (const [from, to] of [
+    ['  build:', "  build:\n    env:\n      TOKEN: ${{ secrets['X'] }}"],
+    ['- run: npm ci', "- run: echo ${{ secrets['X'] }}"],
+    ['jobs:', "env:\n  TOKEN: ${{ secrets['X'] }}\n\njobs:"],
+    ['run: npm install', "env:\n          TOKEN: ${{ secrets['X'] }}\n        run: npm install"],
+  ]) {
+    expect(workflow).toContain(from);
+    expect(isolatedPinnedWorkflow(workflow.replace(from!, to!)), from).toBe(false);
+  }
+});
+
+it('rejects inherited workflow env after jobs', () => {
+  const workflow = readFileSync(new URL('../../../.github/workflows/api-deploy.yml', import.meta.url), 'utf8');
+  expect(isolatedPinnedWorkflow(workflow + "\nenv:\n  TOKEN: ${{ secrets['X'] }}\n")).toBe(false);
+});
+
 /** Read the active block for each job, excluding comments and normalizing line endings. */
 function productionGuards(workflow: string): boolean {
   const source = workflow.replace(/\r\n/g, '\n').replace(/^\s*#[^\n]*/gm, '');

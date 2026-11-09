@@ -167,13 +167,21 @@ describe('the body reader keeps exactly the bytes received', () => {
   it('shrinks the handoff in place when three different keys hold near-cap bodies', async () => {
     const reservation = new BodyReservation();
     const other = new BodyReservation();
-    // Two other ~6 MiB uploads hold 8 MiB backing buffers each.
+    // Other keys fill 16 MiB; the final upload leaves no room for a handoff copy.
     other.reserve(MAX_IN_FLIGHT_BODY_BYTES - MAX_API_BODY_BYTES);
+    let writtenBuffer: ArrayBufferLike | undefined;
+    const set = Uint8Array.prototype.set;
+    vi.spyOn(Uint8Array.prototype, 'set').mockImplementation(function (this: Uint8Array, ...args) {
+      writtenBuffer = this.buffer;
+      return set.apply(this, args);
+    });
+    const size = MAX_API_BODY_BYTES - 1;
     try {
       const data = await readBody(new Request('http://local', { method: 'POST',
-        body: new Uint8Array(6 * 1024 * 1024) }), reservation);
-      expect(data.byteLength).toBe(6 * 1024 * 1024);
-      expect(reservedBodyBytes()).toBe(22 * 1024 * 1024);
+        body: new Uint8Array(size) }), reservation);
+      expect(data).toBe(writtenBuffer);
+      expect(data.byteLength).toBe(size);
+      expect(reservedBodyBytes()).toBe(MAX_IN_FLIGHT_BODY_BYTES - 1);
     } finally { reservation.release(); other.release(); }
   });
 

@@ -368,6 +368,9 @@ export class KernelUnavailableError extends Error {
 let tail: Promise<void> | undefined;
 let poisoned = false;
 
+/** A poisoned isolate cannot run another kernel job until it is replaced. */
+export function kernelPoisoned(): boolean { return poisoned; }
+
 /** @internal Only tests may discard the queue and poisoned state; production must replace the isolate. */
 export function resetKernelForTests(): void {
   tail = undefined;
