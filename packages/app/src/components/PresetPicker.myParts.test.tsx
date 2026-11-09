@@ -41,6 +41,19 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); });
 
 describe('M2.3 My parts picker', () => {
+  it.each([false, true])('H1 cancels an older CSV read (close=%s)', async closing => {
+    await render();
+    let resolve!: (text: string) => void;
+    const old = new File([], 'old.csv');
+    old.text = () => new Promise(r => { resolve = r; });
+    const el = host.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(el, 'files', { configurable: true, value: [old] });
+    await act(async () => { el.dispatchEvent(new Event('change', { bubbles: true })); });
+    if (closing) act(() => root.render(null));
+    else await importCsv(presetsToCsv([{ ...CUSTOM, length: 0.8 }]));
+    await act(async () => { resolve(presetsToCsv([{ ...CUSTOM, length: 0.2 }])); });
+    expect(loadCustomPresets().map(p => p['length'])).toEqual(closing ? [] : [0.8]);
+  });
   it.each(['import', 'delete'])('R4 reports a recovery copy after the %s write fails', async action => {
     const key = 'online-openrocket.custom-presets.v1';
     saveCustomPresets([CUSTOM]); await render();

@@ -149,10 +149,14 @@ export function NumField({
     // "1,5" is 1.5; "10,000" is refused rather than read as 10 (readDecimal) —
     // unless this field wrote the text itself, which reads as written (ownText).
     const t = s.trim();
-    const v = ownText.has(t) ? readDecimal(t, false) : readDecimal(s);
+    let v = ownText.has(t) ? readDecimal(t, false) : readDecimal(s);
     if (v === null) return null;
     if (lowBound !== undefined && v < lowBound) return null;
-    if (capped && max !== undefined && v > max) return null;
+    if (capped && max !== undefined) {
+      // Typing the displayed ceiling must still reach the exact stored limit.
+      if (v === Number(fmtFieldValue(max, prefs.fieldPrecision))) v = max;
+      else if (v > max) return null;
+    }
     if (integer && !Number.isInteger(v)) return null;
     // Register: Batch/Drag typed overflows. Refuse and flag the same draft,
     // before any caller can store an infinite unit conversion.

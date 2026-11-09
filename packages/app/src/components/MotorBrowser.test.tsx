@@ -9,7 +9,7 @@ import type { MountMotor } from '../model/design.js';
 import { withAuto, withDelay, withPlugged } from '../services/mountDelayEdits.js';
 import { MOTOR_DB, MOTOR_DB_DATE, setCatalogueOverlay } from '../services/motorDb.js';
 import { resetThrustcurveBackoffForTests } from '../services/thrustcurveTraffic.js';
-import { parseEng } from '../services/exMotors.js';
+import { loadExMotors, parseEng } from '../services/exMotors.js';
 import * as thrustcurve from '../services/thrustcurve.js';
 import { catalogueFetch, daysAfter, manifestOf, publication } from '../services/catalogueFixture.testSupport.js';
 
@@ -272,6 +272,32 @@ async function importFiles(h: Harness, files: { name: string; text: string }[]):
   for (let i = 0; i < 20; i++) await settle(5);
 }
 
+it.each(['newer selection', 'close', 'unmount'])('H1 cancels a pending EX folder import on %s', async action => {
+  localStorage.clear();
+  const h = openBrowser({ mountDiameterMm: 29 });
+  let unmounted = false;
+  onTestFinished(() => { if (!unmounted) closeBrowser(h); localStorage.clear(); });
+  const contents = 'H99 29 200 6 0.15 0.3 Home\n0 0\n0.5 120\n1.5 0\n';
+  let finish!: (bytes: ArrayBuffer) => void;
+  const file = new File([contents], 'old.eng');
+  Object.defineProperty(file, 'arrayBuffer', { value: () => new Promise<ArrayBuffer>(resolve => { finish = resolve; }) });
+  const folder = h.host.querySelectorAll<HTMLInputElement>('input[type="file"]')[1]!;
+  Object.defineProperty(folder, 'files', { value: [file], configurable: true });
+  act(() => { folder.dispatchEvent(new Event('change', { bubbles: true })); });
+  if (action === 'newer selection') {
+    await importFiles(h, [{ name: 'new.eng', text: contents.replace('0.5 120', '0.5 180') }]);
+    expect(loadExMotors()[0]?.samples.map(sample => sample.thrust)).toContain(180);
+  } else if (action === 'close') {
+    // The callback need not unmount synchronously: Close itself invalidates the read.
+    click(h.host.querySelector('[aria-label="Close motor browser"]')!);
+  } else {
+    act(() => h.root.unmount()); h.host.remove(); unmounted = true;
+  }
+  await act(async () => { finish(new TextEncoder().encode(contents).buffer); await new Promise(resolve => setTimeout(resolve, 20)); });
+  if (action === 'newer selection') expect(loadExMotors()[0]?.samples.map(sample => sample.thrust)).toContain(180);
+  else expect(loadExMotors()).toEqual([]);
+});
+
 // S3a-2 (audit 2026-10-17): import completion cannot overwrite current or reopened filters.
 it.each([false, true])('preserves current filters after a deferred EX import (reopen: %s)', async reopen => {
   localStorage.clear();
@@ -304,7 +330,7 @@ it.each([false, true])('preserves current filters after a deferred EX import (re
   if (!reopen) {
     expect(h.host.querySelector('.motor-import-notes > [role="status"]')?.textContent).toContain('Imported 1 EX motor (H99)');
     expect(rowFor(h, 'Home (EX)', 'H99')).toBeDefined();
-  }
+  } else expect(loadExMotors()).toEqual([]);
 });
 
 // S3a-g2 (audit 2026-10-17): changing the choice cancels the superseded download.

@@ -537,6 +537,11 @@ function readSession(restoreRoot: boolean): SessionState | null {
       if (!isTable(mm)) return false;
       const spec = mm['spec'], meta = mm['meta'];
       return isTable(spec) && isTable(meta) && typeof spec['designation'] === 'string'
+        && ['times', 'thrusts', 'masses'].every(key => Array.isArray(spec[key])
+          && spec[key].length >= 2 && spec[key].length === (spec['times'] as unknown[]).length
+          && spec[key].every(v => Number.isFinite(v)))
+        && ['diameter', 'length'].every(key => Number.isFinite(spec[key]) && (spec[key] as number) > 0)
+        && Number.isFinite(spec['cgX'])
         && ['motorId', 'exMotorId', 'manufacturer', 'orkType', 'orkManufacturer', 'orkMotorId', 'orkDigest'].every(key => meta[key] === undefined || typeof meta[key] === 'string')
         && (meta['availableDelays'] === undefined || (Array.isArray(meta['availableDelays'])
           && meta['availableDelays'].every(d => Number.isFinite(d) || d === Infinity || d === 'Infinity')))
@@ -919,6 +924,7 @@ function writeNow(): void {
       localStorage.setItem(KEY, payload);
     }
     seenStamp = stamp;
+    overwriting = null;
     exhaustedCacheSize = undefined;
     lastWritten = pending;
     setConflicted(false);
@@ -974,11 +980,7 @@ export function takeOverSession(): void {
   }
   setConflicted(false);
   overwriting = replacing || null;
-  try {
-    flushSession();
-  } finally {
-    overwriting = null;
-  }
+  flushSession();
 }
 
 /**

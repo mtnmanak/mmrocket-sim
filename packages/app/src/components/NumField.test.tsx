@@ -375,6 +375,17 @@ describe('NumField — typing', () => {
     expect(commits).toEqual([8]);
   });
 
+  it('H1 typing the displayed ceiling commits the exact bound across capped fields', () => {
+    render({ value: 0.1, max: 0.01 / 0.0254 });
+    focus();
+    type('0.394');
+    expect(input().getAttribute('aria-invalid')).not.toBe('true');
+    expect(commits).toEqual([0.01 / 0.0254]);
+    type('0.395');
+    expect(input().getAttribute('aria-invalid')).toBe('true');
+    expect(commits).toHaveLength(1);
+  });
+
   it('clampToMax: a draft over max commits max, flagged until blur, instead of stranding the prefix', () => {
     // Every draft commits live, so typing "12" into a field capped at 8 went
     // through "1" first; refusing "12" then left that 1 as the stored value —

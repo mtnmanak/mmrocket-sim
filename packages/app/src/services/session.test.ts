@@ -49,6 +49,18 @@ const state = () => ({
   } as LaunchConditions,
 });
 
+it.each(['times', 'thrusts', 'masses', 'diameter', 'length', 'cgX'])('H1 screens restored motor spec %s in both maps', key => {
+  discardSession();
+  const spec = { designation: 'T', times: [0, 1], thrusts: [0, 0], masses: [0.1, 0.05],
+    diameter: 0.02, length: 0.1, cgX: 0.05, ejectionDelay: 5, [key]: 'bad' };
+  const mm = { spec, meta: {}, label: 'T' };
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), mountMotors: { m: mm },
+    savedConfigs: [{ id: 'a', name: 'A', isDefault: true, motors: { m: mm } }] }));
+  const loaded = loadSession()!;
+  expect(loaded.mountMotors?.['m']).toBeUndefined();
+  expect(loaded.savedConfigs?.[0]?.motors['m']).toBeUndefined();
+});
+
 it.each([[[]], ['bad'], [null], [{ m: 1 }], [{ m: null }]])('refuses unreadable saved motor-load notes: %j', motorLoadNotes => {
   discardSession();
   localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), savedConfigs: [
@@ -108,7 +120,7 @@ describe('closure lane persisted records', () => {
     expect(() => designStateFromSession(loaded, { legacyMaxMotorLengthM: null })).not.toThrow();
   });
   it('revives writer-encoded plugged delay options in both motor sets', () => {
-    const motor = { label: 'Test', spec: { designation: 'Test', ejectionDelay: 'Infinity' },
+    const motor = { label: 'Test', spec: { times: [0, 1], thrusts: [0, 0], masses: [0.0241, 0.012], diameter: 0.018, length: 0.07, cgX: 0.035, designation: 'Test', ejectionDelay: 'Infinity' },
       meta: { availableDelays: [3, 'Infinity'] } };
     localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), mountMotors: { m: motor },
       savedConfigs: [{ id: 'c', name: 'C', motors: { m: motor } }] }));
@@ -120,7 +132,7 @@ describe('closure lane persisted records', () => {
     ['availableDelays', '3,5'], ['availableDelays', 5], ['availableDelays', [3, '5']],
     ['availableDelays', [null]], ['orkType', 5], ['orkManufacturer', {}], ['orkMotorId', 5], ['orkDigest', true],
   ])('removes unreadable motor metadata %s=%j in both sets', (key, value) => {
-    const motor = { label: 'Test', spec: { designation: 'Test', ejectionDelay: 5 }, meta: { [key as string]: value } };
+    const motor = { label: 'Test', spec: { times: [0, 1], thrusts: [0, 0], masses: [0.0241, 0.012], diameter: 0.018, length: 0.07, cgX: 0.035, designation: 'Test', ejectionDelay: 5 }, meta: { [key as string]: value } };
     localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), mountMotors: { m: motor },
       savedConfigs: [{ id: 'c', name: 'C', motors: { m: motor } }] }));
     const loaded = loadSession()!;
@@ -159,7 +171,7 @@ describe('closure lane persisted records', () => {
     expect(loaded.savedConfigs?.[0]?.unmatchedRefs?.m?.delay).toBe(Infinity);
   });
   it.each(['motorId', 'exMotorId', 'designation'])('removes unreadable motor %s scalars in both sets', key => {
-    const motor = { label: 'Test', spec: { designation: 'Test', ejectionDelay: 5 }, meta: {}, ignition: { event: 'automatic', delay: 0 } };
+    const motor = { label: 'Test', spec: { times: [0, 1], thrusts: [0, 0], masses: [0.0241, 0.012], diameter: 0.018, length: 0.07, cgX: 0.035, designation: 'Test', ejectionDelay: 5 }, meta: {}, ignition: { event: 'automatic', delay: 0 } };
     Object.assign(key === 'designation' ? motor.spec : motor.meta, { [key]: 7 });
     localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), mountMotors: { m: motor },
       savedConfigs: [{ id: 'c', name: 'C', motors: { m: motor } }] }));
@@ -230,7 +242,7 @@ describe('audit 2026-10-11 persisted state', () => {
     },
   );
   it.each([true, 7, {}, []])('S1d-b1 removes motor records with an unreadable weighing identity (%j)', padMassWeighedWith => {
-    const bad = { label: 'Test', spec: { designation: 'Test', ejectionDelay: 5 }, meta: {},
+    const bad = { label: 'Test', spec: { times: [0, 1], thrusts: [0, 0], masses: [0.0241, 0.012], diameter: 0.018, length: 0.07, cgX: 0.035, designation: 'Test', ejectionDelay: 5 }, meta: {},
       ignition: { event: 'automatic', delay: 0 }, padMassKg: 1, padMassWeighedWith };
     localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(),
       mountMotors: { bad }, savedConfigs: [{ id: 'c', name: 'C', motors: { bad } }] }));
@@ -242,7 +254,7 @@ describe('audit 2026-10-11 persisted state', () => {
   });
 
   it.each([undefined, 1])('S7d-g1 restores malformed flight tuples with configLayers %s', configLayers => {
-    const bad = { label: 'Test', spec: { designation: 'Test', ejectionDelay: 5 }, meta: {} };
+    const bad = { label: 'Test', spec: { times: [0, 1], thrusts: [0, 0], masses: [0.0241, 0.012], diameter: 0.018, length: 0.07, cgX: 0.035, designation: 'Test', ejectionDelay: 5 }, meta: {} };
     localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), configLayers,
       tree: { ...state().tree, ignitionDefaults: { m: true } }, mountMotors: { m: bad },
       detachedOverrides: { ignitions: { m: false }, deployments: { chute: { deployEvent: 3 } } },
@@ -344,7 +356,7 @@ describe('audit 2026-10-11 persisted state', () => {
   it.each(unreadableMotors.map(v => [v]))('S1d-2 drops unreadable motor record %j in mountMotors and savedConfigs through designStateFromSession', badMotor => {
     const valid = {
       label: 'C6-5',
-      spec: { designation: 'C6', ejectionDelay: 5 },
+      spec: { times: [0, 1], thrusts: [0, 0], masses: [0.0241, 0.012], diameter: 0.018, length: 0.07, cgX: 0.035, designation: 'C6', ejectionDelay: 5 },
       meta: { label: 'C6-5', manufacturer: 'Estes' },
       ignition: { event: 'automatic', delay: 0 },
     };
@@ -746,7 +758,7 @@ describe('session flight-config presets (Stage B)', () => {
   /** The store never inspects motor internals — a cast partial is enough. */
   const mm = (delay: number) => ({
     label: 'C6-5',
-    spec: { designation: 'C6', ejectionDelay: delay },
+    spec: { times: [0, 1], thrusts: [0, 0], masses: [0.0241, 0.012], diameter: 0.018, length: 0.07, cgX: 0.035, designation: 'C6', ejectionDelay: delay },
     meta: { label: 'C6-5' },
     ignition: { event: 'automatic', delay: 0 },
   }) as unknown as MountMotor;
@@ -796,7 +808,7 @@ describe('a saved design reads saved after the autosave round trip (audit 2026-0
     // now reads such a key as absent (6f741af); this pins the whole path —
     // the real record, the real save and the real load.
     const db = findDbMotor('C6', undefined, undefined, 'Estes')!;
-    const spec = { designation: 'C6', ejectionDelay: 5, masses: [0.0241] } as unknown as MotorSpec;
+    const spec = { times: [0, 1], thrusts: [0, 0], masses: [0.0241, 0.012], diameter: 0.018, length: 0.07, cgX: 0.035, designation: 'C6', ejectionDelay: 5 } as unknown as MotorSpec;
     const c6 = mountMotorFromDb(db, spec, 5, { event: 'automatic', delay: 0 });
     expect('motorCase' in c6.meta! && c6.meta!.motorCase === undefined).toBe(true);
     const snap: DesignSnapshot = {
@@ -1453,8 +1465,8 @@ describe('stored-state hardening: unscreened session scalars', () => {
   beforeEach(() => discardSession());
   it.each([
     { maxMotorLengthByStage: 5 }, { maxMotorLengthByStage: 'x' }, { maxMotorLengthByStage: [null] },
-    { maxMotorLengthM: '0.1' }, { mountId: 7, motor: { designation: 'C6', ejectionDelay: 5 } }, { mountId: {} },
-    { mountId: { toString: 0 }, motor: { designation: 'C6', ejectionDelay: 5 } },
+    { maxMotorLengthM: '0.1' }, { mountId: 7, motor: { times: [0, 1], thrusts: [0, 0], masses: [0.0241, 0.012], diameter: 0.018, length: 0.07, cgX: 0.035, designation: 'C6', ejectionDelay: 5 } }, { mountId: {} },
+    { mountId: { toString: 0 }, motor: { times: [0, 1], thrusts: [0, 0], masses: [0.0241, 0.012], diameter: 0.018, length: 0.07, cgX: 0.035, designation: 'C6', ejectionDelay: 5 } },
     { activeConfigId: 7, savedConfigs: [{ id: '7', name: 'C', isDefault: true, motors: {} }] },
     { activeConfigId: {}, savedConfigs: [{ id: '7', name: 'C', isDefault: true, motors: {} }] },
   ] as Record<string, unknown>[])('restores with %j', fields => {

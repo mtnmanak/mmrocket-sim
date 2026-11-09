@@ -6,6 +6,17 @@ import { defaultParams } from '../tree/schema.js';
 
 const tube = { length: 0.27, outerRadius: 0.032, thickness: 0.0017 };
 const shapes = { length: 0.14, thickness: 0.0011, shape: 'power', shapeParameter: 0.63, filled: false };
+it('H1 open conflict notes agree with My-part profile markers without filling saved-only fields', () => {
+  const row = { ...componentToPreset({ type: 'nosecone', ...shapes, shoulderThickness: 0.002 }), manufacturer: 'Mine', partNo: 'NC1' };
+  const node: ComponentNode = { type: 'nosecone', ...shapes, shapeParameter: 0.3, shoulderThickness: 0.001 };
+  const notes: string[] = [];
+  expect(catalogueDifferences(node, row).map(d => d.key)).toContain('shapeParameter');
+  applyPresetLinks([{ node, manufacturer: 'Mine', partNo: 'NC1' }], [row], notes);
+  expect(notes.join(' ')).toContain('shape parameter');
+  expect(notes.join(' ')).toContain('shoulder thickness');
+  expect(node['shapeParameter']).toBe(0.3);
+  expect(node['shoulderThickness']).toBe(0.001);
+});
 const values: Partial<Record<ComponentType, Record<string, unknown>>> = {
   bodytube: { ...tube, filled: true }, innertube: tube, tubecoupler: tube, launchlug: tube, engineblock: tube,
   centeringring: { length: 0.004, outerRadius: 0.031, innerRadius: 0.014 },

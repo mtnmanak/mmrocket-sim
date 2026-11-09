@@ -297,7 +297,7 @@ export function classifyRecoveryDevices(
   const walk = (ns: readonly ComponentNode[] | undefined): void => {
     for (const n of ns ?? []) {
       if (isSeparatingParallelStage(n)) continue;
-      if (n.type === 'parachute') chutes.push(n);
+      if (n.type === 'parachute' && flownDeployEvent(n['deployEvent']) !== 'never') chutes.push(n);
       walk(n.children);
     }
   };
@@ -360,6 +360,23 @@ export function recoveryBayBore(
       // Use the opening into this cavity; an unknown or solid cavity is not
       // evidence that a canopy fits the wider body tube elsewhere.
       if (parent['filled'] === true) return null;
+      if (parent.type === 'transition') {
+        const opening = (side: 'fore' | 'aft'): number => {
+          const base = nnum(parent, `${side}Radius`, NaN);
+          const prefix = `${side}Shoulder`;
+          const shoulder = nnum(parent, `${prefix}Radius`, 0);
+          const wall = nnum(parent, 'thickness', 0.002);
+          if (shoulder > 0 && nnum(parent, `${prefix}Length`, 0) > 0) {
+            if (parent[`${prefix}Capped`] === true) return 0;
+            const shoulderBore = (Number.isFinite(base) ? Math.min(shoulder, base) : shoulder)
+              - nnum(parent, `${prefix}Thickness`, wall);
+            return 2 * (Number.isFinite(base) ? Math.min(base - wall, shoulderBore) : shoulderBore);
+          }
+          return 2 * (base - wall);
+        };
+        const bore = Math.max(...[opening('fore'), opening('aft')].filter(Number.isFinite));
+        return bore > 0 ? bore : null;
+      }
       const nose = parent.type === 'nosecone';
       const shoulder = nnum(parent, nose ? 'shoulderRadius' : 'aftShoulderRadius', 0);
       const shoulderLength = nnum(parent, nose ? 'shoulderLength' : 'aftShoulderLength', 0);

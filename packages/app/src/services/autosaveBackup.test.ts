@@ -21,7 +21,7 @@ const c6 = (): MountMotor => ({
   label: 'C6-5',
   spec: {
     designation: 'C6', diameter: 0.018, length: 0.07, ejectionDelay: 5,
-    thrust: [[0, 0], [0.2, 14], [1.8, 4], [1.9, 0]], masses: [0.024, 0.013], cgX: 0.035,
+    times: [0, 1.9], thrusts: [0, 0], masses: [0.024, 0.013], cgX: 0.035,
   } as unknown as MotorSpec,
   meta: { label: 'C6-5', manufacturer: 'Estes', type: 'SU' },
   ignition: { event: 'automatic', delay: 0 },

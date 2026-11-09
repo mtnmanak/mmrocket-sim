@@ -15,6 +15,20 @@ import {
 import { sustainerScope } from './recoveryMass.js';
 
 const db = (presetsJson as { presets: Preset[] }).presets;
+it('H1 excludes Never chutes from both advice roles', () => {
+  const tree = tube(0.2, [{ diameter: 2, deployEvent: 'never' }, { diameter: 0.5, deployEvent: 'apogee' }]);
+  const roles = classifyRecoveryDevices(tree);
+  expect(roles.main?.id).toBe('p1');
+  expect(roles.drogue).toBeNull();
+});
+
+it.each([false, true])('H1 reports the accessible fore opening with aft capped=%s', capped => {
+  const device: ComponentNode = { type: 'parachute', id: 'p' };
+  const tree: RocketTree = { components: [{ type: 'transition', id: 't', foreRadius: 0.08,
+    aftRadius: 0.03, thickness: 0.002, aftShoulderRadius: 0.025, aftShoulderLength: 0.02,
+    aftShoulderCapped: capped, children: [device] }] };
+  expect(recoveryBayBore(tree, device)).toBeCloseTo(0.156, 12);
+});
 const canopies = db.filter((p) => p.kind === 'Parachute');
 
 /** The owner's Wildman: 8.786 kg comes down, which is where this feature started. */
@@ -1158,16 +1172,16 @@ it.each(['nosecone', 'transition'])('ROUND2 S7bg-7: clamps the %s shoulder and c
   parent['thickness'] = 0.005;
   expect.soft(recoveryBayBore(t, chute)).toBeCloseTo(0.03, 9);
   parent[prefix + 'Thickness'] = 0.05;
-  expect.soft(recoveryBayBore(t, chute)).toBeNull();
+  expect.soft(recoveryBayBore(t, chute)).toBe(type === 'transition' ? 0.01 : null);
   parent[prefix + 'Thickness'] = 0.001;
   parent[prefix + 'Capped'] = true;
-  expect.soft(recoveryBayBore(t, chute)).toBeNull();
+  expect.soft(recoveryBayBore(t, chute)).toBe(type === 'transition' ? 0.01 : null);
   parent[prefix + 'Capped'] = false;
   parent['filled'] = true;
   expect.soft(recoveryBayBore(t, chute)).toBeNull();
   parent['filled'] = false;
   parent['aftRadius'] = 0;
-  expect(recoveryBayBore(t, chute)).toBeNull();
+  expect(recoveryBayBore(t, chute)).toBe(type === 'transition' ? 0.01 : null);
 });
 
 it('ROUND2 S7bg-7: uses the shoulder alone when a transition aft radius is automatic', () => {

@@ -19,6 +19,18 @@ const apply = vi.fn().mockResolvedValue(undefined);
 const later = vi.fn();
 const button = (text: string) => [...host.querySelectorAll('button')].find(b => b.textContent === text)!;
 const render = () => act(() => root.render(<OpenMotorDialog identities={identities} onApply={apply} onLater={later} />));
+it('H1 cancels an EX import when the open-motor dialog unmounts', async () => {
+  render();
+  let finish!: (bytes: ArrayBuffer) => void;
+  const file = new File([enerjetEng], 'pending.eng');
+  Object.defineProperty(file, 'arrayBuffer', { value: () => new Promise<ArrayBuffer>(resolve => { finish = resolve; }) });
+  const input = host.querySelector<HTMLInputElement>('input[type=file]')!;
+  Object.defineProperty(input, 'files', { value: [file], configurable: true });
+  act(() => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+  act(() => root.render(null));
+  await act(async () => { finish(new TextEncoder().encode(enerjetEng).buffer); await new Promise(resolve => setTimeout(resolve, 20)); });
+  expect(loadExMotors()).toEqual([]);
+});
 it('gives an Apply failure its own Caution tier after an information import', async () => {
   render();
   await importText(0, enerjetEng);

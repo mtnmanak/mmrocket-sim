@@ -150,6 +150,16 @@ beforeEach(() => {
 });
 
 describe('Preferences → Flight advice (N007/N010)', () => {
+  it.each(['km', 'mi'])('H1 refuses an altitude that overflows SI in %s', unit => {
+    mount();
+    pick(byLabel(QUANTITY_LABEL.altitude) as HTMLSelectElement, unit);
+    type(axis('Electronics arming altitude (AGL)')!, '10');
+    const before = stored().flightAdvisories?.armingAltitudeM;
+    act(() => axis('Electronics arming altitude (AGL)')!.focus());
+    type(axis('Electronics arming altitude (AGL)')!, '1e308');
+    expect(axis('Electronics arming altitude (AGL)')?.getAttribute('aria-invalid')).toBe('true');
+    expect(stored().flightAdvisories?.armingAltitudeM).toBe(before);
+  });
   it('starts blank, stores SI through the selected units and clearing turns advice off', () => {
     mount();
     for (const name of ['Maximum airspeed', 'Maximum Mach', 'Electronics arming altitude (AGL)', 'Arming caution band']) {

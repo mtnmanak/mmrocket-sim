@@ -5,12 +5,13 @@ import {
 } from '@online-openrocket/engine';
 import {
   applyStageNozzles, clearStageNozzles, engineTree, findNode, isOnLaunchStage, mountMotorCount, motorMounts, stageIdByNode,
-  stagesWithRecoveryDevice,
+  stagesWithRecoveryDevice, mountName,
   stageRecoveryById,
   type ClusterSplit,
 } from '../tree/treeModel.js';
 import { equivalentExitDiameterM } from './nozzleFollow.js';
 import { numOrNull } from '../tree/nodeNum.js';
+import { noteField } from './noteField.js';
 import { nozzleForMotorId } from './nozzleDb.js';
 import { displayDesignation, displayMotorManufacturer, motorLabel, isHighPower, type MotorDbEntry } from './motorDb.js';
 import { motorLabelEntry } from './motorLabels.js';
@@ -369,7 +370,7 @@ export function notePluggedAtOptimum(run: SimRun, legs: number): void {
   const them = legs > 1 ? 'them' : 'it';
   const flown = run.delayResolution?.mounts.filter((m) => m.exception === 'plugged-on-charge');
   const delays = legs > 1 && flown?.length
-    ? `per-mount optimum delays (${flown.map((m) => `${m.mountName}: ${m.flownDelay} s`).join(', ')})`
+    ? `per-mount optimum delays (${flown.map((m) => `${noteField(m.mountName).replace(/\|/g, '/')}: ${m.flownDelay} s`).join(', ')})`
     : `the optimum delay of ${run.delayS} s`;
   const note = `${legs > 1 ? 'Every motor in this combination is' : 'This motor is'} sold plugged `
     + `(no ejection charge), and this design deploys its recovery on the motor’s charge, so the `
@@ -670,7 +671,8 @@ export async function runBatchSweep(
     }
     const flight = await flyLaunch(rocket, {
       assigned, hardware: undefined, primaryMountId: legs[0]!.mountId,
-      mountNames: Object.fromEntries(mounts.map((m) => [m.id, m.label])),
+      mountNames: Object.fromEntries([...mounts.map((m) => [m.id, m.label]),
+        ...motorMounts(probeTree).filter(m => !mounts.some(original => original.id === m.id)).map(m => [m.id, mountName(m)])]),
       simOptions: simOpts, aeroMode, supersonic: model === 'supersonic',
       supersonicSimOptions: supersonicSimOpts,
       isOnLaunchStage: (id) => isOnLaunchStage(probeTree, id),

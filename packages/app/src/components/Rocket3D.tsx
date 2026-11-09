@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
@@ -547,6 +547,28 @@ export function Rocket3D({ tree, info, motors, hiddenIds, exportData, onError }:
   // target + update() is the whole move.
   // Derive from the declared drei API, not its hoisted dependency (audit 2026-10-11, S5-1).
   const controls = useRef<React.ComponentRef<typeof OrbitControls> | null>(null);
+  // Canvas and its controls can become ready after a document replacement.
+  // Retry the pending centre delta on either mount; consume it only once both exist.
+  const [controlsReady, setControlsReady] = useState(false);
+  const [canvasReady, setCanvasReady] = useState(false);
+  const attachControls = useCallback((value: React.ComponentRef<typeof OrbitControls> | null) => {
+    controls.current = value;
+    setControlsReady(value !== null);
+  }, []);
+  const initialTarget = useRef<[number, number, number]>([center, 0, 0]);
+  const previousCenter = useRef(center);
+  const cameraCenter = useRef(center);
+  useEffect(() => {
+    const delta = center - previousCenter.current;
+    const st = r3f.current;
+    const c = controls.current;
+    if (!st || !c || delta === 0) return;
+    previousCenter.current = center;
+    st.camera.position.x += center - cameraCenter.current;
+    cameraCenter.current = center;
+    c.target.x += delta;
+    c.update();
+  }, [center, canvasReady, controlsReady]);
   const jumpTo = (pos: [number, number, number]) => {
     const st = r3f.current;
     const c = controls.current;
@@ -619,7 +641,13 @@ export function Rocket3D({ tree, info, motors, hiddenIds, exportData, onError }:
           event.preventDefault();
           c.update();
         }}
-        onCreated={(state) => { r3f.current = { gl: state.gl, scene: state.scene, camera: state.camera }; }}>
+        onCreated={(state) => {
+          // Canvas creates its camera from the current props, even if its
+          // first nonzero measurement arrived after the document changed.
+          if (!r3f.current) cameraCenter.current = center;
+          r3f.current = { gl: state.gl, scene: state.scene, camera: state.camera };
+          setCanvasReady(true);
+        }}>
         {/* Soft studio setup (S5): warm-neutral key, cool fill, low rim —
             subtle and blueprint-serious, no shadows or environment maps. */}
         <ambientLight intensity={0.55} />
@@ -692,7 +720,7 @@ export function Rocket3D({ tree, info, motors, hiddenIds, exportData, onError }:
         {/* Distance limits (batch 08-21d): an unbounded zoom could bury the
             camera inside the hull or fling it to where the rocket is a pixel;
             the view buttons above are the recovery path either way. */}
-        <OrbitControls ref={controls} target={[center, 0, 0]} enableDamping dampingFactor={0.1}
+        <OrbitControls ref={attachControls} target={initialTarget.current} enableDamping dampingFactor={0.1}
           minDistance={camDist * 0.12} maxDistance={camDist * 5} />
       </Canvas>
       <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 0', textAlign: 'center' }}>

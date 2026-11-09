@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { ScaleDialog } from './ScaleDialog.js';
+import { loadPresets } from '../services/presets.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import type { ScaleResult } from '../tree/scaleRocket.js';
 
@@ -27,12 +28,12 @@ import type { ScaleResult } from '../tree/scaleRocket.js';
  * instead, including a duplicate OD so the 0.1 mm bucketing is exercised.
  */
 vi.mock('../services/presets.js', () => ({
-  loadPresets: () => Promise.resolve([
+  loadPresets: vi.fn(() => Promise.resolve([
     { kind: 'BodyTube', manufacturer: 'LOC', partNo: '4.0in', description: '', outsideDiameter: 0.102 },
     { kind: 'BodyTube', manufacturer: 'Other', partNo: 'dup', description: '', outsideDiameter: 0.10201 },
     { kind: 'BodyTube', manufacturer: 'Estes', partNo: 'BT-55', description: '', outsideDiameter: 0.0334 },
     { kind: 'NoseCone', manufacturer: 'X', partNo: 'nc', description: '', outsideDiameter: 0.5 },
-  ]),
+  ])),
 }));
 
 let host: HTMLDivElement;
@@ -58,6 +59,32 @@ const tree = (): RocketTree => ({
 });
 
 let applied: ScaleResult | null = null;
+it('H1 keeps the catalogue alert mounted before failure and through retry', async () => {
+  let fail!: (reason: Error) => void;
+  vi.mocked(loadPresets).mockReturnValueOnce(new Promise((_, reject) => { fail = reject; }));
+  await render();
+  const alerts = [...host.querySelectorAll('[role="alert"]')];
+  expect(alertTexts()).toEqual([]);
+  await act(async () => { fail(new Error('offline')); });
+  const failureRegion = [...host.querySelectorAll('[role="alert"]')]
+    .find(a => a.textContent?.includes('Could not load the catalogue'))!;
+  expect(alerts).toContain(failureRegion);
+  await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent === 'Retry')!.click());
+  expect(failureRegion.isConnected).toBe(true);
+  expect(failureRegion.textContent).toBe('');
+});
+
+it('H1 shows catalogue failure and retries without enabling an empty selector', async () => {
+  vi.mocked(loadPresets).mockRejectedValueOnce(new Error('offline'));
+  await render();
+  expect(alertTexts().join(' ')).toContain('Could not load the catalogue');
+  expect(host.querySelector<HTMLSelectElement>('#scale-tube')!.disabled).toBe(true);
+  expect(host.querySelector('#scale-tube')!.textContent).toContain('Catalogue unavailable');
+  expect(host.querySelector('#scale-tube')!.textContent).not.toContain('Loading');
+  await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent === 'Retry')!.click());
+  await flush();
+  expect(host.querySelector<HTMLSelectElement>('#scale-tube')!.disabled).toBe(false);
+});
 let closes = 0;
 
 /**

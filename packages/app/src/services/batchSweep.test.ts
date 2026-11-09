@@ -1,4 +1,15 @@
 import * as flightRunner from './flightRunner.js';
+import { notePluggedAtOptimum } from './batchSweep.js';
+import type { SimRun } from './simReport.js';
+
+it('H1 per-mount plugged advice preserves warning levels with separators in names', () => {
+  const run = { comments: 'Danger', commentLevels: ['warning'], delayS: 3,
+    delayResolution: { mounts: [{ mountName: 'Core | Left', flownDelay: 3, exception: 'plugged-on-charge' }] } } as unknown as SimRun;
+  notePluggedAtOptimum(run, 2);
+  expect(commentLevelsAlign(run)).toBe(true);
+  expect(commentsOf(run)[0]?.level).toBe('warning');
+  expect(run.comments).toContain('Core / Left');
+});
 import { flyLaunch } from './flightRunner.js';
 import { readFileSync } from 'node:fs';
 import { probeFlight } from './autoDelay.testSupport.js';
@@ -273,6 +284,7 @@ it('N003 mixed zero-delay rows keep the recovery caution for both temporary grou
     expect(notes).toHaveLength(row.combo ? 2 : 1);
     expect(notes.every(c => c.level === 'caution' && c.text.includes('Main'))).toBe(true);
     if (row.combo) {
+      expect(row.run!.delayResolution!.mounts.every(m => m.mountName.includes('Mount') || m.mountName.includes('mount'))).toBe(true);
       expect(notes.some(c => c.text.includes('E20'))).toBe(true);
       expect(notes.some(c => c.text.includes('E22'))).toBe(true);
     }

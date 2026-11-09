@@ -2238,7 +2238,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
                   const cLen = axialLength(node);
                   const pLen = axialLength(parent);
                   const start = startFromPosition(pos, cLen, pLen);
-                  onPatch({ position: { method: next, offset: offsetForStart(next, start, cLen, pLen) } });
+                  onPatch({ position: { method: next, offset: applyFieldLimit(POSITION_LIMIT, offsetForStart(next, start, cLen, pLen)) } });
                 }}
               >
                 <option value="top">Top of parent</option>
@@ -2271,7 +2271,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
                   // a 1.5 % window), so the slider stuck at every tube end
                   // (audit 2026-09-22). Only a pointer drag is magnetic.
                   if (!pointer) {
-                    onPatch({ position: { ...pos, offset: lenFromUi(v) } });
+                    onPatch({ position: { ...pos, offset: applyFieldLimit(POSITION_LIMIT, lenFromUi(v)) } });
                     return;
                   }
                   // Magnetic slider: snap to structural anchors (tube/sibling ends).
@@ -2285,7 +2285,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
                   const snapped = snapStart(start,
                     anchorStarts(parent as ComponentNode, node),
                     parentLenSi * 0.015);
-                  onPatch({ position: { ...pos, offset: offsetForStart(pos.method, snapped, cLen, parentLenSi) } });
+                  onPatch({ position: { ...pos, offset: applyFieldLimit(POSITION_LIMIT, offsetForStart(pos.method, snapped, cLen, parentLenSi)) } });
                 }}
               />
             </div>

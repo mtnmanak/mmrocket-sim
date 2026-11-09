@@ -32,6 +32,9 @@ let log: string[] = [];
 /** The recording renderer `onCreated` receives — one per test. */
 let r3fState: unknown = null;
 let canvasChildren: ReactNode;
+let canvasReady = true;
+let controlsReady = true;
+let cameraConfigured = false;
 const fakeRenderer = () => {
   const canvas = { clientWidth: 800, clientHeight: 400, width: 1600, height: 800 };
   let ratio = 2;
@@ -56,12 +59,17 @@ const fakeRenderer = () => {
 
 vi.mock('@react-three/fiber', async (importOriginal) => {
   const real = await importOriginal<typeof import('@react-three/fiber')>();
-  const Canvas = ({ onCreated, children, camera: _cam, gl: _gl, ...html }: {
-    onCreated?: (s: unknown) => void; children?: ReactNode; camera?: unknown; gl?: unknown;
+  const Canvas = ({ onCreated, children, camera, gl: _gl, ...html }: {
+    onCreated?: (s: unknown) => void; children?: ReactNode; camera?: { position: [number, number, number] }; gl?: unknown;
   } & Record<string, unknown>) => {
     canvasChildren = children;
-    useEffect(() => { onCreated?.(r3fState); }, [onCreated]);
-    return <div data-r3f="" {...html}>{Children.toArray(children).filter((child) => isValidElement(child) && child.type === OrbitControls)}</div>;
+    // Real Canvas configures once it has a nonzero size, using that render's props.
+    if (canvasReady && !cameraConfigured) {
+      (r3fState as ReturnType<typeof fakeRenderer>).camera.position.set(...camera!.position);
+      cameraConfigured = true;
+    }
+    useEffect(() => { if (canvasReady) onCreated?.(r3fState); }, [onCreated]);
+    return <div data-r3f="" {...html}>{canvasReady && controlsReady && Children.toArray(children).filter((child) => isValidElement(child) && child.type === OrbitControls)}</div>;
   };
   return { ...real, Canvas };
 });
@@ -69,13 +77,13 @@ vi.mock('@react-three/fiber', async (importOriginal) => {
 let cameraControls: ThreeOrbitControls;
 vi.mock('@react-three/drei', async (importOriginal) => ({
   ...await importOriginal<typeof import('@react-three/drei')>(),
-  OrbitControls: forwardRef(({ minDistance, maxDistance }: { minDistance: number; maxDistance: number }, ref) => {
+  OrbitControls: forwardRef(({ minDistance, maxDistance, target }: { minDistance: number; maxDistance: number; target: [number, number, number] }, ref) => {
     useImperativeHandle(ref, () => {
       cameraControls = new ThreeOrbitControls((r3fState as ReturnType<typeof fakeRenderer>).camera);
-      cameraControls.minDistance = minDistance;
-      cameraControls.maxDistance = maxDistance;
       return cameraControls;
-    }, [minDistance, maxDistance]);
+    }, []);
+    useEffect(() => { cameraControls.minDistance = minDistance; cameraControls.maxDistance = maxDistance; }, [minDistance, maxDistance]);
+    useEffect(() => { cameraControls.target.set(...target); }, [target]);
     return null;
   }),
 }));
@@ -127,6 +135,9 @@ const mount = (strict: boolean) => {
 };
 
 beforeEach(() => {
+  canvasReady = true;
+  cameraConfigured = false;
+  controlsReady = true;
   log = [];
   pick = null;
   r3fState = fakeRenderer();
@@ -154,6 +165,46 @@ it('C-B20 removes hidden parts from the actual mesh list passed to the 3D canvas
   expect(meshCount(canvasChildren)).toBe(0);
   act(() => root.render(<PrefsProvider><Rocket3D tree={TREE} info={null} /></PrefsProvider>));
   expect(meshCount(canvasChildren)).toBe(2);
+});
+
+it('H1 keeps a panned target when a part length changes', () => {
+  mount(false);
+  cameraControls.target.set(0.2, 0.1, 0.3);
+  const before = (r3fState as ReturnType<typeof fakeRenderer>).camera.position.clone();
+  const tree = structuredClone(TREE);
+  tree.components[0]!.children![0]!['length'] = 0.21;
+  act(() => root.render(<PrefsProvider><Rocket3D tree={tree} info={null} exportData={EXPORT} /></PrefsProvider>));
+  expect(cameraControls.target.x).toBeCloseTo(0.255, 12);
+  expect(cameraControls.target.y).toBe(0.1);
+  expect(cameraControls.target.z).toBe(0.3);
+  expect((r3fState as ReturnType<typeof fakeRenderer>).camera.position.x).toBeCloseTo(before.x + 0.055, 12);
+});
+
+it.each(['canvas', 'controls', 'both'])('H1 centres a replacement arriving before %s is ready', (delayed) => {
+  canvasReady = delayed === 'controls';
+  controlsReady = delayed === 'canvas';
+  mount(false);
+  const before = (r3fState as ReturnType<typeof fakeRenderer>).camera.position.clone();
+  const tree = structuredClone(TREE);
+  tree.components[0]!.children![1]!['length'] = 2.3;
+  const view = () => <PrefsProvider><Rocket3D tree={tree} info={null} exportData={EXPORT} /></PrefsProvider>;
+  act(() => root.render(view()));
+  canvasReady = true;
+  controlsReady = true;
+  act(() => root.render(view()));
+  expect(cameraControls.target.x).toBeCloseTo(1.2, 12);
+  const expectedX = delayed === 'controls' ? before.x + 1 : 1.2 + (2.4 * 1.1) * 0.5;
+  expect((r3fState as ReturnType<typeof fakeRenderer>).camera.position.x).toBeCloseTo(expectedX, 12);
+});
+
+it('H1 follows the centre of a newly opened longer document without remounting', () => {
+  mount(false);
+  const before = (r3fState as ReturnType<typeof fakeRenderer>).camera.position.clone();
+  const tree = structuredClone(TREE);
+  tree.components[0]!.children![1]!['length'] = 2.3;
+  act(() => root.render(<PrefsProvider><Rocket3D tree={tree} info={null} exportData={EXPORT} /></PrefsProvider>));
+  expect(cameraControls.target.x).toBeCloseTo(1.2, 12);
+  expect((r3fState as ReturnType<typeof fakeRenderer>).camera.position.x).toBeCloseTo(before.x + 1, 12);
 });
 
 /** Starts an 8K export and returns it, the encode still running. */

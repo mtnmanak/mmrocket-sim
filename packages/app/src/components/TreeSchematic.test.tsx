@@ -352,6 +352,15 @@ describe('click-to-select after a drag (the dragMoved latch)', () => {
     pointer(svgEl(), 'pointerup', 40);
   };
 
+  it('H1 bounds a 2D drag before preview and commit', () => {
+    const onPatchNode = vi.fn();
+    mount(infoOf(1.5), { onPatchNode });
+    pointer(host.querySelector('polygon')!, 'pointerdown', 0);
+    pointer(svgEl(), 'pointermove', 1e7);
+    pointer(svgEl(), 'pointerup', 1e7);
+    expect(onPatchNode).toHaveBeenCalledWith(expect.any(String), { position: { method: expect.any(String), offset: 1000 } });
+  });
+
   it('selects the nose cone after a fin has been dragged', () => {
     const onSelect = vi.fn();
     mount(infoOf(1.5), { onSelect, onPatchNode: vi.fn() });

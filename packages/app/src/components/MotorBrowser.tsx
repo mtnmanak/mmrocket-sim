@@ -305,9 +305,11 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
 
   const filtersNow = useRef(filters);
   const mounted = useRef(false);
+  const importing = useRef<AbortController | null>(null);
+  const close = () => { importing.current?.abort(); onClose(); };
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; };
+    return () => { mounted.current = false; importing.current?.abort(); };
   }, []);
   const setFilters = (value: StoredFilters | ((current: StoredFilters) => StoredFilters)) => {
     const next = typeof value === 'function' ? value(filtersNow.current) : value;
@@ -430,23 +432,26 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   /** Catches and reports (setError) each file's read and parse failure, so
    *  callers fire it with `void`. */
   const importMotorFiles = async (files: File[]) => {
+    importing.current?.abort();
+    const operation = new AbortController();
+    importing.current = operation;
     setError(null);
     setNotice(null);
     let result: Awaited<ReturnType<typeof readMotorFiles>>;
     try {
-      result = await readMotorFiles(files, prefs.units);
+      result = await readMotorFiles(files, prefs.units, operation.signal);
     } catch (e) {
       // The service reports per-file failures itself; this catches what it
       // did not (closure audit of v0.194, row A: a library refusal used to
       // become an unhandled rejection and a silent screen).
-      if (!mounted.current) return;
+      if (!mounted.current || operation.signal.aborted) return;
       setImportTier('information');
       setNoticeTier('information');
       setError(e instanceof Error ? e.message : String(e));
       return;
     }
     const { parsed, write, error, notice, tier, noticeTier: noticeOnly } = result;
-    if (!mounted.current) return;
+    if (!mounted.current || operation.signal.aborted) return;
     setImportTier(tier);
     setNoticeTier(noticeOnly);
     setError(error);
@@ -556,7 +561,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       // check is on the signal rather than on the throw.
       if (superseded()) return;
       onSelect(loaded.label, loaded.spec, loaded.meta);
-      onClose();
+      close();
     } catch (e) {
       // A cancelled load is not a failure to report — the user asked for it,
       // and the dialog it would report into is already going away.
@@ -584,11 +589,11 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const shownRows = rows.slice(0, ROW_CAP);
   const { bodyRef: tbodyRef, rove } = useRovingRows(shownRows.map((m) => m.motorId), picked?.motorId);
 
-  const dialogRef = useDialog(onClose);
+  const dialogRef = useDialog(close);
   // Closes only on a press and a release on the backdrop itself, so text
   // selected in the search box or the table and dragged past the card's edge
   // keeps it open (audit 2026-09-22).
-  const backdrop = useBackdropClose(onClose);
+  const backdrop = useBackdropClose(close);
 
   return (
     <div className="prefs-overlay" role="presentation" {...backdrop}>
@@ -626,7 +631,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
           {checking && (
             <button className="file-btn" onClick={() => checkAbort.current?.abort()} aria-label="Stop the catalogue check">Stop</button>
           )}
-          <button className="file-btn" onClick={onClose} disabled={busy} aria-label="Close motor browser">✕ Close</button>
+          <button className="file-btn" onClick={close} disabled={busy} aria-label="Close motor browser">✕ Close</button>
         </div>
         <div className="motor-check-alert" role="alert">
           {checkError && <p className="print-note print-note-warn">{checkError}</p>}

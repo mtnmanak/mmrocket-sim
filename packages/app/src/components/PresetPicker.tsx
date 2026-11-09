@@ -45,7 +45,7 @@ function sortValue(p: Preset, key: SortKey): string | number | null | undefined 
  * (plus user CSV imports). Applying a preset patches the node's dimensions,
  * material, and — when the catalog lists a real-world mass — a mass override.
  */
-export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
+export function PresetPicker({ type, node, parentRadius, onApply, onClose: notifyClose }: {
   type: ComponentType;
   /**
    * The part a pick replaces. presetPatch needs it to tell the previous part's
@@ -202,13 +202,18 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
     && !matBad(p.lineMaterial, 'LINE', p['savedComponent'] === true);
 
   /** Reports every failure itself (setNote), so callers fire it with `void`. */
+  const importGeneration = useRef(0);
+  const onClose = () => { importGeneration.current++; notifyClose(); };
+  useEffect(() => () => { importGeneration.current++; }, []);
   const importCsv = async (file: File) => {
+    const generation = ++importGeneration.current;
     sessionDebugLog.record('import-start');
     setNoteTier('information');
     try {
       const cautions: string[] = [];
       if (file.size > MAX_PRESET_CSV_BYTES) cautions.push(PRESET_CSV_SIZE_CAUTION);
       const parsed = cautions.length ? [] : csvToPresets(await file.text(), cautions);
+      if (generation !== importGeneration.current) return;
       if (cautions.length) {
         sessionDebugLog.record('import-failed', new Error(cautions[0]));
         setNoteTier('caution');
@@ -282,6 +287,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
       });
       setNote(imported);
     } catch (e) {
+      if (generation !== importGeneration.current) return;
       sessionDebugLog.record('import-failed', e);
       setNote(`CSV import failed: ${e instanceof Error ? e.message : String(e)}`);
     }

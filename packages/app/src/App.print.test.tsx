@@ -210,7 +210,7 @@ it.each([false, true])('prints omitted and installed assignments for a partially
       length: 0.07, cgX: 0.035, ejectionDelay: 5, times: [0, 0.2, 1.8],
       thrusts: [0, 14, 0], masses: [0.024, 0.02, 0.0122] } };
   const mountMotors: Record<string, MountMotor> = {
-    [mount.id!]: { ...motor, spec: { ...motor.spec, thrusts: [0, 14] } },
+    [mount.id!]: { ...motor, spec: { ...motor.spec, cgX: 0.1 } },
   };
   if (partial) {
     const accepted = { ...mount, id: 'accepted-print-mount', name: 'Accepted mount' };
@@ -231,7 +231,7 @@ it.each([false, true])('prints omitted and installed assignments for a partially
   expect(d.textContent).not.toContain('Launch mass');
   expect(d.textContent).not.toMatch(/CG \d|margin \d/);
   expect(d.querySelector('.caution')?.textContent).toContain('Refused mount');
-  expect(d.textContent).toContain('Motor C6: its thrust curve has 2 thrust readings for 3 times; import a corrected .rse/.eng file.');
+  expect(d.textContent).toContain('Motor C6: its CG must be between the front and end of the motor; import a corrected .rse/.eng file.');
   const loadout = [...d.querySelectorAll('p')].find(p => p.textContent!.startsWith('Current configuration'))!;
   expect(loadout.textContent).toContain('Refused mount: C6-5 ×1 (omitted from build)');
   if (partial) expect(loadout.textContent).toContain('Accepted mount: C6-5 ×1 (installed in build)');
