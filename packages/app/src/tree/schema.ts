@@ -406,8 +406,12 @@ const LINE_INSTANCES: FieldLimit = {
  * one. A lookupTable (null prototype): the keys it is asked about come off
  * nodes a file wrote, and `constructor` must not resolve to Object.prototype's.
  */
+export const MAX_EXPANDED_INSTANCES = 10_000;
+
 const LIMITS_BY_KEY: Record<string, FieldLimit> = lookupTable<FieldLimit>({
-  clusterScale: { kind: 'scalar', hmin: 0 },
+  // Reserve room for squared diameter, rotation, splits and accumulated offsets:
+  // no admitted path can contain more nodes than the expanded-instance budget.
+  clusterScale: { kind: 'scalar', hmin: 0, hmax: Math.sqrt(Number.MAX_VALUE) / (8 * MAX_DIMENSION_M * MAX_EXPANDED_INSTANCES) },
   length: LEN, rootChord: LEN, tipChord: LEN, height: LEN, thickness: LEN,
   outerRadius: LEN, innerRadius: LEN, aftRadius: LEN, foreRadius: LEN, radius: LEN,
   shoulderRadius: LEN, shoulderLength: LEN, shoulderThickness: LEN,

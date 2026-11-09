@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, expect, it } from 'vitest';
-import { addExMotors, loadExMotors, parseEng, parseRse, validExMotor, validFlightSnapshot } from './exMotors.js';
+import { addExMotors, exToMotorSpec, loadExMotors, parseEng, parseRse, validExMotor, validFlightSnapshot } from './exMotors.js';
 import { importMotorFiles } from './importMotorFiles.js';
 import { MAX_EX_IMPORT_MOTORS } from './exMotorLimits.js';
 import { readArchivedExMotors } from './exMotorArchive.js';
@@ -58,7 +58,11 @@ it('does not persist an overflowing per-point mass', async () => {
   expect(out.parsed).toHaveLength(1);
   expect(validExMotor(out.parsed[0])).toBe(true);
   expect(loadExMotors()).toHaveLength(1);
-  expect(out.parsed[0]!.sampleMassesKg!.every(Number.isFinite)).toBe(true);
+  // The old 1% band accepted this first point above loaded mass. Use the
+  // named impulse fallback, retaining the finite-mass assertion on flown data.
+  expect(out.parsed[0]!.sampleMassesKg).toBeUndefined();
+  expect(out.notice).toMatch(/per-point masses.*impulse/);
+  expect(exToMotorSpec(out.parsed[0]!, Infinity).masses.every(Number.isFinite)).toBe(true);
 });
 
 it.each([-1, 5, NaN, Infinity])('refuses snapshot CG outside its motor: %s', cgX => {
@@ -153,8 +157,11 @@ it('bounds the aggregate motor count across separate under-limit collections', a
   expect(out.error).toMatch(/motor count limit/i);
 });
 
-it('refuses invalid motor data before any library write', () => {
+it('repairs optional invalid masses before flight without losing a library motor', () => {
   const motor = { ...parseEng('Invalid 29 100 P 0.05 0.1 Home\n0 0\n1 20\n2 0')[0]!, sampleMassesKg: [Infinity, 0.1, 0.05] };
-  expect(() => addExMotors([motor])).toThrow(/Motor Invalid:.*not stored/);
-  expect(loadExMotors()).toHaveLength(0);
+  expect(addExMotors([motor]).stored).toBe(true);
+  const notes: string[] = [];
+  expect(loadExMotors(notes)).toHaveLength(1);
+  expect(notes).toHaveLength(1);
+  expect(validFlightSnapshot(exToMotorSpec(loadExMotors()[0]!, Infinity))).toBe(true);
 });

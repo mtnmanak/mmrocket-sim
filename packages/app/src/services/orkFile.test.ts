@@ -224,6 +224,45 @@ describe('.ork permissive handling', () => {
             <thickness>0.0005</thickness><clusterconfiguration>${pattern}</clusterconfiguration></innertube>`,
   );
 
+  it.each([1e160, 1e308])('keeps kernel rotational inertia finite after repairing cluster scale %s', async scale => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    const result = importOrk(CLUSTERED('double').replace('<outerradius>0.0095</outerradius>',
+      '<outerradius>1</outerradius>').replace('</clusterconfiguration>',
+      `</clusterconfiguration><clusterscale>${scale}</clusterscale>`));
+    resetEngine();
+    const info = OrkRocket.buildTree(engineTree(result.tree)).staticInfo();
+    expect(Number.isFinite(info.rotationalInertia)).toBe(true);
+    expect(result.notes.join(' ')).toMatch(/cluster spacing.*set to/i);
+  });
+
+  it('keeps accumulated nested cluster positions and extents finite', async () => {
+    const { aftLayout } = await import('../tree/aftLayout.js');
+    const { countExpandedInstances, MAX_EXPANDED_INSTANCES } = await import('../tree/sanitize.js');
+    let nested = '';
+    for (let i = 0; i < 9; i++) nested = `<innertube><name>Nested ${i}</name><length>0.07</length><outerradius>1000</outerradius><clusterconfiguration>double</clusterconfiguration><clusterscale>${Number.MAX_VALUE / 8000}</clusterscale><subcomponents>${nested}</subcomponents></innertube>`;
+    const result = importOrk(BODY_MOUNT.replace('<podset><name>P</name></podset>', nested));
+    expect(countExpandedInstances(result.tree.components)).toBeLessThan(MAX_EXPANDED_INSTANCES);
+    const layout = aftLayout(result.tree, 0);
+    expect(layout.inner.every(p => Number.isFinite(p.y) && Number.isFinite(p.z))).toBe(true);
+    expect(Number.isFinite(layout.extent)).toBe(true);
+    expect(result.notes.join(' ')).toMatch(/cluster spacing.*set to/i);
+  });
+
+  it('repairs finite cluster operands that would overflow drawing geometry', async () => {
+    const { clusterOffsets } = await import('../tree/cluster.js');
+    const { limitPatch } = await import('../tree/sanitize.js');
+    const result = importOrk(CLUSTERED('9-grid').replace('<outerradius>0.0095</outerradius>',
+      '<outerradius>1</outerradius>').replace('</clusterconfiguration>',
+      '</clusterconfiguration><clusterscale>1e308</clusterscale>'));
+    const tube = flatten(result.tree.components).find(c => c.type === 'innertube')!;
+    const scale = Number(tube['clusterScale']);
+    expect(scale).toBeLessThan(1e308);
+    expect(result.notes.join(' ')).toMatch(/cluster spacing.*set to/i);
+    expect(clusterOffsets('9-grid', 1, scale).every(p => Number.isFinite(p.y) && Number.isFinite(p.z))).toBe(true);
+    expect(limitPatch(tube, { clusterScale: 1e308 })['clusterScale']).toBe(scale);
+  });
+
   it('clamps negative cluster spacing on import', () => {
     const result = importOrk(CLUSTERED('double').replace('</clusterconfiguration>',
       '</clusterconfiguration><clusterscale>-1</clusterscale>'));

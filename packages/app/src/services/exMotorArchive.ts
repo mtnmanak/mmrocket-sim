@@ -1,6 +1,6 @@
 import { noteField, noteText } from './noteField.js';
 import { cautionNote } from './importNotes.js';
-import { validExMotor as validArchivedExMotor, validExMotorFields, validFlightSnapshot, boundedExId, exMotorIdentity, exToMotorSpec, flightIdentity, loadExMotors, type ExMotor, type ExFlightSnapshot } from './exMotors.js';
+import { validExMotor as validArchivedExMotor, validExMotorFields, validFlightSnapshot, exMotorFlightProblem, repairFlightSnapshot, repairStoredExMotor, boundedExId, exMotorIdentity, exToMotorSpec, flightIdentity, loadExMotors, type ExMotor, type ExFlightSnapshot } from './exMotors.js';
 import type { RepairedMotorSpec } from './thrustcurve.js';
 import type { OrkExportMotor } from './orkFile.js';
 import { escapeXml } from './xmlUtil.js';
@@ -42,8 +42,11 @@ export function archiveExMotors(mounted: readonly OrkExportMotor[], notes: strin
     seenRefs.add(ref);
     const name = noteField(ref.designation, 160);
     const current = library.get(ref.exMotorId ?? '');
-    const spec = ref.exMotorSpec as RepairedMotorSpec | undefined;
-    const captured = spec?.exDefinition ?? ref.exDefinition;
+    const loadedSpec = ref.exMotorSpec as RepairedMotorSpec | undefined;
+    const rawCaptured = loadedSpec?.exDefinition ?? ref.exDefinition;
+    const capturedNotes: string[] = [];
+    const captured = validArchivedExMotor(rawCaptured) ? repairStoredExMotor(rawCaptured, capturedNotes) : rawCaptured;
+    const spec = loadedSpec && repairFlightSnapshot(loadedSpec, notes, validArchivedExMotor(captured) ? captured : undefined);
     if (!ref.manufacturer && !captured && !current) {
       cautionNote(notes, 'export-loss', `EX motor ${name}: no maker is available in its loaded data or library definition. The saved file cannot identify a maker for desktop OR. If the original .eng/.rse names a maker, re-import it to include that maker; a source naming only EX has no maker to restore.`);
     }
@@ -68,10 +71,11 @@ export function archiveExMotors(mounted: readonly OrkExportMotor[], notes: strin
           samples: spec.times.map((time, i) => ({ time, thrust: spec.thrusts[i]! })),
           source: 'snapshot', addedAt: 0, ...original, flightSnapshot };
       }
-      if (!validArchivedExMotor(current)) notes.push(`EX motor ${name}: its library definition is missing or invalid; saved the loaded snapshot.`);
+      const savedData = motor.flightSnapshot ? 'the loaded snapshot' : 'its captured source definition';
+      if (!validArchivedExMotor(current)) notes.push(`EX motor ${name}: its library definition is missing or invalid; saved ${savedData}.`);
       else if (flightIdentity(exToMotorSpec(current, ref.delay)) !== flightIdentity(spec)
         || (captured && exMotorIdentity(current) !== exMotorIdentity(captured))) {
-        notes.push(`EX motor ${name}: its library definition changed; saved the loaded snapshot.`);
+        notes.push(`EX motor ${name}: its library definition changed; saved ${savedData}.`);
       }
     } else if (validArchivedExMotor(captured) && !ref.exMotorMissing) {
       motor = captured;
@@ -83,6 +87,12 @@ export function archiveExMotors(mounted: readonly OrkExportMotor[], notes: strin
       ids.set(ref, null);
       cautionNote(notes, 'export-loss', `EX motor ${name}: no valid loaded snapshot remains; saved the design without this motor.`);
       continue;
+    }
+    // A repaired source can sit beside an intentionally different measured curve.
+    // Describe its burn-off only when that is the curve actually being written.
+    if (validArchivedExMotor(captured) && (!spec
+      || flightIdentity(exToMotorSpec(captured, ref.delay)) === flightIdentity(spec))) {
+      for (const note of capturedNotes) if (!notes.includes(note)) notes.push(note);
     }
     const identity = exMotorIdentity(motor);
     candidates.push({ ref, motor, identity });
@@ -136,10 +146,10 @@ export function readArchivedExMotors(rocket: XmlElement, notes: string[]): Map<s
     const usable = value.filter(m => {
       const name = noteField(m.designation, 160);
       if (validArchivedExMotor(m)) return true;
-      cautionNote(notes, 'I15.embedded-ex-refused', `Embedded EX motor ${name} was not loaded: fewer than two distinct thrust points, no positive thrust, or a captured CG outside the motor. Re-import its original .eng/.rse file.`);
+      cautionNote(notes, 'I15.embedded-ex-refused', `Embedded EX motor ${name} was not loaded: ${exMotorFlightProblem(m)}. Re-import its original .eng/.rse file.`);
       return false;
     });
-    return new Map(usable.map(m => [m.motorId, m]));
+    return new Map(usable.map(m => [m.motorId, repairStoredExMotor(m, notes)]));
   } catch (error) {
     const reason = noteText(error instanceof Error ? error.message : String(error));
     cautionNote(notes, 'I15.embedded-ex-refused', `Embedded EX motors were refused: ${reason}. Re-import the original .eng/.rse; these motors were not loaded.`);

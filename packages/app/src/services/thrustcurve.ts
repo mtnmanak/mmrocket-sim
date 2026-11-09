@@ -543,6 +543,7 @@ interface BundledSimFile {
 }
 
 let bundledCurves: Promise<Record<string, BundledSimFile[]>> | null = null;
+let bundleRetryAt = Infinity;
 let bundledCatalogueGenerated: string | undefined;
 let bundledComplete = false;
 const shippedMotorIds = new Set(MOTOR_DB.map((m) => m.motorId));
@@ -562,7 +563,8 @@ const shippedMotorIds = new Set(MOTOR_DB.map((m) => m.motorId));
  * app any more; this bundle is the offline path.
  */
 async function loadBundledCurves(): Promise<Record<string, BundledSimFile[]>> {
-  if (!bundledCurves) {
+  if (!bundledCurves || Date.now() >= bundleRetryAt) {
+    bundleRetryAt = Infinity;
     // Through `unknown`: resolveJsonModule types the literal's samples as
     // number[][], which is not comparable to the [t, F] pair type the runtime
     // relies on. The build script is what guarantees the pairs.
@@ -574,7 +576,8 @@ async function loadBundledCurves(): Promise<Record<string, BundledSimFile[]>> {
         return bundle.curves;
       })
       .catch((err) => {
-        bundledCurves = null; // a failed chunk load is not permanent
+        // Reuse the rejection across lookup paths and candidates, but allow recovery.
+        bundleRetryAt = Date.now() + 30_000;
         throw err;
       });
   }
@@ -1020,6 +1023,9 @@ export function samplesToMotorSpec(
     cumImpulse.push(cumImpulse[i - 1]! + area);
   }
   const totImpulse = cumImpulse[cumImpulse.length - 1]!;
+  if (!Number.isFinite(totImpulse)) {
+    throw new Error(`Integrated impulse is not finite for ${noteField(motor.designation)}; check the thrust curve times and forces.`);
+  }
 
   const times = pts.map((p) => p.time);
   const thrusts = pts.map((p) => p.thrust);

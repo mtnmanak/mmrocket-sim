@@ -1,5 +1,6 @@
 import { MAX_MACH_ALT_ROWS } from './machAltLimits.js';
 import { importedEjectionDelay } from './ejectionDelay.js';
+import { noteField } from './noteField.js';
 import { carryFlags, cautionNote, noteFlags } from './importNotes.js';
 import { restoredWarnings } from './storedWarnings.js';
 import { isAeroModel, validHybridBand } from './aeroProvenance.js';
@@ -22,7 +23,7 @@ import { validLossySaveMark, type LossySaveMark } from './lossySave.js';
 import { designFingerprint } from './dirtyState.js';
 import { sanitizeSessionFlightLayers } from './sessionFlightLayers.js';
 import { boundedNozzleDiameter } from '../tree/nozzles.js';
-import { validStoredExDefinition } from './exMotors.js';
+import { repairFlightSnapshot, massesDoNotRise, validExMotor, validStoredExDefinition } from './exMotors.js';
 import type { RepairedMotorSpec } from './thrustcurve.js';
 import { STATED_STAGE_FIGURES, statedFiguresOf } from './statedLaunchWeight.js';
 
@@ -585,13 +586,44 @@ function readSession(restoreRoot: boolean): SessionState | null {
     // later refusal while every reader copes. A failing one is removed and the
     // motor kept, as an EX session stored before definitions were captured.
     let definitionsRemoved = false;
+    const exSpecs = new Set([...(s.motorMeta?.exMotorId ? [s.motor] : []),
+      ...[s.mountMotors ?? {}, ...(s.savedConfigs ?? []).map(c => c.motors)]
+        .flatMap(set => Object.values(set).filter(mm => mm.meta.exMotorId !== undefined).map(mm => mm.spec))]);
     const specs = [s.motor, ...[s.mountMotors ?? {}, ...(s.savedConfigs ?? []).map(c => c.motors)]
       .flatMap(set => Object.values(set).map(mm => mm.spec))] as (RepairedMotorSpec | undefined)[];
+    const refusedExSpecs = new Set<RepairedMotorSpec>();
     for (const spec of specs) {
+      if (spec && (spec.exDefinition !== undefined || exSpecs.has(spec))) {
+        const header = validExMotor(spec.exDefinition) ? spec.exDefinition : undefined;
+        const finiteMasses = Array.isArray(spec.masses)
+          && spec.masses.every((m: unknown) => typeof m === 'number' && Number.isFinite(m));
+        if (finiteMasses && (spec.masses.every(m => m >= 0)
+            || spec.masses.some((m, i) => i > 0 && m > spec.masses[i - 1]!))) {
+          Object.assign(spec, repairFlightSnapshot(spec, s.treeRestoreNotes ??= [], header));
+        }
+        const name = noteField(spec.designation, 160);
+        if (finiteMasses && spec.masses.some((m, i) => i > 0 && m > spec.masses[i - 1]!)
+            && !massesDoNotRise(spec.masses)) {
+          refusedExSpecs.add(spec);
+          const note = `EX motor ${name}: its stored mass curve could not be repaired; the motor was removed and its mount is empty.`;
+          if (!s.treeRestoreNotes!.includes(note)) s.treeRestoreNotes!.push(note);
+          continue;
+        }
+      }
       if (spec) spec.ejectionDelay = importedEjectionDelay(spec.ejectionDelay, s.treeRestoreNotes ??= [], spec.designation);
       if (spec?.exDefinition !== undefined && !validStoredExDefinition(spec.exDefinition)) {
         delete spec.exDefinition;
         definitionsRemoved = true;
+      }
+    }
+    if (s.motor && refusedExSpecs.has(s.motor)) {
+      delete s.motor;
+      delete s.motorMeta;
+      delete s.motorLabel;
+    }
+    for (const motors of [s.mountMotors ?? {}, ...(s.savedConfigs ?? []).map(c => c.motors)]) {
+      for (const [id, motor] of Object.entries(motors)) {
+        if (refusedExSpecs.has(motor.spec)) delete motors[id];
       }
     }
     if (definitionsRemoved) {

@@ -128,6 +128,12 @@ export function sampleListProblem(arr) {
   if (samples.some(p => p.thrust > MAX_MOTOR_THRUST_N))
     return 'its thrust exceeds the 10,000,000 N limit';
   const flown = flownCurve(samples).samples;
+  let impulse = 0;
+  for (let i = 1; i < flown.length; i++) {
+    impulse += ((flown[i].time - flown[i - 1].time)
+      * (flown[i].thrust + flown[i - 1].thrust)) / 2;
+  }
+  if (!Number.isFinite(impulse)) return 'its integrated impulse is not finite';
   if (!flown.some(p => p.thrust > 0))
     return 'it has no positive thrust';
   return flown.length >= 2 && flown[flown.length - 1].time > 0

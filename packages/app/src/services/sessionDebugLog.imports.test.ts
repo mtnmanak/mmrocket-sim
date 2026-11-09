@@ -126,7 +126,7 @@ describe('C-H3 real import diagnostics', () => {
     ['.eng', 'Private 0 70 P 0.01 0.02 PrivateMaker\n0 0\n1 0', 'invalid diameter/length'],
     ['.eng', 'Private 18 70 P Fairbanks 0.02 PrivateMaker\n0 0\n1 0', 'nonnumeric mass'],
     ['.eng', 'Private 18 70 P 0.01 0.02 PrivateMaker\n0 0\n1 -61.234', 'negative time or thrust'],
-    ['.eng', 'Private 18 70 P 0.01 0.02 PrivateMaker', 'No motors found in .eng file'],
+    ['.eng', 'Private 18 70 P 0.01 0.02 PrivateMaker', 'no thrust data'],
   ])('retains the safe %s motor refusal category: %s', async (extension, source, safe) => {
     const contents = extension === '.rse' ? `<engine-database><engine-list>${source}</engine-list></engine-database>` : source;
     const out = await importMotorFiles([new File([contents], `Private Fairbanks 61.234${extension}`)]);

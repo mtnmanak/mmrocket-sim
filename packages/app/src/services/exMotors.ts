@@ -2,7 +2,7 @@ import { noteField } from './noteField.js';
 import { cautionNote } from './importNotes.js';
 import { INITIAL_UNITS, noticeEqual, noticeComparison, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import type { MotorDbEntry } from './motorDb.js';
-import { clearCurveCache, flownCurve, MAX_MOTOR_THRUST_N, repairSamples, samplesToMotorSpec, type RepairedMotorSpec } from './thrustcurve.js';
+import { clearCurveCache, flownCurve, isSampleList, MAX_MOTOR_THRUST_N, repairSamples, samplesToMotorSpec, type RepairedMotorSpec } from './thrustcurve.js';
 import { parseDecimal } from './xmlUtil.js';
 import { backUpUnreadableStore } from './storeBackup.js';
 import { parseXml, type XmlElement } from './xmlParse.js';
@@ -119,8 +119,52 @@ export function exitDiameterFromRse(
   return { exitDiameterM: exitM };
 }
 const exitRangeM = (caseMm: number) => [caseMm * EXIT_MIN_FRACTION_OF_CASE / 1000, caseMm * EXIT_MAX_FRACTION_OF_CASE / 1000] as const;
-const sampleMassInRangeKg = (m: number, totalG: number, propG: number) => Number.isFinite(m)
+const sampleMassInRangeKg = (m: number, totalG: number, propG: number) => Number.isFinite(m) && Number.isFinite(m * 1000)
   && m >= (totalG - propG) * 0.99 / 1000 && m <= totalG / 1000 * 1.01;
+const usableSampleMasses = (masses: unknown, count: number, totalG: number, propG: number): masses is number[] =>
+  Array.isArray(masses) && masses.length === count
+  && masses.every((m: unknown) => finite(m) && sampleMassInRangeKg(m, totalG, propG))
+  && massesDoNotRise(masses, totalG / 1000);
+
+const orderedMasses = (ex: ExMotor) => repairSamples(ex.samples).keptIndices.map(i => ex.sampleMassesKg![i]!);
+/** Measurement equality is relative to the first/total mass, including at dry mass. */
+export function massesDoNotRise(masses: readonly number[], total = masses[0]!): boolean {
+  return masses.every((m, i) => {
+    const previous = i === 0 ? total : masses[i - 1]!;
+    return finite(m) && m >= 0 && (m <= previous || noticeEqual(total + (m - previous), total));
+  });
+}
+
+function storedMassNote(name: string, notes?: string[]): void {
+  const note = `EX motor ${noteField(name, 160)}: its stored per-point masses were inconsistent; the burn-off mass curve is used.`;
+  if (notes && !notes.includes(note)) notes.push(note);
+}
+
+/** Drop inconsistent optional masses; retain one aligned, flyable sample series. */
+export function repairFlightSnapshot<T extends ExFlightSnapshot>(snapshot: T, notes?: string[], header?: Pick<ExMotor, 'totalWeightG' | 'propWeightG'>, force = false): T {
+  // A captured, already-valid curve may intentionally differ from its source.
+  if (!force && validFlightSnapshot(snapshot)) return snapshot;
+  if (!repairableSnapshot(snapshot, header)) return snapshot;
+  const total = header ? header.totalWeightG / 1000 : snapshot.masses[0]!;
+  const dry = header ? (header.totalWeightG - header.propWeightG) / 1000 : Math.min(total, snapshot.masses.at(-1)!);
+  const samples = snapshot.times.map((time, i) => ({ time, thrust: snapshot.thrusts[i]! }));
+  const fallback = samplesToMotorSpec({ motorId: 'ex:snapshot', manufacturerAbbrev: 'EX', commonName: snapshot.designation,
+    impulseClass: '', avgThrustN: 0, maxThrustN: 0, totImpulseNs: 0, burnTimeS: 0, availability: 'regular',
+    designation: snapshot.designation, diameter: snapshot.diameter * 1000,
+    length: snapshot.length * 1000, totalWeightG: header ? header.totalWeightG : total * 1000,
+    propWeightG: header ? header.propWeightG : (total - dry) * 1000 }, samples, Infinity);
+  storedMassNote(snapshot.designation, notes);
+  return { ...snapshot, times: fallback.times, thrusts: fallback.thrusts, masses: fallback.masses };
+}
+
+export function repairStoredExMotor(ex: ExMotor, notes?: string[]): ExMotor {
+  const badPoints = ex.sampleMassesKg !== undefined
+    && (!Array.isArray(ex.sampleMassesKg) || ex.sampleMassesKg.length !== ex.samples.length
+      || !usableSampleMasses(orderedMasses(ex), repairSamples(ex.samples).samples.length, ex.totalWeightG, ex.propWeightG));
+  const flightSnapshot = ex.flightSnapshot && repairFlightSnapshot(ex.flightSnapshot, undefined, ex, badPoints);
+  if (badPoints || flightSnapshot !== ex.flightSnapshot) storedMassNote(ex.designation, notes);
+  return { ...ex, ...(badPoints ? { sampleMassesKg: undefined } : {}), ...(flightSnapshot ? { flightSnapshot } : {}) };
+}
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const positive = (v: unknown): v is number => finite(v) && v > 0;
 const record = (v: unknown): v is Record<string, unknown> =>
@@ -129,7 +173,7 @@ const record = (v: unknown): v is Record<string, unknown> =>
 /** Shared archive/library gate: old imports must meet today's checks (audit 2026-10-11, S1c-5). */
 export function validExMotor(v: unknown): v is ExMotor {
   return validExMotorFields(v) && hasDistinctThrustPoints(v.samples)
-    && (v.flightSnapshot === undefined || validFlightSnapshot(v.flightSnapshot));
+    && (v.flightSnapshot === undefined || repairableSnapshot(v.flightSnapshot, v));
 }
 
 /** Archive screening before separately naming legacy curves that cannot fly. */
@@ -149,10 +193,6 @@ export function validExMotorFields(v: unknown): v is ExMotor {
     // Negative samples cannot fly; refuse them before the kernel (audit 2026-10-11, S1c-4).
     && v['samples'].every((s: unknown) => record(s) && finite(s['time']) && s['time'] >= 0
       && finite(s['thrust']) && s['thrust'] >= 0 && s['thrust'] <= MAX_MOTOR_THRUST_N)
-    && (v['sampleMassesKg'] === undefined || (Array.isArray(v['sampleMassesKg'])
-      && v['sampleMassesKg'].length === v['samples'].length
-      && v['sampleMassesKg'].every((m: unknown) => finite(m)
-        && sampleMassInRangeKg(m, totalG, propG))))
     && (v['exitDiameterM'] === undefined || (positive(v['exitDiameterM'])
       && v['exitDiameterM'] >= exitRangeM(v['diameter'])[0] && v['exitDiameterM'] <= exitRangeM(v['diameter'])[1]));
 }
@@ -160,13 +200,39 @@ export function validExMotorFields(v: unknown): v is ExMotor {
 function hasDistinctThrustPoints(samples: { time: number; thrust: number }[]): boolean {
   const curve = flownCurve(samples).samples;
   return curve.length >= 2 && curve[curve.length - 1]!.time > 0
+    && isSampleList(curve)
     && curve.some(p => p.thrust > 0)
     && curve.every((p, i) => Number.isFinite(p.time) && (i === 0 || p.time > curve[i - 1]!.time));
 }
 
 /** Exact loaded data is accepted only when every array can fly unchanged. */
 export function validFlightSnapshot(v: unknown): v is ExFlightSnapshot {
-  return validFlightSnapshotFields(v) && v.cgX >= 0 && v.cgX <= v.length && v.thrusts.some(f => f > 0);
+  return repairableSnapshot(v) && v.masses.length === v.times.length
+    && v.masses.every(m => finite(m) && m >= 0 && Number.isFinite(m * 1000))
+    && massesDoNotRise(v.masses);
+}
+
+function repairableSnapshot(v: unknown, header?: Pick<ExMotor, 'totalWeightG' | 'propWeightG'>): v is ExFlightSnapshot {
+  return validFlightSnapshotFields(v) && v.cgX >= 0 && v.cgX <= v.length
+    && Number.isFinite(v.diameter * 1000) && Number.isFinite(v.length * 1000)
+    && isSampleList(v.times.map((time, i) => ({ time, thrust: v.thrusts[i]! })))
+    && (header !== undefined || (positive(v.masses[0]) && Number.isFinite(v.masses[0] * 1000)
+      && finite(v.masses.at(-1)) && massesDoNotRise([v.masses[0], v.masses.at(-1)!])));
+}
+
+/** Specific per-motor failure after the shared structural gate. */
+export function exMotorFlightProblem(ex: ExMotor): string {
+  if (!ex.samples.some(p => p.thrust > 0)) return 'no positive thrust in the source curve';
+  if (!hasDistinctThrustPoints(ex.samples)) return 'source thrust curve has fewer than two distinct thrust points or non-finite integrated impulse';
+  const s = ex.flightSnapshot;
+  const samples = s ? s.times.map((time, i) => ({ time, thrust: s.thrusts[i]! })) : flownCurve(ex.samples).samples;
+  if (!samples.some(p => p.thrust > 0)) return 'no positive thrust';
+  if (!Number.isFinite(totals(samples).impulse)) return 'integrated impulse is not finite';
+  if (!hasDistinctThrustPoints(samples)) return 'fewer than two distinct thrust points';
+  if (s && (s.cgX < 0 || s.cgX > s.length)) return 'captured CG outside the motor';
+  if (s && (!Number.isFinite(s.diameter * 1000) || !Number.isFinite(s.length * 1000))) return 'converted dimensions are not finite';
+  if ((s?.masses ?? ex.sampleMassesKg ?? []).some(m => !Number.isFinite(m * 1000))) return 'converted per-point masses are not finite';
+  return 'per-point masses contradict the motor mass or rise outside the measurement band';
 }
 
 function validFlightSnapshotFields(v: unknown): v is ExFlightSnapshot {
@@ -177,8 +243,7 @@ function validFlightSnapshotFields(v: unknown): v is ExFlightSnapshot {
     && times[0] === 0
     && times.every((t: unknown, i: number) => finite(t) && t >= 0 && (i === 0 || t > times[i - 1]))
     && Array.isArray(thrusts) && thrusts.length === times.length && thrusts.every((f: unknown) => finite(f) && f >= 0 && f <= MAX_MOTOR_THRUST_N)
-    && Array.isArray(masses) && masses.length === times.length && positive(masses[0])
-    && masses.every((m: unknown) => finite(m) && m >= 0);
+    && Array.isArray(masses);
 }
 
 /**
@@ -236,7 +301,7 @@ export function loadExMotors(notes?: string[], units: UnitSelection = INITIAL_UN
     if (!Array.isArray(list)) return [];
     const valid: ExMotor[] = [];
     for (const value of list) {
-      if (validExMotor(value)) { valid.push(value); continue; }
+      if (validExMotor(value)) { valid.push(repairStoredExMotor(value, notes)); continue; }
       // The browser reports these once on opening; routine library lookups
       // only refuse them, without repeating notices (audit 2026-10-11, S1c-5).
       if (notes) {
@@ -244,7 +309,8 @@ export function loadExMotors(notes?: string[], units: UnitSelection = INITIAL_UN
         const reason = !record(value) ? null
           : !finite(value['totalWeightG']) ? `loaded mass “${noteField(String(value['totalWeightG']))}” is not a finite number`
             : !finite(value['propWeightG']) ? `propellant mass “${noteField(String(value['propWeightG']))}” is not a finite number`
-              : massProblem(value['propWeightG'], value['totalWeightG'], units);
+              : massProblem(value['propWeightG'], value['totalWeightG'], units)
+                ?? (validExMotorFields(value) ? exMotorFlightProblem(value) : null);
         cautionNote(notes, 'I15.stored-ex-refused', `Stored EX motor ${noteField(name)} was not loaded: ${reason ?? 'invalid dimensions, curve or motor fields'}. Re-import its original .eng/.rse file.`);
       }
     }
@@ -493,6 +559,7 @@ function totals(samples: { time: number; thrust: number }[]) {
 
 /** Shape an EX motor as a browser/database row, retaining its EX filter identity. */
 export function exToDbEntry(m: ExMotor): MotorDbEntry {
+  m = repairStoredExMotor(m);
   // The picker must describe what Launch flies, including archived snapshots
   // whose original source definition differs (audit 2026-10-11, S1c-2).
   const snapshot = m.flightSnapshot;
@@ -524,6 +591,7 @@ export function exToDbEntry(m: ExMotor): MotorDbEntry {
 
 /** The same pure EX conversion for loading a motor and checking a design archive. */
 export function exToMotorSpec(ex: ExMotor, ejectionDelay: number): RepairedMotorSpec {
+  ex = repairStoredExMotor(ex);
   const spec = ex.flightSnapshot ? { ...structuredClone(ex.flightSnapshot), ejectionDelay }
     : sourceMotorSpec(ex, ejectionDelay);
   // Capture at load time, including for MotorBrowser and session recovery.
@@ -535,13 +603,19 @@ export function flightIdentity(s: ExFlightSnapshot): string {
 }
 
 function sourceMotorSpec(ex: ExMotor, ejectionDelay: number): RepairedMotorSpec {
-  if (ex.sampleMassesKg && ex.sampleMassesKg.length === ex.samples.length) {
+  if (ex.sampleMassesKg?.length === ex.samples.length) {
     const repaired = repairSamples(ex.samples);
     const samples = [...repaired.samples];
     const masses = repaired.keptIndices.map((i) => ex.sampleMassesKg![i]!);
+    if (!usableSampleMasses(masses, samples.length, ex.totalWeightG, ex.propWeightG)) {
+      return samplesToMotorSpec(exToDbEntry(ex), ex.samples, ejectionDelay);
+    }
     if (samples[0]!.time > 0) {
       samples.unshift({ time: 0, thrust: 0 });
       masses.unshift(ex.totalWeightG / 1000);
+    }
+    if (!massesDoNotRise(masses, ex.totalWeightG / 1000)) {
+      return samplesToMotorSpec(exToDbEntry(ex), ex.samples, ejectionDelay);
     }
     return {
       designation: ex.designation, diameter: ex.diameter / 1000, length: ex.length / 1000,
@@ -595,7 +669,7 @@ function massProblem(propG: number, totG: number, units: UnitSelection = INITIAL
 export function parseEng(text: string, notes?: string[], units: UnitSelection = INITIAL_UNITS): ExMotor[] {
   const motors: ExMotor[] = [];
   const skipped: string[] = [];
-  const lines = text.split(/\r?\n/);
+  const lines = text.split(/\r\n|[\r\n]/);
   let header: string[] | null = null;
   /** Why the current header's motor is being skipped; its data lines are read past. */
   let refused: string | null = null;
@@ -614,7 +688,7 @@ export function parseEng(text: string, notes?: string[], units: UnitSelection = 
     samples = [];
     if (!h) return;
     if (why) { skipped.push(why); return; }
-    if (pts.length === 0) return;
+    if (pts.length === 0) { skipped.push(`${noteField(h[0]!)}: no thrust data`); return; }
     // A header has seven or more tokens (isHeader), so the name is there.
     const name = h[0]!;
     const [, diaMm, lenMm, delays, propKg, totKg, ...mfr] = h;
@@ -638,6 +712,9 @@ export function parseEng(text: string, notes?: string[], units: UnitSelection = 
     if (problem) { skipped.push(`${noteField(name)}: ${problem}`); return; }
     if (pts.length < 2) { skipped.push(`${noteField(name)}: no thrust data`); return; }
     if (!pts.some(p => p.thrust > 0)) { skipped.push(`${noteField(name)}: no positive thrust; this motor cannot launch a rocket`); return; }
+    if (!Number.isFinite(totals(flownCurve(pts).samples).impulse)) {
+      skipped.push(`${noteField(name)}: integrated impulse is not finite`); return;
+    }
     if (!hasDistinctThrustPoints(pts)) { skipped.push(`${noteField(name)}: fewer than two distinct thrust points`); return; }
     motors.push({
       motorId: boundedExId(`ex:${slug(`${mfr.join(' ') || 'ex'}-${name}`)}`),
@@ -698,11 +775,11 @@ export function parseEng(text: string, notes?: string[], units: UnitSelection = 
     // Name the motor and point at import, not an unnamed kernel refusal
     // after a successful import (audit 2026-10-11, S1c-4).
     if (t! < 0 || f! < 0) {
-      refused = `${header[0]!}: data point ${samples.length + 1} has negative time or thrust (${t!}, ${f!})`;
+      refused = `${noteField(header[0]!)}: data point ${samples.length + 1} has negative time or thrust (${t!}, ${f!})`;
       continue;
     }
     if (f! > MAX_MOTOR_THRUST_N) {
-      refused = `${header[0]!}: data point ${samples.length + 1} exceeds the maximum thrust of 10,000,000 N`;
+      refused = `${noteField(header[0]!)}: data point ${samples.length + 1} exceeds the maximum thrust of 10,000,000 N`;
       continue;
     }
     samples.push({ time: t!, thrust: f! });
@@ -738,7 +815,7 @@ export function parseEng(text: string, notes?: string[], units: UnitSelection = 
  * number, is named in `notes` and flies the model.
  */
 function rseSampleMassesKg(
-  el: XmlElement, name: string, masses: number[], initG: number, propG: number, notes?: string[], units: UnitSelection = INITIAL_UNITS,
+  el: XmlElement, name: string, masses: number[], samples: { time: number; thrust: number }[], initG: number, propG: number, notes?: string[], units: UnitSelection = INITIAL_UNITS,
 ): number[] | undefined {
   const autoCalc = !/^(0|false)$/i.test((el.getAttribute('auto-calc-mass') ?? '').trim());
   if (autoCalc) return undefined;
@@ -770,7 +847,10 @@ function rseSampleMassesKg(
         const total = m + caseG;
         return Number.isFinite(total) ? total / 1000 : m / 1000 + caseG / 1000;
       });
-      if (converted.every(m => sampleMassInRangeKg(m, initG, propG))) return converted;
+      const ordered = repairSamples(samples).keptIndices.map(i => converted[i]!);
+      if (usableSampleMasses(ordered, ordered.length, initG, propG)) return converted;
+      notes?.push(`${noteField(name)}: its per-point masses increase during the burn or exceed its loaded mass, so burn-off is spread in proportion to impulse instead.`);
+      return undefined;
     }
     notes?.push(`${noteField(name)}: its per-point masses fall outside ${noticeQuantity('mass', low / 1000, units)}–${noticeQuantity('mass', high / 1000, units)}, contradicting its `
       + 'loaded/propellant masses, so burn-off is spread in proportion to impulse instead.');
@@ -888,6 +968,10 @@ export function parseRse(text: string, notes?: string[], units: UnitSelection = 
       skipped.push(`Motor ${noteField(name)}: no thrust data`);
       continue;
     }
+    if (!Number.isFinite(totals(flownCurve(samples).samples).impulse)) {
+      skipped.push(`Motor ${noteField(name)}: integrated impulse is not finite`);
+      continue;
+    }
     if (!hasDistinctThrustPoints(samples)) {
       skipped.push(`Motor ${noteField(name)}: fewer than two distinct thrust points or no positive thrust; this motor cannot launch a rocket`);
       continue;
@@ -923,7 +1007,7 @@ export function parseRse(text: string, notes?: string[], units: UnitSelection = 
       delays: attr('delays').split(',').map((s) => s.trim()).filter(Boolean).join(','),
       samples,
       sampleMassesKg: rseSampleMassesKg(
-        el, name, masses, totalWeightG, propWeightG, notes, units),
+        el, name, masses, samples, totalWeightG, propWeightG, notes, units),
       ...(exit && 'exitDiameterM' in exit ? { exitDiameterM: exit.exitDiameterM } : {}),
       source: 'rse' as const,
       addedAt: Date.now(),
