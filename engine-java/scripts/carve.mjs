@@ -14,7 +14,8 @@
  * (or set OPENROCKET_SRC to the openrocket-release-24.12 root)
  */
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
+import { atomicWriteFileSync } from '../../packages/app/scripts/atomic-write.mjs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { requireOpenrocketSrc } from '../../scripts/openrocket-src.mjs';
@@ -103,14 +104,14 @@ for (const rel of manifest) {
       verified++;
     } else if (isPatched) {
       // The patch file changed — refresh the carved copy from it.
-      copyFileSync(src, dst);
+      atomicWriteFileSync(dst, readFileSync(src));
       copied++;
     } else {
       drifted.push(rel);
     }
   } else {
     mkdirSync(dirname(dst), { recursive: true });
-    copyFileSync(src, dst);
+    atomicWriteFileSync(dst, readFileSync(src));
     copied++;
   }
 }

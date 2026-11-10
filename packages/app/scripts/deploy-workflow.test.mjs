@@ -35,9 +35,11 @@ const SUITES = workflow('test-suites.yml');
 
 const indentOf = (l) => l.length - l.trimStart().length;
 const isContent = (l) => l.trim() !== '' && !l.trim().startsWith('#');
+const mappingLine = (line) => line.replace(/^(\s*)(?:"([\w-]+)"|'([\w-]+)'|([\w-]+))[ \t]*:/, '$1$2$3$4:');
 
 /** The lines nested under `key`, found at the shallowest indent of `lines`; null when absent. */
 function child(lines, key) {
+  lines = lines.map(mappingLine);
   const top = Math.min(...lines.filter(isContent).map(indentOf));
   const at = lines.findIndex((l) => isContent(l) && indentOf(l) === top && l.trim().startsWith(`${key}:`));
   if (at < 0) return null;
@@ -49,6 +51,7 @@ function child(lines, key) {
 /** The scalar on `key`'s own line, at the shallowest indent of `lines`; undefined when absent. */
 function value(lines, key) {
   if (!lines) return undefined;
+  lines = lines.map(mappingLine);
   const top = Math.min(...lines.filter(isContent).map(indentOf));
   const line = lines.find((l) => isContent(l) && indentOf(l) === top && l.trim().startsWith(`${key}:`));
   return line === undefined ? undefined : line.trim().slice(key.length + 1).trim();
@@ -91,6 +94,147 @@ const interpolate = (text, ctx) => text.replace(/\$\{\{(.*?)\}\}/g, (_, e) => St
 const PUSH_MAIN = { event: 'push', ref: 'refs/heads/main' };
 const RUN_MAIN = { event: 'workflow_dispatch', ref: 'refs/heads/main' };
 const PR = (n) => ({ event: 'pull_request', ref: `refs/pull/${n}/merge` });
+
+function isolatedPagesWorkflow(text) {
+  if (/(?:^[ \t]*|:[ \t]+|[[{,][ \t]*|^[ \t]*-[ \t]+)[&*][^\s[\]{},]+/m.test(text)) return false;
+  const source = text.replace(/\r\n/g, '\n').replace(/^[ \t]*#[^\n]*/gm, '')
+    .replace(/^(\s*(?:- )?)(?:"([\w-]+)"|'([\w-]+)'|([\w-]+))[ \t]*:/gm, '$1$2$3$4:');
+  const properties = (block, indent) => {
+    const keys = [...block.matchAll(new RegExp(`^ {${indent}}([\\w-]+):`, 'gm'))];
+    return keys.map((key, i) => ({ name: key[1], text: block.slice(key.index, keys[i + 1]?.index) }));
+  };
+  const secret = /\bsecrets\b/i;
+  const root = properties(source, 0);
+  if (root.some(field => field.name !== 'jobs' && secret.test(field.text))) return false;
+  const jobs = properties(root.find(field => field.name === 'jobs')?.text ?? '', 2);
+  const build = jobs.find(field => field.name === 'build')?.text ?? '';
+  if (!build || secret.test(build) || /^ {4}environment:/m.test(build)) return false;
+  const deploy = jobs.find(field => field.name === 'deploy')?.text ?? '';
+  const fields = properties(deploy, 4);
+  if (fields.some(field => field.name !== 'steps' && secret.test(field.text))) return false;
+  const deploySteps = (fields.find(field => field.name === 'steps')?.text ?? '').split(/^ {6}- /m).slice(1);
+  const installs = (step) => {
+    // Flow mappings can put run after another field; exclude following fields.
+    const flowRun = step.trimStart().startsWith('{')
+      ? step.match(/[{,][ \t]*["']?run["']?[ \t]*:[ \t]*("[^"]*"|'[^']*'|[^,}]*)/)?.[1] : undefined;
+    let run = (flowRun ?? step.match(/(?:^|\n {8})run:[ \t]*([^\n]*(?:\n(?:[ \t]*(?=\n|$)| {9,}[^\n]*))*)/)?.[1] ?? '').trim();
+    if (/^>[+-]?\n/.test(run)) run = run.replace(/^>[+-]?\n/, '').replace(/\n/g, ' ');
+    if ((run.startsWith('"') && run.endsWith('"')) || (run.startsWith("'") && run.endsWith("'"))) run = run.slice(1, -1);
+    const aliases = new Set(['install', 'ci', 'i', 'clean-install', 'add', 'in', 'ic', 'it', 'isntall', 'install-clean', 'install-test']);
+    return run.split(/\n|&&|\|\||[;|]/).some(command => {
+      const tokens = command.trim().split(/\s+/);
+      while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0] ?? '')) tokens.shift();
+      if (tokens.shift() !== 'npm') return false;
+      while (tokens[0]?.startsWith('-')) {
+        const option = tokens.shift();
+        if (!option.includes('=') && tokens[0] && !tokens[0].startsWith('-') && !aliases.has(tokens[0])) tokens.shift();
+      }
+      return aliases.has(tokens[0] ?? '');
+    });
+  };
+  // Preserve the base API whole-step guard as well as the newer scalar checks.
+  return deploySteps.some(installs)
+    && !deploySteps.some(step => (/run\s*:\s*['"]?npm (install|ci)/.test(step) || installs(step)) && secret.test(step));
+}
+
+it('isolates Pages build and npm installers from secrets', () => {
+  const text = readFileSync(new URL('../../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  expect(isolatedPagesWorkflow(text)).toBe(true);
+  for (const reference of ['secrets.X', "secrets['X']", 'secrets["X"]', 'toJSON(secrets)']) {
+    for (const quote of ['', "'", '"']) {
+      const env = `${quote}env${quote} :\n      TOKEN: \u0024{{ ${reference} }}`;
+      for (const name of ['build', 'deploy']) {
+        expect.soft(isolatedPagesWorkflow(text.replace(`  ${name}:`, `  ${name}:\n    ${env}`)), `${name} ${env}`).toBe(false);
+      }
+      expect.soft(isolatedPagesWorkflow(`${quote}env${quote}:\n  TOKEN: \u0024{{ ${reference} }}\n${text}`)).toBe(false);
+      expect.soft(isolatedPagesWorkflow(`${text}\n${quote}env${quote}:\n  TOKEN: \u0024{{ ${reference} }}\n`)).toBe(false);
+      expect.soft(isolatedPagesWorkflow(text.replace('run: npm install', `${quote}env${quote}:\n          TOKEN: \u0024{{ ${reference} }}\n        run: npm install`))).toBe(false);
+    }
+  }
+  for (const run of ['npm ci', 'npm install', 'npm i', 'npm clean-install', 'npm --prefix packages/app ci',
+    '"npm ci"', "'npm i'", '|\n          npm ci', '>\n          npm\n          ci', 'NODE_ENV=production npm ci']) {
+    expect.soft(isolatedPagesWorkflow(text.replace(/run: npm install[^\n]*/, `run: ${run}`)), `clean ${run}`).toBe(true);
+    const changed = text.replace(/( {2}deploy:[\s\S]*? {4}steps:\n)/,
+      `$1      - "run" : ${run}\n        env:\n          TOKEN: \u0024{{ secrets.X }}\n`);
+    expect(changed).not.toBe(text);
+    expect.soft(isolatedPagesWorkflow(changed), run).toBe(false);
+  }
+  expect.soft(isolatedPagesWorkflow(text.replace('  build:', '  build:\n    environment: production'))).toBe(false);
+});
+
+it('handles final-round blank lines, comments and nine-space block contents', () => {
+  const workflow = readFileSync(new URL('../../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  for (const run of ['|\n          # install\n          npm i evil-pkg',
+    '|\n          echo prep\n\n          npm i evil-pkg', '|\n         npm i evil-pkg']) {
+    const clean = workflow.replace(/run: npm install[^\n]*/, `run: ${run}`);
+    expect.soft(isolatedPagesWorkflow(clean), `clean ${run}`).toBe(true);
+    for (const name of ['deploy']) {
+      const changed = workflow.replace(new RegExp(`(  ${name}:[\\s\\S]*?    steps:\\n)`),
+        `$1      - run: ${run}\n        env:\n          TOKEN: \u0024{{ secrets.CLOUDFLARE_API_TOKEN }}\n`);
+      expect(changed).not.toBe(workflow);
+      expect.soft(isolatedPagesWorkflow(changed), `${name} ${run}`).toBe(false);
+    }
+  }
+});
+
+it('preserves r5 f6a59fae whole-step rejection across Pages installer layouts', () => {
+  const text = readFileSync(new URL('../../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  expect(isolatedPagesWorkflow(text)).toBe(true);
+  const layouts = [
+    '{\n          run: npm ci,\n          env: { T: "TOKEN" } }',
+    '{ name: x,\n          run: npm ci, env: { T: "TOKEN" } }',
+    '{ env: { T: "TOKEN" },\n          run: npm ci }',
+    '  run: npm ci\n          env:\n            T: "TOKEN"',
+    '{ env: { run: harmless, T: "TOKEN" }, run: npm ci }',
+  ];
+  for (const layout of layouts) {
+    const clean = text.replace(/( {2}deploy:[\s\S]*? {4}steps:\n)/, `$1      - ${layout}\n`);
+    expect(clean).not.toBe(text);
+    expect.soft(isolatedPagesWorkflow(clean), `clean ${layout}`).toBe(true);
+    const changed = clean.replace('"TOKEN"', '"${{ secrets.X }}"');
+    // Exact f6a59fae whole-step install/secret predicate and step boundary.
+    const baseRejects = changed.split(/^ {6}- /m).slice(1).some(step =>
+      /run: npm (?:install|ci)\b/.test(step) && /\bsecrets\s*(?:\.|\[)/.test(step));
+    expect(baseRejects, layout).toBe(true);
+    const currentAccepts = isolatedPagesWorkflow(changed);
+    expect.soft(currentAccepts, layout).toBe(false);
+    expect.soft(baseRejects && currentAccepts, `new rejection must contain base: ${layout}`).toBe(false);
+  }
+});
+
+it('rejects r4 secret-bearing Pages flow-mapping installers', () => {
+  const text = readFileSync(new URL('../../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  expect(isolatedPagesWorkflow(text)).toBe(true);
+  for (const run of ['run: npm ci', '"run" : "npm install"', "'run': 'npm i'"]) {
+    for (const fields of [`${run}, env: { T: "TOKEN" }`, `env: { T: "TOKEN" }, ${run}`]) {
+      const clean = text.replace(/( {2}deploy:[\s\S]*? {4}steps:\n)/, `$1      - { ${fields} }\n`);
+      expect(clean).not.toBe(text);
+      expect.soft(isolatedPagesWorkflow(clean), `clean ${fields}`).toBe(true);
+      expect.soft(isolatedPagesWorkflow(clean.replace('"TOKEN"', '"${{ secrets.X }}"')), fields).toBe(false);
+    }
+  }
+});
+
+it('rejects YAML anchors and aliases in both owned deploy workflows', () => {
+  const assertNoReferences = (text) => expect(text).not.toMatch(/(?:^[ \t]*|:[ \t]+|[[{,][ \t]*|^[ \t]*-[ \t]+)[&*][^\s[\]{},]+/m);
+  for (const name of ['deploy.yml', 'api-deploy.yml']) {
+    const text = readFileSync(new URL(`../../../.github/workflows/${name}`, import.meta.url), 'utf8');
+    assertNoReferences(text);
+    for (const token of ['&tok ${{ secrets.X }}', '*tok', '&.tok ${{ secrets.X }}', '*.tok', '&:tok value', '*?tok', '&@tok value']) {
+      expect(() => assertNoReferences(`${text}\nenv:\n  TOKEN: ${token}\n`)).toThrow();
+    }
+    for (const anchor of ['.tok', ':tok', '?tok', '@tok', '\u96ea']) {
+      const anchored = text.replace('apiToken: $', `apiToken: &${anchor} $`);
+      expect(anchored).not.toBe(text);
+      expect(() => assertNoReferences(anchored)).toThrow();
+      if (name === 'deploy.yml') {
+        expect(isolatedPagesWorkflow(anchored)).toBe(false);
+        expect(isolatedPagesWorkflow(anchored.replace('  deploy:', `  deploy:\n    env:\n      TOKEN: *${anchor}`))).toBe(false);
+        expect(isolatedPagesWorkflow(text.replace('  deploy:', `  deploy:\n    env:\n      TOKEN: *${anchor}`))).toBe(false);
+      }
+    }
+  }
+});
 
 describe('deploy.yml — pull requests get the gate, only main deploys', () => {
   it('runs on a pull request into main, as on a push to it', () => {
@@ -335,6 +479,7 @@ describe('test-suites.yml — the sharded suite', () => {
     for (const [from, to] of [['uses: ./.github/workflows/test-suites.yml', 'uses: ./wrong.yml'],
       ['  test:', '  test:\n    if: false'], ['needs: [build, test]', 'needs: build'],
       ['  test:', '  test:\n    secrets: inherit'],
+      ...['"secrets":', "'secrets' :", 'secrets :'].map((key) => ['  test:', `  test:\n    ${key} inherit`]),
       ['contents: read', 'contents: write'],
       ['needs: [build, test]', 'needs: test'], ['run: npm run build', 'run: npm test']]) {
       expect(() => assertGate(replace(DEPLOY, from, to)), from).toThrow();
