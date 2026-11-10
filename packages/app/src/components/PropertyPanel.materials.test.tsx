@@ -33,13 +33,13 @@ it.each([
   ['surface', 'parachute', 'Canopy material', 'surfaceDensity'],
   ['line', 'shockcord', 'Cord material', 'lineDensity'],
 ] as const)('HF2 limits selected custom %s material density', async (kind, nodeType, label, key) => {
-  const { MAX_RECOVERY_DENSITY } = await import('../tree/schema.js');
   saveUserMaterials([{ kind, name: 'Huge', density: 1e100 }]);
   show({ type: nodeType, id: 'recovery' });
   const menu = select(label);
   const option = [...menu.options].find(o => o.textContent?.includes('Huge'))!;
   pick(menu, option.value);
-  expect(patches.at(-1)?.[key]).toBe(MAX_RECOVERY_DENSITY);
+  expect(patches.at(-1)?.[key]).toBeUndefined();
+  expect(host.querySelector('.message-caution')?.textContent).toMatch(/beyond the numbers the simulator can handle/);
 });
 it('R4 shows the recovery copy when saving a material fails', () => {
   localStorage.setItem(USER_MATERIALS_KEY, 'broken JSON');

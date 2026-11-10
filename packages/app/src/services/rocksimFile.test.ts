@@ -1376,7 +1376,8 @@ describe('RockSim design-level stage mass & CG', () => {
     expect(notes).toContain("the file's stated Stage3CG");
     expect(notes).not.toMatch(/Measured mass & CG.*override/);
     expect(notes).toContain('states a measured mass of 1e+308 g');
-    expect(notes).toContain('reduced to the limits if needed');
+    expect(notes).toContain('reduced to the limits');
+    expect(notes).not.toContain('if needed');
   });
 
   it('reads the stated mass and balance point into the measured pair, in SI', () => {
@@ -1389,6 +1390,8 @@ describe('RockSim design-level stage mass & CG', () => {
     const { notes } = read(FLAGGED);
     expect(notes).toMatch(/292/);
     expect(notes).toMatch(/Measured mass/i);
+    expect(notes).toContain('It is filled into Measured mass & CG');
+    expect(notes).not.toContain('reduced');
   });
 
   it('IGNORES a stated mass whose UseKnownMass flag is off', () => {

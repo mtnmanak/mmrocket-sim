@@ -69,17 +69,19 @@ const mm = (over: Partial<MountMotor> = {}): MountMotor => ({
   ignition: { event: 'automatic', delay: 0 }, ...over,
 });
 
-it.each(['cache', 'overlay'] as const)('HF2 r5 refuses absurd %s motor masses before the kernel write', async source => {
+it.each(['cache', 'overlay'].flatMap(source => [1e150, 1.7e308].map(totalWeightG => ({ source, totalWeightG }))))(
+  'HF2 r5 refuses absurd motor masses before the kernel write: $source $totalWeightG', async ({ source, totalWeightG }) => {
   const real = MOTOR_DB.find(m => m.totalWeightG! > m.propWeightG! && m.propWeightG! > 0)!;
   const samples = [{ time: 0, thrust: 0 }, { time: 0.1, thrust: 10 }, { time: 1, thrust: 0 }];
+  const propWeightG = totalWeightG === 1e150 ? 5e149 : 1;
   let spec: MotorSpec;
   if (source === 'cache') {
     const motor = { ...real, motorId: 'hf2-r5-cache', designation: 'Bad\n”' };
     const key = `tc:samples:v7:${motor.motorId}`;
-    localStorage.setItem(key, JSON.stringify({ samples, masses: { totalWeightG: 1.7e308, propWeightG: 1 }, massParser: 1 }));
+    localStorage.setItem(key, JSON.stringify({ samples, masses: { totalWeightG, propWeightG }, massParser: 1 }));
     try { spec = await fetchMotorSpec(motor, 5); } finally { localStorage.removeItem(key); }
   } else {
-    const row = { ...real, totalWeightG: 1.7e308, propWeightG: 1, designation: 'Bad\n”' };
+    const row = { ...real, totalWeightG, propWeightG, designation: 'Bad\n”' };
     expect(screenEntry(row)).toBeNull();
     const [motor] = applyOverlay([], { baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(),
       liveCount: 1, added: [row], changed: [], removed: [], rejected: [] });
@@ -99,7 +101,7 @@ it.each(['cache', 'overlay'] as const)('HF2 r5 refuses absurd %s motor masses be
   expect(result.motorFailures[0]!.text).toContain('Bad[U+201D]');
   expect(result.motorFailures[0]!.text).toContain('left off');
   expect(calls.filter(c => c[0] === 'motor')).toHaveLength(0);
-  expect(() => writeMountMotor(handle, id, spec, mm().ignition)).toThrow(/number limits/);
+  expect(() => writeMountMotor(handle, id, spec, mm().ignition)).toThrow(/beyond the numbers/);
 });
 
 it('HF2 r5 flies a real catalogue motor unchanged through the backstop', async () => {

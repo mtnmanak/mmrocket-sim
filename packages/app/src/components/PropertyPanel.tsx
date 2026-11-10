@@ -20,7 +20,7 @@ import { FinPointsEditor, type FinPoint } from './FinPointsEditor.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import {
-  applyFieldLimit, blankValue, DISPLAY_NAME, FIELDS, MAX_BULK_DENSITY, POSITIONABLE, type FieldDef,
+  applyFieldLimit, blankValue, DISPLAY_NAME, FIELDS, MAX_BULK_DENSITY, MAX_RECOVERY_DENSITY, POSITIONABLE, type FieldDef,
 } from '../tree/schema.js';
 import {
   bodyDragReference, fairingCd, fairingDeliveredCd, fairingFrontalArea, findParent,
@@ -351,6 +351,9 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, t
           if (mat) {
             if (kind === 'bulk' && mat.density > MAX_BULK_DENSITY) {
               setMessage(`Bulk material density has a limit of ${noticeQuantity('density', MAX_BULK_DENSITY, prefs.units)}`); return;
+            }
+            if (kind !== 'bulk' && mat.density > MAX_RECOVERY_DENSITY) {
+              setMessage('This material density is beyond the numbers the simulator can handle; it was not applied. Choose another material before simulating.'); return;
             }
             setPicked(groupMaterial ? e.target.value : null);
             onPatch(limitPatch(node, { [nameKey]: mat.name, [densityKey]: mat.density }));

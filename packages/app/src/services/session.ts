@@ -588,6 +588,16 @@ function readSession(restoreRoot: boolean): SessionState | null {
     if (motorsRemoved) {
       cautionNote(s.treeRestoreNotes ??= [], 'G04.motors-removed', 'Unreadable motor records were removed.');
     }
+    const boundPadMass = (reading: { padMassKg?: number }) => {
+      if (Number.isFinite(reading.padMassKg) && reading.padMassKg! > MAX_STATED_MASS_KG) {
+        reading.padMassKg = MAX_STATED_MASS_KG;
+        cautionNote(s.treeRestoreNotes ??= [], 'G04.measurements-reset',
+          'Stored pad mass was above the simulator limit and was reduced; check the measurement before flying.');
+      }
+    };
+    for (const set of [s.mountMotors ?? {}, ...(s.savedConfigs ?? []).map(c => c.motors)]) {
+      for (const mm of Object.values(set)) boundPadMass(mm);
+    }
     // An EX motor's captured library definition (exMotors.exToMotorSpec), which
     // Save writes and compares (orkExportMotors.exIdentity, exMotorArchive): the
     // library's identity checks, and the samples exMotorIdentity reads. Not
@@ -604,7 +614,7 @@ function readSession(restoreRoot: boolean): SessionState | null {
     for (const spec of specs) {
       if (spec && !motorWithinRepresentabilityLimits(spec)) {
         refusedExSpecs.add(spec);
-        const note = `Motor ${noteField(spec.designation, 160)}: its stored mass or dimensions exceed the simulator limit; the motor was removed and its mount is empty.`;
+        const note = `Motor ${noteField(spec.designation, 160)}: its stored mass or size is beyond the numbers the simulator can handle; the motor was removed and its mount is empty.`;
         if (!(s.treeRestoreNotes ??= []).includes(note)) s.treeRestoreNotes.push(note);
         continue;
       }
@@ -688,6 +698,9 @@ function readSession(restoreRoot: boolean): SessionState | null {
       s.nozzleModeVersion = 1;
     }
     s = sanitizeSessionFlightLayers(s);
+    for (const refs of [s.unmatchedRefs, ...(s.savedConfigs ?? []).map(c => c.unmatchedRefs)]) {
+      for (const ref of Object.values(refs ?? {})) boundPadMass(ref);
+    }
     if (unmatchedRebuilt.size) {
       for (const i of unmatchedRebuilt) {
         const cfg = s.savedConfigs![i]!;
@@ -779,6 +792,7 @@ function readSession(restoreRoot: boolean): SessionState | null {
     // The restore's legacy pad-mass check needs an object (audit 2026-10-11, S1d-5).
     if (s.measured !== undefined && !isTable(s.measured)) delete s.measured;
     if (s.measured) {
+      boundPadMass(s.measured as { padMassKg?: number });
       let repaired = false;
       for (const key of ['massKg', 'cgM'] as const) {
         const value = s.measured[key];

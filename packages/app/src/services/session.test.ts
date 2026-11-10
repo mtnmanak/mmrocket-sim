@@ -68,7 +68,7 @@ it('HF2 deduplicates oversized motor refusal across independent restored copies'
   localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), mountMotors: { m: motor }, savedConfigs: [
     { id: 'a', name: 'A', motors: { m: motor } }, { id: 'b', name: 'B', motors: { m: motor } },
   ] }));
-  expect(loadSession()!.treeRestoreNotes!.filter(n => n.includes('stored mass or dimensions'))).toHaveLength(1);
+  expect(loadSession()!.treeRestoreNotes!.filter(n => n.includes('stored mass or size'))).toHaveLength(1);
 });
 
 it.each(['times', 'thrusts', 'masses', 'diameter', 'length', 'cgX'])('H1 screens restored motor spec %s in both maps', key => {
@@ -1422,6 +1422,22 @@ const exMounted = () => {
   const ex = definition();
   return mountMotorFromDb(exToDbEntry(ex), exToMotorSpec(ex, 5), 5, { event: 'automatic', delay: 0 }, { exMotorId: ex.motorId });
 };
+it('HF2 final bounds pad readings in current and legacy session locations', () => {
+  const bad = { ...exMounted(), padMassKg: 1e20 };
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(),
+    mountMotors: { bad }, unmatchedRefs: { missing: { designation: 'Missing', padMassKg: 1e20 } },
+    savedConfigs: [{ id: 'c', name: 'C', motors: { bad },
+      unmatchedRefs: { missing: { designation: 'Missing', padMassKg: 1e20 } } }],
+    measured: { massKg: 1, cgM: 0.3, padMassKg: 1e20 },
+  }));
+  const restored = loadSession()!;
+  expect(restored.mountMotors?.bad?.padMassKg).toBe(1e15);
+  expect(restored.savedConfigs?.[0]?.motors.bad?.padMassKg).toBe(1e15);
+  expect(restored.unmatchedRefs?.missing?.padMassKg).toBe(1e15);
+  expect(restored.savedConfigs?.[0]?.unmatchedRefs?.missing?.padMassKg).toBe(1e15);
+  expect((restored.measured as unknown as { padMassKg?: number })?.padMassKg).toBe(1e15);
+  expect(restored.treeRestoreNotes?.join(' ')).toMatch(/pad mass.*reduced/i);
+});
 it.each([{ masses: [1e100, 1e99, 0.01, 0.01] }, { diameter: 1e100 }, { length: 1e100 }])(
   'HF2 removes only oversized autosaved EX motor %j', fields => {
     const bad = exMounted();
@@ -1431,7 +1447,7 @@ it.each([{ masses: [1e100, 1e99, 0.01, 0.01] }, { diameter: 1e100 }, { length: 1
     const loaded = loadSession()!;
     expect(loaded.mountMotors?.bad).toBeUndefined();
     expect(loaded.mountMotors?.good).toBeDefined();
-    expect(loaded.treeRestoreNotes?.join(' ')).toMatch(/limit.*removed/);
+    expect(loaded.treeRestoreNotes?.join(' ')).toMatch(/handle.*removed/);
   },
 );
 it('HF2 bounds restored measured mass before pinning a stage', async () => {

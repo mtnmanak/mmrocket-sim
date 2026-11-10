@@ -7,6 +7,19 @@ import { limitPatch, sanitizeTree } from './sanitize.js';
 import { engineTree } from './treeModel.js';
 import { finOutlineProblem } from './finOutline.js';
 
+it('HF2 final does not collapse distinct negative fin vertices during repair', () => {
+  const notes: string[] = [];
+  const tree = sanitizeTree({ components: [{ type: 'stage', children: [{ type: 'bodytube',
+    length: 1, outerRadius: 1, children: [{ type: 'freeformfinset', crossSection: 'rounded',
+      points: [[0, 0], [-2000, 1], [-1500, 1], [1, 0]] }],
+  }] }] }, notes);
+  const points = tree.components[0]!.children![0]!.children![0]!['points'] as [number, number][];
+  expect(finOutlineProblem(points)).toBeNull();
+  expect(notes.join(' ')).toMatch(/fin.*limit/i);
+  resetEngine();
+  expect(Number.isFinite(OrkRocket.buildTree(engineTree(tree)).staticInfo().rotationalInertia)).toBe(true);
+});
+
 it('HF2 bounds negative fin coordinates on load and refuses them on edit', () => {
   const points: [number, number][] = [[0, 0], [-1e152, 1], [-1e152, 2.5], [1, 0]];
   const notes: string[] = [];

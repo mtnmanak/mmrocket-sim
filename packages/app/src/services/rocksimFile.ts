@@ -475,7 +475,8 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
     cautionNote(notes, 'I18.measured-not-applied',
       `This file states a measured mass of ${noticeQuantity('mass', statedMassG / MASS, units)}`
       + (statedCgMm > 0 ? ` balancing ${noticeQuantity('length', statedCgMm / LEN, units)} from the nose tip` : '')
-      + '. The checked values, reduced to the limits if needed, are filled into Measured mass & CG on the Design tab, which '
+      + (repairs.length ? '. The values, reduced to the limits, are filled into Measured mass & CG on the Design tab, which '
+        : '. It is filled into Measured mass & CG on the Design tab, which ')
       + 'reports the gap against your parts and can add it as ballast — '
       + 'nothing has been applied to the simulation yet. (Desktop OpenRocket '
       + 'pins the whole stage to it instead, which stops the individual part '

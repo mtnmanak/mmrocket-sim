@@ -58,7 +58,7 @@ it('does not persist an overflowing per-point mass', async () => {
   // HF2 refuses the oversized header before the gram-conversion repair door.
   expect(out.parsed).toHaveLength(0);
   expect(loadExMotors()).toHaveLength(0);
-  expect(out.error).toMatch(/mass exceeds.*representability limit/);
+  expect(out.error).toMatch(/mass is beyond the numbers the simulator can handle/);
 });
 
 it.each([-1, 5, NaN, Infinity])('refuses snapshot CG outside its motor: %s', cgX => {

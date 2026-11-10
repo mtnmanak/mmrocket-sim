@@ -695,7 +695,9 @@ To keep mass and rotational inertia within the computer's number range, stored c
 
 Measured airframe and pad masses use the same mass limit; an imported value above it is reduced with a repair note. Motors with any mass above that limit, or diameter or length above **1000 m**, are left off the rocket rather than changed: reducing a motor's mass would simulate a different motor. The refusal names the motor; choose another before flying. A standalone EX motor file keeps its other usable motors. An embedded EX archive containing an oversized definition is currently refused as a whole.
 
-Freeform fin coordinates are limited to **1000 m** in either direction from the origin. File readers replace an unusable outline with a default fin and report it; restored coordinates outside that range are reduced with a repair note. The fin editor refuses new outlines outside it. Check repaired fins before flying or cutting them.
+Freeform fin coordinates are limited to **1000 m** in either direction from the origin. File readers replace an unusable outline with a default fin and report it; restored coordinates outside that range are reduced with a repair note. If clamping would merge vertices, a usable proportional reduction preserves their separation. The fin editor refuses new outlines outside it. Check repaired fins before flying or cutting them.
+
+Selecting a canopy or line material with density above the number limit leaves the part unchanged and shows a caution. Choose another material before simulating. Restored weighed pad masses above the mass limit are reduced with a repair note, including older measurements awaiting assignment to a mount. Check those readings before flying.
 
 Imported measured CG values above **1000 m** are reduced with a repair note. Pinning a stage to measured mass & CG applies the same mass and CG limits and reports any reduction. The simulation uses the pinned values; check them before flying.
 

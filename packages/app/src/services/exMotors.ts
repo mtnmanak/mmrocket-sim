@@ -171,7 +171,8 @@ const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFi
 const positive = (v: unknown): v is number => finite(v) && v > 0;
 /** Upper bounds only: legacy shape/curve repair remains the caller's policy. */
 export function motorWithinRepresentabilityLimits(spec: Pick<MotorSpec, 'diameter' | 'length' | 'masses'>): boolean {
-  return spec.diameter <= MAX_DIMENSION_M && spec.length <= MAX_DIMENSION_M
+  return (!finite(spec.diameter) || spec.diameter <= MAX_DIMENSION_M)
+    && (!finite(spec.length) || spec.length <= MAX_DIMENSION_M)
     && (!Array.isArray(spec.masses) || spec.masses.every((m: unknown) => !finite(m) || m <= MAX_STATED_MASS_KG));
 }
 const record = (v: unknown): v is Record<string, unknown> =>
@@ -653,7 +654,7 @@ function massProblem(propG: number, totG: number, units: UnitSelection = INITIAL
   if (!Number.isFinite(propG) || !Number.isFinite(totG)) return 'propellant and loaded mass must be finite numbers in grams';
   if (!(totG > 0)) return `loaded mass ${noticeQuantity('mass', totG / 1000, units)} is not a mass`;
   if (!(propG > 0)) return `propellant mass ${noticeQuantity('mass', propG / 1000, units)} is not a mass`;
-  if (totG / 1000 > MAX_STATED_MASS_KG || propG / 1000 > MAX_STATED_MASS_KG) return 'motor mass exceeds the simulator representability limit; this motor was not loaded';
+  if (totG / 1000 > MAX_STATED_MASS_KG || propG / 1000 > MAX_STATED_MASS_KG) return 'motor mass is beyond the numbers the simulator can handle; this motor was not loaded';
   if (propG > totG && !noticeEqual(propG / 1000, totG / 1000)) {
     const [propellant, loaded] = noticeComparison('mass', propG / 1000, totG / 1000, units, { parenthesized: true });
     return propellant.startsWith('just ') ? `slightly more propellant than loaded mass (${loaded})` : `more propellant (${propellant}) than loaded mass (${loaded})`;
@@ -709,7 +710,7 @@ export function parseEng(text: string, notes?: string[], units: UnitSelection = 
       return;
     }
     if (parseDecimal(diaMm) / 1000 > MAX_DIMENSION_M || parseDecimal(lenMm) / 1000 > MAX_DIMENSION_M) {
-      skipped.push(`${noteField(name)}: motor dimensions exceed the simulator representability limit; this motor was not loaded`);
+      skipped.push(`${noteField(name)}: motor size is beyond the numbers the simulator can handle; this motor was not loaded`);
       return;
     }
     // In time order first, as desktop's RASPMotorLoader sorts before it
@@ -940,7 +941,7 @@ export function parseRse(text: string, notes?: string[], units: UnitSelection = 
     // too: a 0 mm motor was offered for every mount (diameterClass(0) is 0,
     // and 0 fits any bore), and a 0 mm long one put its CG at its top face.
     if (numAttr('dia') / 1000 > MAX_DIMENSION_M || numAttr('len') / 1000 > MAX_DIMENSION_M) {
-      skipped.push(`Motor ${noteField(name)}: motor dimensions exceed the simulator representability limit; this motor was not loaded`);
+      skipped.push(`Motor ${noteField(name)}: motor size is beyond the numbers the simulator can handle; this motor was not loaded`);
       continue;
     }
     const dimension = (['dia', 'len'] as const).find((a) => !(numAttr(a, NaN) > 0));
@@ -955,7 +956,7 @@ export function parseRse(text: string, notes?: string[], units: UnitSelection = 
     }
     const data = Array.from(el.querySelectorAll(':scope > data > eng-data'));
     if (data.some(d => parseDecimal(d.getAttribute('m')) / 1000 > MAX_STATED_MASS_KG)) {
-      skipped.push(`Motor ${noteField(name)}: point mass exceeds the simulator representability limit; this motor was not loaded`);
+      skipped.push(`Motor ${noteField(name)}: point mass is beyond the numbers the simulator can handle; this motor was not loaded`);
       continue;
     }
     if (data.length > MAX_EX_MOTOR_SAMPLES) { skipped.push(`Motor ${noteField(name)}: ${EX_SAMPLE_LIMIT_NOTE}`); continue; }

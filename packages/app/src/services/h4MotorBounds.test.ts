@@ -5,6 +5,11 @@ import { archiveExMotors, readArchivedExMotors } from './exMotorArchive.js';
 import { parseXml } from './xmlParse.js';
 import { escapeXml } from './xmlUtil.js';
 import { isSampleList, samplesToMotorSpec } from './thrustcurve.js';
+import { motorWithinRepresentabilityLimits } from './exMotors.js';
+
+it.each([NaN, undefined])('HF2 final leaves unreadable dimensions to finite validation: %s', diameter => {
+  expect(motorWithinRepresentabilityLimits({ diameter, length: 0.1, masses: [0.1, 0.05] } as never)).toBe(true);
+});
 
 const good = 'Good 29 100 P 0.05 0.1 Home\n0 0\n0.5 40\n1 0';
 it('HF2 refuses an RSE motor with oversized point mass instead of substituting burn-off', () => {
@@ -35,6 +40,7 @@ it.each(['Huge 29 100 P 1e19 1e20 Home', 'Huge 1000001 100 P 0.05 0.1 Home',
   const notes: string[] = [];
   expect(parseEng(good + '\n' + header + '\n0 0\n0.5 40\n1 0', notes)).toHaveLength(1);
   expect(notes.join(' ')).toContain('Huge');
+  expect(notes.join(' ')).toContain('is beyond the numbers the simulator can handle');
 });
 it('drops overflowing optional source masses even when the gram header is finite', () => {
   const motor = { ...parseEng(good)[0]!, totalWeightG: 1.7976931348623156e305 * 1000,

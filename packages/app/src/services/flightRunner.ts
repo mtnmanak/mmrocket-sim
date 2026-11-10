@@ -98,7 +98,7 @@ export function writeMountMotor(
   // Last backstop for every catalogue/cache/EX spec, including hardware shifts.
   // Refuse before any write: the bridge cannot remove an installed motor.
   if (!motorWithinRepresentabilityLimits(spec)) {
-    throw new Error(`${noteField(spec.designation)}: its mass or dimensions exceed the simulator's number limits,`
+    throw new Error(`${noteField(spec.designation)}: its mass or size is beyond the numbers the simulator can handle,`
       + ' so the motor was left off the rocket. Choose another motor before flying.');
   }
   const event = knownIgnitionEvent(ignition.event);

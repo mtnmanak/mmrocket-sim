@@ -1,4 +1,8 @@
 // @vitest-environment happy-dom
+// HF2 final: PropertyPanel 86 -> 87 refuses excessive recovery density;
+// session 4 -> 5 bounds restored pad readings. Representability scope exemption: these
+// ceilings do not compare display-rounded measurements. Regressions live in
+// PropertyPanel.materials and session tests respectively.
 // HF2 r5: flightRunner 1 -> 2 adds the representability backstop's refusal
 // sentence ("before flying"); the numeric policy stays in exMotors. RASAero
 // 276 -> 277 tests whether a stage has repair notes, not a measurement.
