@@ -16,6 +16,9 @@
  * at all, because from v0.084 a rolled view changes the whole drawing
  * convention and a wireframe with no visible slider is unexplained.
  */
+import { usePrefs } from '../prefs/PrefsContext.js';
+import { fmtSi, fmtSig } from '../prefs/units.js';
+
 export const ROLL_COL = 26;
 /** Height (px) the horizontal bar takes off the ⟳90° drawing's length axis. */
 export const ROLL_BAR = 30;
@@ -29,7 +32,17 @@ export function RollControl({ roll, onRoll, top = 0, orientation = 'vertical' }:
   /** 'horizontal' lays the control across the bottom, for the ⟳90° view. */
   orientation?: 'vertical' | 'horizontal';
 }) {
+  const { prefs } = usePrefs();
+  const unit = prefs.units.angle;
   const deg = Math.round((roll * 180) / Math.PI);
+  const text = unit === '°' ? `${deg}°` : `${fmtSi('angle', unit, roll, 3)} ${unit}`;
+  // Significant figures retain small rolls; scientific notation also keeps
+  // values below fmtSig's decimal limit distinct from an unrolled view.
+  const compact = fmtSig(roll, 2);
+  const resetText = unit === 'rad' ? (roll !== 0 && Number(compact) === 0 ? roll.toExponential(1) : compact) : text;
+  // Keep the stylesheet's readable 9px size in the 24px square. Long radian
+  // labels use two lines of scientific notation, retaining two significant figures.
+  const resetLines = unit === 'rad' && resetText.length > 4 ? roll.toExponential(1).split('e') : null;
   const horizontal = orientation === 'horizontal';
   return (
     <div className={`roll-control${horizontal ? ' roll-horizontal' : ''}`}
@@ -37,15 +50,18 @@ export function RollControl({ roll, onRoll, top = 0, orientation = 'vertical' }:
       <input type="range" className="roll-slider"
         min={-180} max={180} step={1} value={deg}
         aria-label="Roll the view about the rocket's long axis"
-        aria-valuetext={`${deg} degrees`}
+        aria-valuetext={unit === '°' ? `${deg} degrees` : text}
         onChange={(e) => onRoll((Number(e.target.value) * Math.PI) / 180)}
         onDoubleClick={() => onRoll(0)} />
       {/* Named for what it does, opening with the angle it shows (audit
           2026-09-22): its text alone announced "12 degrees, button". */}
       <button className="roll-reset" type="button"
-        title="Roll the view about the rocket's long axis — click to return to the design's own angles"
-        aria-label={`${deg}° view roll — reset to the design's own angles`}
-        onClick={() => onRoll(0)}>{deg}°</button>
+        style={unit === 'rad' ? { fontSize: 9, letterSpacing: '-0.6px', whiteSpace: 'nowrap' } : undefined}
+        title={`${unit === 'rad' ? `${text} — ` : ''}Roll the view about the rocket's long axis — click to return to the design's own angles`}
+        aria-label={`${text} view roll — reset to the design's own angles`}
+        onClick={() => onRoll(0)}>{resetLines
+          ? <><span style={{ display: 'block' }}>{resetLines[0]}</span><span style={{ display: 'block' }}>e{resetLines[1]}</span></>
+          : resetText}</button>
     </div>
   );
 }

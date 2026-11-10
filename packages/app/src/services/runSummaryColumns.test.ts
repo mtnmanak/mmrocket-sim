@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { INITIAL_UNITS, IMPERIAL_UNITS } from '../prefs/units.js';
 import type { SimRun } from './simReport.js';
-import { DEFAULT_RUN_COLUMNS, normalizeRunColumns, RUN_SUMMARY_COLUMNS, summaryCell } from './runSummaryColumns.js';
+import { DEFAULT_RUN_COLUMNS, normalizeRunColumns, RUN_SUMMARY_COLUMNS, summaryCell, summaryUnitSuffix } from './runSummaryColumns.js';
 
 describe('saved-run summary columns (N058)', () => {
   it('N032 separates apogee, deployment and load heights from landing drift', () => {
@@ -33,6 +33,25 @@ describe('saved-run summary columns (N058)', () => {
     }
     for (const column of RUN_SUMMARY_COLUMNS) expect(summaryCell(column, {} as SimRun, INITIAL_UNITS)).toBe('');
     const peak = RUN_SUMMARY_COLUMNS.find(c => c.id === 'maxQAlpha')!;
-    expect(Number(summaryCell(peak, { loads: { maxQAlpha: { value: 1000 } } } as SimRun, INITIAL_UNITS))).toBe(10);
+    expect(Number(summaryCell(peak, { loads: { maxQAlpha: { value: 1000 } } } as SimRun, INITIAL_UNITS))).toBeCloseTo(10 * 180 / Math.PI, 0);
+  });
+  it('shows q·alpha in preferred pressure and angle units', () => {
+    const column = RUN_SUMMARY_COLUMNS.find(c => c.id === 'maxQAlpha')!;
+    const run = { loads: { maxQAlpha: { value: 200 } } } as SimRun;
+    expect.soft(summaryCell(column, run, INITIAL_UNITS)).toBe('115');
+    expect.soft(summaryCell(column, run, { ...INITIAL_UNITS, angle: 'rad' })).toBe('2.00');
+    expect.soft(summaryUnitSuffix(column, INITIAL_UNITS)).toBe('·°');
+    expect.soft(summaryUnitSuffix(column, { ...INITIAL_UNITS, angle: 'rad' })).toBe('·rad');
+  });
+  it.each([0.05, 5, 50, 12345.678])('uses the adjacent pressure ladder for q·alpha at %s', pressure => {
+    const q = RUN_SUMMARY_COLUMNS.find(c => c.id === 'maxQ')!;
+    const qa = RUN_SUMMARY_COLUMNS.find(c => c.id === 'maxQAlpha')!;
+    for (const angle of ['°', 'rad']) {
+      const units = { ...INITIAL_UNITS, angle };
+      const run = { loads: { maxQ: { value: pressure }, maxQAlpha: { value: pressure } } } as SimRun;
+      expect(summaryCell(qa, run, units)).toBe(summaryCell(q, {
+        loads: { maxQ: { value: pressure * (angle === 'rad' ? 1 : 180 / Math.PI) } },
+      } as SimRun, units));
+    }
   });
 });

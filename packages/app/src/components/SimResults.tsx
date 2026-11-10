@@ -25,7 +25,7 @@ import { clearRuns, deleteRun, restoreRun, runsToCsv, runsToTable } from '../ser
 import { formatWarning } from '../services/simWarnings.js';
 import { CSV_BOM, downloadBlob, stampedName } from '../services/fileName.js';
 import { tableToXlsx, XLSX_MIME } from '../services/xlsx.js';
-import { DEFAULT_RUN_COLUMNS, RUN_SUMMARY_COLUMNS, summaryCell } from '../services/runSummaryColumns.js';
+import { DEFAULT_RUN_COLUMNS, RUN_SUMMARY_COLUMNS, summaryCell, summaryUnitSuffix } from '../services/runSummaryColumns.js';
 
 /**
  * Detailed launch report (the full attribute list from the owner's flight-day
@@ -695,7 +695,7 @@ export function SimHistory({
                 <th scope="col">Configuration</th>
                 <th scope="col">Delay</th>
                 {columns.map(column => <th scope="col" key={column.id}>{column.label}
-                  {column.quantity ? <> (<UnitChip quantity={column.quantity} />{column.unit})</>
+                  {column.quantity ? <> (<UnitChip quantity={column.quantity} />{summaryUnitSuffix(column, prefs.units)})</>
                     : column.unit && column.id !== 'optimumDelayS' ? ` (${column.unit})` : ''}
                 </th>)}
                 <th scope="col">Safe</th>

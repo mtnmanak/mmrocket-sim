@@ -20,12 +20,13 @@ import { APP_VERSION } from '../version.js';
  * uPlot is replaced by a recorder so the SERIES DATA handed to the chart can be
  * read back — the pixels are not the point.
  */
-const plots: { series: { label?: string }[]; data: (number | null)[][] }[] = [];
+type AxisValues = (u: unknown, ticks: number[], axis: number, space: number, incr: number) => string[];
+const plots: { series: { label?: string }[]; data: (number | null)[][]; axes?: { values?: AxisValues }[] }[] = [];
 vi.mock('uplot', () => ({
   default: class RecordingPlot {
     scales: Record<string, { min?: number | null; max?: number | null }> = { x: {} };
-    constructor(opts: { series: { label?: string }[] }, data: (number | null)[][]) {
-      plots.push({ series: opts.series, data });
+    constructor(opts: { series: { label?: string }[]; axes?: { values?: AxisValues }[] }, data: (number | null)[][]) {
+      plots.push({ series: opts.series, data, axes: opts.axes });
     }
     setSize() {}
     setScale() {}
@@ -72,6 +73,58 @@ const open = (rocket: OrkRocket) => {
   act(() => root.render(<PrefsProvider><DragPanel rocket={rocket} designName="T" /></PrefsProvider>));
   act(() => { (host.querySelector('button[aria-expanded]') as HTMLButtonElement).click(); });
 };
+
+it('labels the degree-grid CP selector, heading, caption and legend in radians', () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { angle: 'rad' } }));
+  const rocket = rocketOf(sweepOf(flat(0.6), flat(1)), { length: 1.2, cp: 0.6, cna: 1 });
+  rocket.dragSweep = vi.fn(() => sweepOf(flat(0.6), flat(1)));
+  open(rocket);
+  const angle = [...host.querySelectorAll('label')].find(l => l.textContent?.startsWith('Angle of attack'))!.querySelector('select')!;
+  expect(angle.querySelector('option[value="20"]')!.textContent).toBe('0.349 rad');
+  expect(angle.parentElement!.title).toContain('stops at 0.349 rad');
+  act(() => { angle.value = '10'; angle.dispatchEvent(new Event('change', { bubbles: true })); });
+  expect(rocket.dragSweep).toHaveBeenCalledWith(expect.objectContaining({ aoaDeg: 10 }));
+  expect(host.textContent).toContain('at 0.175 rad angle of attack');
+  expect(host.textContent).toContain('with the 0 rad curve dashed beside it');
+  expect(plots.some(p => p.series.some(s => s.label === 'CP at 0.175 rad'))).toBe(true);
+  expect(plots.some(p => p.series.some(s => s.label === 'CP at 0 rad'))).toBe(true);
+});
+
+it('converts roll-plane plot coordinates and tooltip/legend units together', () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { angle: 'rad' } }));
+  const rocket = rocketOf(sweepOf(flat(0.6), flat(1)), { length: 1.2, cp: 0.6, cna: 1, cg: 0.3, mass: 0.5, refDiameter: 0.1 });
+  const cp: [number, number, number, number] = [0.6, 0, 0, 1];
+  rocket.aeroDiagnostics = vi.fn(() => ({ cp, worstCP: cp, cpByTheta: Array.from({ length: 360 }, () => cp), stallMargin: 0.1 }));
+  open(rocket);
+  act(() => { host.querySelector<HTMLButtonElement>('.roll-plane-panel button')!.click(); });
+  const roll = plots.filter(p => p.series[0]!.label === 'Roll-plane angle (rad)');
+  expect(roll).toHaveLength(2);
+  for (const plot of roll) {
+    expect(plot.data[0]![90]).toBeCloseTo(Math.PI / 2, 3);
+    expect(plot.data[0]![180]).toBeCloseTo(Math.PI, 3);
+  }
+});
+
+it.each(['°', 'rad'])('keeps zoomed roll-plane tick labels accurate in %s', angle => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { angle } }));
+  const rocket = rocketOf(sweepOf(flat(0.6), flat(1)), { length: 1.2, cp: 0.6, cna: 1, cg: 0.3, mass: 0.5, refDiameter: 0.1 });
+  const cp: [number, number, number, number] = [0.6, 0, 0, 1];
+  rocket.aeroDiagnostics = vi.fn(() => ({ cp, worstCP: cp, cpByTheta: Array.from({ length: 360 }, () => cp), stallMargin: 0.1 }));
+  open(rocket);
+  act(() => { host.querySelector<HTMLButtonElement>('.roll-plane-panel button')!.click(); });
+  const roll = plots.filter(p => p.series[0]!.label === `Roll-plane angle (${angle})`);
+  expect(roll).toHaveLength(2);
+  for (const plot of roll) {
+    const values = plot.axes![0]!.values;
+    if (angle === '°') expect(values).toBeUndefined(); // Preserve uPlot's default exactly.
+    else for (const incr of [0.25, 0.000025, 0.000000025]) {
+      const ticks = [incr, 2 * incr, 3 * incr];
+      const labels = values!(null, ticks, 0, 50, incr);
+      expect.soft(new Set(labels).size).toBe(ticks.length);
+      labels.forEach((label, i) => expect.soft(Number(label)).toBeCloseTo(ticks[i]!, 12));
+    }
+  }
+});
 
 it('uses the current handle when CP angle changes during the edit debounce', () => {
   vi.useFakeTimers();

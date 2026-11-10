@@ -1,4 +1,4 @@
-import { fmtSi, type Quantity, type UnitSelection } from '../prefs/units.js';
+import { fmtSi, siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
 import type { SimRun } from './simReport.js';
 
 interface RunColumn {
@@ -52,6 +52,11 @@ export const RUN_SUMMARY_COLUMNS: RunColumn[] = [
 
 export const DEFAULT_RUN_COLUMNS = ['maxAltitude', 'maxVelocity', 'optimumDelayS', 'rodExitVelocity'];
 
+/** On-screen unit suffix; run-table downloads have separate fixed columns. */
+export function summaryUnitSuffix(column: RunColumn, units: UnitSelection): string | undefined {
+  return column.id === 'maxQAlpha' ? `·${units.angle}` : column.unit;
+}
+
 export function normalizeRunColumns(value: unknown): string[] | undefined {
   if (!Array.isArray(value) || !value.every(v => typeof v === 'string')) return undefined;
   const known = new Set(RUN_SUMMARY_COLUMNS.map(c => c.id));
@@ -61,6 +66,7 @@ export function normalizeRunColumns(value: unknown): string[] | undefined {
 export function summaryCell(column: RunColumn, run: SimRun, units: UnitSelection): string {
   const value = column.value(run);
   if (typeof value !== 'number' || !Number.isFinite(value)) return '';
+  if (column.id === 'maxQAlpha') return fmtSi('pressure', units.pressure, siToUi('angle', units.angle, value));
   if (column.quantity) return fmtSi(column.quantity, units[column.quantity], value);
   return column.id === 'optimumDelayS' ? `${value.toFixed(1)}s` : String(Math.round(value * 1000) / 1000);
 }
