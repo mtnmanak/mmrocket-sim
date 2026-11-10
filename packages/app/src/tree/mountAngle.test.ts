@@ -6,6 +6,7 @@ import {
   wakeShadowWarnings, WAKE_REACH_HEIGHTS,
 } from './mountAngle.js';
 import { defaultParams } from './schema.js';
+import { INITIAL_UNITS } from '../prefs/units.js';
 import { formatWarningText, staticWarningTier } from '../services/simWarnings.js';
 
 const D = (deg: number) => (deg * Math.PI) / 180;
@@ -28,6 +29,19 @@ it.each(['freeformfinset', 'trapezoidfinset'])('snaps non-exact aligned %s angle
 });
 
 const FINS3 = { type: 'trapezoidfinset', id: 'f1', finCount: 3, rootChord: 0.05, height: 0.04 };
+
+it('formats every rail interference angle in preferred radians', () => {
+  const t = tree([{ ...FINS3, rotation: D(90) },
+    { type: 'railbutton', id: 'r1', angleOffset: D(90) },
+    { type: 'railbutton', id: 'r2', angleOffset: D(30) },
+    { type: 'launchlug', id: 'lug', angleOffset: D(95) }]);
+  const messages = railInterferenceWarnings(t, { ...INITIAL_UNITS, angle: 'rad' }).join(' ');
+  expect.soft(messages).toContain('at 1.571 rad');
+  expect.soft(messages).toContain('(0 rad apart)');
+  expect.soft(messages).toContain('(0.087 rad apart)');
+  expect.soft(messages).toContain('(1.571 rad and 0.524 rad)');
+  expect.soft(messages).not.toContain('°');
+});
 
 describe('zero-size parts have no clock-angle obstruction', () => {
   it.each(['rounded', 'airfoil'].flatMap(section => ['snap', 'rail', 'wake'].map(check => [section, check] as const)))(
@@ -580,6 +594,13 @@ describe('a shroud in a fin\'s wake', () => {
     } as unknown as RocketTree;
   };
 
+  it('formats shroud clock and separation angles in preferred radians', () => {
+    const w = wakeShadowWarnings(camTree({ shroud: { angleOffset: D(90) }, fins: { rotation: D(95) } }), { ...INITIAL_UNITS, angle: 'rad' });
+    expect(w).toHaveLength(1);
+    expect.soft(w[0]).toContain('at 1.571 rad');
+    expect.soft(w[0]).toContain("0.087 rad off that fin's line");
+    expect.soft(w[0]).not.toContain('°');
+  });
   it('flags the shroud the app\'s own "on a fin" button produces', () => {
     const w = wakeShadowWarnings(camTree());
     expect(w).toHaveLength(1);

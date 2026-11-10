@@ -1,4 +1,22 @@
 // @vitest-environment happy-dom
+// HF10 r4: reviewed runSummaryColumns 4 -> 3 (shared pressure formatter).
+// Rod degree branch and readable two-line radian reset are presentation only;
+// angleDisplays and summary tests cover rounding, sizing, and pressure ladders.
+// HF10 r3: reviewed increment-driven radian ticks and significant-figure
+// reset text (including tiny nonzero fallback). Census unchanged: these
+// replace presentation branches, not physical thresholds or note producers.
+// DragPanel.cp and angleDisplays regressions cover zoom and both orientations.
+// HF10 r2: reviewed RollControl 2 -> 3, runSummaryColumns 1 -> 4,
+// finAlign 0 -> 1 and mountAngle 1 -> 2: angle formatter branches,
+// JSX suffix/call arrows and reset-label presentation, not physics thresholds.
+// Radian warnings/alignment, both summary units and precision/endpoint tests
+// sit beside the producers. No comparison-note explanation changed.
+// HF10: DragPanel 38 -> 42, FlightLoadStats 3 -> 5, LaunchCompass 0 -> 1,
+// RollControl 1 -> 2 and WindProfile 1 -> 2 select angle display precision
+// and spacing by unit; no physical threshold or simulation input changes.
+// Radians regressions: DragPanel.cp/roll, FlightLoadStats and angleDisplays.
+// The peak's finite guard remains before conversion: SimResults tests corrupt
+// saved booleans and hex strings without coercing them to flown numbers.
 // H2: MotorBrowser 17 -> 13 removes native number-input type literals; NumField
 // comma/invalid/blank boundaries are covered in MotorBrowser.test.tsx.
 // SimResults 50 -> 51 and flightChartModel 10 -> 11 add angle formatters;

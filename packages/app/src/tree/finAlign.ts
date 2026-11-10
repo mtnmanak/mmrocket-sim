@@ -1,4 +1,5 @@
 import { noteField } from '../services/noteField.js';
+import { fmtSi, INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
 import { finCountOf } from './counts.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { axialLength, drawnSpan, positionOf, startFromPosition } from './position.js';
@@ -89,7 +90,9 @@ function minClearance(rotA: number, countA: number, rotB: number, countB: number
   return best;
 }
 
-export function autoAlignFinSets(tree: RocketTree): FinAlignResult {
+export function autoAlignFinSets(tree: RocketTree, units: UnitSelection = INITIAL_UNITS): FinAlignResult {
+  const unit = units.angle;
+  const angle = (rad: number) => `${fmtSi('angle', unit, rad, unit === '°' ? 1 : 3)}${unit === '°' ? '' : ' '}${unit}`;
   const patches = new Map<string, number>();
   const changes: string[] = [];
   let comparisons = 0;
@@ -146,8 +149,8 @@ export function autoAlignFinSets(tree: RocketTree): FinAlignResult {
         if (bestClear > currentClear + 1e-6) {
           patches.set(me.id, bestRot);
           changes.push(
-            `“${noteField(me.name ?? me.type)}” rotated to ${Math.round((bestRot * 180) / Math.PI)}° `
-            + `(was ${Math.round((current * 180) / Math.PI)}°) for the widest fin clearance.`,
+            `“${noteField(me.name ?? me.type)}” rotated to ${angle(bestRot)} `
+            + `(was ${angle(current)}) for the widest fin clearance.`,
           );
         }
       }

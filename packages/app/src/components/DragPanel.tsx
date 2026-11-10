@@ -60,6 +60,11 @@ function lineOf(i: number, palette: readonly string[]): Pick<Line, 'color' | 'da
 /** Said at the end of every drag chart's canvas name — the button is above them. */
 const DRAG_CSV_NOTE = 'The Drag table (.csv) download above holds the same numbers.';
 
+/** Analysis grids stay in degrees; only their readouts follow the preference. */
+function angleLabel(degrees: number, unit: string): string {
+  return `${fmtSi('angle', unit, degrees * Math.PI / 180, unit === '°' ? 1 : 3)}${unit === '°' ? '' : ' '}${unit}`;
+}
+
 /** A single multi-series uPlot line chart (all series share the CD y-scale). */
 function LineChart({ x, lines, title, xLabel, yLabel, height = 190, lockLegend = false, expanded = false, plotRef, onZoomChange,
   rollPlane = false, worstAngle = null, worstPlaneNote }: {
@@ -92,18 +97,19 @@ function LineChart({ x, lines, title, xLabel, yLabel, height = 190, lockLegend =
   onZoomChange?: (zoomed: boolean) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const { resolvedTheme, daylight } = usePrefs();
+  const { prefs, resolvedTheme, daylight } = usePrefs();
+  const angleUnit = prefs.units.angle;
   // Read through a ref in the plugin closure so a new callback identity per
   // parent render can't force a plot recreate (kept out of the deps below).
   const onZoomChangeRef = useRef(onZoomChange);
   onZoomChangeRef.current = onZoomChange;
   const savedWin = useRef<{ min: number; max: number; x0: number; x1: number } | null>(null);
   const summary = useMemo(() => chartSummary({
-    title, x, at: (m) => rollPlane ? `${formatReadout(m, 3)}° roll-plane angle` : `Mach ${formatReadout(m, 3)}`,
+    title, x, at: (m) => rollPlane ? `${angleLabel(m, angleUnit)} roll-plane angle` : `Mach ${formatReadout(m, 3)}`,
     series: lines, source: rollPlane
-      ? (worstPlaneNote ?? (worstAngle === null ? 'No defined worst plane.' : `Worst plane: ${worstAngle}°; marked by a thin vertical line.`))
+      ? (worstPlaneNote ?? (worstAngle === null ? 'No defined worst plane.' : `Worst plane: ${angleLabel(worstAngle, angleUnit)}; marked by a thin vertical line.`))
       : DRAG_CSV_NOTE,
-  }), [title, x, lines, rollPlane, worstAngle, worstPlaneNote]);
+  }), [title, x, lines, rollPlane, worstAngle, worstPlaneNote, angleUnit]);
   const summaryRef = useRef(summary);
   summaryRef.current = summary;
   useEffect(() => {
@@ -115,7 +121,11 @@ function LineChart({ x, lines, title, xLabel, yLabel, height = 190, lockLegend =
     if (!el) return;
     const ink = chartInk(el);
 
-    const data: uPlot.AlignedData = [x, ...lines.map((l) => l.values)];
+    // uPlot's tooltip reads its data coordinates, so convert the display axis
+    // as well as its labels. Analysis arrays and degree indices stay intact.
+    const plotAngle = (deg: number) => Number(fmtSi('angle', angleUnit, deg * Math.PI / 180, angleUnit === '°' ? 1 : 3));
+    const data: uPlot.AlignedData = [rollPlane ? x.map(plotAngle) : x, ...lines.map((l) => l.values)];
+    const markerAngle = worstAngle === null ? null : rollPlane ? plotAngle(worstAngle) : worstAngle;
     const chartH = () => (expanded ? panelHeight(el.clientWidth || 640, true) : height);
     const opts: uPlot.Options = {
       width: el.clientWidth || 640,
@@ -128,9 +138,9 @@ function LineChart({ x, lines, title, xLabel, yLabel, height = 190, lockLegend =
       legend: { live: true },
       plugins: [panZoomPlugin(undefined, (u) => onZoomChangeRef.current?.(plotIsZoomed(u))), tooltipPlugin(), deviceDashPlugin(), legendSamplePlugin(),
         { hooks: { draw: (u) => {
-          if (worstAngle === null || worstAngle < u.scales['x']!.min! || worstAngle > u.scales['x']!.max!) return;
+          if (markerAngle === null || markerAngle < u.scales['x']!.min! || markerAngle > u.scales['x']!.max!) return;
           const ctx = u.ctx;
-          const px = u.valToPos(worstAngle, 'x', true);
+          const px = u.valToPos(markerAngle, 'x', true);
           // The flight charts' event marker (flightPlotEvents drawMarker): a
           // SOLID 1 px HAIRLINE in the reference ink, capped by a small
           // triangle. No series is drawn that thin, the only series in this
@@ -154,13 +164,17 @@ function LineChart({ x, lines, title, xLabel, yLabel, height = 190, lockLegend =
         })),
       ],
       axes: [
-        { stroke: ink.axis, grid: { stroke: ink.grid, width: 1 }, ticks: { stroke: ink.tick, width: 1 }, font: ink.font },
+        { stroke: ink.axis, grid: { stroke: ink.grid, width: 1 }, ticks: { stroke: ink.tick, width: 1 }, font: ink.font,
+          // Keep uPlot's degree labels unchanged. Radian zooms need enough
+          // decimals for the increment, including fractional steps like 0.25.
+          ...(rollPlane && angleUnit === 'rad' ? { values: (_u: uPlot, ticks: number[], _axis: number, _space: number, incr: number) =>
+            ticks.map(v => fmtSi('angle', 'rad', v, Math.max(0, Math.ceil(-Math.log10(incr)) + 1))) } : {}) },
         { stroke: ink.axis, grid: { stroke: ink.grid, width: 1 }, ticks: { stroke: ink.tick, width: 1 }, font: ink.font, size: 48, ...(yLabel ? { label: yLabel } : {}) },
       ],
     };
     const plot = new uPlot(opts, data, el);
-    const x0 = x[0];
-    const x1 = x[x.length - 1];
+    const x0 = data[0]![0];
+    const x1 = data[0]![x.length - 1];
     const saved = savedWin.current;
     if (saved && saved.x0 === x0 && saved.x1 === x1) {
       plot.setScale('x', { min: saved.min, max: saved.max });
@@ -178,7 +192,7 @@ function LineChart({ x, lines, title, xLabel, yLabel, height = 190, lockLegend =
       if (plotRef) plotRef.current = null;
       plot.destroy();
     };
-  }, [x, lines, xLabel, yLabel, height, lockLegend, resolvedTheme, daylight, expanded, plotRef, worstAngle]);
+  }, [x, lines, xLabel, yLabel, height, lockLegend, resolvedTheme, daylight, expanded, plotRef, worstAngle, rollPlane, angleUnit]);
 
   return <div ref={ref} className={lockLegend ? 'chart-legend-locked' : undefined} />;
 }
@@ -214,7 +228,8 @@ function RollPlaneChart({ rocket, info, aoaDeg, cpView, lenUnit, machTop, modelL
       margin: [{ label: 'Stability margin (cal)', color: palette[slotOf('reference')]!, dash: REFERENCE_DASH, values: analysis.margin }],
     };
   }, [analysis, cpLabel, palette, cpView, info.length, lenUnit]);
-  const conditions = `Mach ${mach}, angle of attack ${aoaDeg}°`;
+  const angleUnit = prefs.units.angle;
+  const conditions = `Mach ${mach}, angle of attack ${angleLabel(aoaDeg, angleUnit)}`;
   const worstPlaneNote = analysis && !('error' in analysis) && analysis.cpUniform
     ? `CP is the same in every ${analysis.cp.some((v) => v === null) ? 'defined ' : ''}roll plane (to rounding); no single worst plane.`
     : undefined;
@@ -240,18 +255,18 @@ function RollPlaneChart({ rocket, info, aoaDeg, cpView, lenUnit, machTop, modelL
         </select>
       </label>
       <Note as="p" tier="information" className="motor-db-meta">
-        <strong>Sampling:</strong> {conditions}, 360 planes at 1° steps. Angle of attack follows the CP chart above.
+        <strong>Sampling:</strong> {conditions}, 360 planes at {angleLabel(1, angleUnit)} steps. Angle of attack follows the CP chart above.
         {' '}Air: sea level at {noticeQuantity('temperature', 293.15, prefs.units)}, independent of the drag sweep&apos;s Conditions choice.
         {' '}Launch CG: {noticeQuantity('length', info.cg, prefs.units)} from nose;
         {' '}launch mass: {noticeQuantity('mass', info.mass, prefs.units)}.
         {' '}The margin uses this launch CG at every plane; CG changes as propellant burns.
         {' '}This is a diagnostic view; no flight changes. Roll-plane angle is the direction around the body, not roll rate.
-        {aoaDeg > 0 && <> Above the fins&apos; stall angle the CP is not validated; the selector stops at 20°.</>}
+        {aoaDeg > 0 && <> Above the fins&apos; stall angle the CP is not validated; the selector stops at {angleLabel(20, angleUnit)}.</>}
       </Note>
       {analysis && !('error' in analysis) && lines && <>
           <p className="motor-db-meta">
             {analysis.worstAngle === null ? worstPlaneNote ?? 'No defined worst plane.' : <>
-              <strong>Worst plane: {analysis.worstAngle}°</strong>, marked by a thin vertical line on both charts.
+              <strong>Worst plane: {angleLabel(analysis.worstAngle, angleUnit)}</strong>, marked by a thin vertical line on both charts.
               {' '}CP: {fmtSi('length', lenUnit, analysis.cp[analysis.worstAngle]!, 3)} {lenUnit} from nose;
               {' '}margin: {formatReadout(analysis.margin[analysis.worstAngle], 4)} cal.
             </>}
@@ -260,7 +275,7 @@ function RollPlaneChart({ rocket, info, aoaDeg, cpView, lenUnit, machTop, modelL
             {' '}Flight uses the CP of the plane the airflow is in, so a flight can show more margin than this worst plane.
           </p>
           {analysis.noLift.some(Boolean) && <p className="motor-db-meta"><strong>No lift in this plane:</strong>{' '}
-            {analysis.noLift.every(Boolean) ? 'every sampled angle' : analysis.angles.filter((i) => analysis.noLift[i]).slice(0, 12).map((i) => `${i}°`).join(', ')}
+            {analysis.noLift.every(Boolean) ? 'every sampled angle' : analysis.angles.filter((i) => analysis.noLift[i]).slice(0, 12).map((i) => angleLabel(i, angleUnit)).join(', ')}
             {analysis.noLift.filter(Boolean).length > 12 && !analysis.noLift.every(Boolean) ? ', and more' : ''}.
             {' '}These planes appear as gaps. The plane data lists every sampled angle.</p>}
           {analysis.cp.some((v, i) => v === null && !analysis.noLift[i]) && <p className="motor-db-meta">
@@ -271,19 +286,19 @@ function RollPlaneChart({ rocket, info, aoaDeg, cpView, lenUnit, machTop, modelL
               onToggleExpand={() => setExpanded({ ...expanded, cp: !expanded.cp })} /></div>
           <LineChart x={analysis.angles} lines={lines.cp} rollPlane worstAngle={analysis.worstAngle} worstPlaneNote={worstPlaneNote}
             plotRef={cpPlot} expanded={expanded.cp} onZoomChange={(cp) => setZoomed((prev) => prev.cp === cp ? prev : { ...prev, cp })}
-            title={`CP vs roll-plane angle (${cpLabel}) — ${conditions}`} xLabel="Roll-plane angle (°)" yLabel={cpLabel} lockLegend />
+            title={`CP vs roll-plane angle (${cpLabel}) — ${conditions}`} xLabel={`Roll-plane angle (${angleUnit})`} yLabel={cpLabel} lockLegend />
           <div className="chart-panel-head"><h4>Stability margin vs roll-plane angle (cal) — {conditions}</h4>
             <ChartHeadButtons chart="roll-plane stability" zoomed={zoomed.margin} expanded={expanded.margin} plot={marginPlot}
               onToggleExpand={() => setExpanded({ ...expanded, margin: !expanded.margin })} /></div>
           <LineChart x={analysis.angles} lines={lines.margin} rollPlane worstAngle={analysis.worstAngle} worstPlaneNote={worstPlaneNote}
             plotRef={marginPlot} expanded={expanded.margin} onZoomChange={(margin) => setZoomed((prev) => prev.margin === margin ? prev : { ...prev, margin })}
-            title={`Stability margin vs roll-plane angle (cal) — ${conditions}`} xLabel="Roll-plane angle (°)" yLabel="Margin (cal)" lockLegend />
+            title={`Stability margin vs roll-plane angle (cal) — ${conditions}`} xLabel={`Roll-plane angle (${angleUnit})`} yLabel="Margin (cal)" lockLegend />
           <details onToggle={(e) => setTableOpen(e.currentTarget.open)}>
             <summary>Show plane data</summary>
             {tableOpen && <div className="comparison-table-scroll" role="region" aria-label="Roll-plane samples" tabIndex={0}>
               <table><caption>{conditions}; launch CG held fixed</caption>
-                <thead><tr><th scope="col">Plane (°)</th><th scope="col">CP ({cpLabel})</th><th scope="col">Margin (cal)</th></tr></thead>
-                <tbody>{analysis.angles.map((angle) => <tr key={angle}><td>{angle}{angle === analysis.worstAngle ? ' · worst' : ''}</td>
+                <thead><tr><th scope="col">Plane ({angleUnit})</th><th scope="col">CP ({cpLabel})</th><th scope="col">Margin (cal)</th></tr></thead>
+                <tbody>{analysis.angles.map((angle) => <tr key={angle}><td>{fmtSi('angle', angleUnit, angle * Math.PI / 180, angleUnit === '°' ? 1 : 3)}{angle === analysis.worstAngle ? ' · worst' : ''}</td>
                   <td>{analysis.cp[angle] === null ? analysis.noLift[angle] ? 'No lift in this plane' : 'CP not defined' : formatReadout(lines.cp[0]!.values[angle])}</td>
                   <td>{formatReadout(analysis.margin[angle])}</td></tr>)}</tbody>
               </table>
@@ -739,11 +754,11 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, effectiveKbf, 
     // for comparison. The angle sweep runs on the same Mach grid.
     const atAngle = show(sweepCp(aoaCpSweep));
     return [
-      { label: `CP at ${cpAoa}°`, ...lineOf(0, C), values: sweep.machs.map((_m, i) => atAngle[i] ?? null) },
+      { label: `CP at ${angleLabel(cpAoa, prefs.units.angle)}`, ...lineOf(0, C), values: sweep.machs.map((_m, i) => atAngle[i] ?? null) },
       // Slot 1's long dash: "the 0° curve dashed beside it".
-      { label: 'CP at 0°', ...lineOf(1, C), values: zero },
+      { label: `CP at ${angleLabel(0, prefs.units.angle)}`, ...lineOf(1, C), values: zero },
     ];
-  }, [sweep, aoaCpSweep, cpAoa, info, C, cpView, lenUnit]);
+  }, [sweep, aoaCpSweep, cpAoa, info, C, cpView, lenUnit, prefs.units.angle]);
   const cpHasLift = cpLines.length > 0 && cpLines[0]!.values.some((v) => v != null);
   // With no CP to chart, WHICH sentence replaces it is decided by the force
   // itself, the tiles' own test (hasAerodynamicForce): "No lift yet" only for
@@ -890,17 +905,17 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, effectiveKbf, 
               <div className="chart-panel-head">
                 <h3>
                   Center of pressure vs Mach ({cpView === 'pct' ? '% of length' : `${lenUnit} from nose`})
-                  {cpAoa > 0 && ` at ${cpAoa}° angle of attack`}
+                  {cpAoa > 0 && ` at ${angleLabel(cpAoa, prefs.units.angle)} angle of attack`}
                   {cpLimit && <span className="chart-model-limit"> — {cpLimit}</span>}
                 </h3>
                 {/* A <label> wrapping its <select>, so the control is named by
                     its visible text. 0-20 degrees only (CP_AOA_DEGREES): above
                     fin stall the CP is not validated. */}
                 <label className="motor-inline-label" style={{ whiteSpace: 'nowrap' }}
-                  title="The angle of attack the CP curve is computed at. It stops at 20°: above the fins' stall angle the CP is not validated. The drag charts stay at 0°, and no flight changes.">
+                  title={`The angle of attack the CP curve is computed at. It stops at ${angleLabel(20, prefs.units.angle)}: above the fins' stall angle the CP is not validated. The drag charts stay at ${angleLabel(0, prefs.units.angle)}, and no flight changes.`}>
                   Angle of attack
                   <select value={cpAoa} onChange={(e) => setCpAoa(Number(e.target.value))} style={{ marginLeft: 4 }}>
-                    {CP_AOA_DEGREES.map((d) => <option key={d} value={d}>{d}°</option>)}
+                    {CP_AOA_DEGREES.map((d) => <option key={d} value={d}>{angleLabel(d, prefs.units.angle)}</option>)}
                   </select>
                 </label>
                 {/* role="group" with aria-pressed, NOT tablist/tab
@@ -924,7 +939,7 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, effectiveKbf, 
                 // blank the only curve). Two at an angle: each can be hidden.
                 <LineChart x={sweep.machs} lines={cpLines} xLabel="Mach" height={160}
                   title={`Center of pressure vs Mach (${cpView === 'pct' ? '% of length' : `${lenUnit} from nose`})`
-                    + (cpAoa > 0 ? ` at ${cpAoa}° angle of attack` : '')}
+                    + (cpAoa > 0 ? ` at ${angleLabel(cpAoa, prefs.units.angle)} angle of attack` : '')}
                   yLabel={cpView === 'pct' ? '% of length' : `${lenUnit} from nose`} lockLegend={cpLines.length === 1}
                   expanded={bigCharts.has('cp')} plotRef={cpPlot} onZoomChange={noteZoom('cp')} />
               ) : (
@@ -940,13 +955,13 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, effectiveKbf, 
               )}
               {aoaSweep && 'error' in aoaSweep && (
                 <Note as="p" tier="danger" className="stability-bad" style={{ marginTop: 4 }}>
-                  CP at {cpAoa}° could not be computed: {aoaSweep.error}
+                  CP at {angleLabel(cpAoa, prefs.units.angle)} could not be computed: {aoaSweep.error}
                 </Note>
               )}
               {aoaCpSweep && (
                 <p className="motor-db-meta" style={{ marginTop: 4 }}>
-                  <strong>CP at {cpAoa}° angle of attack</strong>, with the 0° curve dashed beside it.
-                  The drag charts stay at 0°, and this changes no flight. The choice stops at 20°:
+                  <strong>CP at {angleLabel(cpAoa, prefs.units.angle)} angle of attack</strong>, with the {angleLabel(0, prefs.units.angle)} curve dashed beside it.
+                  The drag charts stay at {angleLabel(0, prefs.units.angle)}, and this changes no flight. The choice stops at {angleLabel(20, prefs.units.angle)}:
                   above the fins&apos; stall angle the CP is not validated.
                 </p>
               )}

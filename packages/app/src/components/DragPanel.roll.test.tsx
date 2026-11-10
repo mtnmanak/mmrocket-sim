@@ -60,7 +60,9 @@ it.each([false, true])('waits for the current handle before a new roll-plane que
   } finally { vi.useRealTimers(); }
 });
 
-it('N022 queries only on request, shares AoA, names conditions, gaps and worst plane in preferred units', async () => {
+it.each(['°', 'rad'])('N022 queries only on request, shares AoA, names conditions, gaps and worst plane in %s', async (angleUnit) => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { angle: angleUnit } }));
+  const radians = angleUnit === 'rad';
   const planes: AeroDiagnostics['cp'][] = Array.from({ length: 360 }, (_v, i) => [i === 0 ? 0 : i === 90 ? 0.4 : 0.8, 0, 0, i === 0 ? 0 : 2]);
   const diagnostic = vi.fn(() => ({ cp: planes[0], worstCP: planes[90], cpByTheta: planes, stallMargin: 0.1 }));
   const sweep = { machs: [0.3, 1], cp: [0.8, 0.8], cna: [2, 2], hasNozzle: false,
@@ -75,9 +77,10 @@ it('N022 queries only on request, shares AoA, names conditions, gaps and worst p
   expect(diagnostic).toHaveBeenLastCalledWith(0.3, 0);
   const panel = host.querySelector('.roll-plane-panel')!;
   expect(panel.textContent).toContain('Mach 0.3');
-  expect(panel.textContent).toContain('angle of attack 0°');
-  expect(panel.textContent).toContain('No lift in this plane: 0°');
-  expect(panel.textContent).toContain('Worst plane: 90°');
+  expect(panel.textContent).toContain(`angle of attack ${radians ? '0 rad' : '0°'}`);
+  expect(panel.textContent).toContain(`No lift in this plane: ${radians ? '0 rad' : '0°'}`);
+  expect(panel.textContent).toContain(`Worst plane: ${radians ? '1.571 rad' : '90°'}`);
+  expect(panel.textContent).toContain(`360 planes at ${radians ? '0.017 rad' : '1°'} steps`);
   expect(marker()).toBe(true);
   expect(panel.textContent).toContain('400 mm from nose');
   expect(panel.textContent).toContain('1 cal');
@@ -98,13 +101,21 @@ it('N022 queries only on request, shares AoA, names conditions, gaps and worst p
   await act(async () => { mach.value = '1'; mach.dispatchEvent(new Event('change', { bubbles: true })); });
   expect(diagnostic).toHaveBeenLastCalledWith(1, 10 * Math.PI / 180);
   expect(panel.textContent).toContain('Mach 1');
+  if (radians) {
+    expect(panel.textContent).toContain('angle of attack 0.175 rad');
+    expect(panel.textContent).toContain('selector stops at 0.349 rad');
+    for (const c of panel.querySelectorAll('canvas')) {
+      expect(c.getAttribute('aria-label')).toContain('1.571 rad');
+      expect(c.getAttribute('aria-label')).not.toContain('°');
+    }
+  }
   const details = panel.querySelector('details')!;
   await act(async () => { details.open = true; details.dispatchEvent(new Event('toggle')); });
   expect(panel.querySelectorAll('details tbody tr')).toHaveLength(360);
   expect(panel.querySelectorAll('details tbody tr')[0]!.textContent).toContain('No lift in this plane');
-  expect(panel.querySelectorAll('details tbody tr')[90]!.textContent).toContain('90 · worst40');
+  expect(panel.querySelectorAll('details tbody tr')[90]!.textContent).toContain(`${radians ? '1.571' : '90'} · worst40`);
   await act(async () => [...host.querySelectorAll('button')].find((b) => b.textContent === 'mm from nose')!.click());
-  expect(panel.querySelectorAll('details tbody tr')[90]!.textContent).toContain('90 · worst400');
+  expect(panel.querySelectorAll('details tbody tr')[90]!.textContent).toContain(`${radians ? '1.571' : '90'} · worst400`);
   expect(diagnostic).toHaveBeenCalledTimes(3);
 });
 

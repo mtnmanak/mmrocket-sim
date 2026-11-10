@@ -4757,7 +4757,7 @@ export function App() {
               onPatch={(patch) => setTree(updateNode(tree, selectedNode.id!, patch))}
               onPatchAll={(patch) => setTree(updateAllNodes(tree, patch))}
               onAutoAlignFins={() => {
-                const res = autoAlignFinSets(tree);
+                const res = autoAlignFinSets(tree, prefs.units);
                 if (res.caution) {
                   setFileNote(res.caution, 'warn', true, 'caution');
                 } else if (res.changes.length) {

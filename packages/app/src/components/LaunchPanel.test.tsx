@@ -1007,12 +1007,12 @@ describe('applied weather in the Launch panel', () => {
     expect(kernelSimOptions(value)).toEqual(before);
   });
 
-  it('N014 formats a radian-derived aim using the selected field precision', () => {
+  it('N014 formats a radian-derived aim in the selected angle unit', () => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ fieldPrecision: 4, units: { angle: 'rad' } }));
     const value = { ...APPLIED, launchRodAngleDeg: -5, launchRodAimDeg: 0.1 * 180 / Math.PI };
     renderWeather(value, { ...SNAP, fetched: { ...SNAP.fetched, windFromDeg: 359.9999999999 } });
     const compass = host.querySelector('[data-launch-compass]')!;
-    const rodText = 'Rod lean 185.7296° clockwise relative to wind (negative Rod angle reverses the aim)';
+    const rodText = 'Rod lean 3.2416 rad clockwise relative to wind (negative Rod angle reverses the aim)';
     expect(compass.querySelector('figcaption')!.textContent).toBe(rodText);
     expect(compass.querySelector('svg')!.getAttribute('aria-label')).toBe(rodText);
     expect(compass.querySelector('[data-direction="weather"]')!.getAttribute('transform')).toBe('rotate(0 50 50)');

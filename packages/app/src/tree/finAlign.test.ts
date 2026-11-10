@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { autoAlignFinSets, finSetSpan, spansOverlap } from './finAlign.js';
 import { findNode } from './treeModel.js';
+import { INITIAL_UNITS } from '../prefs/units.js';
 
 const tree = (children: ComponentNode[]): RocketTree => ({
   name: 'a',
@@ -37,6 +38,12 @@ it.each(['rounded', 'airfoil'].flatMap(crossSection => [
 });
 
 describe('autoAlignFinSets (issue 2026-08-05e: one-click interleave)', () => {
+  it('formats alignment results in radians without changing rotations', () => {
+    const input = tree([straight({ id: 'a', finCount: 4 }), straight({ id: 'b', finCount: 4 })]);
+    const res = autoAlignFinSets(input, { ...INITIAL_UNITS, angle: 'rad' });
+    expect(res.changes[0]).toContain('rotated to 0.785 rad (was 0 rad)');
+    expect(res.tree).toEqual(autoAlignFinSets(input).tree);
+  });
   it('keeps file-supplied fin names on one safe line in alignment messages', () => {
     const res = autoAlignFinSets(tree([tubes(), straight({ name: 'Fin\n\u202eset' })]));
     expect(res.changes).toHaveLength(1);

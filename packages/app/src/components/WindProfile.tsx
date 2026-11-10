@@ -34,7 +34,7 @@ export function WindProfileTable({ levels, surfaceFromDeg }: {
         const relative = l.direction * 180 / Math.PI;
         const bearing = ((relative + (surfaceFromDeg ?? 0)) % 360 + 360) % 360;
         return <tr key={l.altitude}><td>{fmtAltitude(prefs.units.altitude, l.altitude)}</td>
-          <td>{fmtSi('windspeed', prefs.units.windspeed, l.speed)}</td><td>{relative.toFixed(1)}°</td>
+          <td>{fmtSi('windspeed', prefs.units.windspeed, l.speed)}</td><td>{fmtSi('angle', prefs.units.angle, l.direction, prefs.units.angle === '°' ? 1 : 3)}{prefs.units.angle === '°' ? '' : ' '}{prefs.units.angle}</td>
           {surfaceFromDeg !== undefined && <td>{bearing.toFixed(1)}° {compassPoint(bearing)}</td>}</tr>;
       })}</tbody>
     </table>

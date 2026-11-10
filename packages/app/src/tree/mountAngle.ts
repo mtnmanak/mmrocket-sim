@@ -1,5 +1,5 @@
 import { noteField } from '../services/noteField.js';
-import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
+import { fmtSi, INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { num, numOpt } from './nodeNum.js';
 import { kernelNum, KERNEL_DEFAULT_FIN_POINTS } from './kernelDefaults.js';
@@ -246,9 +246,9 @@ export function nearestAngle(candidates: number[], from: number): number | null 
  */
 export const IN_LINE_TOLERANCE = (10 * Math.PI) / 180;
 
-const deg = (rad: number): string => {
-  const d = (reducePi(rad) * 180) / Math.PI;
-  return `${Math.abs(d) < 0.05 ? 0 : Number(d.toFixed(1))}°`;
+const angle = (rad: number, units: UnitSelection): string => {
+  const unit = units.angle;
+  return `${fmtSi('angle', unit, reducePi(rad), unit === '°' ? 1 : 3)}${unit === '°' ? '' : ' '}${unit}`;
 };
 
 const nameOf = nameOr;
@@ -301,7 +301,8 @@ function warningBudget(count: () => number, sentenceReserve = 512) {
   };
 }
 
-export function railInterferenceFindings(tree: RocketTree, _units: UnitSelection = INITIAL_UNITS): RailFinding[] {
+export function railInterferenceFindings(tree: RocketTree, units: UnitSelection = INITIAL_UNITS): RailFinding[] {
+  const deg = (rad: number) => angle(rad, units);
   tree = resolveTransitionRadii(tree);
   const out: RailFinding[] = [];
   const seen = new Set<string>();
@@ -528,6 +529,7 @@ function wakeWindow(width: number, mountRadius: number): number {
  * sentence is worded that way.
  */
 export function wakeShadowWarnings(tree: RocketTree, units: UnitSelection = INITIAL_UNITS): string[] {
+  const deg = (rad: number) => angle(rad, units);
   tree = resolveTransitionRadii(tree);
   const out: string[] = [];
   const seen = new Set<string>();

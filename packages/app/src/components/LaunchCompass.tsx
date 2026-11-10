@@ -2,7 +2,7 @@ import { flownRodAimDeg, type LaunchConditions } from '../services/launchConditi
 import { compassPoint } from '../services/openMeteo.js';
 import { Note } from './Note.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtFieldValue } from '../prefs/units.js';
+import { fmtFieldValue, siToUi } from '../prefs/units.js';
 
 // N014: modulo arithmetic must not reintroduce noise after canonicalRodAimDeg.
 const turn = (degrees: number) => (Math.round((((degrees % 360) + 360) % 360) * 1e9) / 1e9) % 360;
@@ -17,8 +17,10 @@ export function LaunchCompass({ value, weatherFromDeg }: {
   const vertical = value.launchRodAngleDeg === 0;
   const lean = turn((flownRodAimDeg(value) ?? 0) + (value.launchRodAngleDeg < 0 ? 180 : 0));
   const angleText = (degrees: number) => fmtFieldValue(degrees, prefs.fieldPrecision);
+  const unit = prefs.units.angle;
+  const leanText = `${fmtFieldValue(unit === '°' ? lean : siToUi('angle', unit, lean * Math.PI / 180), prefs.fieldPrecision)}${unit === '°' ? '' : ' '}${unit}`;
   const rodText = vertical ? 'Vertical rod: no lean direction'
-    : `Rod lean ${angleText(lean)}° clockwise relative to wind${value.launchRodAngleDeg < 0 ? ' (negative Rod angle reverses the aim)' : ''}`;
+    : `Rod lean ${leanText} clockwise relative to wind${value.launchRodAngleDeg < 0 ? ' (negative Rod angle reverses the aim)' : ''}`;
   return <div className="launch-compass" data-launch-compass>
     <div className="launch-compass-frames">
       <figure>

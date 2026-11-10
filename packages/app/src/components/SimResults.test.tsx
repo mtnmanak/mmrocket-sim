@@ -89,8 +89,8 @@ it.each([true, '0x10'])('does not coerce stored load peaks in the report: %j', b
   act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Show all details')!.click());
   const rows = [...host.querySelectorAll('tr')].filter(r => r.textContent?.includes('max q·α') || r.textContent?.includes('Max q·α'));
   expect(rows).toHaveLength(2);
-  expect.soft(rows[0]?.querySelectorAll('td')[1]?.textContent).toMatch(/\(— [^()]+\) at/);
-  expect.soft(rows[1]?.textContent).toContain('α — rad (—°)');
+  expect.soft(rows[0]?.querySelectorAll('td')[1]?.textContent).toMatch(/^— [^()]+·° at/);
+  expect.soft(rows[1]?.textContent).toContain('α —°');
   expect(rows.every(r => r.textContent?.includes('—'))).toBe(true);
   expect(rows.map(r => r.textContent).join(' ')).not.toMatch(/57\.30|916\.73/);
 });
@@ -334,12 +334,23 @@ it.each([
   const rows = table.querySelectorAll('tbody tr');
   expect(rows[1]!.children[index]!.textContent).toBe('');
   if (id === 'maxQ') expect(rows[0]!.children[index]!.textContent).toBe('50.0');
-  if (id === 'maxQAlpha') expect(rows[0]!.children[index]!.textContent).toBe('5.00');
+  if (id === 'maxQAlpha') expect(rows[0]!.children[index]!.textContent).toBe('286');
   act(() => { chooser.open = true; });
   expect(caveat!.closest('details')).toBeNull();
   act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Default columns')!.click());
   expect(host.textContent).not.toContain('Inputs to a structural check; no structural verdict.');
   expect(host.textContent).not.toContain('Launch through apogee, stopping before recovery deployment or tumbling');
+});
+
+it.each(['°', 'rad'])('uses preferred %s in the on-screen q·alpha header and value', angle => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ runColumns: ['maxQAlpha'], units: { angle } }));
+  const peak = { value: 200, time: 1, altitude: 10, mach: 1, aoa: 0.1 };
+  render(<SimHistory runs={[{ ...run(), loads: { maxQ: peak, maxQAlpha: peak } }]} onRunsChange={() => {}} />);
+  openTable();
+  const table = host.querySelector('.motor-table')!;
+  const index = [...table.querySelectorAll('th')].findIndex(th => th.textContent?.startsWith('Max q·α (ascent)'));
+  expect.soft(table.querySelectorAll('th')[index]!.textContent).toMatch(new RegExp(`·${angle}\\)$`));
+  expect(table.querySelector('tbody tr')!.children[index]!.textContent).toBe(angle === '°' ? '115' : '2.00');
 });
 
 it('RES-1 shows configuration and provenance status separately from Safe, lazily', () => {
