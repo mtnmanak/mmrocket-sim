@@ -144,6 +144,31 @@ describe('physical evidence provenance and importer seams', () => {
     expect(imported.configs).toHaveLength(1);
   });
 
+  it('folds ordinary C6 simulations after a small dry-mass edit', () => {
+    const xml = rkt('C6', 525, 1.85, 18).replace('<Stage3Mass>2010', '<Stage3Mass>500')
+      .replace('<EngineMfg>Cesaroni', '<EngineMfg>Estes').replace('<EjectionDelay>-1', '<EjectionDelay>5');
+    expect(importRkt(doubled(xml, sim => sim.replace('<Mass0>525', '<Mass0>524'))).configs).toHaveLength(1);
+  });
+
+  it.each(['K700BB', '26-E31-WH-15A'])('keeps agreeing folded fallback when %s evidence cannot fit the mount', async designation => {
+    const motor = MOTOR_DB.find(m => m.motorId === (designation === 'K700BB' ? P.blackBearK700 : P.whiteThunderE31))!;
+    const mass = 2010 + motor.totalWeightG * 1.019;
+    const xml = rkt(designation, mass, motor.burnTimeS, designation === 'K700BB' ? 38 : 18);
+    const imported = importRkt(doubled(xml, sim => sim.replace(`<Mass0>${mass}`, `<Mass0>${2010 + motor.totalWeightG * 1.021}`)));
+    expect(imported.configs).toHaveLength(1);
+    const motorRef = Object.values(imported.configs[0]!.motors)[0]!;
+    expect(motorRef.matchContext?.foldedPhysical).toHaveLength(1);
+    const ex: ExMotor = { motorId: 'ex:undersized-e31', designation, realManufacturer: 'Cesaroni',
+      diameter: 18, length: 100, totalWeightG: motor.totalWeightG, propWeightG: motor.propWeightG, delays: 'P',
+      samples: [{ time: 0, thrust: 0 }, { time: 0.1, thrust: 1 }, { time: 1, thrust: 0 }], source: 'eng', addedAt: 0 };
+    const result = await matchImportedMotor(motorRef, { exMotors: designation === 'K700BB' ? [] : [ex] });
+    if (designation === 'K700BB') {
+      expect(result.motor?.meta.motorId).toBe(P.blueBaboonK700);
+      expect(imported.notes.join('\n')).not.toContain('matched nothing in the motor database');
+    } else expect(result.motor?.meta.exMotorId).toBe(ex.motorId);
+    expect(result.note ?? '').not.toContain('evidence that does not agree');
+  });
+
   it('deduplicates hundreds of identical qualifying simulations before checking evidence', () => {
     const motor = MOTOR_DB.find(m => m.motorId === P.blackBearK700)!;
     const xml = rkt('K700BB', 2010 + motor.totalWeightG, motor.burnTimeS).replace('<EjectionDelay>-1', '<EjectionDelay>-2');

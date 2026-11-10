@@ -906,7 +906,7 @@ export function matchDbMotor(
   const evidenced = evidenceId && motors.find(m => m.motorId === evidenceId);
   // Never fall back to another historical identity after folded results disagree.
   if (evidenced && context?.physical && context.foldedPhysical?.length && !physicalEvidenceFits(context, evidenced)) {
-    const someFit = [context.physical, ...context.foldedPhysical].some(physical =>
+    const someFit = fits(evidenced) && [context.physical, ...context.foldedPhysical].some(physical =>
       physicalEvidenceFits({ ...context, physical, foldedPhysical: undefined }, evidenced));
     // Check each record as the target: the relative tolerances must hold in
     // both directions, regardless of which simulation appeared first.

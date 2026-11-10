@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+// HF11 final: folded corroboration now uses the existing diameter/bore fit
+// predicate too. No numeric threshold or notice producer added; policy tests
+// cover undersized K700BB/E31 mounts on both sides of the mass boundary.
 // HF11 r5: exact physical-record equality only deduplicates evidence; the
 // shared historical-identity gate limits splitting to E31/K700BB. Incremental
 // bidirectional checks reuse unchanged tolerances. No notice producer added.
