@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 
-const normalizeKeys = (text: string) => text.replace(/\r\n/g, '\n').replace(/^\s*#[^\n]*/gm, '')
+const normalizeKeys = (text: string) => text.replace(/\r\n/g, '\n').replace(/^[ \t]*#[^\n]*/gm, '')
   .replace(/^(\s*(?:- )?)(?:"([\w-]+)"|'([\w-]+)'|([\w-]+))[ \t]*:/gm, '$1$2$3$4:');
 
 function isolatedPinnedWorkflow(text: string): boolean {
@@ -33,7 +33,7 @@ function isolatedPinnedWorkflow(text: string): boolean {
       // Flow mappings can put run after another field; exclude following fields.
       const flowRun = step.trimStart().startsWith('{')
         ? step.match(/[{,][ \t]*["']?run["']?[ \t]*:[ \t]*("[^"]*"|'[^']*'|[^,}]*)/)?.[1] : undefined;
-      let run = (flowRun ?? step.match(/(?:^|\n {8})run:[ \t]*([^\n]*(?:\n {10,}[^\n]*)*)/)?.[1] ?? '').trim();
+      let run = (flowRun ?? step.match(/(?:^|\n {8})run:[ \t]*([^\n]*(?:\n(?:[ \t]*(?=\n|$)| {9,}[^\n]*))*)/)?.[1] ?? '').trim();
       // Decode the owned scalar forms before recognizing shell commands.
       if (/^>[+-]?\n/.test(run)) run = run.replace(/^>[+-]?\n/, '').replace(/\n/g, ' ');
       if ((run.startsWith('"') && run.endsWith('"')) || (run.startsWith("'") && run.endsWith("'"))) run = run.slice(1, -1);
@@ -142,6 +142,21 @@ it.each(['ci', 'install', 'i', 'clean-install', 'add', 'in', 'ic', 'it', 'isntal
           expect.soft(isolatedPinnedWorkflow(changed), `${name} ${command} ${scalar} ${quote} ${reference}`).toBe(false);
         }
       }
+    }
+  }
+});
+
+it('handles final-round blank lines, comments and nine-space block contents', () => {
+  const workflow = readFileSync(new URL('../../../.github/workflows/api-deploy.yml', import.meta.url), 'utf8');
+  for (const run of ['|\n          # install\n          npm i evil-pkg',
+    '|\n          echo prep\n\n          npm i evil-pkg', '|\n         npm i evil-pkg']) {
+    const clean = workflow.replace(/run: npm install[^\n]*/, `run: ${run}`);
+    expect.soft(isolatedPinnedWorkflow(clean), `clean ${run}`).toBe(true);
+    for (const name of ['deploy', 'delete']) {
+      const changed = workflow.replace(new RegExp(`(  ${name}:[\\s\\S]*?    steps:\\n)`),
+        `$1      - run: ${run}\n        env:\n          TOKEN: \u0024{{ secrets.CLOUDFLARE_API_TOKEN }}\n`);
+      expect(changed).not.toBe(workflow);
+      expect.soft(isolatedPinnedWorkflow(changed), `${name} ${run}`).toBe(false);
     }
   }
 });

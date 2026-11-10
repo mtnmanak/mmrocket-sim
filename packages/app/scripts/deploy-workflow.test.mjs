@@ -97,7 +97,7 @@ const PR = (n) => ({ event: 'pull_request', ref: `refs/pull/${n}/merge` });
 
 function isolatedPagesWorkflow(text) {
   if (/(?:^[ \t]*|:[ \t]+|[[{,][ \t]*|^[ \t]*-[ \t]+)[&*][^\s[\]{},]+/m.test(text)) return false;
-  const source = text.replace(/\r\n/g, '\n').replace(/^\s*#[^\n]*/gm, '')
+  const source = text.replace(/\r\n/g, '\n').replace(/^[ \t]*#[^\n]*/gm, '')
     .replace(/^(\s*(?:- )?)(?:"([\w-]+)"|'([\w-]+)'|([\w-]+))[ \t]*:/gm, '$1$2$3$4:');
   const properties = (block, indent) => {
     const keys = [...block.matchAll(new RegExp(`^ {${indent}}([\\w-]+):`, 'gm'))];
@@ -117,7 +117,7 @@ function isolatedPagesWorkflow(text) {
     // Flow mappings can put run after another field; exclude following fields.
     const flowRun = step.trimStart().startsWith('{')
       ? step.match(/[{,][ \t]*["']?run["']?[ \t]*:[ \t]*("[^"]*"|'[^']*'|[^,}]*)/)?.[1] : undefined;
-    let run = (flowRun ?? step.match(/(?:^|\n {8})run:[ \t]*([^\n]*(?:\n {10,}[^\n]*)*)/)?.[1] ?? '').trim();
+    let run = (flowRun ?? step.match(/(?:^|\n {8})run:[ \t]*([^\n]*(?:\n(?:[ \t]*(?=\n|$)| {9,}[^\n]*))*)/)?.[1] ?? '').trim();
     if (/^>[+-]?\n/.test(run)) run = run.replace(/^>[+-]?\n/, '').replace(/\n/g, ' ');
     if ((run.startsWith('"') && run.endsWith('"')) || (run.startsWith("'") && run.endsWith("'"))) run = run.slice(1, -1);
     const aliases = new Set(['install', 'ci', 'i', 'clean-install', 'add', 'in', 'ic', 'it', 'isntall', 'install-clean', 'install-test']);
@@ -160,6 +160,21 @@ it('isolates Pages build and npm installers from secrets', () => {
     expect.soft(isolatedPagesWorkflow(changed), run).toBe(false);
   }
   expect.soft(isolatedPagesWorkflow(text.replace('  build:', '  build:\n    environment: production'))).toBe(false);
+});
+
+it('handles final-round blank lines, comments and nine-space block contents', () => {
+  const workflow = readFileSync(new URL('../../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  for (const run of ['|\n          # install\n          npm i evil-pkg',
+    '|\n          echo prep\n\n          npm i evil-pkg', '|\n         npm i evil-pkg']) {
+    const clean = workflow.replace(/run: npm install[^\n]*/, `run: ${run}`);
+    expect.soft(isolatedPagesWorkflow(clean), `clean ${run}`).toBe(true);
+    for (const name of ['deploy']) {
+      const changed = workflow.replace(new RegExp(`(  ${name}:[\\s\\S]*?    steps:\\n)`),
+        `$1      - run: ${run}\n        env:\n          TOKEN: \u0024{{ secrets.CLOUDFLARE_API_TOKEN }}\n`);
+      expect(changed).not.toBe(workflow);
+      expect.soft(isolatedPagesWorkflow(changed), `${name} ${run}`).toBe(false);
+    }
+  }
 });
 
 it('preserves r5 f6a59fae whole-step rejection across Pages installer layouts', () => {
