@@ -20,6 +20,16 @@ import {
  * balancing at 415 mm, needs 60 g at 540 mm.
  */
 describe('solveBallast', () => {
+  it('HF2 limits new and replacement allowance masses before building or reloading', async () => {
+    const { MAX_STATED_MASS_KG } = await import('../tree/schema.js');
+    const tree: RocketTree = { components: [{ type: 'stage', children: [
+      { type: 'bodytube', id: 'tube', length: 1, outerRadius: 0.03 },
+    ] }] };
+    const added = applyAllowance(tree, { kind: 'ok', massKg: 1e20, stationM: 0.2 });
+    expect(findAllowance(added)?.['mass']).toBe(MAX_STATED_MASS_KG);
+    const updated = applyAllowance(added, { kind: 'ok', massKg: 1e100, stationM: 0.3 });
+    expect(findAllowance(updated)?.['mass']).toBe(MAX_STATED_MASS_KG);
+  });
   it.each([-1100, 1100])('H1 bounds fallback placement at station %s for reload stability', station => {
     const tree: RocketTree = { components: [{ type: 'stage', children: [
       { type: 'bodytube', id: 'tube', length: 999, outerRadius: 0.03 },

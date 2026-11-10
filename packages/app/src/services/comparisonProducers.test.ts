@@ -1,4 +1,25 @@
 // @vitest-environment happy-dom
+// HF2 r5: flightRunner 1 -> 2 adds the representability backstop's refusal
+// sentence ("before flying"); the numeric policy stays in exMotors. RASAero
+// 276 -> 277 tests whether a stage has repair notes, not a measurement.
+// RockSim 274 -> 276 repeats the positive-CG presence test to quote the raw
+// file value and labels the checked values explicitly. No display tolerance
+// changed. flightRunner/rocksimFile/rasaeroFile HF2 tests cover these paths.
+// HF2 r4: orkFile 534 -> 535 bounds imported measured CG at the shared length
+// ceiling. Representability scope exemption (not a display-rounded comparison);
+// orkFile.test covers reduction and repair notice. RockSim uses shared sanitizer
+// limits; the pin uses limitPatch, with regressions at both boundaries.
+// HF2 r3: session 3 -> 4 checks snapshot repair equality; finOutline 3 -> 5
+// and sanitize 28 -> 30 bound both signed fin coordinates. Representability
+// limits, exempt from rounding: schemaInertia and stageMassOverrides/session
+// regressions cover refusal, repair notes, finite inertia and restored use.
+// HF2 r2: reviewed exMotors 34 -> 38 (mass/dimension refusal, not a rounded
+// comparison), orkFile 532 -> 534 (measurement repair notes), and MeasuredMassBox
+// 16 -> 17 / MotorPadMass 9 -> 10 (NumField max props). Scope exemption:
+// representability ceilings are far above display precision and physical rockets;
+// Session 1 -> 3 adds the same mass/dimension refusal and measurement repair;
+// session.test covers per-motor retention and restored mass before stage pinning.
+// h4MotorBounds, orkFile, MeasuredMassBox and MotorPadMass pin each boundary door.
 // H2: MotorBrowser 17 -> 13 removes native number-input type literals; NumField
 // comma/invalid/blank boundaries are covered in MotorBrowser.test.tsx.
 // SimResults 50 -> 51 and flightChartModel 10 -> 11 add angle formatters;

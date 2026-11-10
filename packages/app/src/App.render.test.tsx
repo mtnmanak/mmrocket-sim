@@ -12,6 +12,7 @@ import { testResolution } from './services/autoDelay.testSupport.js';
 import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
 import { findAllowance, solePinnedStage } from './services/buildAllowance.js';
+import * as buildAllowance from './services/buildAllowance.js';
 import { buildDesign, KERNEL_HANDLES } from './services/buildDesign.js';
 import { flyBuiltDesign } from './services/simulateDesign.js';
 import { catalogueMotorMass } from './services/hardwareMass.js';
@@ -668,6 +669,23 @@ describe('a weighed rocket whose stage stands in for its own mass', () => {
     window.dispatchEvent(new Event('pagehide'));
     expect(peekSession()!.tree.components[0]!.overrideIncludesMotor).toBeUndefined();
     expect(peekSession()!.tree.components[0]!.overrideMass).toBeCloseTo(saved.measured.massKg, 9);
+  }, 30000);
+
+  it('HF2 pins only the bounded restored measured mass', async () => {
+    await pinnedSession(false);
+    const saved = JSON.parse(localStorage.getItem(SESSION_KEY)!);
+    saved.measured.massKg = 1e100;
+    saved.measured.cgM = 2000;
+    // Isolate the pin write from the solver's separate reachable-ballast gate.
+    const solver = vi.spyOn(buildAllowance, 'solveBallast').mockReturnValue({ kind: 'ok', massKg: 0.02, stationM: 0.3 });
+    localStorage.setItem(SESSION_KEY, JSON.stringify(saved));
+    const host = await mountApp();
+    await settle(50);
+    await act(async () => { [...host.querySelectorAll('button')].find(b => b.textContent?.startsWith('Pin '))!.click(); });
+    window.dispatchEvent(new Event('pagehide'));
+    expect(peekSession()!.tree.components[0]!.overrideMass).toBe(1e15);
+    expect(peekSession()!.tree.components[0]!.overrideCGX).toBe(1000);
+    solver.mockRestore();
   }, 30000);
 
   it('offers nothing when two stages are pinned, and says why', async () => {

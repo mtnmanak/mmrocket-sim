@@ -353,7 +353,7 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, t
               setMessage(`Bulk material density has a limit of ${noticeQuantity('density', MAX_BULK_DENSITY, prefs.units)}`); return;
             }
             setPicked(groupMaterial ? e.target.value : null);
-            onPatch({ [nameKey]: mat.name, [densityKey]: mat.density });
+            onPatch(limitPatch(node, { [nameKey]: mat.name, [densityKey]: mat.density }));
           }
           // The fallback has no reusable density: re-picking it keeps the
           // part's original values, including an absent density.
@@ -2099,7 +2099,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
               autoValue={info ? siToUi('mass', massSym, info.mass) : undefined}
               onCommit={(v) => onPatch(v === null
                 ? { overrideMass: undefined, overrideSubcomponentsMass: undefined, ...statedLaunchMark }
-                : { overrideMass: uiToSi('mass', massSym, v), ...statedLaunchMark })}
+                : { ...limitPatch(node, { overrideMass: uiToSi('mass', massSym, v) }), ...statedLaunchMark })}
             />
             {(() => {
               // A mass this part states against the one its catalogue row

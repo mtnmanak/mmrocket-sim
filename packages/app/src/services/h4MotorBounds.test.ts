@@ -7,9 +7,39 @@ import { escapeXml } from './xmlUtil.js';
 import { isSampleList, samplesToMotorSpec } from './thrustcurve.js';
 
 const good = 'Good 29 100 P 0.05 0.1 Home\n0 0\n0.5 40\n1 0';
+it('HF2 refuses an RSE motor with oversized point mass instead of substituting burn-off', () => {
+  const notes: string[] = [];
+  expect(() => parseRse('<engine-database><engine-list><engine code="Huge" mfg="Home" dia="29" len="100" initWt="100" propWt="50" auto-calc-mass="0"><data><eng-data t="0" f="0" m="1e25"/><eng-data t="0.5" f="40" m="50"/><eng-data t="1" f="0" m="0"/></data></engine></engine-list></engine-database>', notes)).toThrow(/mass/);
+});
+it.each([
+  { totalWeightG: 1e23 }, { propWeightG: 1e23 }, { diameter: 1e9 }, { length: 1e9 },
+  { sampleMassesKg: [0.1, 1e20, 0.05] },
+])('HF2 refuses an entire stored motor above representability limits: %j', fields => {
+  const motor = { ...parseEng(good)[0]!, ...fields };
+  expect(validExMotor(motor)).toBe(false);
+  localStorage.setItem('online-openrocket.ex-motors.v1', JSON.stringify([parseEng(good)[0]!, motor]));
+  const notes: string[] = [];
+  expect(loadExMotors(notes)).toHaveLength(1);
+  expect(notes.length).toBeGreaterThan(0);
+  localStorage.clear();
+});
+it.each([{ masses: [0.1, 1e20, 0.05] }, { diameter: 1e9 }, { length: 1e9 }])(
+  'HF2 refuses oversized loaded snapshots without mass repair: %j', fields => {
+    const motor = parseEng(good)[0]!;
+    const flightSnapshot = { ...exToMotorSpec(motor, Infinity), ...fields };
+    expect(validExMotor({ ...motor, flightSnapshot })).toBe(false);
+  },
+);
+it.each(['Huge 29 100 P 1e19 1e20 Home', 'Huge 1000001 100 P 0.05 0.1 Home',
+  'Huge 29 1000001 P 0.05 0.1 Home'])('HF2 refuses only oversized fresh motor %s', header => {
+  const notes: string[] = [];
+  expect(parseEng(good + '\n' + header + '\n0 0\n0.5 40\n1 0', notes)).toHaveLength(1);
+  expect(notes.join(' ')).toContain('Huge');
+});
 it('drops overflowing optional source masses even when the gram header is finite', () => {
   const motor = { ...parseEng(good)[0]!, totalWeightG: 1.7976931348623156e305 * 1000,
     propWeightG: 1e307, sampleMassesKg: [1.7976931348623156e305, 1.797693134862316e305, 1.797693134862316e305] };
+  expect(validExMotor(motor)).toBe(false); // HF2 refuses before gram-conversion repair.
   expect(repairStoredExMotor(motor).sampleMassesKg).toBeUndefined();
   expect(exToMotorSpec(motor, Infinity).masses.every(m => Number.isFinite(m * 1000))).toBe(true);
 });
@@ -19,11 +49,12 @@ it('repairs every snapshot mass whose gram conversion overflows independently of
   expect(Number.isFinite(snapshot.masses[0]! * 1000)).toBe(true);
   expect(validFlightSnapshot(snapshot)).toBe(false);
   const repaired = repairFlightSnapshot(snapshot);
-  expect(validFlightSnapshot(repaired)).toBe(true);
   expect(repaired.masses.every(m => Number.isFinite(m * 1000))).toBe(true);
+  expect(validFlightSnapshot(repaired)).toBe(false); // HF2 refuses the whole oversized motor.
   const saved = archiveExMotors([{ designation: 'Good', diameter: spec.diameter,
     length: spec.length, exMotorSpec: snapshot, delay: Infinity }], []);
-  expect(saved.json).not.toBeNull();
+  expect(saved.json).not.toBeNull(); // The valid captured source remains available; oversized snapshot is refused.
+  expect(JSON.parse(saved.json!)[0].flightSnapshot).toBeUndefined();
 });
 it('preserves v0.197 measured masses with one ulp of header residue through Save/reopen', () => {
   const masses = [0.007200000000000001, 0.0058, 0.0043];
@@ -202,8 +233,9 @@ it.each([
   const motor = parseEng(good)[0]!;
   const snapshot = { ...exToMotorSpec(motor, Infinity), ...fields };
   expect(validFlightSnapshot(snapshot)).toBe(false);
-  expect(validExMotor({ ...motor, flightSnapshot: snapshot })).toBe('masses' in fields);
-  if ('masses' in fields) expect(validFlightSnapshot(exToMotorSpec({ ...motor, flightSnapshot: snapshot }, Infinity))).toBe(true);
+  const repairable = fields.masses !== undefined && fields.masses[0]! < 1e15;
+  expect(validExMotor({ ...motor, flightSnapshot: snapshot })).toBe(repairable);
+  if (fields.masses) expect(validFlightSnapshot(exToMotorSpec({ ...motor, flightSnapshot: snapshot }, Infinity))).toBe(repairable);
 });
 
 it('reuses a failed bundle attempt across lookups, then retries after cooldown', async () => {

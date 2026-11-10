@@ -1,3 +1,4 @@
+import { MAX_DIMENSION_M, MAX_STATED_MASS_KG } from '../tree/schema.js';
 import { noteField } from './noteField.js';
 import { boundedWarningEvidence, readableWarning, restoredWarnings, storedWarnings, validStoredWarnings, storedWarningLimitNote } from './storedWarnings.js';
 import { finRootChord } from '../tree/finTab.js';
@@ -502,7 +503,17 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
     const raw = text(rocketEl, `:scope > ${tag}`);
     if (raw === null) return null;
     const v = parseDecimal(raw);
-    if (Number.isFinite(v) && v > 0) return v;
+    if (Number.isFinite(v) && v > 0) {
+      if (tag === 'measuredmass' && v > MAX_STATED_MASS_KG) {
+        invalidNumberNote(rocketEl, tag, notes, 'over the limit; set to the mass limit; check the measurement before flying');
+        return MAX_STATED_MASS_KG;
+      }
+      if (tag === 'measuredcg' && v > MAX_DIMENSION_M) {
+        invalidNumberNote(rocketEl, tag, notes, 'over the limit; set to the length limit; check the measurement before flying');
+        return MAX_DIMENSION_M;
+      }
+      return v;
+    }
     // A discarded weighed figure must be visible (audit 2026-10-11, S1a-3).
     invalidNumberNote(rocketEl, tag, notes);
     return null;
@@ -657,7 +668,7 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
   // one) flagged legacy, for App to check against the loaded motor before it
   // is applied. Never written again, only read.
   for (const el of Array.from(rocketEl.querySelectorAll(':scope > measuredpadmass'))) {
-    const v = parseDecimal(el.textContent);
+    let v = parseDecimal(el.textContent);
     if (!Number.isFinite(v) || v <= 0) {
       invalidNumberNote(rocketEl, 'measuredpadmass', notes);
       continue;
@@ -672,9 +683,13 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
         : `The file's weighed pad mass (${noticeQuantity('mass', v, units, { parenthesized: true })}) names a flight configuration this file does not declare, so it was not kept.`);
       continue;
     }
-    target.padMassKg = v; // last one wins for a duplicated configid
+    if (v > MAX_STATED_MASS_KG) invalidNumberNote(rocketEl, 'measuredpadmass', notes,
+      'over the limit; set to the mass limit; check the measurement before flying');
+    target.padMassKg = Math.min(v, MAX_STATED_MASS_KG); // last one wins for a duplicated configid
     if (id === null) {
       target.padMassLegacy = true;
+      // Describe the repaired reading in the legacy move notice below.
+      v = target.padMassKg;
       notes.push(`This file's weighed pad mass (${noticeQuantity('mass', v, units, { parenthesized: true })}) was saved by an earlier version beside the airframe figures. It now belongs to the motor it was weighed with, in configuration “${noteField(target.name ?? target.id)}”, and is checked against that motor the first time the design is built — the notice will say whether it was kept.`);
     }
   }
@@ -1543,7 +1558,7 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
         value['overrideIncludesMotor'] = mark;
         value[STATED_STAGE_FIGURES] = includedMotorFigures(value);
       }
-      const snapshot = captureStageMass(value);
+      const snapshot = captureStageMass(value, notes, units);
       (c.stageMassOverrides ??= {})[stage.id!] = snapshot;
       if (c.id === chosenConfigId) {
         const next = replaceStageMass(stage, snapshot);

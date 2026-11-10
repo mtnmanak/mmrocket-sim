@@ -1492,6 +1492,7 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
   const carriesWeights = (sim: XmlElement): boolean =>
     ['SustainerLaunchWt', 'SustainerCG', 'Booster1LaunchWt', 'Booster1CG',
       'Booster2LaunchWt', 'Booster2CG'].some((tag) => num(sim, tag, 0) !== 0);
+  const reportedStageRepairs = new Set<string>();
   const deriveOverrides = (chosen: OrkFlightConfig | undefined, overrideSim: XmlElement | undefined) => {
     const overrideStages = stages.map(s => ({ ...s }));
     /** Per-stage note fragments for what actually landed, and why anything didn't. */
@@ -1697,7 +1698,16 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
       const figures = includedMotorFigures(stage);
       if (figures) stage[STATED_STAGE_FIGURES] = { ...figures, mountId: aftTube(stage)?.id };
     }
-    const values = Object.fromEntries(overrideStages.map(s => [s.id!, captureStageMass(s)]));
+    const values = Object.fromEntries(overrideStages.map(s => {
+      const repairs: string[] = [];
+      const snapshot = captureStageMass(s, repairs, units);
+      if (repairs.length && !reportedStageRepairs.has(s.id!)) {
+        // Each configuration still gets repaired; report the stage once per import.
+        for (const repair of repairs) cautionNote(notes, 'I04.limits', repair);
+        reportedStageRepairs.add(s.id!);
+      }
+      return [s.id!, snapshot];
+    }));
     return { values, massDetail, cgDetail, skipped, motorless, overrideMassKg };
   };
   // Keep each simulation's cautions beside its figures, so a later switch

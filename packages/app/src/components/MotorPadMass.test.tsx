@@ -72,6 +72,12 @@ const show = (over: Partial<Props> = {}) => act(() => root.render(
 ));
 
 const input = () => host.querySelector('input')!;
+it('HF2 caps typed pad mass in preferred units', async () => {
+  const { MAX_STATED_MASS_KG } = await import('../tree/schema.js');
+  show();
+  type(input(), '1e103');
+  expect(changes.at(-1)).toBe(MAX_STATED_MASS_KG);
+});
 const line = () => host.querySelector('#pad-mass-mmt-line')!;
 const text = () => line().textContent!;
 const imperial = () => localStorage.setItem(

@@ -13,6 +13,10 @@ import {
 import { findDbMotor } from './motorDb.js';
 import { mountMotorFromDb } from './motorMatch.js';
 import { fetchMotorSpec } from './thrustcurve.js';
+import { samplesToMotorSpec } from './thrustcurve.js';
+import { MOTOR_DB, MOTOR_DB_DATE, applyOverlay } from './motorDb.js';
+import { screenEntry } from './catalogueOverlay.js';
+import { buildDesign } from './buildDesign.js';
 
 /**
  * The flight runner, flown — the behavioural replacement for the source-text
@@ -63,6 +67,59 @@ const SPEC: MotorSpec = {
 const mm = (over: Partial<MountMotor> = {}): MountMotor => ({
   label: 'H128-10', spec: SPEC, meta: { label: 'H128-10' },
   ignition: { event: 'automatic', delay: 0 }, ...over,
+});
+
+it.each(['cache', 'overlay'] as const)('HF2 r5 refuses absurd %s motor masses before the kernel write', async source => {
+  const real = MOTOR_DB.find(m => m.totalWeightG! > m.propWeightG! && m.propWeightG! > 0)!;
+  const samples = [{ time: 0, thrust: 0 }, { time: 0.1, thrust: 10 }, { time: 1, thrust: 0 }];
+  let spec: MotorSpec;
+  if (source === 'cache') {
+    const motor = { ...real, motorId: 'hf2-r5-cache', designation: 'Bad\n”' };
+    const key = `tc:samples:v7:${motor.motorId}`;
+    localStorage.setItem(key, JSON.stringify({ samples, masses: { totalWeightG: 1.7e308, propWeightG: 1 }, massParser: 1 }));
+    try { spec = await fetchMotorSpec(motor, 5); } finally { localStorage.removeItem(key); }
+  } else {
+    const row = { ...real, totalWeightG: 1.7e308, propWeightG: 1, designation: 'Bad\n”' };
+    expect(screenEntry(row)).toBeNull();
+    const [motor] = applyOverlay([], { baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(),
+      liveCount: 1, added: [row], changed: [], removed: [], rejected: [] });
+    spec = samplesToMotorSpec(motor!, samples, 5);
+  }
+  expect(spec.masses[0]).toBeGreaterThan(1e15);
+  const { handle, calls } = recordingHandle();
+  const tree = defaultTree();
+  const id = motorMounts(tree)[0]!.id!;
+  const result = buildDesign({ tree, assigned: [[id, mm({ spec })]], kbf: false, supersonic: false,
+    measuredDryMassKg: null, primaryMountId: id, currentSetKey: '' }, {
+    reset: () => {}, build: () => ({ ...handle, staticInfo: () => ({ massEmpty: 0.03, warningTexts: [] }) as never }),
+  });
+  expect('error' in result).toBe(false);
+  if ('error' in result) return;
+  expect(result.motorFailures).toHaveLength(1);
+  expect(result.motorFailures[0]!.text).toContain('Bad[U+201D]');
+  expect(result.motorFailures[0]!.text).toContain('left off');
+  expect(calls.filter(c => c[0] === 'motor')).toHaveLength(0);
+  expect(() => writeMountMotor(handle, id, spec, mm().ignition)).toThrow(/number limits/);
+});
+
+it('HF2 r5 flies a real catalogue motor unchanged through the backstop', async () => {
+  const { OrkRocket: Ork } = await import('@online-openrocket/engine');
+  const db = MOTOR_DB.find(m => m.diameter === 18 && m.impulseClass === 'C' && m.totalWeightG! > 0)!;
+  const spec = await fetchMotorSpec(db, 5, undefined, { bundleOnly: true });
+  const saved = structuredClone(spec);
+  const tree = defaultTree();
+  const id = motorMounts(tree)[0]!.id!;
+  const direct = Ork.buildTree(engineTree(tree));
+  const guarded = Ork.buildTree(engineTree(tree));
+  direct.setMotorById(id, spec);
+  writeMountMotor(guarded, id, spec, { event: 'automatic', delay: 0 });
+  const options = kernelSimOptions(DEFAULT_CONDITIONS);
+  const before = direct.simulate(options).summary.maxAltitude;
+  const after = guarded.simulate(options).summary.maxAltitude;
+  expect(Number.isFinite(after)).toBe(true);
+  // Same runtime and kernel, with tolerance for accumulated integration roundoff.
+  expect(after).toBeCloseTo(before, 8);
+  expect(spec).toEqual(saved);
 });
 
 /**

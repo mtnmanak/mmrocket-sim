@@ -461,12 +461,21 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
         + 'weighed there if you want it applied.');
     }
   } else if (stageMassFlag && statedMassG > 0) {
-    const cgM = statedCgMm > 0 ? statedCgMm / LEN : null;
-    measured = { massKg: statedMassG / MASS, cgM };
+    const repairs: string[] = [];
+    const figures = sanitizeTree({ components: [{ type: 'stage', name: 'Measured mass & CG',
+      overrideMass: statedMassG / MASS,
+      ...(statedCgMm > 0 ? { overrideCGX: statedCgMm / LEN } : {}),
+    }] }, repairs, units).components[0]!;
+    for (const repair of repairs) cautionNote(notes, 'I04.limits', repair
+      .replace('“Measured mass & CG”: mass override', "the file's stated Stage3Mass")
+      .replace('“Measured mass & CG”: CG override', "the file's stated Stage3CG"));
+    const massKg = numOpt(figures, 'overrideMass')!;
+    const cgM = numOpt(figures, 'overrideCGX') ?? null;
+    measured = { massKg, cgM };
     cautionNote(notes, 'I18.measured-not-applied',
       `This file states a measured mass of ${noticeQuantity('mass', statedMassG / MASS, units)}`
-      + (cgM !== null ? ` balancing ${noticeQuantity('length', statedCgMm / LEN, units)} from the nose tip` : '')
-      + '. It is filled into Measured mass & CG on the Design tab, which '
+      + (statedCgMm > 0 ? ` balancing ${noticeQuantity('length', statedCgMm / LEN, units)} from the nose tip` : '')
+      + '. The checked values, reduced to the limits if needed, are filled into Measured mass & CG on the Design tab, which '
       + 'reports the gap against your parts and can add it as ballast — '
       + 'nothing has been applied to the simulation yet. (Desktop OpenRocket '
       + 'pins the whole stage to it instead, which stops the individual part '

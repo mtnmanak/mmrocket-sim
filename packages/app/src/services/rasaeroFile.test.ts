@@ -19,6 +19,28 @@ import { resolveFlightState } from './flightState.js';
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string) => readFileSync(join(here, '__fixtures__', name), 'utf8');
 
+it.each(['38-54 2-stage.CDX1', 'launch-stage-motorless.CDX1', 'Complex.Two-Stage.CDX1'])(
+  'HF2 r5 reports the stage mass repair once per import: %s', name => {
+    const loaded = importCdx1(fixture(name).replace(/<SustainerLaunchWt>[^<]*</g, '<SustainerLaunchWt>1e100<'));
+    expect(loaded.notes.filter(n => /mass override.*over the limit/i.test(n))).toHaveLength(1);
+    expect(loaded.configs.flatMap(c => Object.values(c.stageMassOverrides ?? {}))
+      .every(v => v.overrideMass === undefined || v.overrideMass <= 1e15)).toBe(true);
+  });
+
+it('HF2 reports a child length repair once across RASAero configuration snapshots', () => {
+  const loaded = importCdx1(fixture('MESOS_Last_Preflight_File.CDX1').replace(/<Length>[^<]*</, '<Length>100000<'));
+  expect(loaded.notes.filter(n => /length.*over the limit/i.test(n))).toHaveLength(1);
+});
+
+it('HF2 bounds every RASAero stated launch-weight snapshot', () => {
+  const loaded = importCdx1(fixture('MESOS_Last_Preflight_File.CDX1')
+    .replace(/<SustainerLaunchWt>[^<]*</g, '<SustainerLaunchWt>1e100<'));
+  const masses = loaded.configs.flatMap(c => Object.values(c.stageMassOverrides ?? {}).map(v => v.overrideMass ?? 0));
+  expect(masses.length).toBeGreaterThan(0);
+  expect(Math.max(...masses)).toBe(1e15);
+  expect(loaded.notes.join(' ')).toMatch(/mass.*over the limit/i);
+});
+
 describe('RASAero Modified Barrowman import note', () => {
   const xml = (value?: string) => `<RASAeroDocument><RocketDesign>
     <BodyTube><Length>20</Length><Diameter>3</Diameter></BodyTube>

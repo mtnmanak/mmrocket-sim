@@ -1,3 +1,4 @@
+import { MAX_STATED_MASS_KG } from '../tree/schema.js';
 import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
 import { mountMotorCount } from '../tree/treeModel.js';
 import { motorLoadedMass } from './recoveryMass.js';
@@ -334,7 +335,7 @@ export function hardwareMass(input: HardwareMassInput): HardwareMassResult {
   // 1. No pad mass typed. A zero or negative pad mass is the same as none —
   //    the .ork reader already refuses those (orkFile.ts measuredNum), and a
   //    field cleared to blank arrives here as null.
-  if (typeof padMassKg !== 'number' || !Number.isFinite(padMassKg) || padMassKg <= 0) {
+  if (typeof padMassKg !== 'number' || !Number.isFinite(padMassKg) || padMassKg <= 0 || padMassKg > MAX_STATED_MASS_KG) {
     return { state: 'none', why: 'no-pad-mass' };
   }
   // 1b. Weighed with a different motor set. The measurement is of the whole
@@ -363,7 +364,7 @@ export function hardwareMass(input: HardwareMassInput): HardwareMassResult {
   //    weight came off the same scale, so their difference is the cleanest
   //    number available; the result says which was used.
   const measuredOk = typeof measuredDryMassKg === 'number'
-    && Number.isFinite(measuredDryMassKg) && measuredDryMassKg > 0;
+    && Number.isFinite(measuredDryMassKg) && measuredDryMassKg > 0 && measuredDryMassKg <= MAX_STATED_MASS_KG;
   const dryMassKg = measuredOk ? measuredDryMassKg : computedDryMassKg;
   const drySource: DrySource = measuredOk ? 'measured' : 'computed';
 

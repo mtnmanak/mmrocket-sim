@@ -59,6 +59,7 @@ import {
   applyAllowance as applySolvedAllowance, bareWithoutAllowance, coveringCGOverride, coveringMassOverride, findAllowance, solveBallast,
   solePinnedStage, type BallastSolution,
 } from './services/buildAllowance.js';
+import { limitPatch } from './tree/sanitize.js';
 import { MotorPicker } from './components/MotorPicker.js';
 import { zeroDelayRecoveryAdvice } from './services/flightAdvisories.js';
 import { useMenuPopup } from './components/useDialog.js';
@@ -1883,18 +1884,21 @@ export function App() {
   const pinBlockerToMeasured = useCallback(() => {
     const blocker = allowanceBlocker;
     if (!canPinBlocker || !blocker?.id || measured.massKg === null || measured.cgM === null) return;
-    setTree(updateNode(tree, blocker.id, {
+    const repairs: string[] = [];
+    const patch = limitPatch(blocker, {
       overrideMass: measured.massKg,
       overrideSubcomponentsMass: true,
       overrideCGX: measured.cgM,
       overrideSubcomponentsCG: true,
       [OVERRIDE_INCLUDES_MOTOR]: undefined,
       [STATED_STAGE_FIGURES]: undefined,
-    } as Partial<ComponentNode>));
+    } as Partial<ComponentNode>, repairs, prefs.units);
+    setTree(updateNode(tree, blocker.id, patch));
     setFileNote(`“${noteField(blocker.name ?? 'Stage')}” is now pinned to your measured `
-      + noticeQuantity('mass', measured.massKg, prefs.units)
-      + ` and CG ${noticeQuantity('length', measured.cgM, prefs.units)}. `
-      + 'Clear it under Overrides to go back to the computed geometry.');
+      + noticeQuantity('mass', num(patch, 'overrideMass', measured.massKg), prefs.units)
+      + ` and CG ${noticeQuantity('length', num(patch, 'overrideCGX', measured.cgM), prefs.units)}. `
+      + 'Clear it under Overrides to go back to the computed geometry.'
+      + (repairs.length ? ` ${repairs.join(' ')} Check the pinned mass and CG before flying.` : ''));
     setSelectedId(blocker.id);
   }, [canPinBlocker, allowanceBlocker, measured, tree, prefs.units, setFileNote, setTree, setSelectedId]);
 

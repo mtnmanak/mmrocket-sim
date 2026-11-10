@@ -1,3 +1,4 @@
+import { MAX_STATED_MASS_KG } from '../tree/schema.js';
 import { Note } from './Note.js';
 import type { ReactNode } from 'react';
 import { NumField } from './NumField.js';
@@ -99,6 +100,8 @@ export function MeasuredMassBox({
               control's "click Measured CG" found nothing. */}
           <NumField
             id="measured-mass"
+            max={siToUi('mass', massSym, MAX_STATED_MASS_KG)}
+            clampToMax
             value={massKg === null ? undefined : siToUi('mass', massSym, massKg)}
             onCommit={(v) => onChange({
               ...measured,

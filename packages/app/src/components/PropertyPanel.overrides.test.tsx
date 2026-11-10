@@ -71,6 +71,17 @@ afterEach(() => {
 });
 
 describe('PropertyPanel — override "Use instead of everything inside" flags', () => {
+  it('HF2 bounds a typed mass override before the tree callback', async () => {
+    const { MAX_STATED_MASS_KG } = await import('../tree/schema.js');
+    mount(stage());
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Mass override"]')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '1e103');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('blur', { bubbles: true }));
+    });
+    expect(patches.at(-1)?.['overrideMass']).toBe(MAX_STATED_MASS_KG);
+  });
   it('a stage gets the full override block', () => {
     mount(stage());
     expect([...host.querySelectorAll('input')].map((i) => i.getAttribute('aria-label')))

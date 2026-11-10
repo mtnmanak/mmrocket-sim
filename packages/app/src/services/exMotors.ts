@@ -1,3 +1,4 @@
+import { MAX_STATED_MASS_KG, MAX_DIMENSION_M } from '../tree/schema.js';
 import { noteField } from './noteField.js';
 import { cautionNote } from './importNotes.js';
 import { INITIAL_UNITS, noticeEqual, noticeComparison, noticeQuantity, type UnitSelection } from '../prefs/units.js';
@@ -144,7 +145,8 @@ function storedMassNote(name: string, notes?: string[]): void {
 export function repairFlightSnapshot<T extends ExFlightSnapshot>(snapshot: T, notes?: string[], header?: Pick<ExMotor, 'totalWeightG' | 'propWeightG'>, force = false): T {
   // A captured, already-valid curve may intentionally differ from its source.
   if (!force && validFlightSnapshot(snapshot)) return snapshot;
-  if (!repairableSnapshot(snapshot, header)) return snapshot;
+  // Repair arithmetic is independent of admission: oversized results remain refused.
+  if (!repairableSnapshot(snapshot, header, header ? MAX_STATED_MASS_KG : Infinity)) return snapshot;
   const total = header ? header.totalWeightG / 1000 : snapshot.masses[0]!;
   const dry = header ? (header.totalWeightG - header.propWeightG) / 1000 : Math.min(total, snapshot.masses.at(-1)!);
   const samples = snapshot.times.map((time, i) => ({ time, thrust: snapshot.thrusts[i]! }));
@@ -167,6 +169,11 @@ export function repairStoredExMotor(ex: ExMotor, notes?: string[]): ExMotor {
 }
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const positive = (v: unknown): v is number => finite(v) && v > 0;
+/** Upper bounds only: legacy shape/curve repair remains the caller's policy. */
+export function motorWithinRepresentabilityLimits(spec: Pick<MotorSpec, 'diameter' | 'length' | 'masses'>): boolean {
+  return spec.diameter <= MAX_DIMENSION_M && spec.length <= MAX_DIMENSION_M
+    && (!Array.isArray(spec.masses) || spec.masses.every((m: unknown) => !finite(m) || m <= MAX_STATED_MASS_KG));
+}
 const record = (v: unknown): v is Record<string, unknown> =>
   v !== null && typeof v === 'object' && !Array.isArray(v);
 
@@ -185,8 +192,11 @@ export function validExMotorFields(v: unknown): v is ExMotor {
     && (v['flightSnapshot'] === undefined || validFlightSnapshotFields(v['flightSnapshot']))
     && typeof v['designation'] === 'string' && v['designation'].length > 0
     && typeof v['realManufacturer'] === 'string' && typeof v['delays'] === 'string'
-    && positive(v['diameter']) && positive(v['length'])
-    && positive(totalG) && positive(propG) && propG <= totalG
+    && positive(v['diameter']) && v['diameter'] / 1000 <= MAX_DIMENSION_M
+    && positive(v['length']) && v['length'] / 1000 <= MAX_DIMENSION_M
+    && positive(totalG) && totalG / 1000 <= MAX_STATED_MASS_KG
+    && positive(propG) && propG / 1000 <= MAX_STATED_MASS_KG && propG <= totalG
+    && (!Array.isArray(v['sampleMassesKg']) || v['sampleMassesKg'].every((m: unknown) => !finite(m) || m <= MAX_STATED_MASS_KG))
     && finite(v['addedAt']) && (v['source'] === 'eng' || v['source'] === 'rse'
       || (v['source'] === 'snapshot' && v['flightSnapshot'] !== undefined))
     && Array.isArray(v['samples']) && v['samples'].length >= 2 && v['samples'].length <= MAX_EX_MOTOR_SAMPLES
@@ -212,8 +222,8 @@ export function validFlightSnapshot(v: unknown): v is ExFlightSnapshot {
     && massesDoNotRise(v.masses);
 }
 
-function repairableSnapshot(v: unknown, header?: Pick<ExMotor, 'totalWeightG' | 'propWeightG'>): v is ExFlightSnapshot {
-  return validFlightSnapshotFields(v) && v.cgX >= 0 && v.cgX <= v.length
+function repairableSnapshot(v: unknown, header?: Pick<ExMotor, 'totalWeightG' | 'propWeightG'>, maxMass = MAX_STATED_MASS_KG): v is ExFlightSnapshot {
+  return validFlightSnapshotFields(v, maxMass) && v.cgX >= 0 && v.cgX <= v.length
     && Number.isFinite(v.diameter * 1000) && Number.isFinite(v.length * 1000)
     && isSampleList(v.times.map((time, i) => ({ time, thrust: v.thrusts[i]! })))
     && (header !== undefined || (positive(v.masses[0]) && Number.isFinite(v.masses[0] * 1000)
@@ -235,15 +245,16 @@ export function exMotorFlightProblem(ex: ExMotor): string {
   return 'per-point masses contradict the motor mass or rise outside the measurement band';
 }
 
-function validFlightSnapshotFields(v: unknown): v is ExFlightSnapshot {
+function validFlightSnapshotFields(v: unknown, maxMass = MAX_STATED_MASS_KG): v is ExFlightSnapshot {
   if (!record(v) || typeof v['designation'] !== 'string' || !v['designation']
-    || !positive(v['diameter']) || !positive(v['length']) || !finite(v['cgX'])) return false;
+    || !positive(v['diameter']) || v['diameter'] > MAX_DIMENSION_M
+    || !positive(v['length']) || v['length'] > MAX_DIMENSION_M || !finite(v['cgX'])) return false;
   const times = v['times'], thrusts = v['thrusts'], masses = v['masses'];
   return Array.isArray(times) && times.length >= 2 && times.length <= MAX_EX_MOTOR_SAMPLES
     && times[0] === 0
     && times.every((t: unknown, i: number) => finite(t) && t >= 0 && (i === 0 || t > times[i - 1]))
     && Array.isArray(thrusts) && thrusts.length === times.length && thrusts.every((f: unknown) => finite(f) && f >= 0 && f <= MAX_MOTOR_THRUST_N)
-    && Array.isArray(masses);
+    && Array.isArray(masses) && masses.every((m: unknown) => !finite(m) || m <= maxMass);
 }
 
 /**
@@ -642,6 +653,7 @@ function massProblem(propG: number, totG: number, units: UnitSelection = INITIAL
   if (!Number.isFinite(propG) || !Number.isFinite(totG)) return 'propellant and loaded mass must be finite numbers in grams';
   if (!(totG > 0)) return `loaded mass ${noticeQuantity('mass', totG / 1000, units)} is not a mass`;
   if (!(propG > 0)) return `propellant mass ${noticeQuantity('mass', propG / 1000, units)} is not a mass`;
+  if (totG / 1000 > MAX_STATED_MASS_KG || propG / 1000 > MAX_STATED_MASS_KG) return 'motor mass exceeds the simulator representability limit; this motor was not loaded';
   if (propG > totG && !noticeEqual(propG / 1000, totG / 1000)) {
     const [propellant, loaded] = noticeComparison('mass', propG / 1000, totG / 1000, units, { parenthesized: true });
     return propellant.startsWith('just ') ? `slightly more propellant than loaded mass (${loaded})` : `more propellant (${propellant}) than loaded mass (${loaded})`;
@@ -694,6 +706,10 @@ export function parseEng(text: string, notes?: string[], units: UnitSelection = 
     const [, diaMm, lenMm, delays, propKg, totKg, ...mfr] = h;
     if (!(parseDecimal(diaMm) > 0 && parseDecimal(lenMm) > 0)) {
       skipped.push(`${noteField(name)}: diameter/length missing or not a positive number`);
+      return;
+    }
+    if (parseDecimal(diaMm) / 1000 > MAX_DIMENSION_M || parseDecimal(lenMm) / 1000 > MAX_DIMENSION_M) {
+      skipped.push(`${noteField(name)}: motor dimensions exceed the simulator representability limit; this motor was not loaded`);
       return;
     }
     // In time order first, as desktop's RASPMotorLoader sorts before it
@@ -923,6 +939,10 @@ export function parseRse(text: string, notes?: string[], units: UnitSelection = 
     // …and "Diameter missing" / "Length missing" on these. A zero is refused
     // too: a 0 mm motor was offered for every mount (diameterClass(0) is 0,
     // and 0 fits any bore), and a 0 mm long one put its CG at its top face.
+    if (numAttr('dia') / 1000 > MAX_DIMENSION_M || numAttr('len') / 1000 > MAX_DIMENSION_M) {
+      skipped.push(`Motor ${noteField(name)}: motor dimensions exceed the simulator representability limit; this motor was not loaded`);
+      continue;
+    }
     const dimension = (['dia', 'len'] as const).find((a) => !(numAttr(a, NaN) > 0));
     if (dimension) {
       skipped.push(`Motor ${noteField(name)}: ${dimension === 'dia' ? 'diameter' : 'length'} (${dimension}) missing or not a positive number`);
@@ -934,6 +954,10 @@ export function parseRse(text: string, notes?: string[], units: UnitSelection = 
       continue;
     }
     const data = Array.from(el.querySelectorAll(':scope > data > eng-data'));
+    if (data.some(d => parseDecimal(d.getAttribute('m')) / 1000 > MAX_STATED_MASS_KG)) {
+      skipped.push(`Motor ${noteField(name)}: point mass exceeds the simulator representability limit; this motor was not loaded`);
+      continue;
+    }
     if (data.length > MAX_EX_MOTOR_SAMPLES) { skipped.push(`Motor ${noteField(name)}: ${EX_SAMPLE_LIMIT_NOTE}`); continue; }
     // Every point's time and thrust, or the motor is skipped with the point
     // named. Desktop refuses the file ("Illegal motor data point encountered");

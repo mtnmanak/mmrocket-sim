@@ -76,6 +76,12 @@ const type = (input: HTMLInputElement, text: string) => act(() => {
 });
 
 describe('MeasuredMassBox — metric (the startup default: g and mm)', () => {
+  it('HF2 caps typed measured dry mass in preferred units', async () => {
+    const { MAX_STATED_MASS_KG } = await import('../tree/schema.js');
+    show({ massKg: null, cgM: null });
+    type(massBox(), '1e103');
+    expect(changes.at(-1)?.massKg).toBe(MAX_STATED_MASS_KG);
+  });
   it('explains a covering CG override and withholds the allowance action', () => {
     show({ massKg: 1.2, cgM: 0.55 }, { blockedBy: { name: 'Pinned body', kind: 'cg' } });
     expect(host.textContent).toContain('Pinned body');

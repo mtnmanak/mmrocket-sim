@@ -50,6 +50,27 @@ const state = () => ({
   } as LaunchConditions,
 });
 
+it('HF2 clears oversized measurement strings rather than coercing them', () => {
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), measured: { massKg: '1e100', cgM: 0.1 } }));
+  expect(loadSession()!.measured!.massKg).toBeNull();
+});
+
+it('HF2 bounds saved inactive stage mass snapshots before use', () => {
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), savedConfigs: [
+    { id: 'c', name: 'C', motors: {}, stageMassOverrides: { s: { overrideMass: 1e100 } } },
+  ] }));
+  expect(loadSession()!.savedConfigs![0]!.stageMassOverrides!.s!.overrideMass).toBe(1e15);
+});
+
+it('HF2 deduplicates oversized motor refusal across independent restored copies', () => {
+  const spec = { ...exToMotorSpec(parseEng('Huge 29 100 P 0.05 0.1 Home\n0 0\n0.5 40\n1 0')[0]!, Infinity), masses: [1e100, 1e100, 1e100] };
+  const motor = { spec, meta: {}, label: 'Huge' };
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), mountMotors: { m: motor }, savedConfigs: [
+    { id: 'a', name: 'A', motors: { m: motor } }, { id: 'b', name: 'B', motors: { m: motor } },
+  ] }));
+  expect(loadSession()!.treeRestoreNotes!.filter(n => n.includes('stored mass or dimensions'))).toHaveLength(1);
+});
+
 it.each(['times', 'thrusts', 'masses', 'diameter', 'length', 'cgX'])('H1 screens restored motor spec %s in both maps', key => {
   discardSession();
   const spec = { designation: 'T', times: [0, 1], thrusts: [0, 0], masses: [0.1, 0.05],
@@ -1401,6 +1422,31 @@ const exMounted = () => {
   const ex = definition();
   return mountMotorFromDb(exToDbEntry(ex), exToMotorSpec(ex, 5), 5, { event: 'automatic', delay: 0 }, { exMotorId: ex.motorId });
 };
+it.each([{ masses: [1e100, 1e99, 0.01, 0.01] }, { diameter: 1e100 }, { length: 1e100 }])(
+  'HF2 removes only oversized autosaved EX motor %j', fields => {
+    const bad = exMounted();
+    Object.assign(bad.spec, fields);
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(),
+      mountMotors: { bad, good: exMounted() } }));
+    const loaded = loadSession()!;
+    expect(loaded.mountMotors?.bad).toBeUndefined();
+    expect(loaded.mountMotors?.good).toBeDefined();
+    expect(loaded.treeRestoreNotes?.join(' ')).toMatch(/limit.*removed/);
+  },
+);
+it('HF2 bounds restored measured mass before pinning a stage', async () => {
+  const { MAX_STATED_MASS_KG } = await import('../tree/schema.js');
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), measured: { massKg: 1e100, cgM: 0.3 } }));
+  expect(loadSession()?.measured?.massKg).toBe(MAX_STATED_MASS_KG);
+});
+it('HF2 refuses an oversized autosaved catalogue curve as well as EX curves', () => {
+  const bad = exMounted();
+  delete bad.meta.exMotorId;
+  delete (bad.spec as { exDefinition?: unknown }).exDefinition;
+  bad.spec.masses = bad.spec.masses.map(() => 1e100);
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), mountMotors: { bad } }));
+  expect(loadSession()?.mountMotors?.bad).toBeUndefined();
+});
 /** What App's Save .ork hands the writer (App.onSaveOrk via exportAssembly). */
 const saveOrk = (loaded: SessionState) => {
   const { state: d } = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });

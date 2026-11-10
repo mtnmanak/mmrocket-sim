@@ -91,6 +91,12 @@ const implausible = (r: ReturnType<typeof hardwareMass>) => {
 };
 
 describe('hardwareMass — the two flights it was built from', () => {
+  it('HF2 refuses oversized saved pad masses and ignores oversized dry measurements', () => {
+    const base = { padMassKg: 1.5, measuredDryMassKg: 8e307, computedDryMassKg: 0.3,
+      tree: singleStage(), motors: [['mmt', { spec: J540R() }]] as [string, { spec: MotorSpec }][], primaryMountId: 'mmt' };
+    expect(hardwareMass({ ...base, padMassKg: 1.6e308 }).state).toBe('none');
+    expect(ok(hardwareMass(base)).drySource).toBe('computed');
+  });
   it('Monster Mamba: 10.574 − 9.308 − 1.084 = 0.182 kg, measured dry mass wins over computed', () => {
     const r = ok(hardwareMass({
       padMassKg: 10.574,
