@@ -416,10 +416,12 @@ const STAGE_MASS_FIELDS: Record<string, (v: unknown) => boolean> = {
  * snapshot whose every field was unreadable does. A bad field is deleted in
  * place, so a valid map stays the same object.
  */
-function repairStageMassOverrides(cfg: SavedConfig): boolean {
+/** Which repairs a saved configuration's stage snapshots needed: unreadable values cleared, oversized ones reduced. */
+function repairStageMassOverrides(cfg: SavedConfig): { cleared: boolean; reduced: boolean } {
   const map = cfg.stageMassOverrides;
-  if (!map) return false;
+  if (!map) return { cleared: false, reduced: false };
   let repaired = false;
+  let reduced = false;
   let replaced = false;
   const entries = Object.entries(map).map(([id, value]) => {
     if (!isTable(value)) { replaced = true; return [id, {}] as const; }
@@ -433,14 +435,14 @@ function repairStageMassOverrides(cfg: SavedConfig): boolean {
     for (const key of ['overrideMass', 'overrideCGX'] as const) {
       if (value[key] !== bounded[key]) {
         value[key] = bounded[key];
-        repaired = true;
+        reduced = true;
       }
     }
     return [id, value] as const;
   });
   // Rebuilt, not assigned, when a snapshot is replaced: stage ids are file-sourced.
   if (replaced) cfg.stageMassOverrides = Object.fromEntries(entries);
-  return repaired || replaced;
+  return { cleared: repaired || replaced, reduced };
 }
 
 /** A stored Mach-Alt table, or null: 1–1,000 rows of finite [Mach ≥ 0, altitude m]. */
@@ -588,11 +590,14 @@ function readSession(restoreRoot: boolean): SessionState | null {
     if (motorsRemoved) {
       cautionNote(s.treeRestoreNotes ??= [], 'G04.motors-removed', 'Unreadable motor records were removed.');
     }
+    const PAD_MASS_REDUCED = 'Stored pad mass was above the simulator limit and was reduced; check the measurement before flying.';
     const boundPadMass = (reading: { padMassKg?: number }) => {
       if (Number.isFinite(reading.padMassKg) && reading.padMassKg! > MAX_STATED_MASS_KG) {
         reading.padMassKg = MAX_STATED_MASS_KG;
-        cautionNote(s.treeRestoreNotes ??= [], 'G04.measurements-reset',
-          'Stored pad mass was above the simulator limit and was reduced; check the measurement before flying.');
+        // One reading is often mirrored in several slots (mount, active and saved configurations): say it once.
+        if (!(s.treeRestoreNotes ??= []).some(n => n.includes(PAD_MASS_REDUCED))) {
+          cautionNote(s.treeRestoreNotes, 'G04.measurements-reset', PAD_MASS_REDUCED);
+        }
       }
     };
     for (const set of [s.mountMotors ?? {}, ...(s.savedConfigs ?? []).map(c => c.motors)]) {
@@ -664,7 +669,8 @@ function readSession(restoreRoot: boolean): SessionState | null {
         unmatchedRebuilt.add(i);
       }
     });
-    let stageMassRepaired = false;
+    let stageMassCleared = false;
+    let stageMassReduced = false;
     for (const cfg of s.savedConfigs ?? []) {
       for (const [id, value] of Object.entries(cfg.nozzles ?? {})) {
         const bounded = boundedNozzleDiameter(value);
@@ -674,7 +680,9 @@ function readSession(restoreRoot: boolean): SessionState | null {
             `Saved configuration ${savedConfigLabel(cfg)}: an invalid or oversized nozzle exit diameter was repaired. Check the nozzle before flying.`);
         }
       }
-      if (repairStageMassOverrides(cfg)) stageMassRepaired = true;
+      const stageRepair = repairStageMassOverrides(cfg);
+      if (stageRepair.cleared) stageMassCleared = true;
+      if (stageRepair.reduced) stageMassReduced = true;
       if (isTable(cfg.stageActiveness)) {
         cfg.stageActiveness = lookupTable(Object.fromEntries(
           Object.entries(cfg.stageActiveness).filter(([, value]) => typeof value === 'boolean'),
@@ -683,9 +691,11 @@ function readSession(restoreRoot: boolean): SessionState | null {
         delete cfg.stageActiveness;
       }
     }
-    if (stageMassRepaired) {
+    if (stageMassCleared || stageMassReduced) {
       cautionNote(s.treeRestoreNotes ??= [], 'G04.stage-mass-repaired',
-        'Unreadable stage mass and CG overrides in saved configurations were cleared; values outside the simulator limits were reduced. Check the stage masses before flying.');
+        [stageMassCleared && 'Unreadable stage mass and CG overrides in saved configurations were cleared.',
+          stageMassReduced && 'Stage mass and CG overrides in saved configurations above the simulator limits were reduced.',
+          'Check the stage masses before flying.'].filter(Boolean).join(' '));
     }
     // Older configuration maps used 0 as a removal command, not persistent OFF.
     // Preserve their automatic behavior; tree values themselves are untouched.

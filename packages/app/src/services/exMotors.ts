@@ -178,6 +178,18 @@ export function motorWithinRepresentabilityLimits(spec: Pick<MotorSpec, 'diamete
 const record = (v: unknown): v is Record<string, unknown> =>
   v !== null && typeof v === 'object' && !Array.isArray(v);
 
+/** A stored EX definition with a readable mass or size above the simulator's limits (mm/g, or the snapshot's m/kg). */
+export function exMotorBeyondLimits(v: unknown): boolean {
+  if (!record(v)) return false;
+  const over = (x: unknown, limit: number, scale = 1) => finite(x) && x / scale > limit;
+  const snap = v['flightSnapshot'];
+  return over(v['diameter'], MAX_DIMENSION_M, 1000) || over(v['length'], MAX_DIMENSION_M, 1000)
+    || over(v['totalWeightG'], MAX_STATED_MASS_KG, 1000) || over(v['propWeightG'], MAX_STATED_MASS_KG, 1000)
+    || (Array.isArray(v['sampleMassesKg']) && v['sampleMassesKg'].some((m: unknown) => over(m, MAX_STATED_MASS_KG)))
+    || (record(snap) && (over(snap['diameter'], MAX_DIMENSION_M) || over(snap['length'], MAX_DIMENSION_M)
+      || (Array.isArray(snap['masses']) && snap['masses'].some((m: unknown) => over(m, MAX_STATED_MASS_KG)))));
+}
+
 /** Shared archive/library gate: old imports must meet today's checks (audit 2026-10-11, S1c-5). */
 export function validExMotor(v: unknown): v is ExMotor {
   return validExMotorFields(v) && hasDistinctThrustPoints(v.samples)

@@ -174,18 +174,26 @@ function sanitizeOwn(n: ComponentNode, found: Finding[], units: UnitSelection = 
       ]);
       if (bounded.some((p, i) => p[0] !== points[i]![0] || p[1] !== points[i]![1])) {
         // Independent clamps can merge distinct tips into a refused outline.
-        // Retain their proportions when that yields a usable bounded outline.
+        // Retain their proportions when that yields a usable bounded outline;
+        // when neither does, use the default outline, as the file readers do.
+        let replaced = false;
         if (finOutlineProblem(bounded)) {
           const extent = points.reduce((max, [x, y]) => Math.max(max, Math.abs(x), Math.abs(y)), MAX_DIMENSION_M);
           const proportional = points.map(([x, y]): FinOutlinePoint => [
             (x / extent) * MAX_DIMENSION_M, (y / extent) * MAX_DIMENSION_M,
           ]);
           if (!finOutlineProblem(proportional)) bounded = proportional;
+          else if (finOutlineProblem(bounded)) {
+            bounded = KERNEL_DEFAULT_FIN_POINTS.map(([x, y]): FinOutlinePoint => [x, y]);
+            replaced = true;
+          }
         }
         points = bounded;
         edit()['points'] = bounded;
         found.push({ problem: `${partName(n)}: fin coordinates exceed the dimension limit`,
-          repair: `set within ${noticeQuantity('length', MAX_DIMENSION_M, units)}; check the fin shape before flying or cutting it` });
+          repair: replaced
+            ? `the outline could not be reduced to within ${noticeQuantity('length', MAX_DIMENSION_M, units)} and stay usable, so the set keeps a default outline; redraw it in the fin editor before flying or cutting it`
+            : `set within ${noticeQuantity('length', MAX_DIMENSION_M, units)}; check the fin shape before flying or cutting it` });
       }
     }
     const placed = readable ? kernelFinPoints(points) : points;

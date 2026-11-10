@@ -22,6 +22,20 @@ it.each(['non-finite', 'samples', 'definition', 'null'] as const)('keeps good si
   expect(notes[0]).toContain('was not loaded:');
 });
 
+it.each([
+  ['mass', { totalWeightG: 1e20, propWeightG: 1e19 }],
+  ['diameter', { diameter: 2_000_000 }],
+  ['length', { length: 2_000_000 }],
+] as const)('HF integration: an oversized embedded motor (%s) is refused alone and good siblings load', (_kind, fields) => {
+  const good = { ...goodMotor(), motorId: 'ex:good' };
+  const huge = { ...goodMotor(), ...fields, designation: 'Huge', motorId: 'ex:huge' };
+  const notes: string[] = [];
+  expect([...readArchivedExMotors(archive(JSON.stringify([huge, good])), notes).keys()]).toEqual(['ex:good']);
+  expect(notes).toHaveLength(1);
+  expect(notes[0]).toContain('Huge');
+  expect(notes[0]).toContain('beyond the numbers the simulator can handle');
+});
+
 it('refuses every sharer of an id, even when one sharer is malformed', () => {
   for (const damaged of [false, true]) {
     const one = { ...goodMotor(), designation: 'One' };

@@ -6,6 +6,7 @@ import { fieldLimit } from './schema.js';
 import { limitPatch, sanitizeTree } from './sanitize.js';
 import { engineTree } from './treeModel.js';
 import { finOutlineProblem } from './finOutline.js';
+import { KERNEL_DEFAULT_FIN_POINTS } from './kernelDefaults.js';
 
 it('HF2 final does not collapse distinct negative fin vertices during repair', () => {
   const notes: string[] = [];
@@ -18,6 +19,18 @@ it('HF2 final does not collapse distinct negative fin vertices during repair', (
   expect(notes.join(' ')).toMatch(/fin.*limit/i);
   resetEngine();
   expect(Number.isFinite(OrkRocket.buildTree(engineTree(tree)).staticInfo().rotationalInertia)).toBe(true);
+});
+
+it('HF integration: a fin outline no reduction can keep usable gets the default outline', () => {
+  const notes: string[] = [];
+  const tree = sanitizeTree({ components: [{ type: 'stage', children: [{ type: 'bodytube',
+    length: 1, outerRadius: 1, children: [{ type: 'freeformfinset', crossSection: 'rounded',
+      points: [[0, 0], [-2000000000000000, 1], [-1999999999999999, 1], [1, 0]] }],
+  }] }] }, notes);
+  const points = tree.components[0]!.children![0]!.children![0]!['points'] as [number, number][];
+  expect(finOutlineProblem(points)).toBeNull();
+  expect(points).toEqual(KERNEL_DEFAULT_FIN_POINTS.map(([x, y]) => [x, y]));
+  expect(notes.join(' ')).toMatch(/default outline; redraw it/);
 });
 
 it('HF2 bounds negative fin coordinates on load and refuses them on edit', () => {

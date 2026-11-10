@@ -1,6 +1,6 @@
 import { noteField, noteText } from './noteField.js';
 import { cautionNote } from './importNotes.js';
-import { validExMotor as validArchivedExMotor, validExMotorFields, validFlightSnapshot, exMotorFlightProblem, repairFlightSnapshot, repairStoredExMotor, boundedExId, exMotorIdentity, exToMotorSpec, flightIdentity, loadExMotors, type ExMotor, type ExFlightSnapshot } from './exMotors.js';
+import { validExMotor as validArchivedExMotor, validExMotorFields, exMotorBeyondLimits, validFlightSnapshot, exMotorFlightProblem, repairFlightSnapshot, repairStoredExMotor, boundedExId, exMotorIdentity, exToMotorSpec, flightIdentity, loadExMotors, type ExMotor, type ExFlightSnapshot } from './exMotors.js';
 import type { RepairedMotorSpec } from './thrustcurve.js';
 import type { OrkExportMotor } from './orkFile.js';
 import { escapeXml } from './xmlUtil.js';
@@ -154,6 +154,7 @@ export function readArchivedExMotors(rocket: XmlElement, notes: string[]): Map<s
         ? noteField(designation, 160).trim() || '(unnamed)' : '(unnamed)';
       const duplicate = duplicates.has(m?.motorId);
       const reason = duplicate ? 'shared library id; the mount cannot identify which motor it means'
+        : exMotorBeyondLimits(m) ? 'its mass or size is beyond the numbers the simulator can handle'
         : !validExMotorFields(m) ? `invalid definition, non-finite value, or over ${MAX_EX_MOTOR_SAMPLES} samples per motor`
         : !validArchivedExMotor(m) ? exMotorFlightProblem(m) : null;
       if (reason) {

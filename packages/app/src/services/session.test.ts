@@ -1437,6 +1437,20 @@ it('HF2 final bounds pad readings in current and legacy session locations', () =
   expect(restored.savedConfigs?.[0]?.unmatchedRefs?.missing?.padMassKg).toBe(1e15);
   expect((restored.measured as unknown as { padMassKg?: number })?.padMassKg).toBe(1e15);
   expect(restored.treeRestoreNotes?.join(' ')).toMatch(/pad mass.*reduced/i);
+  // Five mirrored readings, one notice.
+  expect(restored.treeRestoreNotes?.filter(n => /pad mass/i.test(n))).toHaveLength(1);
+});
+
+it.each([
+  [{ overrideMass: 'abc' }, /cleared/, /reduced/],
+  [{ overrideMass: 1e100 }, /reduced/, /cleared/],
+])('HF integration: the stage-mass restore note names only the repair made (%j)', (stored, says, omits) => {
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), savedConfigs: [
+    { id: 'c', name: 'C', motors: {}, stageMassOverrides: { s: stored } },
+  ] }));
+  const note = loadSession()!.treeRestoreNotes!.find(n => /stage mass/i.test(n))!;
+  expect(note).toMatch(says);
+  expect(note).not.toMatch(omits);
 });
 it.each([{ masses: [1e100, 1e99, 0.01, 0.01] }, { diameter: 1e100 }, { length: 1e100 }])(
   'HF2 removes only oversized autosaved EX motor %j', fields => {

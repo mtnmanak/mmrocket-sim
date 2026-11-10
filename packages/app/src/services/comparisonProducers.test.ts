@@ -1,4 +1,9 @@
 // @vitest-environment happy-dom
+// HF integration: exMotorArchive 7 -> 8 names the number-limit reason for an
+// oversized embedded motor (exMotorBeyondLimits, existing 1e15 kg / 1000 m
+// ceilings); a refusal note, not a measurement comparison. exMotorArchive.test.ts.
+// HF integration: sanitize 30 -> 31 is the default-outline repair wording when
+// no reduction keeps a fin outline usable (schemaInertia.test.ts); no threshold.
 // HF4 r4: 273 -> 274 replaces one raw selector with all-occurrence selector
 // plus last-value projection; all other added checks are string compatibility.
 // laneH5b covers duplicate numerics/devices, missing tags, ignored fields and
