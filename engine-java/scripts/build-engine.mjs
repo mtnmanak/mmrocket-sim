@@ -5,7 +5,8 @@
  * workspace don't need a JDK; regenerate with `npm run engine:js`).
  */
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
+import { atomicWriteFileSync } from '../../packages/app/scripts/atomic-write.mjs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -38,5 +39,5 @@ execFileSync(join(engineRoot, gradlew), ['generateJavaScript', '--console=plain'
 const src = join(engineRoot, 'build', 'generated', 'teavm', 'js', 'online-openrocket-engine-java.js');
 const dstDir = join(repoRoot, 'packages', 'engine', 'vendor');
 mkdirSync(dstDir, { recursive: true });
-copyFileSync(src, join(dstDir, 'orkengine.mjs'));
+atomicWriteFileSync(join(dstDir, 'orkengine.mjs'), readFileSync(src));
 console.log('engine artifact -> packages/engine/vendor/orkengine.mjs');
