@@ -6,6 +6,11 @@
 // no reduction keeps a fin outline usable (schemaInertia.test.ts); no threshold.
 // HF integration: session 5 -> 6 tells a reduced stage override from a raised
 // one (repair direction for the restore note, session.test.ts); no threshold.
+// HF integration: FinPointsEditor 7 -> 9 refuses a typed point beyond the
+// existing 1000 m coordinate limit even on a crossed outline; userMaterials
+// 12 -> 14 applies the existing 1e15 surface/line density ceiling in My
+// materials. Representability limits, not measurement comparisons; tests in
+// FinPointsEditor.test.tsx and userMaterials.test.ts.
 // HF4 r4: 273 -> 274 replaces one raw selector with all-occurrence selector
 // plus last-value projection; all other added checks are string compatibility.
 // laneH5b covers duplicate numerics/devices, missing tags, ignored fields and

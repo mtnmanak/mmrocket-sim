@@ -22,6 +22,7 @@ it.each([
   { ...valid, name: '  ' }, { ...valid, name: 'x'.repeat(81) }, { ...valid, density: '1234' },
   { ...valid, density: null }, { ...valid, density: -1 }, { ...valid, density: 0 }, { ...valid, density: 30001 },
   { kind: 'surface', name: 'Zero cloth', density: 0 }, { kind: 'line', name: 'Zero cord', density: 0 },
+  { kind: 'surface', name: 'Huge cloth', density: 1e20 }, { kind: 'line', name: 'Huge cord', density: 1e20 },
   { ...valid, name: 'bAlSa' }, { kind: 'surface', name: 'MYLAR', density: 0.1 },
   { ...valid, name: ' cUsToM ' },
   { kind: 'line', name: 'Thread (heavy-duty)', density: 0.1 },

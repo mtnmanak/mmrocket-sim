@@ -99,6 +99,12 @@ describe('FinPointsEditor — the outline guard', () => {
     expect(committed).toEqual([]);
     expect(alertText()).toContain('fin coordinate limit');
   });
+  it('HF integration: refuses a typed coordinate beyond the limit on an already-crossed outline', () => {
+    render([[0, 0], [0.04, 0.03], [0.02, 0.03], [0.06, 0]]);
+    type(field('Point 2 x'), '-1e155');
+    expect(committed).toEqual([]);
+    expect(alertText()).toContain('fin coordinate limit');
+  });
   it('allows deleting an earlier point in a legacy oversized outline', () => {
     render([[0, 0], [0.01, 1], [0.02, 3], [0.06, 0]]);
     act(() => host.querySelector<HTMLButtonElement>('[aria-label="Remove point 2"]')!.click());

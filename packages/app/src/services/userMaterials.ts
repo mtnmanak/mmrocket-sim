@@ -3,7 +3,7 @@ import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/unit
 import { csvCell, unescapeCsvText } from './csvUtil.js';
 import { parseDecimal } from './xmlUtil.js';
 import { numOpt } from '../tree/nodeNum.js';
-import { MAX_BULK_DENSITY } from '../tree/schema.js';
+import { MAX_BULK_DENSITY, MAX_RECOVERY_DENSITY } from '../tree/schema.js';
 import { backUpUnreadableStore, canBackUpUnreadableStore } from './storeBackup.js';
 import { builtInMaterial, materialNameKey, MATERIAL_UNITS, usableMaterialDensity, type MaterialKind } from './designMaterials.js';
 
@@ -25,6 +25,7 @@ export function materialProblem(value: unknown, units: UnitSelection = INITIAL_U
     return 'Density must be a finite number greater than zero';
   }
   if (m.kind === 'bulk' && density > MAX_BULK_DENSITY) return `Bulk material density has a limit of ${noticeQuantity('density', MAX_BULK_DENSITY, units)}`;
+  if (m.kind !== 'bulk' && density > MAX_RECOVERY_DENSITY) return `${m.kind === 'surface' ? 'Surface' : 'Line'} material density has a limit of ${noticeQuantity(m.kind === 'surface' ? 'surfaceDensity' : 'lineDensity', MAX_RECOVERY_DENSITY, units)}`;
   return null;
 }
 

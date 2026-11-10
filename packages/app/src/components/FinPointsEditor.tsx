@@ -3,6 +3,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { INITIAL_UNITS, niceStep, noticeQuantity, siToUi, uiToSi, type UnitSelection } from '../prefs/units.js';
 import { finOutlineProblem, kernelFinPoints, MAX_FIN_POINT_M } from '../tree/finOutline.js';
+import { MAX_DIMENSION_M } from '../tree/schema.js';
 import { arrowPan, startsGesture, wheelZoomFactor } from '../chartPanZoom.js';
 import { FIN_VIEW_W as VIEW_W, FIN_VIEW_H as VIEW_H, fitFin as makeTransform,
   finToScreen as toScreen, screenToFin as toModel, panFin, zoomFin,
@@ -187,6 +188,13 @@ export function FinPointsEditor({ points, onChange }: {
    * to edit their way out of. Then we let the edit through and just say so.
    */
   const commit = (next: FinPoint[]): boolean => {
+    // The coordinate limit holds even on an outline that arrived broken: the
+    // legacy escape below must not admit a new point beyond it (overflow).
+    const outside = (pts: FinPoint[]) => pts.some(p => Math.abs(p[0]!) > MAX_DIMENSION_M || Math.abs(p[1]!) > MAX_DIMENSION_M);
+    if (outside(next) && !outside(committed)) {
+      setRefused(`A point exceeds the fin coordinate limit of ${noticeQuantity('length', MAX_DIMENSION_M, prefs.units)}. The fin is unchanged.`);
+      return false;
+    }
     const problem = outlineProblem(next, prefs.units);
     const excess = (pts: FinPoint[]) => [0, 1].map(axis => pts
       .map(p => Math.max(0, p[axis]! - pts[0]![axis]! - 2.5)).sort((a, b) => b - a));
