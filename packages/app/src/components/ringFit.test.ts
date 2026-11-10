@@ -1,6 +1,48 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { ringFitFor } from './ringFit.js';
+import { couplerRingFitNote, ringFitFor } from './ringFit.js';
+import { IMPERIAL_UNITS, noticeQuantity } from '../prefs/units.js';
+import { centeringRingBore, ringOuterRadius } from '../tree/solidMesh.js';
+import { solidContextFor } from '../tree/solidContext.js';
+
+it.each(['fore', 'aft'] as const)('HF7 r2 advises for an accepted %s overhang', end => {
+  const ring: ComponentNode = { type: 'centeringring', id: 'ring', innerRadius: 0.01,
+    length: 0.003, position: { method: end === 'fore' ? 'top' : 'bottom', offset: end === 'fore' ? -0.002 : 0.002 } };
+  const tree: RocketTree = { components: [{ type: 'bodytube', length: 0.4, outerRadius: 0.03,
+    children: [ring, { type: 'tubecoupler', length: 0.5, position: { method: 'top', offset: -0.05 },
+      children: [{ type: 'innertube', length: 0.5, outerRadius: 0.0101 }] }] }] };
+  const ctx = solidContextFor(tree, ring);
+  expect(centeringRingBore(ring, ctx, ringOuterRadius(ring, ctx).r)).toBeCloseTo(0.01, 10);
+  expect(couplerRingFitNote(tree, ring)).toContain('The tube cannot pass through');
+});
+
+it.each([0.01, 0.009, 0.0100000005])('HF7 r2 stays silent when the stated bore is unusable with outer radius %s m', outerRadius => {
+  const ring: ComponentNode = { type: 'centeringring', id: 'ring', innerRadius: 0.01, outerRadius, length: 0.003 };
+  const tree: RocketTree = { components: [{ type: 'bodytube', length: 0.3, outerRadius: 0.03,
+    children: [ring, { type: 'tubecoupler', length: 0.3,
+      children: [{ type: 'innertube', length: 0.3, outerRadius: 0.0101 }] }] }] };
+  expect(couplerRingFitNote(tree, ring)).toBeUndefined();
+});
+
+it('HF7 formats the coupler clearance shortfall in the selected length unit and ignores other layouts', () => {
+  const ring: ComponentNode = { type: 'centeringring', id: 'ring', innerRadius: 0.01, length: 0.003,
+    position: { method: 'top', offset: 0.1 } };
+  const tube: ComponentNode = { type: 'innertube', length: 0.3, outerRadius: 0.0101 };
+  const coupler: ComponentNode = { type: 'tubecoupler', length: 0.3,
+    position: { method: 'top', offset: 0 }, children: [tube] };
+  const tree: RocketTree = { components: [{ type: 'bodytube', id: 'body', length: 0.4,
+    outerRadius: 0.03, children: [ring, coupler] }] };
+  expect(couplerRingFitNote(tree, ring, IMPERIAL_UNITS)).toContain(noticeQuantity('length', 0.0002, IMPERIAL_UNITS));
+  ring['position'] = { method: 'top', offset: 0.35 };
+  expect(couplerRingFitNote(tree, ring)).toBeUndefined(); // no axial overlap
+  ring['position'] = { method: 'top', offset: 0.1 };
+  delete ring['innerRadius'];
+  expect(couplerRingFitNote(tree, ring)).toBeUndefined(); // automatic hole
+  ring['innerRadius'] = 0.01;
+  tree.components[0]!.children = [ring, tube];
+  expect(couplerRingFitNote(tree, ring)).toBeUndefined();
+  expect(ringFitFor(tree, ring, { outside: false, inside: true }).notes).toEqual([]); // existing direct tolerance
+});
 
 describe('Round 5 certain-or-silent catalogue fit', () => {
   it.each(['sibling', 'parent'] as const)('H6 r6 compares an omitted-radius inner tube as a %s', placement => {

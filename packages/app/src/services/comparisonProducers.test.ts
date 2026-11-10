@@ -80,6 +80,14 @@
 // S5 round 3: describeFile 0 -> 1 is the share-size refusal, covered at the exact motor-suffix boundary in describeFile.test.ts.
 // N7 round 4 census review: presets 20 -> 21 and userMaterials 11 -> 12
 // add only recovery-copy message declarations. No numeric boundary changed.
+// HF7 r3: paper/DXF forward the shared ringFit caution, with no new numeric
+// predicate. Actual export-button tests cover the accepted band and controls.
+// HF7 r2: census remains ringFit 14 / designPrintReport 21. Advice now uses
+// centeringRingBore eligibility (including overhangs), shared by panel/report;
+// ringFit and designPrintReport regressions cover accepted and unusable bores.
+// HF7: ringFit 12 -> 14 adds the coupler opening shortfall message and its
+// accepted-band predicates. Panel tests cover contained/equal/within/at/beyond
+// tolerance and exports retaining the hole; ringFit tests cover units and silence.
 import { createElement, act } from 'react';
 // H9 S5-6: sanitize 29 -> 28 removes the uncalled configuration-separation
 // note. No active numeric comparison or warning boundary changes.

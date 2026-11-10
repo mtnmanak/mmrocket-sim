@@ -15,7 +15,7 @@ export function PaperTemplateButton({ tree, node }: { tree: RocketTree; node: Co
   return <>
     <button type="button" className="file-btn" style={{ marginTop: 6, width: '100%' }} onClick={() => {
       try {
-        const geometry = paperTemplateGeometry(node, solidContextFor(tree, node), prefs.units);
+        const geometry = paperTemplateGeometry(node, solidContextFor(tree, node), prefs.units, tree);
         const pages = paperTemplatePages(geometry, tree.name ?? 'Rocket', prefs.units);
         openPrintDocument(printDocument(`${node.name ?? node.type} — paper template`,
           `<main class="template-scroll">${pages.map(p => `<section class="template-page">${p.svg}</section>`).join('')}</main>`, true));

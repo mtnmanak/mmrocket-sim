@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { PropertyPanel } from './PropertyPanel.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
+import { couplerRingFitNote } from './ringFit.js';
 
 /**
  * The ✂ DXF and 🖨 STL buttons size a ring-type part from the tube it sits in
@@ -70,6 +71,30 @@ const circleRadii = (dxf: string): number[] => {
 };
 
 const note = (): HTMLElement | null => host.querySelector('.print-note');
+
+it.each([0.0099, 0.01, 0.0101, 0.01025, 0.0103])('HF7 advises only in the accepted coupler fit band (%s m)', async radius => {
+  const ring: ComponentNode = { type: 'centeringring', id: 'ring', length: 0.003,
+    innerRadius: 0.01, position: { method: 'top', offset: 0.2 } };
+  const tree: RocketTree = { components: [{ type: 'bodytube', id: 'body', length: 0.4,
+    outerRadius: 0.03, children: [ring, { type: 'tubecoupler', length: 0.1,
+      position: { method: 'top', offset: 0 }, children: [{ type: 'innertube', length: 0.3,
+        outerRadius: radius, position: { method: 'top', offset: 0 } }] }] }] };
+  mount(tree, ring);
+  const warns = radius > 0.01 && radius <= 0.01025;
+  expect(host.textContent!.includes('The tube cannot pass through the stated hole')).toBe(warns);
+  if (warns) {
+    expect(host.textContent).toContain('Check the tube and hole dimensions before cutting or printing');
+    expect(host.textContent).toContain(radius === 0.0101 ? '0.2 mm' : '0.5 mm');
+    const exported = await dxfText();
+    expect(circleRadii(exported).some(r => Math.abs(r - 10) < 1e-8)).toBe(true);
+    expect(exported).toContain('Caution: The stated hole is');
+    expect(exported).toContain('The tube cannot pass through the stated hole.');
+    const labels = [...exported.matchAll(/\r\n1\r\n([^\r]*)\r\n/g)].map(m => m[1]);
+    expect(labels.join(' ')).toContain(`Caution: ${couplerRingFitNote(tree, ring)}`);
+    expect(labels.every(s => s!.length <= 255)).toBe(true);
+    expect(host.textContent).toContain('The tube cannot pass through the stated hole');
+  }
+});
 
 it('r8 shows base inner diameter for a nose with omitted aft radius', () => {
   const nose: ComponentNode = { type: 'nosecone', id: 'nose', length: 0.1 };
