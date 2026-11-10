@@ -170,8 +170,9 @@ describe('sanitizeTree — bulk density', () => {
   });
 
   it('does not apply a volume-density ceiling to area or line density', () => {
-    expect(fieldLimit('parachute', 'surfaceDensity')?.hmax).toBeUndefined();
-    expect(fieldLimit('shockcord', 'lineDensity')?.hmax).toBeUndefined();
+    // HF2 adds representability ceilings in their own units, not the bulk limit.
+    expect(fieldLimit('parachute', 'surfaceDensity')!.hmax!).toBeGreaterThan(MAX_BULK_DENSITY);
+    expect(fieldLimit('shockcord', 'lineDensity')!.hmax!).toBeGreaterThan(MAX_BULK_DENSITY);
   });
 });
 

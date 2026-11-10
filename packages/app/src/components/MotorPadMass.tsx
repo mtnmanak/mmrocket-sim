@@ -1,3 +1,4 @@
+import { MAX_STATED_MASS_KG } from '../tree/schema.js';
 import { Note } from './Note.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
@@ -106,6 +107,8 @@ export function MotorPadMass({
       <NumField
         key={identityKey ?? motorLabel}
         id={id}
+        max={siToUi('mass', massSym, MAX_STATED_MASS_KG)}
+        clampToMax
         value={shown === null ? undefined : siToUi('mass', massSym, shown)}
         onCommit={(v) => onChange(v === null ? null : uiToSi('mass', massSym, v))}
         nullable

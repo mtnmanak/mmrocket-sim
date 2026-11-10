@@ -1,4 +1,5 @@
 import { noteField } from './noteField.js';
+import { motorWithinRepresentabilityLimits } from './exMotors.js';
 import { ownEntry } from './ownEntry.js';
 import type {
   FlightResult, MotorSpec, OrkRocket, SimulationOptions,
@@ -94,6 +95,12 @@ export interface AeroFlags {
 export function writeMountMotor(
   rocket: FlightHandle, id: string, spec: MotorSpec, ignition: MountMotor['ignition'],
 ): void {
+  // Last backstop for every catalogue/cache/EX spec, including hardware shifts.
+  // Refuse before any write: the bridge cannot remove an installed motor.
+  if (!motorWithinRepresentabilityLimits(spec)) {
+    throw new Error(`${noteField(spec.designation)}: its mass or size is beyond the numbers the simulator can handle,`
+      + ' so the motor was left off the rocket. Choose another motor before flying.');
+  }
   const event = knownIgnitionEvent(ignition.event);
   if (event === null) {
     throw new Error(`${noteField(spec.designation)}: its ignition event “${noteField(ignition.event)}” is not one the`

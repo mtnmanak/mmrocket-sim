@@ -20,7 +20,7 @@ import { FinPointsEditor, type FinPoint } from './FinPointsEditor.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import {
-  applyFieldLimit, blankValue, DISPLAY_NAME, FIELDS, MAX_BULK_DENSITY, POSITIONABLE, type FieldDef,
+  applyFieldLimit, blankValue, DISPLAY_NAME, FIELDS, MAX_BULK_DENSITY, MAX_RECOVERY_DENSITY, POSITIONABLE, type FieldDef,
 } from '../tree/schema.js';
 import {
   bodyDragReference, fairingCd, fairingDeliveredCd, fairingFrontalArea, findParent,
@@ -352,8 +352,11 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, t
             if (kind === 'bulk' && mat.density > MAX_BULK_DENSITY) {
               setMessage(`Bulk material density has a limit of ${noticeQuantity('density', MAX_BULK_DENSITY, prefs.units)}`); return;
             }
+            if (kind !== 'bulk' && mat.density > MAX_RECOVERY_DENSITY) {
+              setMessage('This material density is beyond the numbers the simulator can handle; it was not applied. Choose another material before simulating.'); return;
+            }
             setPicked(groupMaterial ? e.target.value : null);
-            onPatch({ [nameKey]: mat.name, [densityKey]: mat.density });
+            onPatch(limitPatch(node, { [nameKey]: mat.name, [densityKey]: mat.density }));
           }
           // The fallback has no reusable density: re-picking it keeps the
           // part's original values, including an absent density.
@@ -2105,7 +2108,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
               autoValue={info ? siToUi('mass', massSym, info.mass) : undefined}
               onCommit={(v) => onPatch(v === null
                 ? { overrideMass: undefined, overrideSubcomponentsMass: undefined, ...statedLaunchMark }
-                : { overrideMass: uiToSi('mass', massSym, v), ...statedLaunchMark })}
+                : { ...limitPatch(node, { overrideMass: uiToSi('mass', massSym, v) }), ...statedLaunchMark })}
             />
             {(() => {
               // A mass this part states against the one its catalogue row

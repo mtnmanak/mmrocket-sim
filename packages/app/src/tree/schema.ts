@@ -367,7 +367,10 @@ const LEN: FieldLimit = { kind: 'length', hmin: 0, hmax: MAX_DIMENSION_M };
 /** A length whose SIGN means something (sweep, overhang, offsets) — only its size is bounded. */
 const SIGNED_LEN: FieldLimit = { kind: 'length', hmin: -MAX_DIMENSION_M, hmax: MAX_DIMENSION_M };
 const POSITIVE_LEN: FieldLimit = { kind: 'length', hmin: MIN_POSITIVE_DIMENSION_M, hmax: MAX_DIMENSION_M };
-const MASS: FieldLimit = { kind: 'mass', hmin: 0 };
+// Representability ceilings, many orders above rocket masses or recovery materials.
+export const MAX_STATED_MASS_KG = 1e15;
+export const MAX_RECOVERY_DENSITY = 1e15; // kg/m² (canopy) or kg/m (line).
+const MASS: FieldLimit = { kind: 'mass', hmin: 0, hmax: MAX_STATED_MASS_KG };
 /**
  * Register: "Typed one key at a time, an overflowing density leaves the absurd
  * value its prefix made". 30,000 kg/m³ leaves room above the densest real
@@ -408,10 +411,20 @@ const LINE_INSTANCES: FieldLimit = {
  */
 export const MAX_EXPANDED_INSTANCES = 10_000;
 
+// A component's mass is below 1e30 kg: stated mass <= 1e15 kg; bulk/fillet
+// density <= 30000 kg/m³ over dimensions <= 1000 m (including fin sets);
+// recovery area <= 4*pi*1000² m² and <= 256 lines of <= 1000 m, each with
+// density <= 1e15 in its own units, together weigh less than 1e23 kg.
+// Reserve 1e30 kg PER expanded instance, not just per design. With N instances,
+// R <= 8*1000*N*scale bounds accumulated offsets, diameters, rotations and
+// splits. Then sum(m*R²) <= N*1e30*R² <= MAX_VALUE/16, leaving arithmetic
+// headroom for local inertia and parallel-axis sums. Mass alone cannot bound R.
+const MAX_COMPONENT_MASS_KG = 1e30;
+const MAX_CLUSTER_SCALE = Math.sqrt(Number.MAX_VALUE / (16 * MAX_COMPONENT_MASS_KG * MAX_EXPANDED_INSTANCES))
+  / (8 * MAX_DIMENSION_M * MAX_EXPANDED_INSTANCES);
+
 const LIMITS_BY_KEY: Record<string, FieldLimit> = lookupTable<FieldLimit>({
-  // Reserve room for squared diameter, rotation, splits and accumulated offsets:
-  // no admitted path can contain more nodes than the expanded-instance budget.
-  clusterScale: { kind: 'scalar', hmin: 0, hmax: Math.sqrt(Number.MAX_VALUE) / (8 * MAX_DIMENSION_M * MAX_EXPANDED_INSTANCES) },
+  clusterScale: { kind: 'scalar', hmin: 0, hmax: MAX_CLUSTER_SCALE },
   length: LEN, rootChord: LEN, tipChord: LEN, height: LEN, thickness: LEN,
   outerRadius: LEN, innerRadius: LEN, aftRadius: LEN, foreRadius: LEN, radius: LEN,
   shoulderRadius: LEN, shoulderLength: LEN, shoulderThickness: LEN,
@@ -430,8 +443,8 @@ const LIMITS_BY_KEY: Record<string, FieldLimit> = lookupTable<FieldLimit>({
   overrideCGX: { ...SIGNED_LEN, label: 'CG override' },
   mass: MASS, overrideMass: { ...MASS, label: 'mass override' },
   density: BULK,
-  surfaceDensity: { kind: 'density', hmin: 0, label: 'canopy material density' },
-  lineDensity: { kind: 'density', hmin: 0, label: 'line material density' },
+  surfaceDensity: { kind: 'density', hmin: 0, hmax: MAX_RECOVERY_DENSITY, label: 'canopy material density' },
+  lineDensity: { kind: 'density', hmin: 0, hmax: MAX_RECOVERY_DENSITY, label: 'line material density' },
   filletDensity: { ...BULK, label: 'fillet material density' },
   // A lug or ring set read from a .ork keeps its <instancecount> even where
   // nothing draws or flies it; the bridge's ceiling bounds it all the same.

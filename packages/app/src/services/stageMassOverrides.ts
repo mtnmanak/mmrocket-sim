@@ -1,5 +1,7 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { numOpt } from '../tree/nodeNum.js';
+import { sanitizeTree } from '../tree/sanitize.js';
+import { INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
 import { STATED_STAGE_FIGURES, statedFiguresHold, statedFiguresOf, type StatedStageFigures } from './statedLaunchWeight.js';
 
 /** A complete snapshot: absent fields clear the previous configuration's values. */
@@ -17,7 +19,10 @@ const KEYS = ['overrideMass', 'overrideCGX', 'overrideSubcomponentsMass',
   'overrideSubcomponentsCG', 'overrideIncludesMotor', STATED_STAGE_FIGURES] as const;
 
 /** Only mass/CG and their unresolved-motor mark belong to this snapshot, never Cd. */
-export function captureStageMass(node: Record<string, unknown>): StageMassOverride {
+export function captureStageMass(node: Record<string, unknown>, notes?: string[], units: UnitSelection = INITIAL_UNITS): StageMassOverride {
+  // The importer repairs descendants once, after configuration capture.
+  const own = Object.fromEntries(KEYS.filter(key => Object.hasOwn(node, key)).map(key => [key, node[key]]));
+  node = sanitizeTree({ components: [{ ...own, name: node['name'], type: 'stage' } as ComponentNode] }, notes, units).components[0]!;
   const out: StageMassOverride = {};
   for (const key of ['overrideMass', 'overrideCGX'] as const) {
     const value = numOpt(node as ComponentNode, key);

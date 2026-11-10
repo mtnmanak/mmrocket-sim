@@ -1,4 +1,5 @@
 import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
+import { MAX_DIMENSION_M } from './schema.js';
 
 /**
  * Freeform fin outline validation — the browser-side copy of the kernel's
@@ -161,6 +162,9 @@ export function finOutlineProblem(
     const p = points[i];
     if (!p || !Number.isFinite(p[0]) || !Number.isFinite(p[1])) {
       return `Point ${i + 1} is not a pair of numbers.`;
+    }
+    if (Math.abs(p[0]) > MAX_DIMENSION_M || Math.abs(p[1]) > MAX_DIMENSION_M) {
+      return `Point ${i + 1} exceeds the fin coordinate limit of ${noticeQuantity('length', MAX_DIMENSION_M, units)}; reduce it before flying or cutting the fin.`;
     }
   }
   for (let i = 1; i < points.length; i++) {

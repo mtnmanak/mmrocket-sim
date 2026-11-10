@@ -1367,6 +1367,19 @@ describe('RockSim design-level stage mass & CG', () => {
 
   const FLAGGED = '<UseKnownMass>1</UseKnownMass><Stage3Mass>292</Stage3Mass><Stage3CG>527.05</Stage3CG>';
 
+  it('HF2 repairs oversized design measurements before filling the measured box', () => {
+    const { measured, notes } = read('<UseKnownMass>1</UseKnownMass><Stage3Mass>1e308</Stage3Mass><Stage3CG>1e300</Stage3CG>');
+    expect(measured).toEqual({ massKg: 1e15, cgM: 1000 });
+    expect(notes).toMatch(/mass.*over the limit/i);
+    expect(notes).toMatch(/CG.*over the limit/i);
+    expect(notes).toContain("the file's stated Stage3Mass");
+    expect(notes).toContain("the file's stated Stage3CG");
+    expect(notes).not.toMatch(/Measured mass & CG.*override/);
+    expect(notes).toContain('states a measured mass of 1e+308 g');
+    expect(notes).toContain('reduced to the limits');
+    expect(notes).not.toContain('if needed');
+  });
+
   it('reads the stated mass and balance point into the measured pair, in SI', () => {
     const { measured } = read(FLAGGED);
     expect(measured?.massKg).toBeCloseTo(0.292, 12); // g -> kg
@@ -1377,6 +1390,8 @@ describe('RockSim design-level stage mass & CG', () => {
     const { notes } = read(FLAGGED);
     expect(notes).toMatch(/292/);
     expect(notes).toMatch(/Measured mass/i);
+    expect(notes).toContain('It is filled into Measured mass & CG');
+    expect(notes).not.toContain('reduced');
   });
 
   it('IGNORES a stated mass whose UseKnownMass flag is off', () => {

@@ -29,6 +29,7 @@ export const XML_JS_SUITES = [
   'src/services/rocksimRecoveryCount.test.ts',
   'src/services/rocksimFile.importExport.test.ts',
   'src/tree/shroudConvert.test.ts',
+  'src/tree/schemaInertia.test.ts',
   'src/services/finOutline.closure.test.ts',
   'src/services/motorClosureCompatibility.test.ts',
   'src/services/exMotors.closure.test.ts',

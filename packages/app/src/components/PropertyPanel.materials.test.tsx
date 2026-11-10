@@ -29,6 +29,18 @@ it('warns when saving a named material sets an unreadable library aside', () => 
   expect(loadUserMaterials()).toEqual([{ kind: 'bulk', name: 'My mix', density: 900 }]);
 });
 const treeOf = (...children: ComponentNode[]): RocketTree => ({ name: 'Materials', components: [{ type: 'stage', id: 's', children }] });
+it.each([
+  ['surface', 'parachute', 'Canopy material', 'surfaceDensity'],
+  ['line', 'shockcord', 'Cord material', 'lineDensity'],
+] as const)('HF2 limits selected custom %s material density', async (kind, nodeType, label, key) => {
+  saveUserMaterials([{ kind, name: 'Huge', density: 1e100 }]);
+  show({ type: nodeType, id: 'recovery' });
+  const menu = select(label);
+  const option = [...menu.options].find(o => o.textContent?.includes('Huge'))!;
+  pick(menu, option.value);
+  expect(patches.at(-1)?.[key]).toBeUndefined();
+  expect(host.querySelector('.message-caution')?.textContent).toMatch(/beyond the numbers the simulator can handle/);
+});
 it('R4 shows the recovery copy when saving a material fails', () => {
   localStorage.setItem(USER_MATERIALS_KEY, 'broken JSON');
   show(tube('t', { materialName: 'My mix', density: 900 }));

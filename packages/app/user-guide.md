@@ -689,6 +689,18 @@ Desktop OpenRocket reads a custom material's name and density from the `.ork`, s
 
 My materials names stored entries that collide with the built-in list and explains that their stored density was not used. Pick the built-in material from the list instead; the refused entry remains available in the live store or a recovery copy.
 
+### Simulation number limits
+
+To keep mass and rotational inertia within the computer's number range, stored component masses and mass overrides are limited to **10¹⁵ kg**, canopy density to **10¹⁵ kg/m²**, and line density to **10¹⁵ kg/m**. Cluster spacing also has a very large upper limit that reserves room for mass in the inertia calculation. These limits are far above real rocket values. Imported or restored values above a limit are reduced and reported in the repair notes; typed edits use the same limits. A repaired design uses the reduced values in its simulation, so check those notes before flying.
+
+Measured airframe and pad masses use the same mass limit; an imported value above it is reduced with a repair note. Motors with any mass above that limit, or diameter or length above **1000 m**, are left off the rocket rather than changed: reducing a motor's mass would simulate a different motor. The refusal names the motor; choose another before flying. A standalone EX motor file keeps its other usable motors. An embedded EX archive containing an oversized definition is currently refused as a whole.
+
+Freeform fin coordinates are limited to **1000 m** in either direction from the origin. File readers replace an unusable outline with a default fin and report it; restored coordinates outside that range are reduced with a repair note. If clamping would merge vertices, a usable proportional reduction preserves their separation. The fin editor refuses new outlines outside it. Check repaired fins before flying or cutting them.
+
+Selecting a canopy or line material with density above the number limit leaves the part unchanged and shows a caution. Choose another material before simulating. Restored weighed pad masses above the mass limit are reduced with a repair note, including older measurements awaiting assignment to a mount. Check those readings before flying.
+
+Imported measured CG values above **1000 m** are reduced with a repair note. Pinning a stage to measured mass & CG applies the same mass and CG limits and reports any reduction. The simulation uses the pinned values; check them before flying.
+
 ## Component presets
 
 The bundled catalog holds roughly **4,700 real-world parts** (tubes, nose cones, transitions, rings, couplers, bulkheads, engine blocks, launch lugs, parachutes, streamers) from named manufacturers with part numbers, materials, and cataloged mass. Open the preset picker on a selected component, choose a part, and its dimensions, material, and mass override are patched in. A pick is held to the same hard limits as a file you open: if a row carries a number a field cannot take, such as a wall thinner than nothing or a CSV canopy with a million shroud lines, the app brings it inside the limit and a note under the preset button names each repair. The 1.3 MB bundle loads lazily on first use, and you can round-trip your own custom presets through CSV. **Inner tubes also get the body-tube catalogue**, so a motor mount can be set to a real catalogue tube — which is where the Composite Warehouse motor-mount tubes live.

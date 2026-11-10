@@ -55,14 +55,10 @@ it.each([
 
 it('does not persist an overflowing per-point mass', async () => {
   const out = await importMotorFiles([new File([rse('initWt="1.79e308" propWt="1e308" auto-calc-mass="0"', ['1.009e308', '0.5e308', '0'])], 'overflow.rse')]);
-  expect(out.parsed).toHaveLength(1);
-  expect(validExMotor(out.parsed[0])).toBe(true);
-  expect(loadExMotors()).toHaveLength(1);
-  // The old 1% band accepted this first point above loaded mass. Use the
-  // named impulse fallback, retaining the finite-mass assertion on flown data.
-  expect(out.parsed[0]!.sampleMassesKg).toBeUndefined();
-  expect(out.notice).toMatch(/per-point masses.*impulse/);
-  expect(exToMotorSpec(out.parsed[0]!, Infinity).masses.every(Number.isFinite)).toBe(true);
+  // HF2 refuses the oversized header before the gram-conversion repair door.
+  expect(out.parsed).toHaveLength(0);
+  expect(loadExMotors()).toHaveLength(0);
+  expect(out.error).toMatch(/mass is beyond the numbers the simulator can handle/);
 });
 
 it.each([-1, 5, NaN, Infinity])('refuses snapshot CG outside its motor: %s', cgX => {

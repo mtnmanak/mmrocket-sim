@@ -1,4 +1,5 @@
 import { MAX_MACH_ALT_ROWS } from './machAltLimits.js';
+import { captureStageMass } from './stageMassOverrides.js';
 import { importedEjectionDelay } from './ejectionDelay.js';
 import { noteField } from './noteField.js';
 import { carryFlags, cautionNote, noteFlags } from './importNotes.js';
@@ -23,7 +24,8 @@ import { validLossySaveMark, type LossySaveMark } from './lossySave.js';
 import { designFingerprint } from './dirtyState.js';
 import { sanitizeSessionFlightLayers } from './sessionFlightLayers.js';
 import { boundedNozzleDiameter } from '../tree/nozzles.js';
-import { repairFlightSnapshot, massesDoNotRise, validExMotor, validStoredExDefinition } from './exMotors.js';
+import { repairFlightSnapshot, massesDoNotRise, validExMotor, validStoredExDefinition, motorWithinRepresentabilityLimits } from './exMotors.js';
+import { MAX_STATED_MASS_KG } from '../tree/schema.js';
 import type { RepairedMotorSpec } from './thrustcurve.js';
 import { STATED_STAGE_FIGURES, statedFiguresOf } from './statedLaunchWeight.js';
 
@@ -427,6 +429,13 @@ function repairStageMassOverrides(cfg: SavedConfig): boolean {
         repaired = true;
       }
     }
+    const bounded = captureStageMass(value);
+    for (const key of ['overrideMass', 'overrideCGX'] as const) {
+      if (value[key] !== bounded[key]) {
+        value[key] = bounded[key];
+        repaired = true;
+      }
+    }
     return [id, value] as const;
   });
   // Rebuilt, not assigned, when a snapshot is replaced: stage ids are file-sourced.
@@ -579,6 +588,16 @@ function readSession(restoreRoot: boolean): SessionState | null {
     if (motorsRemoved) {
       cautionNote(s.treeRestoreNotes ??= [], 'G04.motors-removed', 'Unreadable motor records were removed.');
     }
+    const boundPadMass = (reading: { padMassKg?: number }) => {
+      if (Number.isFinite(reading.padMassKg) && reading.padMassKg! > MAX_STATED_MASS_KG) {
+        reading.padMassKg = MAX_STATED_MASS_KG;
+        cautionNote(s.treeRestoreNotes ??= [], 'G04.measurements-reset',
+          'Stored pad mass was above the simulator limit and was reduced; check the measurement before flying.');
+      }
+    };
+    for (const set of [s.mountMotors ?? {}, ...(s.savedConfigs ?? []).map(c => c.motors)]) {
+      for (const mm of Object.values(set)) boundPadMass(mm);
+    }
     // An EX motor's captured library definition (exMotors.exToMotorSpec), which
     // Save writes and compares (orkExportMotors.exIdentity, exMotorArchive): the
     // library's identity checks, and the samples exMotorIdentity reads. Not
@@ -593,6 +612,12 @@ function readSession(restoreRoot: boolean): SessionState | null {
       .flatMap(set => Object.values(set).map(mm => mm.spec))] as (RepairedMotorSpec | undefined)[];
     const refusedExSpecs = new Set<RepairedMotorSpec>();
     for (const spec of specs) {
+      if (spec && !motorWithinRepresentabilityLimits(spec)) {
+        refusedExSpecs.add(spec);
+        const note = `Motor ${noteField(spec.designation, 160)}: its stored mass or size is beyond the numbers the simulator can handle; the motor was removed and its mount is empty.`;
+        if (!(s.treeRestoreNotes ??= []).includes(note)) s.treeRestoreNotes.push(note);
+        continue;
+      }
       if (spec && (spec.exDefinition !== undefined || exSpecs.has(spec))) {
         const header = validExMotor(spec.exDefinition) ? spec.exDefinition : undefined;
         const finiteMasses = Array.isArray(spec.masses)
@@ -660,7 +685,7 @@ function readSession(restoreRoot: boolean): SessionState | null {
     }
     if (stageMassRepaired) {
       cautionNote(s.treeRestoreNotes ??= [], 'G04.stage-mass-repaired',
-        'Unreadable stage mass and CG overrides in saved configurations were cleared. Check the stage masses before flying.');
+        'Unreadable stage mass and CG overrides in saved configurations were cleared; values outside the simulator limits were reduced. Check the stage masses before flying.');
     }
     // Older configuration maps used 0 as a removal command, not persistent OFF.
     // Preserve their automatic behavior; tree values themselves are untouched.
@@ -673,6 +698,9 @@ function readSession(restoreRoot: boolean): SessionState | null {
       s.nozzleModeVersion = 1;
     }
     s = sanitizeSessionFlightLayers(s);
+    for (const refs of [s.unmatchedRefs, ...(s.savedConfigs ?? []).map(c => c.unmatchedRefs)]) {
+      for (const ref of Object.values(refs ?? {})) boundPadMass(ref);
+    }
     if (unmatchedRebuilt.size) {
       for (const i of unmatchedRebuilt) {
         const cfg = s.savedConfigs![i]!;
@@ -764,9 +792,15 @@ function readSession(restoreRoot: boolean): SessionState | null {
     // The restore's legacy pad-mass check needs an object (audit 2026-10-11, S1d-5).
     if (s.measured !== undefined && !isTable(s.measured)) delete s.measured;
     if (s.measured) {
+      boundPadMass(s.measured as { padMassKg?: number });
       let repaired = false;
       for (const key of ['massKg', 'cgM'] as const) {
         const value = s.measured[key];
+        if (key === 'massKg' && Number.isFinite(value) && value !== null && value > MAX_STATED_MASS_KG) {
+          s.measured[key] = MAX_STATED_MASS_KG;
+          cautionNote(s.treeRestoreNotes ??= [], 'G04.measurements-reset', 'Stored measured mass was above the simulator limit and was reduced; check the measurement before flying.');
+          continue;
+        }
         if (value !== null && (typeof value !== 'number' || !Number.isFinite(value))) {
           s.measured[key] = null;
           repaired = true;

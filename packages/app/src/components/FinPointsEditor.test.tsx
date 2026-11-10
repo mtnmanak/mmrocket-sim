@@ -93,6 +93,12 @@ afterEach(() => {
 });
 
 describe('FinPointsEditor — the outline guard', () => {
+  it('HF2 refuses a typed enormous negative fin coordinate', () => {
+    render(GOOD);
+    type(field('Point 2 x'), '-1e155');
+    expect(committed).toEqual([]);
+    expect(alertText()).toContain('fin coordinate limit');
+  });
   it('allows deleting an earlier point in a legacy oversized outline', () => {
     render([[0, 0], [0.01, 1], [0.02, 3], [0.06, 0]]);
     act(() => host.querySelector<HTMLButtonElement>('[aria-label="Remove point 2"]')!.click());

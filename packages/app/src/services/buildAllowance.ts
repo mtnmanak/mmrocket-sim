@@ -1,3 +1,4 @@
+import { limitPatch } from '../tree/sanitize.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { numOpt } from '../tree/nodeNum.js';
 import { applyFieldLimit } from '../tree/schema.js';
@@ -153,7 +154,7 @@ export function applyAllowance(tree: RocketTree, sol: Extract<BallastSolution, {
   const lengthM = allowance ? numOpt(allowance, 'length') ?? 0.02 : 0.02;
   const place = placeAtStation(tree, sol.stationM, lengthM);
   if (!place) return tree;
-  const patch = { mass: sol.massKg, position: { method: 'top', offset: place.offset },
+  const patch = { ...limitPatch(allowance ?? makeNode('masscomponent'), { mass: sol.massKg }), position: { method: 'top', offset: place.offset },
     overrideMass: undefined, overrideCGX: undefined,
     overrideSubcomponentsMass: false, overrideSubcomponentsCG: false } as Partial<ComponentNode>;
   if (allowance?.id) {

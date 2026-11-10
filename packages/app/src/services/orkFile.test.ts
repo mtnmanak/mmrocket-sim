@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { INITIAL_UNITS, noticeQuantity } from '../prefs/units.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS, kernelSimOptions, PANEL_TIME_STEP_FLOOR_S } from '../components/LaunchPanel.js';
 import { conditionsKeyOf } from './simReport.js';
@@ -17,6 +18,34 @@ import {
 } from './presets.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
+it('HF2 repairs an oversized native measured CG', () => {
+  const loaded = importOrk('<openrocket version="1.10"><rocket><measuredcg>1e297</measuredcg>'
+    + '<subcomponents><stage><subcomponents><bodytube><length>1</length><radius>0.03</radius></bodytube>'
+    + '</subcomponents></stage></subcomponents></rocket></openrocket>');
+  expect(loaded.measured?.cgM).toBe(1000);
+  expect(loaded.notes.join(' ')).toMatch(/over the limit/);
+});
+it('HF2 limits inactive stage snapshots and describes the repaired legacy weighing', () => {
+  const loaded = importOrk('<openrocket version="1.10"><rocket><measuredpadmass>1e100</measuredpadmass>'
+    + '<motorconfiguration configid="a" default="true"/><motorconfiguration configid="b"/>'
+    + '<subcomponents><stage><stagemassconfiguration configid="b"><overridemass>1e308</overridemass>'
+    + '<overridesubcomponentsmass>true</overridesubcomponentsmass></stagemassconfiguration>'
+    + '<subcomponents><bodytube><length>1</length><radius>0.03</radius></bodytube>'
+    + '</subcomponents></stage></subcomponents></rocket></openrocket>');
+  expect(Object.values(loaded.configs.find(c => c.id === 'b')!.stageMassOverrides!)[0]!.overrideMass).toBe(1e15);
+  expect(loaded.notes.find(n => n.startsWith("This file's weighed pad mass"))).toContain(noticeQuantity('mass', 1e15, INITIAL_UNITS, { parenthesized: true }));
+  expect(loaded.notes.filter(n => /over the limit/.test(n))).toHaveLength(2);
+});
+it('HF2 repairs oversized measured and pad masses on import', async () => {
+  const { MAX_STATED_MASS_KG } = await import('../tree/schema.js');
+  const loaded = importOrk('<openrocket version="1.10"><rocket><measuredmass>1e100</measuredmass>'
+    + '<measuredpadmass configid="c">1e100</measuredpadmass><motorconfiguration configid="c" default="true"/>'
+    + '<subcomponents><stage><subcomponents><bodytube><length>1</length><radius>0.03</radius></bodytube>'
+    + '</subcomponents></stage></subcomponents></rocket></openrocket>');
+  expect(loaded.measured?.massKg).toBe(MAX_STATED_MASS_KG);
+  expect(loaded.configs[0]?.padMassKg).toBe(MAX_STATED_MASS_KG);
+  expect(loaded.notes.filter(n => /over the limit/.test(n))).toHaveLength(2);
+});
 
 it('keeps the kernel default wall of an engine block through an ork save', () => {
   const tree: RocketTree = { components: [{ type: 'stage', children: [

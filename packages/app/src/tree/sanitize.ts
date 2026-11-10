@@ -166,8 +166,28 @@ function sanitizeOwn(n: ComponentNode, found: Finding[], units: UnitSelection = 
     delete edit()[ORK_PRESET_IMPORT_STATE];
   }
   if (n.type === 'freeformfinset' && Array.isArray(n['points'])) {
-    const points = n['points'] as FinOutlinePoint[];
+    let points = n['points'] as FinOutlinePoint[];
     const readable = points.every(p => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]));
+    if (readable) {
+      let bounded = points.map(([x, y]): FinOutlinePoint => [
+        applyFieldLimit(POSITION_LIMIT, x), applyFieldLimit(POSITION_LIMIT, y),
+      ]);
+      if (bounded.some((p, i) => p[0] !== points[i]![0] || p[1] !== points[i]![1])) {
+        // Independent clamps can merge distinct tips into a refused outline.
+        // Retain their proportions when that yields a usable bounded outline.
+        if (finOutlineProblem(bounded)) {
+          const extent = points.reduce((max, [x, y]) => Math.max(max, Math.abs(x), Math.abs(y)), MAX_DIMENSION_M);
+          const proportional = points.map(([x, y]): FinOutlinePoint => [
+            (x / extent) * MAX_DIMENSION_M, (y / extent) * MAX_DIMENSION_M,
+          ]);
+          if (!finOutlineProblem(proportional)) bounded = proportional;
+        }
+        points = bounded;
+        edit()['points'] = bounded;
+        found.push({ problem: `${partName(n)}: fin coordinates exceed the dimension limit`,
+          repair: `set within ${noticeQuantity('length', MAX_DIMENSION_M, units)}; check the fin shape before flying or cutting it` });
+      }
+    }
     const placed = readable ? kernelFinPoints(points) : points;
     const [x0, y0] = readable ? points[0] ?? [0, 0] : [0, 0];
     const move = x0 * x0 + y0 * y0 > 1e-12;
