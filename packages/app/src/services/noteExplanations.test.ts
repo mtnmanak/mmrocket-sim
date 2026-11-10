@@ -3,6 +3,13 @@ import { expect, it } from 'vitest';
 import { explanationFor, importNoteCode, NOTE_EXPLANATIONS, staticWarningCode } from './noteExplanations.js';
 import { WARNING_LABEL } from './simWarnings.js';
 
+it('HF4 r5 explains supported apogee devices and omitted unknown devices', () => {
+  const meaning = explanationFor('I04.recovery-event').meaning;
+  expect(meaning).toContain('supported devices at apogee');
+  expect(meaning).toContain('unknown devices are omitted');
+  expect(meaning).not.toContain('keeps two Apogee slots');
+});
+
 it('explains that an invalid later axial setter keeps the previous valid position', () => {
   expect(explanationFor('I21.axial-position').meaning).toContain('previous valid');
 });

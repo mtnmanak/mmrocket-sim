@@ -1,4 +1,14 @@
 // @vitest-environment happy-dom
+// HF4 r4: 273 -> 274 replaces one raw selector with all-occurrence selector
+// plus last-value projection; all other added checks are string compatibility.
+// laneH5b covers duplicate numerics/devices, missing tags, ignored fields and
+// the unknown-first-device altitude warning. No flown number or threshold moves.
+// HF4 r2: 274 -> 273 uses raw strings for desktop enablement/device checks.
+// Paired-event qualification adds no numeric threshold or flown-value change;
+// laneH5b covers padded/empty strings and non-recovery Unicode numeric spaces.
+// HF4: rasaeroFile 276 -> 274 replaces normalized compatibility reads with raw
+// recovery text and adds the missing DeviceType guard. Only disclosures change;
+// laneH5b covers empty disabled fields and Unicode whitespace in both slots.
 // H2: MotorBrowser 17 -> 13 removes native number-input type literals; NumField
 // comma/invalid/blank boundaries are covered in MotorBrowser.test.tsx.
 // SimResults 50 -> 51 and flightChartModel 10 -> 11 add angle formatters;
