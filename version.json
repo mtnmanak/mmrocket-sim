@@ -1,5 +1,5 @@
 {
   "version": "0.199",
-  "released": "2026-11-09",
+  "released": "2026-11-10",
   "note": "Number limits that keep rotational inertia finite, RockSim motor evidence from every simulation, per-motor refusal in embedded EX archives, RASAero recovery notes, a centering-ring fit caution and angle units in more displays; flight results for the scored tester flights and the tester corpus unchanged."
 }
