@@ -33,8 +33,12 @@ it.each([
   ['surface', 'parachute', 'Canopy material', 'surfaceDensity'],
   ['line', 'shockcord', 'Cord material', 'lineDensity'],
 ] as const)('HF2 limits selected custom %s material density', async (kind, nodeType, label, key) => {
-  saveUserMaterials([{ kind, name: 'Huge', density: 1e100 }]);
-  show({ type: nodeType, id: 'recovery' });
+  // My materials refuses such an entry (userMaterials.test.ts); a design's own
+  // part can still carry one, so the pick from "In this design" is refused here.
+  const nameKey = kind === 'surface' ? 'surfaceMaterialName' : 'lineMaterialName';
+  const carrier: ComponentNode = { type: nodeType, id: 'carrier', [nameKey]: 'Huge', [key]: 1e100 };
+  const node: ComponentNode = { type: nodeType, id: 'recovery' };
+  show(node, treeOf(node, carrier));
   const menu = select(label);
   const option = [...menu.options].find(o => o.textContent?.includes('Huge'))!;
   pick(menu, option.value);
