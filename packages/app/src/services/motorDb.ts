@@ -875,6 +875,15 @@ function impulsePrefixOf(m: MotorDbEntry): number | undefined {
   return p === undefined ? undefined : Number(p);
 }
 
+/** Historical names whose catalogue identity requires physical evidence. */
+export function evidenceGatedMotorId(designation: string, manufacturer?: string): string | null {
+  const want = designation.trim();
+  return isE31Conflict(want) && manufacturerMatches(manufacturer ?? '', 'Cesaroni')
+    ? MOTOR_MATCH_POLICY.whiteThunderE31
+    : /^k700[- _]*bb$/i.test(want) && (manufacturerMatches(manufacturer ?? '', 'Cesaroni') || manufacturerMatches(manufacturer ?? '', 'AMW'))
+      ? MOTOR_MATCH_POLICY.blackBearK700 : null;
+}
+
 /**
  * Finds the bundled-DB motor a design file refers to, with how firmly it was
  * found. {@link findDbMotor} is this without the detail.
@@ -886,16 +895,28 @@ export function matchDbMotor(
   manufacturer?: string,
   context?: MotorMatchContext,
   units: UnitSelection = INITIAL_UNITS,
+  outcome?: { conflict?: boolean },
 ): DbMotorMatch | null {
+  if (outcome) outcome.conflict = false;
   const want = designation.trim().toLowerCase();
   if (!want) return null;
   const fits = (m: MotorDbEntry): boolean => (diameterMm === undefined || Math.abs(m.diameter - diameterMm) <= 1.5)
     && !(Number.isFinite(context?.mountBoreMm) && m.diameter > context!.mountBoreMm! + 1.5);
-  const evidenceId = isE31Conflict(want) && manufacturerMatches(manufacturer ?? '', 'Cesaroni')
-    ? MOTOR_MATCH_POLICY.whiteThunderE31
-    : /^k700[- _]*bb$/i.test(want) && (manufacturerMatches(manufacturer ?? '', 'Cesaroni') || manufacturerMatches(manufacturer ?? '', 'AMW'))
-      ? MOTOR_MATCH_POLICY.blackBearK700 : null;
+  const evidenceId = evidenceGatedMotorId(want, manufacturer);
   const evidenced = evidenceId && motors.find(m => m.motorId === evidenceId);
+  // Never fall back to another historical identity after folded results disagree.
+  if (evidenced && context?.physical && context.foldedPhysical?.length && !physicalEvidenceFits(context, evidenced)) {
+    const someFit = fits(evidenced) && [context.physical, ...context.foldedPhysical].some(physical =>
+      physicalEvidenceFits({ ...context, physical, foldedPhysical: undefined }, evidenced));
+    // Check each record as the target: the relative tolerances must hold in
+    // both directions, regardless of which simulation appeared first.
+    const agree = [context.physical, ...context.foldedPhysical].every(physical =>
+      physicalEvidenceFits(context, { totalWeightG: physical.motorMassG, burnTimeS: physical.burnTimeS }));
+    if (someFit || !agree) {
+      if (outcome) outcome.conflict = true;
+      return null;
+    }
+  }
   if (evidenced && fits(evidenced) && physicalEvidenceFits(context, evidenced)) {
     return { motor: evidenced, tier: 2, rivals: [], reason: evidenceId === MOTOR_MATCH_POLICY.whiteThunderE31
       ? E31_CORROBORATED

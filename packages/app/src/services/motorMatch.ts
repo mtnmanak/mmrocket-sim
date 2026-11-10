@@ -284,15 +284,16 @@ export async function matchImportedMotor(
 }
 
 /** The catalogue row a reference resolves to, and how (null `how` when the caller injected findDb). */
-function resolveDbRow(ref: OrkMotorRef, deps: MotorMatchDeps): { how: DbMotorMatch | null; dbMatch: MotorDbEntry | null } {
+function resolveDbRow(ref: OrkMotorRef, deps: MotorMatchDeps): { how: DbMotorMatch | null; dbMatch: MotorDbEntry | null; conflict: boolean } {
   // RockSim refs carry no motor diameter (0) — match by designation only.
   const diameterMm = ref.diameter > 0 ? ref.diameter * 1000 : undefined;
-  const how = deps.findDb ? null : matchDbMotor(ref.designation, diameterMm, deps.catalogue, ref.manufacturer, ref.matchContext, deps.units);
+  const outcome: { conflict?: boolean } = {};
+  const how = deps.findDb ? null : matchDbMotor(ref.designation, diameterMm, deps.catalogue, ref.manufacturer, ref.matchContext, deps.units, outcome);
   const dbMatch = deps.findDb
     ? (ref.matchContext ? deps.findDb(ref.designation, diameterMm, undefined, ref.manufacturer, ref.matchContext)
       : deps.findDb(ref.designation, diameterMm, undefined, ref.manufacturer))
     : how?.motor ?? null;
-  return { how, dbMatch };
+  return { how, dbMatch, conflict: outcome.conflict === true };
 }
 
 async function matchImportedMotorOnce(
@@ -330,7 +331,11 @@ async function matchImportedMotorOnce(
     }
   }
 
-  let { how, dbMatch } = resolveDbRow(ref, deps);
+  const resolved = resolveDbRow(ref, deps);
+  if (resolved.conflict) {
+    return { note: `Motor ${noteField(ref.designation, 160)}: folded simulations supply motor mass and burn-time evidence that does not agree on a motor. No motor was loaded; check the original simulations and choose the motor.`, missing: 'database' };
+  }
+  let { how, dbMatch } = resolved;
   const sourceMotorId = dbMatch?.motorId;
   // @atestani, TRF #162, 2026-10-06: an imported curve for the named maker
   // beats another maker's catalogue guess, but never a same-maker match.

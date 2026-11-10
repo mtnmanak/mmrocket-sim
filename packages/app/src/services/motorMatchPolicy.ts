@@ -7,6 +7,8 @@ export interface MotorMatchContext {
   mountBoreMm?: number;
   /** From the designation itself, never a format's default ejection setting. */
   explicitDelay?: number | 'plugged';
+  /** Other qualifying stored results folded into this loadout. All must fit. */
+  foldedPhysical?: NonNullable<MotorMatchContext['physical']>[];
   physical?: {
     provenance: 'rocksim-single-stage-single-motor-known-dry-mass';
     loadedMassG: number;
@@ -37,7 +39,11 @@ export const MOTOR_MATCH_POLICY = {
  * (E31 0.87125 vs 0.85 s; K700 2.38 vs 2.37 s). Neither alone proves identity.
  * These are narrow identity corroboration limits, not flight-validation limits.
  */
-export function physicalEvidenceFits(context: MotorMatchContext | undefined, m: MotorDbEntry): boolean {
+export function physicalEvidenceFits(context: MotorMatchContext | undefined, m: Pick<MotorDbEntry, 'totalWeightG' | 'burnTimeS'>): boolean {
+  if (context?.foldedPhysical?.length) {
+    return [context.physical, ...context.foldedPhysical].every(physical =>
+      physicalEvidenceFits({ ...context, physical, foldedPhysical: undefined }, m));
+  }
   const p = context?.physical;
   return context?.source === 'rocksim'
     && p?.provenance === 'rocksim-single-stage-single-motor-known-dry-mass'

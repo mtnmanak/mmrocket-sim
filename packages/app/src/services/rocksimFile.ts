@@ -33,8 +33,8 @@ import {
 } from './orkFile.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 import { DISPLAY_NAME, interleaveRotation } from '../tree/schema.js';
-import { findDbMotor, type MotorDbEntry } from './motorDb.js';
-import type { MotorMatchContext } from './motorMatchPolicy.js';
+import { evidenceGatedMotorId, findDbMotor, type MotorDbEntry } from './motorDb.js';
+import { physicalEvidenceFits, type MotorMatchContext } from './motorMatchPolicy.js';
 import { indexRocksimMotors, rocksimBurnTime, rocksimMotorEvidence } from './rocksimMotorEvidence.js';
 import { defaultDelay } from './thrustcurve.js';
 import { deployAltitudeText } from '../components/recoveryContext.js';
@@ -2239,23 +2239,50 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
         if (stageOf(id) === lowest) r.ignitionEvent = 'launch';
       }
     }
-    // The two "every delay" flags are part of the set: an Auto load flies 0 s
-    // first and a kept unmatched −1 is plugged, so without them a simulation on
-    // an explicit 0 s, or on RockSim's −2, would fold into one that is not.
+    // Keep the every-delay sentinel distinct from explicit 0 s or plugged −2.
+    // Its derived delay/Auto flags are recalculated after gathering evidence.
     const deployments = deploymentsFor(g.number === null ? undefined : simulationRecovery[g.number - 1]);
-    const key = comparisonText((motorLoadoutRefusal ?? '') + comparisonJson(deployments) + '\n' + entries.map(([id, r]) => [id, r.designation, r.manufacturer, r.delay,
-      r.ignitionEvent ?? '', r.ignitionDelay ?? '', r.autoDelay ? 'auto' : '',
-      r.rktEveryDelay ? 'every' : '', /^(26[- _]*E31[- _]+WH[- _]+15A|K700[- _]*BB)$/i.test(r.designation)
-        ? comparisonJson(r.matchContext) : ''].join('|')).sort().join('\n'));
+    const key = comparisonText((motorLoadoutRefusal ?? '') + comparisonJson(deployments) + '\n' + entries.map(([id, r]) => [id, r.designation, r.manufacturer, r.rktEveryDelay ? 'every' : r.delay,
+      r.ignitionEvent ?? '', r.ignitionDelay ?? '', !r.rktEveryDelay && r.autoDelay ? 'auto' : '',
+      r.rktEveryDelay ? 'every' : ''].join('|')).sort().join('\n'));
     // Absence of burn evidence is not a conflicting duration. Keep any evidence
     // when folding; RockSim time-step noise within 0.02 s or 2% agrees.
     const same = seenSets.get(key)?.find(cfg => entries.every(([id, ref]) => {
+      const kept = cfg.motors[id]?.matchContext;
+      const incoming = ref.matchContext?.physical;
+      if (kept?.physical && incoming && evidenceGatedMotorId(ref.designation, ref.manufacturer)) {
+        // Every retained record already selected the same identity. A single
+        // representative avoids revalidating all retained pairs in matchDbMotor.
+        const context = { ...kept, foldedPhysical: undefined, mountBoreMm: kept.mountBoreMm ?? ref.matchContext?.mountBoreMm };
+        const incomingContext = { ...context, physical: incoming, foldedPhysical: undefined };
+        // Retained records already agree. Compare only the new record against
+        // each of them, in both directions, using the existing tolerances.
+        // Even nearby masses can straddle a historical identity's fit boundary.
+        const agree = [kept.physical, ...(kept.foldedPhysical ?? [])].every(physical =>
+          physicalEvidenceFits(incomingContext, { totalWeightG: physical.motorMassG, burnTimeS: physical.burnTimeS })
+          && physicalEvidenceFits({ ...context, physical, foldedPhysical: undefined },
+            { totalWeightG: incoming.motorMassG, burnTimeS: incoming.burnTimeS }));
+        if (!agree || findDbMotor(ref.designation, undefined, opts?.catalogue, ref.manufacturer, context)?.motorId
+          !== findDbMotor(ref.designation, undefined, opts?.catalogue, ref.manufacturer,
+            { ...context, physical: incoming, foldedPhysical: undefined })?.motorId) return false;
+      }
       const burn = cfg.motors[id]?.rktBurnTimeS;
       return burn === undefined || ref.rktBurnTimeS === undefined
         || Math.abs(burn - ref.rktBurnTimeS) <= Math.max(0.02, 0.02 * Math.max(burn, ref.rktBurnTimeS));
     }));
     if (same) {
       for (const [id, ref] of entries) {
+        const kept = same.motors[id]?.matchContext;
+        if (kept && kept.mountBoreMm === undefined) kept.mountBoreMm = ref.matchContext?.mountBoreMm;
+        const physical = ref.matchContext?.physical;
+        if (kept && physical) {
+          if (!kept.physical) kept.physical = physical;
+          else if (![kept.physical, ...(kept.foldedPhysical ?? [])].some(p =>
+            p.provenance === physical.provenance && p.loadedMassG === physical.loadedMassG
+            && p.dryMassG === physical.dryMassG && p.motorMassG === physical.motorMassG && p.burnTimeS === physical.burnTimeS)) {
+            (kept.foldedPhysical ??= []).push(physical);
+          }
+        }
         if (same.motors[id] && same.motors[id]!.rktBurnTimeS === undefined && ref.rktBurnTimeS !== undefined) {
           same.motors[id]!.rktBurnTimeS = ref.rktBurnTimeS;
         }
@@ -2302,6 +2329,15 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
     if (configs.length > MAX_ORK_CONFIGURATIONS) {
       throw new Error(`This file would open as more than ${MAX_ORK_CONFIGURATIONS} flight configurations, past the ${MAX_ORK_CONFIGURATIONS} the app will open. Reduce the simulations in RockSim and save it again.`);
     }
+  }
+  // Every-delay matching also needs the evidence gathered by folding.
+  for (const cfg of configs) for (const ref of Object.values(cfg.motors)) {
+    if (!ref.rktEveryDelay) continue;
+    const every = rktEveryDelay(ref.designation, ref.manufacturer, ref.matchContext, opts?.catalogue);
+    ref.delay = every?.delay ?? Infinity;
+    if (every?.autoDelay) ref.autoDelay = true;
+    else delete ref.autoDelay;
+    sentinelRefs.set(ref, every === null ? 'every-unmatched' : every.autoDelay ? 'every-auto' : 'every');
   }
   // Which configuration to open: the first that puts a motor on the launch
   // stage, which is the one that has to light first — importCdx1's choice.

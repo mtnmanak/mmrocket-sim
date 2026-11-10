@@ -3,6 +3,69 @@ import { readArchivedExMotors } from './exMotorArchive.js';
 import { jsXmlParser } from './xmlParseJs.js';
 import { escapeXml } from './xmlUtil.js';
 import { parseEng } from './exMotors.js';
+import { MAX_EX_MOTOR_SAMPLES, MAX_EMBEDDED_EX_MOTORS } from './exMotorLimits.js';
+import { MAX_EX_ARCHIVE_BYTES } from './exMotorArchive.js';
+
+const goodMotor = () => parseEng('T1 18 70 0 0.01 0.02 Test\n0 0\n0.1 2\n1 0')[0]!;
+const archive = (raw: string, version = '1') => jsXmlParser(`<rocket><mmrexmotors version="${version}">${escapeXml(raw)}</mmrexmotors></rocket>`).documentElement;
+
+it.each(['non-finite', 'samples', 'definition', 'null'] as const)('keeps good siblings beside %s damage', kind => {
+  const good = { ...goodMotor(), motorId: 'ex:good' };
+  const bad = { ...goodMotor(), designation: 'Bad', motorId: 'ex:bad' };
+  if (kind === 'samples') bad.samples = Array.from({ length: MAX_EX_MOTOR_SAMPLES + 1 }, () => ({ time: 0, thrust: 0 }));
+  if (kind === 'definition') bad.diameter = 0;
+  const raw = kind === 'non-finite' ? JSON.stringify([bad, good]).replace('"diameter":18', '"diameter":1e999')
+    : JSON.stringify([kind === 'null' ? null : bad, good]);
+  const notes: string[] = [];
+  expect([...readArchivedExMotors(archive(raw), notes).keys()]).toEqual(['ex:good']);
+  expect(notes).toHaveLength(1);
+  expect(notes[0]).toContain('was not loaded:');
+});
+
+it('refuses every sharer of an id, even when one sharer is malformed', () => {
+  for (const damaged of [false, true]) {
+    const one = { ...goodMotor(), designation: 'One' };
+    const two = { ...one, designation: 'Two', diameter: damaged ? 0 : one.diameter };
+    const notes: string[] = [];
+    expect([...readArchivedExMotors(archive(JSON.stringify([one, two, { ...goodMotor(), motorId: 'ex:third' }])), notes).keys()]).toEqual(['ex:third']);
+    expect(notes).toHaveLength(2);
+    expect(notes.join(' ')).toContain('shared library id');
+    expect(notes[0]).toContain('One');
+    expect(notes[1]).toContain('Two');
+  }
+});
+
+it('retains whole-archive refusal for archive-level damage', () => {
+  for (const raw of ['{', '{}', JSON.stringify(Array.from({ length: MAX_EMBEDDED_EX_MOTORS + 1 }, goodMotor)), ' '.repeat(MAX_EX_ARCHIVE_BYTES + 1)]) {
+    const notes: string[] = [];
+    expect(readArchivedExMotors(archive(raw), notes).size).toBe(0);
+    expect(notes[0]).toContain('Embedded EX motors were refused:');
+  }
+  const repeated = jsXmlParser('<rocket><mmrexmotors version="1">[]</mmrexmotors><mmrexmotors version="1">[]</mmrexmotors></rocket>').documentElement;
+  expect(readArchivedExMotors(repeated, []).size).toBe(0);
+});
+
+it('names a repeated duplicate designation only once', () => {
+  const notes: string[] = [];
+  const motor = goodMotor();
+  expect(readArchivedExMotors(archive(JSON.stringify([motor, motor])), notes).size).toBe(0);
+  expect(notes).toHaveLength(1);
+  expect(notes[0]).toContain('shared library id');
+});
+
+it.each(['', '   ', '\n', '\u0001\u0085', '\u202e\u200b'])('names a refused blank designation (%j)', designation => {
+  const notes: string[] = [];
+  readArchivedExMotors(archive(JSON.stringify([{ motorId: 'ex:bad', designation }])), notes);
+  expect(notes[0]).toContain('Embedded EX motor (unnamed) was not loaded:');
+});
+
+it('bounds malformed names and the number of refusal notes', () => {
+  const bad = { designation: 'X\n\u202e' + 'x'.repeat(10000) };
+  const notes: string[] = [];
+  expect(readArchivedExMotors(archive(JSON.stringify(Array.from({ length: MAX_EMBEDDED_EX_MOTORS }, () => bad))), notes).size).toBe(0);
+  expect(notes).toHaveLength(MAX_EMBEDDED_EX_MOTORS);
+  expect(notes.every(n => n.length < 500 && !/[\n\u202e]/.test(n))).toBe(true);
+});
 
 it('cleans a refused embedded motor name without cutting a Unicode character', () => {
   const motor = parseEng('T1 18 70 0 0.01 0.02 Test\n0 0\n0.1 2\n1 0')[0]!;

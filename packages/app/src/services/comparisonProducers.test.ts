@@ -27,6 +27,19 @@
 // Radians regressions: DragPanel.cp/roll, FlightLoadStats and angleDisplays.
 // The peak's finite guard remains before conversion: SimResults tests corrupt
 // saved booleans and hex strings without coercing them to flown numbers.
+// HF11 final: folded corroboration now uses the existing diameter/bore fit
+// predicate too. No numeric threshold or notice producer added; policy tests
+// cover undersized K700BB/E31 mounts on both sides of the mass boundary.
+// HF11 r5: exact physical-record equality only deduplicates evidence; the
+// shared historical-identity gate limits splitting to E31/K700BB. Incremental
+// bidirectional checks reuse unchanged tolerances. No notice producer added.
+// HF11/HF12 r4: catalogue fingerprints include the conflict boolean; blank
+// refusal names use a character predicate. Neither adds numeric comparisons.
+// HF11 r3: split conflicting qualifying records before folding; reuse the
+// existing physical tolerances and compare motor ids, adding no numeric producer.
+// HF11 r2: reviewed symmetric folded-evidence checks and bore preservation.
+// Existing physicalEvidenceFits tolerances are reused; no census count changes.
+// motorMatch.policy covers both source orders, EX fallback and E31 refusal copy.
 // H2: MotorBrowser 17 -> 13 removes native number-input type literals; NumField
 // comma/invalid/blank boundaries are covered in MotorBrowser.test.tsx.
 // SimResults 50 -> 51 and flightChartModel 10 -> 11 add angle formatters;
