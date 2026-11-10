@@ -14,6 +14,54 @@ const all = (ns: ComponentNode[]): ComponentNode[] => ns.flatMap(n => [n, ...all
 
 describe('H5b import fidelity', () => {
   const recoverySlot = (slot: number) => `<Event${slot}>true</Event${slot}><EventType${slot}>Apogee</EventType${slot}><DeviceType${slot}>Parachute</DeviceType${slot}><Altitude${slot}>500</Altitude${slot}><Size${slot}>36</Size${slot}><CD${slot}>0.8</CD${slot}>`;
+  it.each(['', ' Parachute', 'Parachute ', 'Streamer'])('HF4 r5 names desktop omission for first device %j', device => {
+    const fields = (recoverySlot(1) + recoverySlot(2))
+      .replace('<DeviceType1>Parachute</DeviceType1>', `<DeviceType1>${device}</DeviceType1>`)
+      .replace('<Altitude2>500', '<Altitude2>0');
+    const r = importCdx1(cdx(body, `<Recovery>${fields}</Recovery>`));
+    const note = r.noteTiers?.find(n => n.kind === 'I04.recovery-event')?.text;
+    expect(note).toContain('Desktop OR omits slot 1');
+    expect(note).toContain('Do not assume both devices will be present');
+    expect(note).toContain('at 0 ft it may not open before landing');
+    expect(all(r.tree.components).filter(n => n.type === 'parachute').map(n => n['deployEvent']))
+      .toEqual(device === 'Streamer' ? ['apogee'] : ['apogee', 'apogee']);
+  });
+  it.each(['disabled', 'unknown'])('HF4 r4 ignored %s slots never claim numeric defaults', mode => {
+    for (const slot of [1, 2]) {
+      for (const field of ['Altitude', 'Size', 'CD']) {
+        let fields = recoverySlot(1) + recoverySlot(2);
+        fields = fields.replace(`<${field}${slot}>${field === 'Altitude' ? 500 : field === 'Size' ? 36 : 0.8}</${field}${slot}>`, `<${field}${slot}/>`);
+        fields = mode === 'disabled' ? fields.replace(`<Event${slot}>true`, `<Event${slot}>false`)
+          : fields.replace(`<DeviceType${slot}>Parachute`, `<DeviceType${slot}>Streamer`);
+        const r = importCdx1(cdx(body, `<Recovery>${fields}</Recovery>`));
+        expect(r.noteTiers?.some(n => n.kind === 'I04.unreadable-numbers')).toBe(false);
+        expect(r.noteTiers?.find(n => n.kind === 'I04.recovery-event')?.text).toContain('This slot is ignored');
+      }
+    }
+  });
+  it('HF4 r4 clean unknown first device retains the slot 2 zero-foot warning', () => {
+    const fields = (recoverySlot(1) + recoverySlot(2)).replace('Parachute', 'Streamer').replace('<Altitude2>500', '<Altitude2>0');
+    const r = importCdx1(cdx(body, `<Recovery>${fields}</Recovery>`));
+    const notes = r.noteTiers?.filter(n => n.kind === 'I04.recovery-event').map(n => n.text).join(' ');
+    expect(notes).toContain('Altitude2 value “0” ft');
+    expect(notes).toContain('at 0 ft it may not open before landing');
+    expect(notes).not.toContain('empty or padded');
+    expect(notes).not.toContain('keeps both at apogee');
+    expect(all(r.tree.components).filter(n => n.type === 'parachute').map(n => n['deployEvent'])).toEqual(['apogee']);
+  });
+  it.each(['Event1', 'Event2', 'EventType1', 'EventType2'])('HF4 r4 discloses absent %s', field => {
+    const fields = (recoverySlot(1) + recoverySlot(2)).replace(new RegExp(`<${field}>[^<]*</${field}>`), '');
+    const r = importCdx1(cdx(body, `<Recovery>${fields}</Recovery>`));
+    expect(r.noteTiers?.find(n => n.kind === 'I04.recovery-event')?.text).toContain(`${field} (“(missing)”`);
+    expect(r.noteTiers?.find(n => n.kind === 'I04.recovery-event')?.text).toContain('desktop OpenRocket cannot import');
+  });
+  it.each(['<DeviceType2>Drogue</DeviceType2>', '<Size2/>', '<Size2/><Size2>36</Size2>'])('HF4 r4 checks duplicate desktop recovery fields %s', extra => {
+    const r = importCdx1(cdx(body, `<Recovery>${recoverySlot(1)}${recoverySlot(2)}${extra}</Recovery>`));
+    const notes = r.noteTiers?.filter(n => n.kind === 'I04.recovery-event').map(n => n.text).join(' ');
+    if (extra.includes('Size')) expect(notes).toContain('desktop OpenRocket cannot import');
+    else expect(notes).not.toContain('use an Altitude event');
+    expect(all(r.tree.components).filter(n => n.type === 'parachute')).toHaveLength(2);
+  });
   it.each(['DeviceType', 'Event'])('HF4 r3 allows absent unused altitude with untrimmed %s', field => {
     for (const slot of [1, 2]) {
       const value = field === 'DeviceType' ? 'Parachute' : 'true';
@@ -26,13 +74,13 @@ describe('H5b import fidelity', () => {
         const r = importCdx1(cdx(body, `<Recovery>${fields}</Recovery>`));
         const notes = r.noteTiers?.filter(n => n.kind === 'I04.recovery-event').map(n => n.text).join(' ');
         expect(notes).not.toContain('desktop OpenRocket cannot import');
-        expect(notes).not.toContain('use an Altitude event');
+        expect(notes?.includes('use an Altitude event')).toBe(field === 'DeviceType' && slot === 1);
         const expectedCount = field !== 'DeviceType' && replacement.endsWith('/>') ? (slot === 1 ? 0 : 1) : 2;
         expect(all(r.tree.components).filter(n => n.type === 'parachute').map(n => n['deployEvent'])).toEqual(Array(expectedCount).fill('apogee'));
       }
     }
   });
-  it.each([1, 2])('HF4 r3 still names missing required Altitude%s', slot => {
+  it.each([1, 2])('HF4 non-regression guard names missing required Altitude%s', slot => {
     const fields = (recoverySlot(1) + recoverySlot(2)).replace(`<Altitude${slot}>500</Altitude${slot}>`, '');
     const r = importCdx1(cdx(body, `<Recovery>${fields}</Recovery>`));
     const notes = r.noteTiers?.filter(n => n.kind === 'I04.recovery-event').map(n => n.text).join(' ');
@@ -62,7 +110,7 @@ describe('H5b import fidelity', () => {
         const fields = (recoverySlot(1) + recoverySlot(2)).replace(`<${field}${slot}>${value}</${field}${slot}>`, replacement);
         const r = importCdx1(cdx(body, `<Recovery>${fields}</Recovery>`));
         const notes = r.noteTiers?.filter(n => n.kind === 'I04.recovery-event').map(n => n.text).join(' ');
-        expect(notes).not.toContain('RASAero itself and desktop OR use an Altitude event');
+        expect(notes?.includes('RASAero itself and desktop OR use an Altitude event')).toBe(field === 'DeviceType' && slot === 1);
         expect(notes).not.toContain('desktop OpenRocket cannot import');
         const expectedCount = field !== 'DeviceType' && replacement.endsWith('/>') ? (slot === 1 ? 0 : 1) : 2;
         expect(all(r.tree.components).filter(n => n.type === 'parachute')).toHaveLength(expectedCount);

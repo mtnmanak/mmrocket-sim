@@ -1,4 +1,8 @@
 // @vitest-environment happy-dom
+// HF4 r4: 273 -> 274 replaces one raw selector with all-occurrence selector
+// plus last-value projection; all other added checks are string compatibility.
+// laneH5b covers duplicate numerics/devices, missing tags, ignored fields and
+// the unknown-first-device altitude warning. No flown number or threshold moves.
 // HF4 r2: 274 -> 273 uses raw strings for desktop enablement/device checks.
 // Paired-event qualification adds no numeric threshold or flown-value change;
 // laneH5b covers padded/empty strings and non-recovery Unicode numeric spaces.

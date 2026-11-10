@@ -927,7 +927,8 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
   if (recovery) {
     // Compatibility checks must retain empty elements and Unicode whitespace;
     // xmlText intentionally normalizes both for the app's own import defaults.
-    const rawRecovery = (field: string) => recovery.querySelector(`:scope > ${field}`)?.textContent ?? null;
+    const rawRecoveryValues = (field: string) => Array.from(recovery.querySelectorAll(`:scope > ${field}`), element => element.textContent ?? '');
+    const rawRecovery = (field: string) => rawRecoveryValues(field).at(-1) ?? null;
     const firstTube = sustainer.children!.find((c) => c.type === 'bodytube');
     const firstEnabled = (text(recovery, ':scope > Event1') ?? 'false').toLowerCase() === 'true'
       && (text(recovery, ':scope > EventType1') ?? 'None') !== 'None';
@@ -942,19 +943,23 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
         const value = rawRecovery(`${field}${slot}`);
         const required = enabled && (device === 'Parachute' || device === 'None')
           && (field !== 'Size' || device !== 'None');
-        return (value !== null || required) && !javaDoubleText(value);
+        return rawRecoveryValues(`${field}${slot}`).some(value => !javaDoubleText(value))
+          || (required && !javaDoubleText(value));
       }).map(field => `${field}${slot}`);
+      if (rawRecovery(`Event${slot}`) === null) fields.push(`Event${slot}`);
+      if (enabled && rawRecovery(`EventType${slot}`) === null) fields.push(`EventType${slot}`);
       if (enabled && rawRecovery(`DeviceType${slot}`) === null) fields.push(`DeviceType${slot}`);
       if (fields.length) {
         const event = text(recovery, `:scope > EventType${slot}`);
-        const cd = num(recovery, `CD${slot}`, NaN);
         const appDevice = text(recovery, `:scope > DeviceType${slot}`) ?? 'Parachute';
         const appEnabled = (text(recovery, `:scope > Event${slot}`) ?? 'false').toLowerCase() === 'true'
           && (event ?? 'None') !== 'None' && (slot === 1 || firstEnabled);
+        const cd = appEnabled && (appDevice === 'Parachute' || appDevice === 'None')
+          ? num(recovery, `CD${slot}`, NaN) : NaN;
         const fallback = appEnabled && (appDevice === 'Parachute' || appDevice === 'None')
           ? `The app uses ${event === 'Apogee' ? 'apogee' : `${noticeNumber(num(recovery, `Altitude${slot}`, 500))} ft`} deployment, a ${noticeNumber(appDevice === 'None' ? 0 : num(recovery, `Size${slot}`, 36))} inch diameter and ${Number.isFinite(cd) && cd !== 0 ? `Cd ${noticeNumber(cd)}` : 'automatic Cd 0.8'} for this slot.`
           : 'This slot is ignored by the app; no recovery device is added for it.';
-        const inputs = fields.map(field => `${field} (“${noteField(rawRecovery(field) ?? '(missing)')}”)`).join(', ');
+        const inputs = fields.map(field => `${field} (“${noteField(rawRecoveryValues(field).find(value => !javaDoubleText(value)) ?? rawRecovery(field) ?? '(missing)')}”)`).join(', ');
         cautionNote(notes, 'I04.recovery-event', `RASAero recovery ${inputs} missing or unreadable; desktop OpenRocket cannot import this file. ${fallback} Repair the named fields and check recovery before flying.`);
       }
       return fields;
@@ -978,12 +983,16 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
         // Disabled slots and unknown devices may omit it without an exception.
         const validRecovery = recoveryProblems.every(fields => fields.length === 0);
         const desktopPaired = [1, 2].every(index => desktopEnabled(index)
-          && rawRecovery(`EventType${index}`) === 'Apogee'
-          && ['Parachute', 'None'].includes(rawRecovery(`DeviceType${index}`) ?? ''));
-        cautionNote(notes, 'I04.recovery-event', `Both RASAero recovery slots say Apogee; the app keeps both at apogee to preserve saved designs. ${validRecovery
+          && rawRecovery(`EventType${index}`) === 'Apogee')
+          && ['Parachute', 'None'].includes(rawRecovery('DeviceType2') ?? '');
+        const appFirstDevice = text(recovery, ':scope > DeviceType1') ?? 'Parachute';
+        const appDeployment = ['Parachute', 'None'].includes(appFirstDevice)
+          ? 'the app keeps both at apogee to preserve saved designs.'
+          : 'the app omits the unknown slot 1 device and keeps slot 2 at apogee.';
+        cautionNote(notes, 'I04.recovery-event', `Both RASAero recovery slots say Apogee; ${appDeployment} ${validRecovery
           ? desktopPaired
-            ? `RASAero itself and desktop OR use an Altitude event for slot 2 at the file’s Altitude2 value “${noteField(altitude2)}” ft; desktop OR does this when it can import the file; hand-edited numeric fields can prevent that. Deployment can differ from apogee; at 0 ft it may not open before landing.`
-            : 'Desktop OR reads Event, EventType and DeviceType without trimming: empty or padded strings can disable or omit a device, or change its deployment event. Do not assume both devices will be present or deploy as in the app. Check both slots in desktop OR if the file opens there.'
+            ? `${['Parachute', 'None'].includes(rawRecovery('DeviceType1') ?? '') ? '' : 'Desktop OR omits slot 1 because its untrimmed DeviceType1 is not Parachute or None. Do not assume both devices will be present. '}RASAero itself and desktop OR use an Altitude event for slot 2 at the file’s Altitude2 value “${noteField(altitude2)}” ft; desktop OR does this when it can import the file; hand-edited numeric fields can prevent that. Deployment can differ from apogee; at 0 ft it may not open before landing.`
+            : 'Desktop OR reads Event, EventType and DeviceType without trimming, using the last occurrence of each: unknown, empty or padded strings can disable or omit a device, or change its deployment event. Do not assume both devices will be present or deploy as in the app. Check both slots in desktop OR if the file opens there.'
           : 'Recovery fields are missing or unreadable; desktop OpenRocket cannot import this file. Repair the named recovery fields before opening it there.'} Check recovery before flying in those tools.`);
       }
       const cd = num(recovery, `CD${slot}`, NaN);

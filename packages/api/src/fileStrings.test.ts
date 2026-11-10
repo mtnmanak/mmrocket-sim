@@ -104,7 +104,7 @@ describe('file-derived names and notes are safe at the API edge', () => {
   }, 60_000);
 });
 
-it.each(['Booster\u200b', 'A\u201cB', 'A\u200b\u201cB'])('aligns every component-name carrier for %j', async name => {
+it.each(['Booster\u200b', 'A\u201cB', 'A\u200b\u201cB'])('non-regression guard for component-name carriers and display title for %j', async name => {
   const out = await headless.simulateFile(bytesOf('reference.ork'), 'reference.ork', { reportSeries: 'summary' });
   const mount = out.flight.delayResolution.mounts[0]!;
   mount.mountName = name;
