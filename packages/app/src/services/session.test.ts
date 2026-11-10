@@ -1443,7 +1443,8 @@ it('HF2 final bounds pad readings in current and legacy session locations', () =
 
 it.each([
   [{ overrideMass: 'abc' }, /cleared/, /reduced/],
-  [{ overrideMass: 1e100 }, /reduced/, /cleared/],
+  [{ overrideMass: 1e100 }, /reduced/, /cleared|raised/],
+  [{ overrideMass: -1 }, /raised/, /cleared|reduced/],
 ])('HF integration: the stage-mass restore note names only the repair made (%j)', (stored, says, omits) => {
   localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), savedConfigs: [
     { id: 'c', name: 'C', motors: {}, stageMassOverrides: { s: stored } },

@@ -153,12 +153,13 @@ export function readArchivedExMotors(rocket: XmlElement, notes: string[]): Map<s
       const name = /[^\s\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/u.test(designation)
         ? noteField(designation, 160).trim() || '(unnamed)' : '(unnamed)';
       const duplicate = duplicates.has(m?.motorId);
+      const beyond = !duplicate && exMotorBeyondLimits(m);
       const reason = duplicate ? 'shared library id; the mount cannot identify which motor it means'
-        : exMotorBeyondLimits(m) ? 'its mass or size is beyond the numbers the simulator can handle'
+        : exMotorBeyondLimits(m) ? 'its mass, size or thrust is beyond the numbers the simulator can handle'
         : !validExMotorFields(m) ? `invalid definition, non-finite value, or over ${MAX_EX_MOTOR_SAMPLES} samples per motor`
         : !validArchivedExMotor(m) ? exMotorFlightProblem(m) : null;
       if (reason) {
-        if (!duplicate || !namedDuplicates.has(name)) cautionNote(notes, 'I15.embedded-ex-refused', `Embedded EX motor ${name} was not loaded: ${reason}. Re-import its original .eng/.rse file.`);
+        if (!duplicate || !namedDuplicates.has(name)) cautionNote(notes, 'I15.embedded-ex-refused', `Embedded EX motor ${name} was not loaded: ${reason}. ${beyond ? 'Correct its source file or choose another motor before flying.' : 'Re-import its original .eng/.rse file.'}`);
         if (duplicate) namedDuplicates.add(name);
       }
       else usable.push(m as ExMotor);

@@ -417,11 +417,12 @@ const STAGE_MASS_FIELDS: Record<string, (v: unknown) => boolean> = {
  * place, so a valid map stays the same object.
  */
 /** Which repairs a saved configuration's stage snapshots needed: unreadable values cleared, oversized ones reduced. */
-function repairStageMassOverrides(cfg: SavedConfig): { cleared: boolean; reduced: boolean } {
+function repairStageMassOverrides(cfg: SavedConfig): { cleared: boolean; reduced: boolean; raised: boolean } {
   const map = cfg.stageMassOverrides;
-  if (!map) return { cleared: false, reduced: false };
+  if (!map) return { cleared: false, reduced: false, raised: false };
   let repaired = false;
   let reduced = false;
+  let raised = false;
   let replaced = false;
   const entries = Object.entries(map).map(([id, value]) => {
     if (!isTable(value)) { replaced = true; return [id, {}] as const; }
@@ -434,15 +435,15 @@ function repairStageMassOverrides(cfg: SavedConfig): { cleared: boolean; reduced
     const bounded = captureStageMass(value);
     for (const key of ['overrideMass', 'overrideCGX'] as const) {
       if (value[key] !== bounded[key]) {
+        if (Number(value[key]) > Number(bounded[key])) reduced = true; else raised = true;
         value[key] = bounded[key];
-        reduced = true;
       }
     }
     return [id, value] as const;
   });
   // Rebuilt, not assigned, when a snapshot is replaced: stage ids are file-sourced.
   if (replaced) cfg.stageMassOverrides = Object.fromEntries(entries);
-  return { cleared: repaired || replaced, reduced };
+  return { cleared: repaired || replaced, reduced, raised };
 }
 
 /** A stored Mach-Alt table, or null: 1–1,000 rows of finite [Mach ≥ 0, altitude m]. */
@@ -671,6 +672,7 @@ function readSession(restoreRoot: boolean): SessionState | null {
     });
     let stageMassCleared = false;
     let stageMassReduced = false;
+    let stageMassRaised = false;
     for (const cfg of s.savedConfigs ?? []) {
       for (const [id, value] of Object.entries(cfg.nozzles ?? {})) {
         const bounded = boundedNozzleDiameter(value);
@@ -683,6 +685,7 @@ function readSession(restoreRoot: boolean): SessionState | null {
       const stageRepair = repairStageMassOverrides(cfg);
       if (stageRepair.cleared) stageMassCleared = true;
       if (stageRepair.reduced) stageMassReduced = true;
+      if (stageRepair.raised) stageMassRaised = true;
       if (isTable(cfg.stageActiveness)) {
         cfg.stageActiveness = lookupTable(Object.fromEntries(
           Object.entries(cfg.stageActiveness).filter(([, value]) => typeof value === 'boolean'),
@@ -691,10 +694,11 @@ function readSession(restoreRoot: boolean): SessionState | null {
         delete cfg.stageActiveness;
       }
     }
-    if (stageMassCleared || stageMassReduced) {
+    if (stageMassCleared || stageMassReduced || stageMassRaised) {
       cautionNote(s.treeRestoreNotes ??= [], 'G04.stage-mass-repaired',
         [stageMassCleared && 'Unreadable stage mass and CG overrides in saved configurations were cleared.',
           stageMassReduced && 'Stage mass and CG overrides in saved configurations above the simulator limits were reduced.',
+          stageMassRaised && 'Stage mass and CG overrides in saved configurations below the allowed minimum were raised to it.',
           'Check the stage masses before flying.'].filter(Boolean).join(' '));
     }
     // Older configuration maps used 0 as a removal command, not persistent OFF.

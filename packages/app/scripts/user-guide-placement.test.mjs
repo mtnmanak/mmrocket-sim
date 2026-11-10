@@ -13,6 +13,6 @@ it('keeps the Mach-Alt import rule inside its anchored glossary entry', () => {
 
 it('keeps flight angle preferences with the existing AoA glossary text', () => {
   const entry = html().match(/<p id="glossary-angle-of-attack-aoa-or"[^>]*>(.*?)<\/p>/s)?.[1];
-  expect(entry).toContain('Angle of attack in the flight charts, custom plots and launch-guide-exit report follows');
+  expect(entry).toContain('Angle of attack in Flight loads, the flight charts, custom plots and launch-guide-exit report follows');
   expect(entry).toContain('recorded flight data stays in radians');
 });

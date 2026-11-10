@@ -128,7 +128,7 @@
     "services/saveFile.ts": 2,
     "services/schematicCaliper.ts": 1,
     "services/schematicExport.ts": 13,
-    "services/session.ts": 5,
+    "services/session.ts": 6,
     "services/sessionDebugLog.ts": 22,
     "services/shareLink.ts": 2,
     "services/simReport.ts": 50,

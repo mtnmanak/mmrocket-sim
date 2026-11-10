@@ -26,6 +26,7 @@ it.each([
   ['mass', { totalWeightG: 1e20, propWeightG: 1e19 }],
   ['diameter', { diameter: 2_000_000 }],
   ['length', { length: 2_000_000 }],
+  ['thrust', { samples: [{ time: 0, thrust: 0 }, { time: 0.1, thrust: 2e7 }, { time: 1, thrust: 0 }] }],
 ] as const)('HF integration: an oversized embedded motor (%s) is refused alone and good siblings load', (_kind, fields) => {
   const good = { ...goodMotor(), motorId: 'ex:good' };
   const huge = { ...goodMotor(), ...fields, designation: 'Huge', motorId: 'ex:huge' };
@@ -34,6 +35,8 @@ it.each([
   expect(notes).toHaveLength(1);
   expect(notes[0]).toContain('Huge');
   expect(notes[0]).toContain('beyond the numbers the simulator can handle');
+  expect(notes[0]).toContain('choose another motor');
+  expect(notes[0]).not.toContain('Re-import');
 });
 
 it('refuses every sharer of an id, even when one sharer is malformed', () => {
