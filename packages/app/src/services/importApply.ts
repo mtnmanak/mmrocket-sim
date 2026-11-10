@@ -191,8 +191,12 @@ export async function resolveImportMotors(
   match: (ref: OrkMotorRef) => Promise<MotorMatchResult> = matchImportedMotor,
 ): Promise<ResolvedImportMotors> {
   let catalogue = getCatalogue();
-  const row = (ref: OrkMotorRef) => JSON.stringify(matchDbMotor(ref.designation,
-    ref.diameter > 0 ? ref.diameter * 1000 : undefined, undefined, ref.manufacturer, ref.matchContext));
+  const row = (ref: OrkMotorRef) => {
+    const outcome: { conflict?: boolean } = {};
+    const match = matchDbMotor(ref.designation, ref.diameter > 0 ? ref.diameter * 1000 : undefined,
+      undefined, ref.manufacturer, ref.matchContext, undefined, outcome);
+    return JSON.stringify({ match, conflict: outcome.conflict === true });
+  };
   const matches: { ref: OrkMotorRef; before: string | undefined; apply: (result: MotorMatchResult) => void }[] = [];
   const resolve = async (ref: OrkMotorRef, apply: (result: MotorMatchResult) => void) => {
     const before = ref.exMotorId === undefined ? row(ref) : undefined;

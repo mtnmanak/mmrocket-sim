@@ -4,6 +4,11 @@ import { mutations, replaceMutationAnchor, runMutations } from './matcher-sweep.
 import { readFileSync } from 'node:fs';
 
 describe('mutation harness anchor guards', () => {
+  it('guards retained folded evidence with a live source anchor', () => {
+    const source = readFileSync(new URL('../src/services/rocksimFile.ts', import.meta.url), 'utf8');
+    const [name, , anchor, replacement] = mutations.find(([name]) => name === 'config-evidence-folding');
+    expect(replaceMutationAnchor(source, anchor, replacement, name)).not.toBe(source);
+  });
   it('does not linearly search simulation nodes for RASAero nozzle notes', () => {
     const source = readFileSync(new URL('../src/services/rasaeroFile.ts', import.meta.url), 'utf8');
     expect(source).not.toContain('sims.indexOf(');

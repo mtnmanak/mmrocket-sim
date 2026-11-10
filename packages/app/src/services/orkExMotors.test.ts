@@ -49,6 +49,18 @@ beforeEach(() => localStorage.clear());
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('EX design archives', () => {
+  it('leaves a refused embedded reference empty with the existing missing-definition note', async () => {
+    const motor = synthetic();
+    const { xml } = saved(motor);
+    const good = { ...motor, motorId: 'ex:good' };
+    const imported = importOrk(payload(xml, [{ ...motor, diameter: 0 }, good]));
+    expect(imported.embeddedExMotors?.map(m => m.motorId)).toEqual([good.motorId]);
+    expect(getExMotor(motor.motorId)).toEqual(motor);
+    const result = await matchImportedMotor(Object.values(imported.motors)[0]!);
+    expect(result.motor).toBeUndefined();
+    expect(result.note).toContain('embedded definition is missing or refused');
+  });
+
   it.each(['eng', 'rse'] as const)('clean-library %s save/open preserves every motor input and a real flight', async source => {
     const m = synthetic();
     if (source === 'eng') { m.source = 'eng'; delete m.sampleMassesKg; delete m.exitDiameterM; }
@@ -246,8 +258,11 @@ describe('hostile EX archives', () => {
       return;
     }
     expect(validArchivedExMotor(broken)).toBe(false);
-    const opened = importOrk(payload(xml, [broken]));
-    expect(opened.notes.join(' ')).toContain('Embedded EX motors were refused');
+    const sibling = { ...synthetic(), motorId: 'ex:good-sibling' };
+    const opened = importOrk(payload(xml, [broken, sibling]));
+    expect(opened.embeddedExMotors).toEqual([sibling]);
+    expect(opened.notes.join(' ')).toContain('was not loaded:');
+    expect(opened.notes.join(' ')).not.toContain('Embedded EX motors were refused');
     const findDb = vi.fn();
     expect((await matchImportedMotor(Object.values(opened.motors)[0]!, { findDb })).motor).toBeUndefined();
     expect(findDb).not.toHaveBeenCalled();
@@ -258,7 +273,7 @@ describe('hostile EX archives', () => {
     'refuses %s without any library write', async kind => {
       const { xml } = saved();
       let bad = xml;
-      if (kind === 'duplicate ids') bad = payload(xml, [synthetic(), synthetic()]);
+      if (kind === 'duplicate ids') bad = payload(xml, [synthetic(), synthetic(), { ...synthetic(), motorId: 'ex:good-sibling' }]);
       if (kind === 'motor count') bad = payload(xml, Array.from({ length: MAX_EMBEDDED_EX_MOTORS + 1 }, (_, i) => ({ ...synthetic(), motorId: `ex:${i}` })));
       if (kind === 'bytes') bad = payload(xml, [{ ...synthetic(), designation: 'é'.repeat(MAX_EX_ARCHIVE_BYTES / 2) }]);
       if (kind === 'version') bad = xml.replace('mmrexmotors version="1"', 'mmrexmotors version="2"');
@@ -267,7 +282,10 @@ describe('hostile EX archives', () => {
       if (kind === 'missing') bad = xml.replace(/<mmrexmotors[^]*?<\/mmrexmotors>/, '');
       localStorage.clear();
       const opened = importOrk(bad);
-      if (kind !== 'missing') expect(opened.notes.join(' ')).toContain('Embedded EX motors were refused');
+      if (kind === 'duplicate ids') {
+        expect(opened.notes.join(' ')).toContain('shared library id');
+        expect(opened.embeddedExMotors?.map(m => m.motorId)).toEqual(['ex:good-sibling']);
+      } else if (kind !== 'missing') expect(opened.notes.join(' ')).toContain('Embedded EX motors were refused');
       expect(loadExMotors()).toEqual([]);
       expect((await matchImportedMotor(Object.values(opened.motors)[0]!)).motor).toBeUndefined();
     });

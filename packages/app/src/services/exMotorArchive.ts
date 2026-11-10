@@ -129,7 +129,7 @@ export function archiveExMotors(mounted: readonly OrkExportMotor[], notes: strin
   return { json: definitions.size ? JSON.stringify([...definitions.values()]) : null, ids };
 }
 
-/** Refuse the entire extension on ambiguous ids or damaged data; no partial library writes. */
+/** Archive damage refuses the extension; motor damage refuses only that motor. */
 export function readArchivedExMotors(rocket: XmlElement, notes: string[]): Map<string, ExMotor> {
   const elements = Array.from(rocket.querySelectorAll(`:scope > ${EX_MOTORS_TAG}`));
   if (!elements.length) return new Map();
@@ -139,16 +139,29 @@ export function readArchivedExMotors(rocket: XmlElement, notes: string[]): Map<s
     if (raw.length > MAX_EX_ARCHIVE_BYTES || new TextEncoder().encode(escapeXml(raw)).length > MAX_EX_ARCHIVE_BYTES) throw new Error('over the 16 MiB disk archive limit');
     const value: unknown = JSON.parse(raw);
     if (!Array.isArray(value) || value.length > MAX_EMBEDDED_EX_MOTORS) throw new Error('invalid motor list or over 1024 motors');
-    // Legacy archives can contain a degenerate captured source alongside good
-    // motors. Validate structure first, then refuse only those unusable curves.
-    if (!value.every(validExMotorFields)) throw new Error(`invalid definition, non-finite value, or over ${MAX_EX_MOTOR_SAMPLES} samples per motor`);
-    if (new Set(value.map(m => m.motorId)).size !== value.length) throw new Error('duplicate library ids');
-    const usable = value.filter(m => {
-      const name = noteField(m.designation, 160);
-      if (validArchivedExMotor(m)) return true;
-      cautionNote(notes, 'I15.embedded-ex-refused', `Embedded EX motor ${name} was not loaded: ${exMotorFlightProblem(m)}. Re-import its original .eng/.rse file.`);
-      return false;
-    });
+    const ids = new Set<string>();
+    const duplicates = new Set<string>();
+    for (const m of value) {
+      if (!m || typeof m !== 'object' || typeof m.motorId !== 'string') continue;
+      if (ids.has(m.motorId)) duplicates.add(m.motorId);
+      ids.add(m.motorId);
+    }
+    const usable: ExMotor[] = [];
+    const namedDuplicates = new Set<string>();
+    for (const m of value) {
+      const designation = typeof m?.designation === 'string' ? m.designation : '';
+      const name = /[^\s\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/u.test(designation)
+        ? noteField(designation, 160).trim() || '(unnamed)' : '(unnamed)';
+      const duplicate = duplicates.has(m?.motorId);
+      const reason = duplicate ? 'shared library id; the mount cannot identify which motor it means'
+        : !validExMotorFields(m) ? `invalid definition, non-finite value, or over ${MAX_EX_MOTOR_SAMPLES} samples per motor`
+        : !validArchivedExMotor(m) ? exMotorFlightProblem(m) : null;
+      if (reason) {
+        if (!duplicate || !namedDuplicates.has(name)) cautionNote(notes, 'I15.embedded-ex-refused', `Embedded EX motor ${name} was not loaded: ${reason}. Re-import its original .eng/.rse file.`);
+        if (duplicate) namedDuplicates.add(name);
+      }
+      else usable.push(m as ExMotor);
+    }
     return new Map(usable.map(m => [m.motorId, repairStoredExMotor(m, notes)]));
   } catch (error) {
     const reason = noteText(error instanceof Error ? error.message : String(error));

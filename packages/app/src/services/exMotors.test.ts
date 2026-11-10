@@ -876,6 +876,15 @@ it.each([undefined, 'junk', 'Infinity'])('names an unreadable RSE propellant tok
     .toThrow(token === undefined ? 'Motor H100: propellant mass (propWt) missing' : `Motor H100: propellant mass (propWt) “${token}” is not a finite number`);
 });
 
+it.each(['', '   ', '\n', '\u0001\u0085', '\u202e\u200b'])('names a refused blank stored designation (%j)', designation => {
+  localStorage.setItem('online-openrocket.ex-motors.v1', JSON.stringify([{ designation }]));
+  try {
+    const notes: string[] = [];
+    expect(loadExMotors(notes)).toEqual([]);
+    expect(notes[0]).toContain('Stored EX motor (unnamed) was not loaded:');
+  } finally { localStorage.clear(); }
+});
+
 it('names corrupt stored mass tokens without inventing a physical quantity', () => {
   const good = parseEng(ENG)[0]!;
   localStorage.setItem('online-openrocket.ex-motors.v1', JSON.stringify([

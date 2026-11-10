@@ -305,7 +305,9 @@ export function loadExMotors(notes?: string[], units: UnitSelection = INITIAL_UN
       // The browser reports these once on opening; routine library lookups
       // only refuse them, without repeating notices (audit 2026-10-11, S1c-5).
       if (notes) {
-        const name = record(value) && typeof value['designation'] === 'string' ? noteField(value['designation'], 160) : 'unnamed motor';
+        const designation = record(value) && typeof value['designation'] === 'string' ? value['designation'] : '';
+        const name = /[^\s\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/u.test(designation)
+          ? noteField(designation, 160).trim() || '(unnamed)' : '(unnamed)';
         const reason = !record(value) ? null
           : !finite(value['totalWeightG']) ? `loaded mass “${noteField(String(value['totalWeightG']))}” is not a finite number`
             : !finite(value['propWeightG']) ? `propellant mass “${noteField(String(value['propWeightG']))}” is not a finite number`

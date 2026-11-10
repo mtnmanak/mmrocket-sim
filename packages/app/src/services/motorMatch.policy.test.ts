@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { findDbMotor, matchDbMotor, MOTOR_DB } from './motorDb.js';
+import { findDbMotor, matchDbMotor, MOTOR_DB, MOTOR_DB_DATE, setCatalogueOverlay } from './motorDb.js';
 import { fetchSpecByDigest, matchImportedMotor } from './motorMatch.js';
-import { MOTOR_MATCH_POLICY as P, type MotorMatchContext } from './motorMatchPolicy.js';
+import { E31_CONFLICT, MOTOR_MATCH_POLICY as P, type MotorMatchContext } from './motorMatchPolicy.js';
+import type { ExMotor } from './exMotors.js';
 import { importRkt, rktEveryDelay } from './rocksimFile.js';
 import { indexRocksimMotors, rocksimBurnTime, rocksimMotorEvidence } from './rocksimMotorEvidence.js';
 import { importCdx1 } from './rasaeroFile.js';
@@ -40,7 +41,7 @@ function evidence(xml: string): MotorMatchContext {
   return rocksimMotorEvidence(doc.querySelector('EngineSet')!, motorIndex(doc));
 }
 beforeEach(() => vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline')))));
-afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
+afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); setCatalogueOverlay(null); });
 
 describe('reviewed historical motor policies', () => {
   it('G80 uses only the makerless equivalent after its real offline curve loads', async () => {
@@ -132,6 +133,173 @@ describe('reviewed historical motor policies', () => {
 });
 
 describe('physical evidence provenance and importer seams', () => {
+  function doubled(xml: string, change: (sim: string) => string = sim => sim): string {
+    const sim = xml.slice(xml.indexOf('<SimulationResults>'), xml.indexOf('</SimulationResults>') + '</SimulationResults>'.length);
+    return xml.replace('</RockSimDocument>', `${change(sim)}</RockSimDocument>`);
+  }
+
+  it('folds ordinary same-loadout simulations despite stale masses', () => {
+    const xml = rkt('F31-CL', 2110, 1).replace('<EjectionDelay>-1', '<EjectionDelay>8');
+    const imported = importRkt(doubled(xml, sim => sim.replace('<Mass0>2110', '<Mass0>2210')));
+    expect(imported.configs).toHaveLength(1);
+  });
+
+  it('deduplicates hundreds of identical qualifying simulations before checking evidence', () => {
+    const motor = MOTOR_DB.find(m => m.motorId === P.blackBearK700)!;
+    const xml = rkt('K700BB', 2010 + motor.totalWeightG, motor.burnTimeS).replace('<EjectionDelay>-1', '<EjectionDelay>-2');
+    const sim = xml.slice(xml.indexOf('<SimulationResults>'), xml.indexOf('</SimulationResults>') + '</SimulationResults>'.length);
+    const imported = importRkt(xml.replace('</RockSimDocument>', `${sim.repeat(399)}</RockSimDocument>`));
+    expect(imported.configs).toHaveLength(1);
+    const context = Object.values(imported.configs[0]!.motors)[0]!.matchContext;
+    expect(context?.physical).toBeDefined();
+    expect(context?.foldedPhysical ?? []).toHaveLength(0);
+    expect(lookup('K700BB', 'Cesaroni', context)?.motor.motorId).toBe(motor.motorId);
+  });
+
+  it('loads the named-maker EX library motor after an agreeing fold with no catalogue row', async () => {
+    const ex: ExMotor = { motorId: 'ex:test-t1', designation: 'T1', realManufacturer: 'Test',
+      diameter: 24, length: 100, totalWeightG: 100, propWeightG: 40, delays: 'P',
+      samples: [{ time: 0, thrust: 0 }, { time: 0.1, thrust: 1 }, { time: 1, thrust: 0 }],
+      source: 'eng', addedAt: 0 };
+    const imported = importRkt(doubled(rkt('T1', 2110, 1, 24).replace('<EngineMfg>Cesaroni', '<EngineMfg>Test'), sim => sim.replace('<Mass0>2110', '<Mass0>2111')));
+    expect(imported.configs).toHaveLength(1);
+    expect(Object.values(imported.configs[0]!.motors)[0]!.matchContext?.foldedPhysical).toHaveLength(1);
+    const result = await matchImportedMotor(Object.values(imported.configs[0]!.motors)[0]!, { catalogue: [], exMotors: [ex] });
+    expect(result.motor?.meta.exMotorId).toBe(ex.motorId);
+    expect(result.note).toContain('imported EX motor');
+  });
+
+  it('retains E31_CONFLICT for agreeing evidence that does not fit White Thunder', async () => {
+    const motor = MOTOR_DB.find(m => m.motorId === P.whiteThunderE31)!;
+    const mass = 2010 + motor.totalWeightG * 2;
+    const imported = importRkt(doubled(rkt('26-E31-WH-15A', mass, motor.burnTimeS, 24), sim => sim.replace(`<Mass0>${mass}`, `<Mass0>${mass + motor.totalWeightG * 0.01}`)));
+    expect(imported.configs).toHaveLength(1);
+    expect(Object.values(imported.configs[0]!.motors)[0]!.matchContext?.foldedPhysical).toHaveLength(1);
+    const result = await matchImportedMotor(Object.values(imported.configs[0]!.motors)[0]!);
+    expect(result.motor).toBeUndefined();
+    expect(result.note).toContain(E31_CONFLICT);
+  });
+
+  it('rechecks an earlier EX fallback when a later await changes null matching into conflict', async () => {
+    const motor = MOTOR_DB.find(m => m.motorId === P.whiteThunderE31)!;
+    const target = motor.totalWeightG;
+    const mass = 2010 + target * 1.04;
+    const imported = importRkt(doubled(rkt('26-E31-WH-15A', mass, motor.burnTimeS, 24),
+      sim => sim.replace(`<Mass0>${mass}`, `<Mass0>${2010 + target * 1.06}`)));
+    expect(imported.configs).toHaveLength(1);
+    const first = Object.values(imported.motors)[0]!;
+    expect(first.matchContext?.foldedPhysical).toHaveLength(1);
+    const ex: ExMotor = { motorId: 'ex:e31', designation: first.designation, realManufacturer: 'Cesaroni',
+      diameter: 24, length: 100, totalWeightG: target, propWeightG: target / 2, delays: 'P',
+      samples: [{ time: 0, thrust: 0 }, { time: 0.1, thrust: 1 }, { time: 1, thrust: 0 }], source: 'eng', addedAt: 0 };
+    imported.motors = { first, second: ref('G80') };
+    let calls = 0;
+    const resolved = await resolveImportMotors(imported, async r => {
+      calls++;
+      if (r === first) {
+        const result = await matchImportedMotor(r, { exMotors: [ex] });
+        if (calls === 1) expect(result.motor?.meta.exMotorId).toBe(ex.motorId);
+        return result;
+      }
+      setCatalogueOverlay({ baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(), liveCount: MOTOR_DB.length,
+        added: [], removed: [], rejected: [], changed: [{ motorId: motor.motorId, before: motor,
+          after: { ...motor, totalWeightG: target * 1.02 }, fields: ['totalWeightG'] }] });
+      return { note: '' };
+    });
+    expect(calls).toBeGreaterThan(2);
+    expect(resolved.working.first?.motor).toBeUndefined();
+    expect(resolved.working.first?.note).toContain('folded simulations');
+  });
+
+  it.each([false, true])('keeps boundary-disagreeing evidence in separate configurations (reverse=%s)', async reverse => {
+    const masses = reverse ? [1020.2, 1000] : [1000, 1020.2];
+    const xml = rkt('K700BB', 2010 + masses[0]!, 2.38);
+    const imported = importRkt(doubled(xml, sim => sim.replace(`<Mass0>${2010 + masses[0]!}`, `<Mass0>${2010 + masses[1]!}`)));
+    expect(imported.configs).toHaveLength(2);
+    for (const config of imported.configs) {
+      const result = await matchImportedMotor(Object.values(config.motors)[0]!);
+      expect(result.motor?.meta.motorId).toBe(P.blueBaboonK700);
+    }
+  });
+
+  it.each([false, true])('folds ordinary same-loadout references reached by known and stale serials (reverse=%s)', reverse => {
+    const xml = rkt('F31-CL');
+    const stale = (sim: string) => sim.replace('<MountSerialNo>6', '<MountSerialNo>999');
+    const imported = importRkt(reverse
+      ? doubled(xml.replace('<MountSerialNo>6', '<MountSerialNo>999'), sim => sim.replace('<MountSerialNo>999', '<MountSerialNo>6'))
+      : doubled(xml, stale));
+    expect(imported.configs).toHaveLength(1);
+    expect(Object.values(imported.configs[0]!.motors)[0]!.matchContext?.mountBoreMm).toBeCloseTo(54.4);
+  });
+
+  it.each([-2, -1])('uses later folded evidence for E31 with delay %s', async delay => {
+    const motor = MOTOR_DB.find(m => m.motorId === P.whiteThunderE31)!;
+    const xml = rkt('26-E31-WH-15A', 2010 + motor.totalWeightG, motor.burnTimeS, 24)
+      .replace('<EjectionDelay>-1', `<EjectionDelay>${delay}`);
+    const sim = xml.slice(xml.indexOf('<SimulationResults>'), xml.indexOf('</SimulationResults>') + '</SimulationResults>'.length);
+    const first = xml.replace(/<Mass0>[^<]+<\/Mass0>/, '').replace(/<TimeToBurnout>[^<]+<\/TimeToBurnout>/, '');
+    const imported = importRkt(first.replace('</RockSimDocument>', `${sim}</RockSimDocument>`));
+    expect(imported.configs).toHaveLength(1);
+    const ref = Object.values(imported.configs[0]!.motors)[0]!;
+    expect((await matchImportedMotor(ref)).motor?.meta.motorId).toBe(motor.motorId);
+    if (delay === -1) expect(ref.delay).toBe(defaultDelay(motor));
+  });
+
+  it.each([false, true])('keeps Black Bear and Blue Baboon evidence separate in either order (reverse=%s)', async reverse => {
+    const black = MOTOR_DB.find(m => m.motorId === P.blackBearK700)!;
+    const blue = MOTOR_DB.find(m => m.motorId === P.blueBaboonK700)!;
+    const xml = rkt('K700BB', 2010 + black.totalWeightG, black.burnTimeS);
+    const sim = xml.slice(xml.indexOf('<SimulationResults>'), xml.indexOf('</SimulationResults>') + '</SimulationResults>'.length);
+    // RockSim's stored Blue Baboon mass, not a catalogue assertion (that row
+    // need not publish totalWeightG). Keep burn equal to exercise the mass gate.
+    const other = sim.replace(`<Mass0>${2010 + black.totalWeightG}`, `<Mass0>${2010 + 1483.1}`);
+    const imported = importRkt(xml.replace(sim, reverse ? other : sim).replace('</RockSimDocument>', `${reverse ? sim : other}</RockSimDocument>`));
+    expect(imported.configs).toHaveLength(2);
+    const ids = [];
+    for (const config of imported.configs) ids.push((await matchImportedMotor(Object.values(config.motors)[0]!)).motor?.meta.motorId);
+    expect(ids).toEqual(reverse ? [blue.motorId, black.motorId] : [black.motorId, blue.motorId]);
+  });
+
+  it('keeps the existing Blue Baboon fallback when folded evidence agrees', async () => {
+    const motor = MOTOR_DB.find(m => m.motorId === P.blueBaboonK700)!;
+    const blackBear = MOTOR_DB.find(m => m.motorId === P.blackBearK700)!;
+    const mass = 2010 + blackBear.totalWeightG * 0.7;
+    const xml = rkt('K700BB', mass, blackBear.burnTimeS);
+    const sim = xml.slice(xml.indexOf('<SimulationResults>'), xml.indexOf('</SimulationResults>') + '</SimulationResults>'.length);
+    const imported = importRkt(xml.replace('</RockSimDocument>', `${sim.replace(`<Mass0>${mass}`, `<Mass0>${mass + blackBear.totalWeightG * 0.001}`)}</RockSimDocument>`));
+    expect(imported.configs).toHaveLength(1);
+    const ref = Object.values(imported.configs[0]!.motors)[0]!;
+    expect(ref.matchContext?.physical).toBeDefined();
+    expect(ref.matchContext?.foldedPhysical).toHaveLength(1);
+    expect((await matchImportedMotor(ref)).motor?.meta.motorId).toBe(motor.motorId);
+  });
+  it.each(['K700BB', '26-E31-WH-15A'])('splits nearby evidence across the identity boundary for %s', async designation => {
+    const motor = MOTOR_DB.find(m => m.motorId === (designation === 'K700BB' ? P.blackBearK700 : P.whiteThunderE31))!;
+    const mass = motor.totalWeightG * 1.019;
+    const xml = rkt(designation, 2010 + mass, motor.burnTimeS, motor.diameter);
+    const imported = importRkt(doubled(xml, sim => sim.replace(`<Mass0>${2010 + mass}`, `<Mass0>${2010 + motor.totalWeightG * 1.021}`)));
+    expect(imported.configs).toHaveLength(2);
+    const results = [];
+    for (const config of imported.configs) results.push((await matchImportedMotor(Object.values(config.motors)[0]!)).motor?.meta.motorId);
+    expect(results).toEqual([motor.motorId, designation === 'K700BB' ? P.blueBaboonK700 : undefined]);
+  });
+  it('checks all retained evidence when a third simulation could bridge two conflicting masses', () => {
+    const base = MOTOR_DB.find(m => m.motorId === P.blackBearK700)!.totalWeightG * 0.7;
+    const xml = rkt('K700BB', 2010 + base * 1.01);
+    const sims = (factor: number) => xml.slice(xml.indexOf('<SimulationResults>'), xml.indexOf('</SimulationResults>') + '</SimulationResults>'.length)
+      .replace(`<Mass0>${2010 + base * 1.01}`, `<Mass0>${2010 + base * factor}`);
+    const imported = importRkt(xml.replace('</RockSimDocument>', `${sims(1)}${sims(1.0202)}</RockSimDocument>`));
+    expect(imported.configs).toHaveLength(2);
+    expect(Object.values(imported.configs[0]!.motors)[0]!.matchContext?.foldedPhysical).toHaveLength(1);
+  });
+  it('still refuses an inseparable conflicting context supplied directly to the matcher', async () => {
+    const motor = MOTOR_DB.find(m => m.motorId === P.blackBearK700)!;
+    const context = physical(motor.totalWeightG, motor.burnTimeS);
+    context.foldedPhysical = [physical(motor.totalWeightG * 0.7, motor.burnTimeS).physical!];
+    const result = await matchImportedMotor(ref('K700BB', 'CTI', context));
+    expect(result.motor).toBeUndefined();
+    expect(result.note).toContain('folded simulations');
+  });
   it('refuses evidence and burn duration if the indexed simulation count is unavailable', () => {
     const doc = new DOMParser().parseFromString(rkt(), 'text/xml');
     const index = { ...motorIndex(doc), simulationSets: new Map() };
