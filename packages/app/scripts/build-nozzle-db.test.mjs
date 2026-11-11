@@ -1024,11 +1024,13 @@ describe('running the builder as a command', () => {
     // Node loads the entry module from its REAL path, so argv[1] and
     // import.meta.url name one file two ways; a guard comparing only the two
     // strings did nothing and exited 0. The link points at a scratch COPY of
-    // the builder and its one local import, never at the repo, so removing
+    // the builder and its imported helpers, never at the repo, so removing
     // the scratch folder cannot reach the real scripts whichever way rmSync
     // treats a junction.
-    const real = join(dir, 'real');
-    mkdirSync(real);
+    const real = join(dir, 'real', 'packages', 'app', 'scripts');
+    mkdirSync(real, { recursive: true });
+    mkdirSync(join(dir, 'real', 'scripts'));
+    copyFileSync(join(here, '../../../scripts/machine-profile.mjs'), join(dir, 'real', 'scripts', 'machine-profile.mjs'));
     for (const f of ['build-nozzle-db.mjs', 'nozzle-db-helpers.mjs', 'atomic-write.mjs']) copyFileSync(join(here, f), join(real, f));
     const link = join(dir, 'link');
     symlinkSync(real, link, 'junction'); // a junction on Windows; the type is ignored elsewhere

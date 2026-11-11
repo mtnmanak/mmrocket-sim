@@ -9,7 +9,7 @@ it.each([{ tail: [] }, { tail: ['--other-flag'] }, { tail: [''] }])('carve refus
 import { syncBuiltinESMExports } from 'node:module';
 const read = fs.readFileSync;
 fs.readFileSync = (path, ...args) => {
-  if (/[/\\\\](carve|openrocket-src|atomic-write)\\.mjs$/.test(String(path))) return read(path, ...args);
+  if (/[/\\\\](carve|openrocket-src|machine-profile|atomic-write)\\.mjs$/.test(String(path))) return read(path, ...args);
   throw new Error('unexpected filesystem access');
 };
 for (const name of ['existsSync', 'mkdirSync', 'copyFileSync', 'readdirSync']) {

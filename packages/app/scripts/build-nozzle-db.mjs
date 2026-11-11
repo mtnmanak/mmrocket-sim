@@ -64,6 +64,7 @@
  * `BuildRefused`, which main() prints line by line before exiting 1, the
  * output the `process.exit(1)` at each check used to give.
  */
+import { resolveSetting } from '../../../scripts/machine-profile.mjs';
 import { atomicWriteFileSync } from './atomic-write.mjs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -2538,8 +2539,10 @@ export function main({
   lokiHashes = LOKI_SHEET_HASHES,
   outPath = OUT,
   motorsPath = MOTORS,
-  python = process.env.PYTHON ?? 'python',
-  extract = (dir, instructionFiles = []) => JSON.parse(execFileSync(python, [EXTRACTOR, dir, ...instructionFiles], {
+  python,
+  extract = (dir, instructionFiles = []) => JSON.parse(execFileSync(python ?? resolveSetting({
+    key: 'tools.python', envVar: 'PYTHON', isPath: true, fallback: 'python',
+  }).value, [EXTRACTOR, dir, ...instructionFiles], {
     encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
   })),
 } = {}) {

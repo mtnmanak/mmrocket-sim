@@ -12,7 +12,7 @@ it.each(['build', 'patched', 'first', 'package', 'zip'].flatMap(kind =>
     try {
       // Execute the real entry points, relocated to an isolated fixture repository.
       for (const path of ['engine-java/scripts/build-engine.mjs', 'engine-java/scripts/carve.mjs',
-        'scripts/openrocket-src.mjs', 'scripts/package-dist.mjs', 'packages/app/scripts/atomic-write.mjs']) {
+        'scripts/openrocket-src.mjs', 'scripts/machine-profile.mjs', 'scripts/package-dist.mjs', 'packages/app/scripts/atomic-write.mjs']) {
         put(join(root, path), fs.readFileSync(new URL('../../../' + path, import.meta.url)));
       }
       const target = join(root, kind === 'zip' ? 'deploy/online-openrocket-vtest.zip' : kind === 'package' ? 'packages/app/dist/version.json'

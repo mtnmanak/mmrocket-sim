@@ -13,8 +13,10 @@
  *
  * Read-only over its inputs: every .ork under docs/ (local-only, gitignored)
  * and, unless --no-dropbox, every .ork under the owner's Dropbox
- * (default G:/Documents/Dropbox, or --dropbox; the OpenRocket reference source
- * tree is skipped). --list FILE adds paths from a file, one per line, instead
+ * (--dropbox or profile dropbox; required unless --no-dropbox or --list; the OpenRocket reference source
+ * tree is skipped). Relative --list entries use --dropbox, an available valid
+ * profile dropbox, or the current directory, in that order.
+ * --list FILE adds paths from a file, one per line, instead
  * of walking the Dropbox (a walk of a large Dropbox is slow).
  *
  * It downloads the RAW simulator file of every motor in the shipped bundle
@@ -25,6 +27,7 @@
  * (src/services/motorDigest.census.test.ts), which imports each design with
  * the app's own importer and matcher and writes DIR/results.json.
  */
+import { resolveSetting } from '../../../scripts/machine-profile.mjs';
 import { atomicWriteFileSync } from './atomic-write.mjs';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -102,11 +105,20 @@ export async function main(argv = process.argv.slice(2)) {
     return i >= 0 ? argv[i + 1] : undefined;
   };
   const out = resolve(opt('--out') ?? join(tmpdir(), 'mmrsim-digest-census'));
-  const dropbox = argv.includes('--no-dropbox') ? null : (opt('--dropbox') ?? 'G:/Documents/Dropbox');
+  const list = opt('--list');
+  let dropbox = null;
+  if (!argv.includes('--no-dropbox')) {
+    const settings = { key: 'dropbox', flag: opt('--dropbox'), isPath: true };
+    if (list) {
+      // A profile is optional for lists, including when stale or foreign.
+      try { dropbox = resolveSetting(settings).value; } catch { /* use cwd */ }
+    } else {
+      dropbox = resolveSetting({ ...settings, required: true }).value;
+    }
+  }
   mkdirSync(out, { recursive: true });
 
   const paths = [...walk(join(ROOT, 'docs')).map((p) => ({ path: p, corpus: 'docs' }))];
-  const list = opt('--list');
   if (list) {
     for (const line of readFileSync(list, 'utf8').split(/\r?\n/)) {
       if (line.trim()) paths.push({ path: resolve(dropbox ?? '.', line.trim()), corpus: 'dropbox' });
