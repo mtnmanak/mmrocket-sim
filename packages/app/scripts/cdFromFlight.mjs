@@ -77,9 +77,9 @@
  * its top-level CLI body used to exit(1) on import, which is why its rules had no
  * test at all. Same guard, same reason.)
  */
+import { isMain } from '../../../scripts/is-main.mjs';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename } from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants. Every one carries its provenance: this repo has been bitten
@@ -1579,6 +1579,6 @@ export function main(argv) {
 
 // Run the CLI only when invoked directly. Importing this module for its helpers
 // must never execute any of the above or call process.exit — see the docblock.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isMain(import.meta.url)) {
   process.exit(main(process.argv));
 }

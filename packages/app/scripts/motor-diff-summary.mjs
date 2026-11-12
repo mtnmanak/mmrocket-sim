@@ -56,10 +56,10 @@
  * The CLI lives in main() behind an entry-point guard so the helpers can be imported and
  * unit-tested; importing this module must never run the CLI or call process.exit.
  */
+import { isMain } from '../../../scripts/is-main.mjs';
 import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { atomicWriteFileSync as writeFileSync } from './atomic-write.mjs';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { FIELDS } from './fetch-motor-db.mjs';
 
 /**
@@ -725,4 +725,4 @@ function main(argv) {
 // Run the CLI only when invoked directly. Importing this module for its helpers must not
 // execute any of the above — bbcode-from-blurb.mjs shipped for months with an unguarded
 // CLI body that called process.exit(1) on import, which is why its rules had no test.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main(process.argv);
+if (isMain(import.meta.url)) main(process.argv);

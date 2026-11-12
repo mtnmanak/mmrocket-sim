@@ -38,6 +38,7 @@
  * Run it after merge-cw-tubes.mjs and before apply-preset-corrections.mjs.
  * IDEMPOTENT: a second run reports 0 changes.
  */
+import { isMain } from '../../../scripts/is-main.mjs';
 import { atomicWriteFileSync } from './atomic-write.mjs';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -176,8 +177,7 @@ export function mergeFruityChutes(db, data) {
   return { changes, added, models: data.models.length };
 }
 
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
-if (isMain) {
+if (isMain(import.meta.url)) {
   const write = process.argv.includes('--write');
   const db = JSON.parse(readFileSync(DB_PATH, 'utf8'));
   const data = JSON.parse(readFileSync(DATA_PATH, 'utf8'));

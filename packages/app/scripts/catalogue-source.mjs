@@ -7,9 +7,9 @@
  * run_started_at. This detects naive post-install tampering; approval review is
  * still the guard against a dependency that compromises the runner itself.
  */
+import { isMain } from '../../../scripts/is-main.mjs';
 import { appendFileSync, readFileSync, readdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 
 // Names this file shares with the workflows; deploy-workflow.test.mjs ties each
@@ -179,4 +179,4 @@ export function main(argv = process.argv.slice(2), {
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = main();
+if (isMain(import.meta.url)) process.exitCode = main();

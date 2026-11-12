@@ -1,4 +1,5 @@
-/** Machine-local settings. Importing this module never reads the filesystem. */
+/** Machine-local settings. Profile contents are read lazily. */
+import { isMain } from './is-main.mjs';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { homedir, hostname } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -103,7 +104,7 @@ export function checkMachineProfile({ env = process.env, log = console.log } = {
   return status;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   if (process.argv.slice(2).length === 1 && process.argv[2] === '--check') process.exitCode = checkMachineProfile();
   else { console.error('Usage: node scripts/machine-profile.mjs --check'); process.exitCode = 2; }
 }

@@ -64,12 +64,13 @@
  * `BuildRefused`, which main() prints line by line before exiting 1, the
  * output the `process.exit(1)` at each check used to give.
  */
+import { isMain } from '../../../scripts/is-main.mjs';
 import { resolveSetting } from '../../../scripts/machine-profile.mjs';
 import { atomicWriteFileSync } from './atomic-write.mjs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // The unit conversion, the store-page reader, the LIST OF MATERIAL row readers,
 // the measured merge and the source-file list live in nozzle-db-helpers.mjs,
@@ -2574,31 +2575,7 @@ export function main({
   return 0;
 }
 
-/**
- * Whether node was asked to run THIS file. The other scripts compare
- * `resolve(argv[1])` with `import.meta.url` and nothing else, but node loads
- * the entry module from its REAL path (`fs.realpathSync`, unless
- * --preserve-symlinks-main): run through a junction or a symlink, argv[1]
- * names the link and import.meta.url the target, the two differ, and the
- * build did nothing and exited 0 — silently, on the one generator CI cannot
- * run (review of AUDIT row 480). So the real path is compared too, and only
- * for an argv[1] with this file's own name: under a test runner argv[1] is
- * the runner, and importing this file must touch no file at all
- * (build-nozzle-db.test.mjs blocks every node:fs call while it imports it).
- */
-function isEntryPoint() {
-  const invoked = process.argv[1];
-  const self = fileURLToPath(import.meta.url);
-  if (!invoked) return false;
-  if (resolve(invoked) === self) return true;
-  if (basename(invoked) !== basename(self)) return false;
-  try {
-    return realpathSync(invoked) === self;
-  } catch {
-    return false;
-  }
-}
-
-if (isEntryPoint()) {
+/** Run only as the entry point; the shared guard resolves directory links. */
+if (isMain(import.meta.url)) {
   process.exitCode = main();
 }

@@ -24,9 +24,10 @@
  *   node packages/app/scripts/dedupe-presets.mjs          # report only
  *   node packages/app/scripts/dedupe-presets.mjs --write  # apply
  */
+import { isMain } from '../../../scripts/is-main.mjs';
 import { atomicWriteFileSync } from './atomic-write.mjs';
 import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { partKey } from './manufacturers.mjs';
 import { fileURLToPath } from 'node:url';
 
@@ -89,4 +90,4 @@ function main() {
   console.log(`\ndatabase updated — ${drop.length} row(s) removed, ${db.presets.length} remain.`);
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (isMain(import.meta.url)) main();

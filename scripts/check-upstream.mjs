@@ -88,10 +88,11 @@
  * pipeline in its documented order.
  */
 
+import { isMain } from './is-main.mjs';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { checkAdvisories } from './upstream-advisories.mjs';
 import { markupAttributes, markupTagEnd } from './markup-scan.mjs';
 import { childElements, elementBlocks } from '../packages/app/scripts/fetch-component-presets.mjs';
@@ -943,6 +944,6 @@ export async function main(checks = DEFAULT_CHECKS, advisories = checkAdvisories
   return status;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (isMain(import.meta.url)) {
   process.exitCode = await main();
 }

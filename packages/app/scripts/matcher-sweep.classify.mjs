@@ -1,7 +1,6 @@
+import { isMain } from '../../../scripts/is-main.mjs';
 import { readFileSync } from 'node:fs';
 import { atomicWriteFileSync as writeFileSync } from './atomic-write.mjs';
-import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
 const oracle = JSON.parse(readFileSync(new URL('./matcher-sweep.oracle.json', import.meta.url), 'utf8')).identities;
 export const classes = ['unchanged', 'right→wrong', 'right→nothing', 'none→wrong', 'none→right', 'wrong→right', 'wrong→wrong', 'wrong→nothing', 'UNVERIFIABLE'];
 export function classify(before, after, allowed) {
@@ -75,7 +74,7 @@ export function audit(meta, records) {
   return { pass: failures.length === 0, failures, files: pairs.size, rawReferences, baselineFoldedReferences, currentFoldedReferences,
     table, noteChanges, changes, e31, excluded, unsupportedFiles, unmatchedImporterRefs };
 }
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   const out = process.argv[2];
   if (!out) throw new Error('Usage: node packages/app/scripts/matcher-sweep.classify.mjs OUTPUT_DIRECTORY');
   const report = audit(JSON.parse(readFileSync(`${out}/meta.json`, 'utf8')), readFileSync(`${out}/results.jsonl`, 'utf8').trim().split('\n').map(JSON.parse));

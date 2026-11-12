@@ -44,10 +44,10 @@
  * The CLI lives in main() behind an entry-point guard so the helpers above can be imported
  * and unit-tested; importing this module must never run the CLI or call process.exit.
  */
+import { isMain } from './is-main.mjs';
 import { existsSync, readFileSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { atomicWriteFileSync as writeFileSync } from '../packages/app/scripts/atomic-write.mjs';
 import { basename, dirname, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 /**
  * A section header is a bullet line that names a release: `- UI Changes (V0.074)`.
@@ -503,4 +503,4 @@ function main(argv) {
 // Run the CLI only when invoked directly. Importing this module for its helpers must not
 // execute any of the above — the top-level CLI body used to exit(1) on import, which is why
 // the 10,000-character rule and the tag-balance check had no test at all.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main(process.argv);
+if (isMain(import.meta.url)) main(process.argv);

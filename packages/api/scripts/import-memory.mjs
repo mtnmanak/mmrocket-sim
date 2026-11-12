@@ -38,6 +38,7 @@
  *
  * Node figures are a proxy. They are not a Cloudflare 128 MB certificate.
  */
+import { isMain } from '../../../scripts/is-main.mjs';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -235,4 +236,4 @@ async function main() {
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();
+if (isMain(import.meta.url)) await main();

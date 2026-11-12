@@ -1,5 +1,6 @@
 // Hand-run, sequential mutation guards. Every file is restored in finally;
 // test process exit codes are captured directly, with a full log per mutant.
+import { isMain } from '../../../scripts/is-main.mjs';
 import { readFileSync, mkdirSync } from 'node:fs';
 import { atomicWriteFileSync as writeFileSync } from './atomic-write.mjs';
 import { spawnSync } from 'node:child_process';
@@ -101,4 +102,4 @@ export function runMutations(names = [], {
 }
 
 // Importing the anchor guards for tests must not launch mutations.
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) process.exitCode = runMutations(process.argv.slice(2));
+if (isMain(import.meta.url)) process.exitCode = runMutations(process.argv.slice(2));

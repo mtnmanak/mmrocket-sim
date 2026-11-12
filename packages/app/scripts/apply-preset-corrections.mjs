@@ -25,9 +25,10 @@
  * future regeneration cannot silently strand or double-apply a correction.
  */
 
+import { isMain } from '../../../scripts/is-main.mjs';
 import { atomicWriteFileSync } from './atomic-write.mjs';
 import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { presetKey } from './manufacturers.mjs';
 
@@ -460,4 +461,4 @@ function main() {
 // Run only when invoked directly. check-upstream.mjs imports CORRECTIONS from
 // here, and an unguarded main() would rewrite presets.json as a side effect of
 // a read-only network check.
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (isMain(import.meta.url)) main();

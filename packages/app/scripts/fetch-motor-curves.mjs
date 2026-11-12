@@ -63,9 +63,10 @@
  * the CLI runs only when this file is the entry point, so
  * fetch-motor-curves.test.mjs drives it against a stubbed API.
  */
+import { isMain } from '../../../scripts/is-main.mjs';
 import { atomicWriteFileSync } from './atomic-write.mjs';
 import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { digestMotorFile, motorHeaderMasses } from './motor-digest.mjs';
 import { sampleListProblem } from './motor-samples.mjs';
@@ -435,6 +436,6 @@ export async function addDigestsMain({ outPath = OUT, fetchImpl = thrustcurveFet
   return 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   process.exitCode = process.argv.includes('--add-digests') ? await addDigestsMain() : await main();
 }

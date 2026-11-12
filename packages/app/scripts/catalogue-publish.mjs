@@ -20,13 +20,13 @@
  * Refuse a manifest above the readers' 256 KiB limit rather than dropping pins.
  * Publication still requires the owner's approval.
  */
+import { isMain } from '../../../scripts/is-main.mjs';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, appendFileSync } from 'node:fs';
 import { atomicWriteFileSync as writeFileSync } from './atomic-write.mjs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual, parseArgs } from 'node:util';
 
 const SOURCE = 'thrustcurve.org API v1, curated by MMRocket Sim (github.com/mtnmanak/mmrocket-sim)';
@@ -604,4 +604,4 @@ export async function main(argv = process.argv.slice(2), { env = process.env, st
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await main();
+if (isMain(import.meta.url)) process.exitCode = await main();

@@ -33,6 +33,7 @@
  * stored whole) and writes the JSON. Numbers in import results are rounded to
  * 14 significant digits in the page, as the test rounds its own.
  */
+import { isMain } from '../../../scripts/is-main.mjs';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { atomicWriteFileSync as writeFileSync } from './atomic-write.mjs';
@@ -152,4 +153,4 @@ async function main() {
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) await main();
+if (isMain(import.meta.url)) await main();

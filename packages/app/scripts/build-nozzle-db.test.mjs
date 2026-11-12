@@ -51,7 +51,7 @@ vi.mock('node:child_process', recorded('child_process'));
 const builder = () => import('./build-nozzle-db.mjs');
 
 describe('importing the builder', () => {
-  it('reads nothing, writes nothing and runs nothing: no docs/, no motors.json, no nozzles.json', async () => {
+  it('reads no data, writes nothing and runs nothing: no docs/, no motors.json, no nozzles.json', async () => {
     const exit = vi.spyOn(process, 'exit').mockImplementation((code) => {
       throw new Error(`process.exit(${code}) at import`);
     });
@@ -59,7 +59,9 @@ describe('importing the builder', () => {
       vi.resetModules(); // evaluate it afresh, whatever an earlier test loaded
       io.calls.length = 0;
       const mod = await builder();
-      expect(io.calls).toEqual([]);
+      // Entry-point guards may probe the runner identity; every data read and
+      // child process remains blocked. The blocked probe is caught by isMain.
+      expect(io.calls.filter(call => call !== `fs.realpathSync(${process.argv[1]})`)).toEqual([]);
       expect(exit).not.toHaveBeenCalled();
       expect(typeof mod.main).toBe('function');
       expect(typeof mod.buildNozzleDb).toBe('function');
@@ -1030,6 +1032,7 @@ describe('running the builder as a command', () => {
     const real = join(dir, 'real', 'packages', 'app', 'scripts');
     mkdirSync(real, { recursive: true });
     mkdirSync(join(dir, 'real', 'scripts'));
+    copyFileSync(join(here, '../../../scripts/is-main.mjs'), join(dir, 'real', 'scripts', 'is-main.mjs'));
     copyFileSync(join(here, '../../../scripts/machine-profile.mjs'), join(dir, 'real', 'scripts', 'machine-profile.mjs'));
     for (const f of ['build-nozzle-db.mjs', 'nozzle-db-helpers.mjs', 'atomic-write.mjs']) copyFileSync(join(here, f), join(real, f));
     const link = join(dir, 'link');

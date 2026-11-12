@@ -35,9 +35,10 @@
  * content survives any editor/codepage mishap on the way through a Windows
  * checkout.
  */
+import { isMain } from './is-main.mjs';
 import { readFileSync } from 'node:fs';
 import { atomicWriteFileSync as writeFileSync } from '../packages/app/scripts/atomic-write.mjs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MOTOR_CORRECTIONS } from '../packages/app/scripts/motor-corrections.mjs';
 
@@ -678,4 +679,4 @@ function main() {
   console.log(`build-user-guide: wrote ${out.sections} sections to packages/app/src/data/userGuide.ts`);
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (isMain(import.meta.url)) main();

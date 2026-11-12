@@ -1,5 +1,6 @@
+import { isMain } from './is-main.mjs';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** Detect broken npm workspace links before tsc/eslint can hide their cause. */
@@ -28,7 +29,7 @@ export function assertWorkspaceLinks(root = fileURLToPath(new URL('../', import.
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   try { assertWorkspaceLinks(); }
   catch (error) { console.error(error.message); process.exitCode = 1; }
 }

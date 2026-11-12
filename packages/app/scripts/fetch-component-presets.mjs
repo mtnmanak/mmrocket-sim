@@ -35,12 +35,13 @@
  * against a stubbed GitHub, never the network.
  */
 
+import { isMain } from '../../../scripts/is-main.mjs';
 import { atomicWriteFileSync } from './atomic-write.mjs';
 import { mkdirSync, readdirSync, readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { openrocketSrcRoot } from '../../../scripts/openrocket-src.mjs';
 import { markupAttributes, markupTagEnd } from '../../../scripts/markup-scan.mjs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { mfrDisplay, presetKey, spellingConflicts } from './manufacturers.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -745,7 +746,7 @@ export async function main({
   return 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   main().then((code) => { process.exitCode = code; }, (err) => {
     console.error(err);
     process.exit(1);

@@ -27,6 +27,7 @@
  * (src/services/motorDigest.census.test.ts), which imports each design with
  * the app's own importer and matcher and writes DIR/results.json.
  */
+import { isMain } from '../../../scripts/is-main.mjs';
 import { resolveSetting } from '../../../scripts/machine-profile.mjs';
 import { atomicWriteFileSync } from './atomic-write.mjs';
 import { createHash } from 'node:crypto';
@@ -141,4 +142,4 @@ export async function main(argv = process.argv.slice(2)) {
   return run.status ?? 1;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await main();
+if (isMain(import.meta.url)) process.exitCode = await main();

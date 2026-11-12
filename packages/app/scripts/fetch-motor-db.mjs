@@ -35,6 +35,7 @@
  * holding a THIRD figure stops the write, as a short page does, and so does a
  * corrected motor that does not come back at all.
  */
+import { isMain } from '../../../scripts/is-main.mjs';
 import { atomicWriteFileSync } from './atomic-write.mjs';
 import { mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -211,4 +212,4 @@ export async function cli(argv = process.argv.slice(2), runMain = main) {
   const { values } = parseArgs({ args: argv, options: { 'full-out': { type: 'string' } } });
   return runMain({ fullOutPath: values['full-out'] });
 }
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await cli();
+if (isMain(import.meta.url)) process.exitCode = await cli();

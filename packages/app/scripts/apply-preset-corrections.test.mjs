@@ -49,12 +49,14 @@ describe.each(Object.entries(retiredMasses).filter(([key]) => !(key in retiredCo
   beforeEach(() => {
     dir = mkdtempSync(join(scratch, 'preset-corrections-'));
     mkdirSync(join(dir, 'scripts'));
-    mkdirSync(join(dir, 'src/data'), { recursive: true });
+    copyFileSync(join(here, '../../../scripts/is-main.mjs'), join(dir, 'scripts/is-main.mjs'));
+    mkdirSync(join(dir, 'packages/app/scripts'), { recursive: true });
+    mkdirSync(join(dir, 'packages/app/src/data'), { recursive: true });
     for (const file of ['apply-preset-corrections.mjs', 'manufacturers.mjs', 'atomic-write.mjs']) {
-      copyFileSync(join(here, file), join(dir, 'scripts', file));
+      copyFileSync(join(here, file), join(dir, 'packages/app/scripts', file));
     }
-    script = join(dir, 'scripts/apply-preset-corrections.mjs');
-    path = join(dir, 'src/data/presets.json');
+    script = join(dir, 'packages/app/scripts/apply-preset-corrections.mjs');
+    path = join(dir, 'packages/app/src/data/presets.json');
     db = structuredClone(shipped);
     expect(db.presets.filter(isTarget)).toHaveLength(1);
     db.presets.find(isTarget).mass = bad;
@@ -71,7 +73,7 @@ describe.each(Object.entries(retiredMasses).filter(([key]) => !(key in retiredCo
     if (good === undefined) delete db.presets.find(isTarget).mass;
     else db.presets.find(isTarget).mass = good;
     expect(readFileSync(path, 'utf8')).toBe(serialize(db));
-    const retiredPath = join(dir, 'src/data/retiredPresetMasses.json');
+    const retiredPath = join(dir, 'packages/app/src/data/retiredPresetMasses.json');
     const retired = readFileSync(retiredPath, 'utf8');
     expect(JSON.parse(retired)).toEqual(retiredMasses);
     // The committed browser input must stay in sync with the correction table.
@@ -96,7 +98,7 @@ describe.each(Object.entries(retiredMasses).filter(([key]) => !(key in retiredCo
     writeFileSync(path, serialize(db));
     const result = run();
     expect(result.status, result.stdout + result.stderr).toBe(0);
-    expect(JSON.parse(readFileSync(join(dir, 'src/data/retiredPresetMasses.json'), 'utf8')))
+    expect(JSON.parse(readFileSync(join(dir, 'packages/app/src/data/retiredPresetMasses.json'), 'utf8')))
       .toEqual(retiredMasses);
     expect(readFileSync(path, 'utf8')).toBe(serialize(db));
   });
@@ -112,7 +114,7 @@ describe.each(Object.entries(retiredMasses).filter(([key]) => !(key in retiredCo
     expect(result.status, result.stdout + result.stderr).toBe(1);
     expect(result.stderr).toContain(key);
     expect(readFileSync(path, 'utf8')).toBe(raw);
-    expect(existsSync(join(dir, 'src/data/retiredPresetMasses.json'))).toBe(false);
+    expect(existsSync(join(dir, 'packages/app/src/data/retiredPresetMasses.json'))).toBe(false);
   });
 });
 
@@ -122,12 +124,14 @@ describe.each(Object.entries(retiredCorrections))('%s: a retired correction', (k
   beforeEach(() => {
     dir = mkdtempSync(join(scratch, 'preset-corrections-'));
     mkdirSync(join(dir, 'scripts'));
-    mkdirSync(join(dir, 'src/data'), { recursive: true });
+    copyFileSync(join(here, '../../../scripts/is-main.mjs'), join(dir, 'scripts/is-main.mjs'));
+    mkdirSync(join(dir, 'packages/app/scripts'), { recursive: true });
+    mkdirSync(join(dir, 'packages/app/src/data'), { recursive: true });
     for (const file of ['apply-preset-corrections.mjs', 'manufacturers.mjs', 'atomic-write.mjs']) {
-      copyFileSync(join(here, file), join(dir, 'scripts', file));
+      copyFileSync(join(here, file), join(dir, 'packages/app/scripts', file));
     }
-    script = join(dir, 'scripts/apply-preset-corrections.mjs');
-    path = join(dir, 'src/data/presets.json');
+    script = join(dir, 'packages/app/scripts/apply-preset-corrections.mjs');
+    path = join(dir, 'packages/app/src/data/presets.json');
   });
   afterEach(() => {
     if (dir && dirname(dir) === scratch) rmSync(dir, { recursive: true, force: true });
@@ -147,7 +151,7 @@ describe.each(Object.entries(retiredCorrections))('%s: a retired correction', (k
     const result = run();
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(readFileSync(path, 'utf8')).toBe(raw);
-    const retired = readFileSync(join(dir, 'src/data/retiredPresetMasses.json'), 'utf8');
+    const retired = readFileSync(join(dir, 'packages/app/src/data/retiredPresetMasses.json'), 'utf8');
     expect(JSON.parse(retired)).toEqual(retiredMasses);
     expect(readFileSync(join(here, '../src/data/retiredPresetMasses.json'), 'utf8')).toBe(retired);
   });
@@ -161,6 +165,6 @@ describe.each(Object.entries(retiredCorrections))('%s: a retired correction', (k
     expect(result.status, result.stdout + result.stderr).toBe(1);
     expect(result.stderr).toContain(`RETIRED CORRECTION NEEDED AGAIN: ${key}`);
     expect(readFileSync(path, 'utf8')).toBe(raw);
-    expect(existsSync(join(dir, 'src/data/retiredPresetMasses.json'))).toBe(false);
+    expect(existsSync(join(dir, 'packages/app/src/data/retiredPresetMasses.json'))).toBe(false);
   });
 });

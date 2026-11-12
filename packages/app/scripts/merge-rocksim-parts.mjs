@@ -51,6 +51,7 @@
  * synthetic CSVs.
  */
 
+import { isMain } from '../../../scripts/is-main.mjs';
 import { atomicWriteFileSync } from './atomic-write.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -619,6 +620,6 @@ need this to regenerate it.`);
   return 0;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   process.exitCode = main();
 }
