@@ -601,7 +601,7 @@ MyEX-K600 54 410 P 0.900 1.650 EX
  * nothing for catalogue motors and everything for a home-written EX file: of
  * 1,275 engine records in the local .rse corpus, 1,274 state exitDia="0." and
  * the one that does not is the Klima B2 reproduced below, byte for byte from
- * G:/Documents/Dropbox/Rocksim Engine Files/Klima.rse. An EX motor matches
+ * the local Dropbox corpus, Rocksim Engine Files/Klima.rse. An EX motor matches
  * nothing in the nozzle database, so the file is the only source it has.
  */
 describe('a .rse nozzle exit diameter', () => {

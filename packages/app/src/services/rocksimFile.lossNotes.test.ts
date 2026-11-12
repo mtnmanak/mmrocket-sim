@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { rocksimCorpusPath } from './rocksimCorpusPath.testSupport.mjs';
 import { OrkRocket, resetEngine, type ComponentNode } from '@online-openrocket/engine';
 import { importRkt } from './rocksimFile.js';
 import { countParts } from '../tree/sanitize.js';
@@ -123,10 +124,11 @@ describe('RockSim discloses losses without moving or retaining the lost parts', 
     ['Semroc/USS-Andromeda.rkt', 16, 0.04578676407442068,
       'e45bcbb0436aed786075699401fdebe5fe40ab5272971998811f9eefa83d8b5d'],
   ] as const) {
-    // Local-only corpus, as in the other corpus-backed suites. Prefer docs when present.
+    // Local corpus from override/profile; preserve docs and legacy env fallbacks.
+    const corpusRoot = rocksimCorpusPath();
     const path = [join(here, '../../../../docs/User files/Rocksim Designs', name),
       ...(process.env.ROCKSIM_DESIGNS ? [join(process.env.ROCKSIM_DESIGNS, name)] : []),
-      join('G:/Documents/Dropbox/Rocksim Designs', name)].find(p => existsSync(p));
+      ...(corpusRoot ? [join(corpusRoot, name)] : [])].find(p => existsSync(p));
     it.skipIf(!path)(`${name}: same parts and built mass, bounded fin-loss summary`, () => {
       const xml = readFileSync(path!, 'utf8');
       // happy-dom needs the same CDATA inlining as the RockSim importer.

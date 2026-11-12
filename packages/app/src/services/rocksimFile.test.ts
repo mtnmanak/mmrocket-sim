@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { rocksimCorpusPath } from './rocksimCorpusPath.testSupport.mjs';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { exportRkt, importRkt, rktComponentInfo, rktEveryDelay, rktPackedChuteSize } from './rocksimFile.js';
 import { exportOrk, importOrk, type OrkExportMotor } from './orkFile.js';
@@ -1878,7 +1879,8 @@ describe('.rkt ignition delays — read and written for every event RockSim can 
   });
 
   // The owner's own file, local-only: simulation 3 lights six H115DM 2 s after the I599N.
-  const BRUISER = ['G:/Documents/Dropbox/Rocksim Designs', 'C:/Users/peltz/Dropbox/Rocksim Designs']
+  const corpusRoot = rocksimCorpusPath();
+  const BRUISER = (corpusRoot ? [corpusRoot] : [])
     .map((c) => `${c}/LOC Precision Rocketry/PELTZER - LOC Bruiser EXP v2_1x54mm_6x29mm.rkt`).find((p) => existsSync(p));
   it.skipIf(!BRUISER)('PELTZER - LOC Bruiser EXP v2_1x54mm_6x29mm.rkt: simulation 3 is an air start', () => {
     const r = importRkt(readFileSync(BRUISER!, 'latin1'));
@@ -3954,7 +3956,8 @@ describe('.rkt clusters and off-axis tubes round-trip: count, place, motors', ()
     expect(mounts.map((m) => r.motors[m.id!]?.delay)).toEqual([30, 0]);
   });
 
-  const corpus = ['G:/Documents/Dropbox/Rocksim Designs', 'C:/Users/peltz/Dropbox/Rocksim Designs'];
+  const corpusRoot = rocksimCorpusPath();
+  const corpus = corpusRoot ? [corpusRoot] : [];
   const ECLIPSE = corpus.map((c) => `${c}/Public Missiles/EclipseB_38mmRedlineEllis.rkt`).find((p) => existsSync(p));
   it.skipIf(!ECLIPSE)('EclipseB_38mmRedlineEllis.rkt: two tubes, two motors, each its own delay', () => {
     const r = importRkt(readFileSync(ECLIPSE!, 'latin1'));

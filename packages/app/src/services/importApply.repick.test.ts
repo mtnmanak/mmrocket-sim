@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { rocksimCorpusPath } from './rocksimCorpusPath.testSupport.mjs';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
@@ -203,7 +204,9 @@ describe('planImport — opens a configuration that can leave the pad', () => {
  */
 describe('planImport — the owner’s designs open flyable', () => {
   const repo = join(here, '../../../..');
-  const corpora = ['G:/Documents/Dropbox/Rocksim Designs', 'C:/Users/peltz/Dropbox/Rocksim Designs'];
+  // Optional corpus from ROCKSIM_CORPUS or the machine profile's Dropbox.
+  const root = rocksimCorpusPath();
+  const corpora = root ? [root] : [];
   const find = (...candidates: string[]) => candidates.find((p) => existsSync(p));
   const cases: [string, string | undefined, string][] = [
     ['4in WM Extreme.rkt', find(join(repo, 'docs/User files/4in WM Extreme.rkt')), 'M2700W'],
