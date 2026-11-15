@@ -5,6 +5,18 @@
 // unresolved-host custom-bore and radius-limit wall fixtures in ScaleDialog.test
 // cover rejection and the last accepted value. scaleRocket.test checks both
 // snap writers and load-boundary identity near the same limit.
+// Rows 115(e)/121 round 2: rocksimFile 281 -> 284 adds the unresolved-delay
+// import disclosure and the numeric timer/consequence in burnout export fallback.
+// The airfoil threshold now uses noticeEqual and formats against its boundary;
+// 90 g / 0.9 kg and just-below rounding regressions cover that decision. Staging
+// tests cover written Auto/sentinel delays, folding, per-config caution tiers,
+// plugged/mixed/empty export semantics and independent event/timer expectations.
+// Rows 115(e)/121: rocksimFile 276 -> 281 reviews two unit-aware mass
+// formatters (the strictly-below-0.1 airfoil caution) and three staging
+// disclosures (plugged, mixed delays, ignition before separation). Boundary,
+// density and selected-unit tests live in rocksimFile.test; exact timeline
+// and inverse export cases live in rocksimStaging.peakOfFlight.test. The
+// I11/I18 explanation codes share existing groups, so no explanation count moves.
 // Batch-all Round 5: batchSweep 3 -> 4 adds a per-leg diameter refusal using
 // motorDb.fitsMount's existing diameter-class / picker-bore rule. The dialog
 // applies that same rule to the narrowest target (including OOP refusal advice).
