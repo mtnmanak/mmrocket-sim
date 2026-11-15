@@ -25,7 +25,7 @@ it.each([[1000, 20, undefined], [300, 40, 'ASYMMETRIC_THRUST_CAUTION']] as const
     expect(warnings.map(w => w.key)).toEqual(key ? [key] : []);
     if (key) {
       expect(warnings[0]?.message).toContain('13.3 %');
-      expect(warnings[0]?.message).not.toContain('cannot tell');
+      expect(warnings[0]?.message).toContain('cannot tell'); // Conservative round-6 bound includes the known moment.
     }
   },
 );

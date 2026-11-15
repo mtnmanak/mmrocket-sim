@@ -25,8 +25,8 @@ it.each([undefined, 1])('round 4 never sums opposite serial motors, separation %
   const warnings = asymmetricThrustWarnings(tree, [['boost', motor], ['m0', motor]], flight(0, separation));
   expect(warnings.map(w => w.key)).toEqual(['ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_DANGER']);
   expect(warnings.every(w => w.message.includes('after separation'))).toBe(false);
-  expect(warnings[0]?.message).toMatch(/^Sustainer:/);
-  expect(warnings[1]?.message).toMatch(/^Booster:/);
+  expect(warnings[0]?.message).toMatch(/^Stage Sustainer:/);
+  expect(warnings[1]?.message).toMatch(/^Stage Booster:/);
   expect(warnings.every(w => w.message.includes('100 %'))).toBe(true);
 });
 
@@ -158,5 +158,5 @@ it('round 4 preserves an upper check when the middle-stage trigger is still pend
   const warnings = asymmetricThrustWarnings(tree, [['boost', boost], ['mid', middle], ['m0', upper]], result);
   expect(warnings).toHaveLength(1);
   expect(warnings[0]?.key).toBe('ASYMMETRIC_THRUST_UNKNOWN');
-  expect(warnings[0]?.message).toMatch(/^Sustainer:/);
+  expect(warnings[0]?.message).toMatch(/^Stage Sustainer:/);
 });

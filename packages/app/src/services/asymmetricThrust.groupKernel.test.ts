@@ -85,7 +85,7 @@ it.each([6, Infinity])('round 4 real kernel: J350W delay %s never dilutes a G80T
   for (const warnings of [out.warnings, asymmetricThrustWarnings(tree, Object.entries(motors))]) {
     expect(warnings).toHaveLength(1);
     expect(warnings[0]?.key).toBe('ASYMMETRIC_THRUST_DANGER');
-    expect(warnings[0]?.message).toMatch(/^Sustainer:/);
+    expect(warnings[0]?.message).toMatch(/^Stage Sustainer:/);
   }
 }, 60_000);
 

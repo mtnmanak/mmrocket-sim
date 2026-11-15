@@ -60,7 +60,7 @@ it.each(['one upper tube', 'mixed upper pair', 'one booster tube'])(
     const warnings = out.run.simWarnings!.filter(w => w.key.startsWith('ASYMMETRIC_THRUST_'));
     expect(warnings.some(w => w.key === 'ASYMMETRIC_THRUST_DANGER')).toBe(true);
     if (scenario !== 'one booster tube') {
-      expect(warnings.some(w => w.message.startsWith('Sustainer:'))).toBe(true);
+      expect(warnings.some(w => w.message.startsWith('Stage Sustainer:'))).toBe(true);
     } else {
       expect(asymmetricThrustWarnings(tree, Object.entries(motors))[0]?.key).toBe('ASYMMETRIC_THRUST_DANGER');
       expect(warnings.some(w => w.message.includes('Firing then: boost.'))).toBe(true);

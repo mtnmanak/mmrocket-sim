@@ -1,4 +1,8 @@
 // @vitest-environment happy-dom
+// Row 127 round 6: reviewed owning/source-stage activation keys and the
+// conservative preflight sum of known/unknown maximum moment magnitudes.
+// Existing 5%/20%/1 mm thresholds, two formatters and census counts remain.
+// round6 regressions distinguish missed additive moments from measured advice.
 // Row 127 round 5: reviewed common peak/radius floors for unknown-event sets,
 // per-motor relative delays, retained launch-clock times and inclusive 1 mm
 // roundoff. Caution display is capped at 19.9% so rounding cannot print 20%.

@@ -101,6 +101,17 @@ export function asymmetricThrustWarnings(
     const launchStage = !serial.length || stage?.type === 'parallelstage' || stage === serial.at(-1);
     return event === 'automatic' ? launchStage ? 'launch' : 'ejectioncharge' : event;
   };
+  const stageKeys = new Map([...new Set(stageOf.values())].map((stage, i) => [stage, i]));
+  const triggerKey = (id: string) => {
+    const owner = stageOf.get(id);
+    // Burnout/ejection can activate only the immediately upper owning stage.
+    // Include the source stages and mounts, not just the event's spelling.
+    const sources = [...installed.keys()].filter(source => {
+      const sourceStage = stageOf.get(source);
+      return sourceStage !== undefined && parent.get(sourceStage) === owner;
+    }).map(source => [stageKeys.get(stageOf.get(source)), source]);
+    return JSON.stringify([stageKeys.get(owner), trigger(id), sources]);
+  };
   const recordedIgnition = (id: string) => events.filter(e => e.type === 'IGNITION'
     && e.motorMountId === id && Number.isFinite(e.time)).map(e => e.time);
   const flightEnd = (id: string) => {
@@ -161,10 +172,10 @@ export function asymmetricThrustWarnings(
     ? ' The flight ended before every motor\'s ignition could be checked. Check the ignition settings and fly again.'
     : ' Includes an airstart whose time the app cannot tell before you fly; it is checked again on the launch report.';
   for (const [stage, sites] of groups) {
-    const prefix = serial.length > 1 ? `${noteField(stage?.name || 'Stage')}: ` : '';
+    const prefix = serial.length > 1 ? `Stage ${noteField(stage?.name || 'Stage')}: ` : '';
     const sets = new Map<string, ThrustSite[]>();
     for (const site of sites.filter(s => s.ignition === null)) {
-      const key = trigger(site.mountId) ?? 'automatic';
+      const key = result ? trigger(site.mountId) ?? 'automatic' : triggerKey(site.mountId);
       const copies = sets.get(key) ?? [];
       copies.push(site);
       sets.set(key, copies);
@@ -180,11 +191,17 @@ export function asymmetricThrustWarnings(
     // radius. Use the same denominator for known and unknown-time advice.
     const peakFloor = Math.max(thrustImbalance(measured).peak, ...timedSets.map(copies => thrustImbalance(copies).peak));
     const radius = sites.reduce((r, s) => Math.max(r, Math.hypot(s.y, s.z)), 0);
-    const unknown = !relative && timedSets.some(copies => {
-      const worst = thrustImbalance(copies, peakFloor, radius);
+    const measuredWorst = thrustImbalance(measured, peakFloor, radius);
+    const unknownWorst = timedSets.map(copies => thrustImbalance(copies, peakFloor, radius));
+    // With unknown relative timing, each set's largest moment could add to
+    // the known motors' largest moment. Aligning those magnitudes bounds
+    // every possible overlap; checking the sets separately can miss a warning.
+    const boundOffset = measuredWorst.offset + unknownWorst.reduce((sum, worst) => sum + worst.offset, 0);
+    const unknown = !relative && (result ? unknownWorst.some(worst => {
       return reaches(worst.fraction, 0.05) && reaches(worst.offset, MIN_THRUST_OFFSET_M);
-    });
-    const { fraction, time, firing, offset } = thrustImbalance(measured, peakFloor, radius);
+    }) : timedSets.length > 0 && radius > 0 && reaches(boundOffset / radius, 0.05)
+      && reaches(boundOffset, MIN_THRUST_OFFSET_M));
+    const { fraction, time, firing, offset } = measuredWorst;
     if (reaches(fraction, 0.05) && reaches(offset, MIN_THRUST_OFFSET_M)) {
       const danger = reaches(fraction, 0.20);
       // Round down within Caution rather than displaying Danger's 20% boundary.

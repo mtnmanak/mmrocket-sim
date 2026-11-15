@@ -146,13 +146,13 @@ describe('row 127 thrust balance', () => {
     expect(asymmetricThrustWarnings(tree, motors, flight).map(w => w.key))
       .toEqual(['ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_DANGER']);
   });
-  it('round 2 flags unknown only for a mount whose own copies can imbalance thrust', () => {
+  it('round 6 retains uncertainty when the combined bound can imbalance thrust', () => {
     const tree = balanceTree(2);
     const mounts = tree.components[0]!.children![0]!.children!;
     mounts[0]!.radialPosition = 0;
     const air = { ...balanceMotor(), ignition: { event: 'burnout' as const, delay: 0 } };
     expect(asymmetricThrustWarnings(tree, entries([air, balanceMotor()]))[0]?.message).not.toContain('unknown');
-    expect(asymmetricThrustWarnings(tree, entries([air, balanceMotor()]))[0]?.message).not.toContain('cannot tell');
+    expect(asymmetricThrustWarnings(tree, entries([air, balanceMotor()]))[0]?.message).toContain('cannot tell');
     Object.assign(mounts[0]!, { cluster: '3-ring' });
     expect(asymmetricThrustWarnings(tree, entries([air]))).toEqual([]);
     mounts[0]!.radialPosition = 0.06;
