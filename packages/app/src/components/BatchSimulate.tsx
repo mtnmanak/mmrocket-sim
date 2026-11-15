@@ -211,6 +211,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   //    pair of candidates;
   //  - pair mode (6-ring only): split into THREE opposite-tube pairs, every
   //    candidate multiset — covers 4+2 and 2+2+2 (the owner flies these).
+  // Separate ring tubes use these same groups but fly every ordered arrangement.
   const [comboMode, setComboMode] = useState(false);
   const [pairMode, setPairMode] = useState(false);
   // Which stages carry a nozzle exit diameter — what the sweep strips, and
@@ -470,10 +471,10 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   // The time-step caution multiplies by this: a fine step's cost is per
   // flight, and the launch panel's per-flight caution says nothing about a
   // candidate list turning 15 s of freeze into 20 minutes of it.
-  const halvesCombination = clusterSplit ? batchSplitCombination(clusterSplit, assignedIgnitions, weighed, candidates) : null;
-  const pairsCombination = pairSplit ? batchSplitCombination(pairSplit, assignedIgnitions, weighed, candidates) : null;
+  const halvesCombination = clusterSplit ? batchSplitCombination(clusterSplit) : null;
+  const pairsCombination = pairSplit ? batchSplitCombination(pairSplit) : null;
   const mixedTitle = (combination: NonNullable<typeof halvesCombination>, groups: string) =>
-    `Also fly ${groups}. ${combination.ordered ? 'Fly every arrangement because ignition settings or weighed hardware differ between groups.' : 'Fly each mix once because the groups are interchangeable.'} With ${candidates.length} candidates, adds ${mixedComboCount(candidates.length, combination)} extra flights. Off = one motor type in every target tube.`;
+    `Also fly ${groups}. ${combination.ordered ? 'Fly every arrangement across the separate tubes.' : 'Fly each mix once because the groups share one cluster mount.'} With ${candidates.length} candidates, adds ${mixedComboCount(candidates.length, combination)} extra flights. Off = one motor type in every target tube.`;
   const ticked = [
     ...(comboMode && halvesCombination ? [{ name: halvesName, ...halvesCombination }] : []),
     ...(pairMode && pairsCombination ? [{ name: PAIRS_NAME, ...pairsCombination }] : []),

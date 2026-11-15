@@ -1,4 +1,8 @@
 // @vitest-environment happy-dom
+// Batch-all Round 4: census unchanged. Separate-ring mixtures always use the
+// ordered descriptor; the existing tooltip producer counts those arrangements.
+// Synchronous 4-/6-ring, overhang, loaded-OFF and cluster-split regressions cover
+// enumeration, keys and counts. No measurement limit, tolerance or note changed.
 // Batch-all Round 3: BatchSimulate 16 -> 17 adds the shared mixed-tooltip
 // producer, whose count uses the same descriptor as enumeration and visible
 // counts. The 4-/6-ring dialog tests cover ignition and weighed ordering.
