@@ -16,6 +16,9 @@ import { DesignConfirms } from './components/DesignConfirms.js';
 import { RecentDesignsDialog } from './components/RecentDesignsDialog.js';
 import { rememberRecentDesign } from './services/recentDesigns.js';
 import { assignMotorRecords, planMotorAssignment, retireLoadoutNote } from './services/motorAssignment.js';
+import { otherMountMotor, otherMountPlan, otherMountShape, otherMountStageChanges, otherMountStagesHold,
+  restoreOtherMounts, restoreOtherMountStages } from './services/otherMountLoad.js';
+import { OtherMountOffer } from './components/OtherMountOffer.js';
 import { prepareOrkExport, exportMotorsMap as assembleExportMotors,
   flightExportInput as assembleFlightExportInput } from './services/exportAssembly.js';
 import { OpenMotorDialog } from './components/OpenMotorDialog.js';
@@ -508,7 +511,25 @@ export function App() {
   // on its mount, or — a fresh design — EMPTY: it gets its starter motor from
   // the effect below, the catalogue's Estes C6 with its published curve, which
   // the shipped bundle answers with no network.
-  const [mountMotors, setMountMotors] = useState<Record<string, MountMotor>>(restored.state.mountMotors);
+  const [otherMountOffer, setOtherMountOffer] = useState<{
+    sourceId: string; configId: string | null; shape: string;
+    plan: ReturnType<typeof otherMountPlan>;
+    before?: { motors: Record<string, MountMotor>; refs: Record<string, OrkMotorRef>; configs: SavedConfig[];
+      fileNote: HeldNote | null; repairNotice: Notice | null };
+    after?: { fileNote: HeldNote | null; repairNotice: Notice | null };
+    stages?: ReturnType<typeof otherMountStageChanges>;
+  } | null>(null);
+  const [mountMotors, setMountMotorsRaw] = useState<Record<string, MountMotor>>(restored.state.mountMotors);
+  const mountMotorsRef = useRef(mountMotors);
+  mountMotorsRef.current = mountMotors;
+  // Advance outside React's updater: a bulk pick composes several normal assignments.
+  // Every motor edit also retires the previous offer and its local Undo receipt.
+  const setMountMotors = useCallback((next: Record<string, MountMotor> | ((prev: Record<string, MountMotor>) => Record<string, MountMotor>)) => {
+    const value = typeof next === 'function' ? next(mountMotorsRef.current) : next;
+    mountMotorsRef.current = value;
+    setOtherMountOffer(null);
+    setMountMotorsRaw(value);
+  }, []);
   const motorChoices = useRef(new Map<string, object>());
   const beginMotorChoice = (mountId: string) => {
     const token = {};
@@ -1101,7 +1122,7 @@ export function App() {
     migrateSavedMark(designSnapshot, { ...designSnapshot, mountMotors: motors, savedConfigs: configs });
     setMountMotors(motors);
     setSavedConfigs(configs);
-  }), [designSnapshot, migrateSavedMark]);
+  }), [designSnapshot, migrateSavedMark, setMountMotors]);
 
   // The autosave effect itself sits below `flownAutoDelaysNow`: it carries
   // what a Save would write for each Auto mount's delay, from the export input.
@@ -1941,7 +1962,7 @@ export function App() {
     tree.components, legacyPositionCheck, treeRef, writeTree, assigned, prefs.units.motorDimensions]);
 
   /** Assigns a motor to a mount, with the propellant-aware ignition default. */
-  const assignMotor = (targetMountId: string, label: string, spec: MotorSpec, meta: MotorMeta) => {
+  const assignMotor = (targetMountId: string, label: string, spec: MotorSpec, meta: MotorMeta, keepMountSettings = false) => {
     motorChoices.current.delete(targetMountId);
     // THE LIVE TREE, not this render's (2026-09-08, from review). Both motor
     // pickers call `onSelect` only after an AWAITED thrust-curve fetch, so the
@@ -1953,6 +1974,10 @@ export function App() {
     // Pure decisions; keep the live reads and React effect order here (audit 2026-10-11, S2-8).
     const plan = planMotorAssignment({ tree: live, targetMountId, label, spec, meta,
       refs: unmatchedRefsRef.current, savedConfigs, activeConfigId, massText, statedWeightText });
+    if (keepMountSettings) {
+      const old = overrideFor(mountMotorsRef.current, targetMountId);
+      plan.fresh = otherMountMotor(plan.fresh, old, plan.droppedRef);
+    }
     setMountMotors((prev) => assignMotorRecords(prev, live, targetMountId, plan));
     const { repairedConfig, repairNotice } = plan;
     if (repairedConfig && repairNotice) {
@@ -1993,6 +2018,67 @@ export function App() {
         writeTree(fix.tree);
       }
     }
+  };
+
+  const offerOtherMounts = (sourceId: string) => {
+    const plan = otherMountPlan(treeRef.current, mountMotorsRef.current, sourceId, unmatchedRefsRef.current);
+    if (plan.targets.length) setOtherMountOffer({ sourceId, configId: activeConfigId, plan,
+      shape: otherMountShape(treeRef.current, sourceId) });
+  };
+  const otherMountOfferApplies = otherMountOffer !== null && otherMountOffer.configId === activeConfigId
+    && otherMountOffer.shape === otherMountShape(tree, otherMountOffer.sourceId)
+    && otherMountStagesHold(tree, otherMountOffer.stages ?? []);
+  useEffect(() => {
+    if (otherMountOffer && !otherMountOfferApplies) setOtherMountOffer(null);
+  }, [otherMountOffer, otherMountOfferApplies]);
+  useEffect(() => {
+    if (otherMountOffer?.before && !otherMountOffer.after) {
+      setOtherMountOffer({ ...otherMountOffer, after: { fileNote: fileNoteState, repairNotice: motorLoadoutRepair } });
+    }
+  }, [otherMountOffer, fileNoteState, motorLoadoutRepair]);
+  const loadOtherMounts = () => {
+    if (!otherMountOffer || !otherMountOfferApplies) return;
+    const { sourceId, plan } = otherMountOffer;
+    const source = overrideFor(mountMotorsRef.current, sourceId);
+    if (!source) return;
+    const before = { motors: mountMotorsRef.current, refs: unmatchedRefsRef.current, configs: savedConfigs,
+      fileNote: fileNoteState, repairNotice: motorLoadoutRepair };
+    const beforeTree = treeRef.current;
+    for (const target of plan.targets) assignMotor(target.id, source.label, source.spec, source.meta, true);
+    setOtherMountOffer({ ...otherMountOffer, before, shape: otherMountShape(treeRef.current, sourceId),
+      stages: otherMountStageChanges(beforeTree, treeRef.current) });
+  };
+  const undoOtherMounts = () => {
+    if (!otherMountOffer?.before || !otherMountOfferApplies) return;
+    const { before, plan, configId } = otherMountOffer;
+    const ids = plan.targets.map(t => t.id);
+    setMountMotors(prev => {
+      const next = restoreOtherMounts(prev, before.motors, ids);
+      // Normal assignment can satisfy a primary mount's unmatched-motor weighing
+      // sentinel. Undo restores that bookkeeping too, without moving its motor.
+      for (const [id, old] of Object.entries(before.motors)) {
+        if (!ids.includes(id) && overrideFor(prev, id)?.padMassWeighedWith !== old.padMassWeighedWith) next[id] = old;
+      }
+      return next;
+    });
+    setUnmatchedRefs(prev => restoreOtherMounts(prev, before.refs, ids));
+    const previous = before.configs.find(c => c.id === configId);
+    if (previous) setSavedConfigs(prev => prev.map(c => {
+      if (c.id !== configId) return c;
+      const { unmatched: _u, unmatchedRefs: _r, motorLoadoutRefusal: _f, ...rest } = c;
+      return { ...rest, ...(previous.unmatched ? { unmatched: previous.unmatched } : {}),
+        ...(previous.unmatchedRefs ? { unmatchedRefs: previous.unmatchedRefs } : {}),
+        ...(previous.motorLoadoutRefusal ? { motorLoadoutRefusal: previous.motorLoadoutRefusal } : {}) };
+    }));
+    if (fileNoteState === otherMountOffer.after?.fileNote) setFileNoteState(before.fileNote);
+    if (motorLoadoutRepair === otherMountOffer.after?.repairNotice) setMotorLoadoutRepair(before.repairNotice);
+    if (otherMountOffer.stages?.length) writeTree(restoreOtherMountStages(treeRef.current, otherMountOffer.stages));
+    document.getElementById(`cfg-mount-${otherMountOffer.sourceId}-motor`)?.focus({ preventScroll: true });
+  };
+  const dismissOtherMounts = () => {
+    if (!otherMountOffer) return;
+    document.getElementById(`cfg-mount-${otherMountOffer.sourceId}-motor`)?.focus({ preventScroll: true });
+    setOtherMountOffer(null);
   };
 
   /**
@@ -2966,6 +3052,7 @@ export function App() {
    * means override" rule any more.
    */
   const editIgnition = (id: string, tuple: IgnitionTuple, scope: FlightEditScope, numeric = false, finished = false) => {
+    setOtherMountOffer(null);
     const gesture = numeric ? flightEdit.current : null;
     const own = overrideFor((tree as FlightTree).ignitionDefaults, id);
     const baseline = own ?? overrideFor(mountMotors, id)!.ignition;
@@ -3013,6 +3100,7 @@ export function App() {
   };
 
   const commitActiveOverrides = (patch: FlightOverrides, numeric = false) => {
+    if (patch.ignitions) setOtherMountOffer(null);
     const owner = numeric ? flightEdit.current?.owner : undefined;
     const configId = owner ? typeof owner === 'object' ? owner.configId : null : activeLayer?.id;
     if (configId) commitFlightLayers({ configs: savedConfigs.map(c => c.id === configId ? { ...c, ...patch } : c) }, numeric);
@@ -4973,11 +5061,19 @@ export function App() {
                     maxMotorLengthM={motorLengthLimit(mNode)}
                     selectedLabel={mm?.label ?? ''}
                     beginSelection={() => beginMotorChoice(m.id!)}
-                    onSelect={(label, spec, meta) => assignMotor(m.id!, label, spec, meta)}
+                    onSelect={(label, spec, meta) => {
+                      assignMotor(m.id!, label, spec, meta);
+                      offerOtherMounts(m.id!);
+                    }}
                     loadedMotors={Object.values(mountMotors).map((x) => ({ label: x.label, manufacturer: x.meta.manufacturer, motorId: x.meta.motorId }))}
                     showQuickPicks={quickPicksOffered}
                     primaryControlId={`cfg-mount-${m.id!}-motor`}
                   />
+                  <div className="other-mount-offer-status" role="status">
+                    {otherMountOfferApplies && otherMountOffer?.sourceId === m.id && mm && <OtherMountOffer
+                      motor={mm} plan={otherMountOffer.plan} loaded={!!otherMountOffer.before}
+                      onLoad={loadOtherMounts} onUndo={undoOtherMounts} onDismiss={dismissOtherMounts} />}
+                  </div>
                   <div className="zero-delay-recovery" role="status">
                     {mm && mm.ignition?.event !== 'never' && zeroDelayRecoveryAdvice(flightTree, m.id!, mm.spec.ejectionDelay, mm.meta.autoDelay) && (
                       <Note tier="caution" as="p" className="comp-stats">

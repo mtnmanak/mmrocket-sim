@@ -1335,6 +1335,29 @@ describe('MotorBrowser — the OOP badge marks out-of-production motors only', (
 
 
 describe('per-mount length flag and opt-in hiding', () => {
+  it('round 3 keeps only-fit filtering enabled when an imported EX fits within browser slack', async () => {
+    const h = openBrowser({ mountDiameterMm: 24, maxMotorLengthM: 0.07 - 5e-10, filters: { fitsOnly: true } });
+    try {
+      await importFiles(h, [{ name: 'length-slack.eng', text: 'Round3Slack 24 70 5 0.01 0.02 Test\n0 0\n0.1 20\n1 0\n' }]);
+      const fits = [...h.host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
+        .find(el => el.parentElement?.textContent?.includes('only motors that fit'))!;
+      expect(fits.checked).toBe(true);
+      expect(bodyRows(h).some(r => r.textContent?.includes('Round3Slack'))).toBe(true);
+    } finally { closeBrowser(h); }
+  });
+  it('round 3 uses browser filter slack for row and selected-motor length warnings', () => {
+    const motor = MOTOR_DB.find(m => m.diameter === 24 && m.availability !== 'OOP' && m.length > 0)!;
+    const h = openBrowser({ mountDiameterMm: 24, maxMotorLengthM: motor.length / 1000 - 5e-10,
+      filters: { text: motor.designation, includeOOP: true } });
+    try {
+      search(h, motor.designation);
+      const row = bodyRows(h).find(r => r.cells[0]?.textContent?.includes(motor.designation))!;
+      expect(row).toBeDefined();
+      expect(row.textContent).not.toContain('⚠');
+      click(row);
+      expect(h.host.textContent).not.toContain('exceeds max motor length');
+    } finally { closeBrowser(h); }
+  });
   it('keeps a flagged motor loadable, hides it on request, and updates when the mount limit changes', () => {
     const h = openBrowser({ mountDiameterMm: 24, maxMotorLengthM: 0 });
     try {

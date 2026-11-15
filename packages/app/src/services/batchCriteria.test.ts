@@ -8,6 +8,14 @@ import {
   batchProgressAnnouncement, batchRefusal, batchSweepSeconds,
 } from './batchCriteria.js';
 
+it('round 3 batch length fit uses the same tolerance as the motor browser', () => {
+  const motor = MOTOR_DB.find(m => m.length > 0)!;
+  const criteria = { manufacturers: [], classes: [], includeOOP: true };
+  const mount = { diameterMm: motor.diameter, maxMotorLengthM: motor.length / 1000 - 5e-10 };
+  expect(batchCandidates(criteria, mount, [motor]).candidates).toEqual([motor]);
+  expect(batchCandidates(criteria, { ...mount, maxMotorLengthM: motor.length / 1000 - 2e-9 }, [motor]).candidates).toEqual([]);
+});
+
 describe('batchButtonLabel — the button must name what it will fly', () => {
   it('counts motors while a motor is a flight', () => {
     expect(batchButtonLabel({ candidates: 226, totalFlights: 226, confirming: false }))

@@ -56,6 +56,7 @@ const ALLOWED: { file: string; pattern: Pattern; snippet: string; reason: string
   ...[
     "{tab === 'motors' && ( … <div className=\"zero-delay-recovery\"",
     "{tab === 'motors' && ( … <div className=\"unmatched-pad-mass-status\"",
+    "{tab === 'motors' && ( … <div className=\"other-mount-offer-status\"",
     "{tab === 'results' && ( … <div role=\"alert\" className={machWarning ? 'mach-warn-alert'",
     "{tab === 'results' && ( … <div role=\"status\" className={!inspectedSummary && lastRun",
     "{tab === 'results' && ( … <div role=\"alert\" className={runsQuotaWarn ? 'runs-quota-alert'",

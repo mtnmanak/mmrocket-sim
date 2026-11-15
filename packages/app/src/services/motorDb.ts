@@ -292,7 +292,7 @@ export const COMMON_CLASSES = [6, 13, 18, 24, 29, 38, 54, 75, 98, 132, 152];
 const SNAP_TOLERANCE_MM = 1.5;
 
 /** Extra bore clearance when checking what fits a mount (tube IDs run oversize). */
-const MOUNT_TOLERANCE_MM = 1.0;
+export const MOUNT_TOLERANCE_MM = 1.0;
 
 /** Nominal diameter class for a cataloged motor diameter (mm). */
 export function diameterClass(diameterMm: number): number {
