@@ -492,12 +492,15 @@ export function SimRunDetails({ run, hasSeries, changedSince, mountOrder }: {
               <Row label="Motor type" value={run.motorType || '—'} />
               <Row label="Propellant" value={run.propellant || '—'} />
               <Row label="Motor case" value={run.motorCase || '—'} />
-              {/* Every motor firing together — a cluster times any pod set or
+              {/* Installed candidate motors for multi-mount batches; otherwise
+                  every motor firing together — a cluster times any pod set or
                   strap-on ring (mountMotorCount). "(cluster)" read wrong once
                   the count took in the pods (audit 2026-09-22, row 351). */}
               <Row label="Motors" value={run.motorCount === undefined ? (run.importedSummary ? '—' : '1')
                 : !Number.isFinite(run.motorCount) ? '—'
-                : run.motorCount > 1 ? `${run.motorCount} firing together` : '1'} />
+                : run.batch === true && Array.isArray(run.batchTargetMountIds) && run.batchTargetMountIds.length > 1
+                  ? `${run.motorCount} installed in candidate mounts`
+                  : run.motorCount > 1 ? `${run.motorCount} firing together` : '1'} />
             </tbody>
           </table>
           </div>

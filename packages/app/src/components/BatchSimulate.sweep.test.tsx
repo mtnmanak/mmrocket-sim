@@ -3,7 +3,7 @@ import { StrictMode, act } from 'react';
 import { strFromU8, unzipSync } from 'fflate';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { RocketTree } from '@online-openrocket/engine';
+import type { IgnitionEvent, RocketTree } from '@online-openrocket/engine';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import type { DesignMatchKey, SimRun } from '../services/simReport.js';
 import { MOTOR_DB, MOTOR_DB_DATE, isAvailable, setCatalogueOverlay } from '../services/motorDb.js';
@@ -11,7 +11,7 @@ import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
 import { BatchSimulate } from './BatchSimulate.js';
 import { BATCH_TABLE_ROWS, batchCapNote } from '../services/batchCriteria.js';
 import {
-  mixedComboCount, runBatchSweep, type BatchMountOption, type BatchRow, type BatchSweepHooks, type BatchWeighed,
+  candidateIdentity, mixedComboCount, runBatchSweep, type BatchMountOption, type BatchRow, type BatchSweepHooks, type BatchWeighed,
 } from '../services/batchSweep.js';
 import { downloadBlob } from '../services/saveFile.js';
 import { addRuns } from '../services/simStore.js';
@@ -105,15 +105,16 @@ const CLUSTER_TREE: RocketTree = {
 };
 const CLUSTER_MOUNTS: BatchMountOption[] = [{ ...MOUNTS[0]!, label: '24 mm cluster', motorCount: 4 }];
 
-function mount({ strict = false, launch = DEFAULT_CONDITIONS, tree = TREE, mounts = MOUNTS, weighed, retainedHardware, provenance }: {
+function mount({ strict = false, launch = DEFAULT_CONDITIONS, tree = TREE, mounts = MOUNTS, weighed, retainedHardware, provenance, assignedIgnitions = {} }: {
   strict?: boolean; launch?: LaunchConditions; tree?: RocketTree; mounts?: BatchMountOption[]; weighed?: BatchWeighed;
   retainedHardware?: Pick<BatchWeighed, 'mountId' | 'deltaKg'>; provenance?: DesignMatchKey | null;
+  assignedIgnitions?: Record<string, { event: IgnitionEvent; delay: number }>;
 } = {}) {
   const dialog = (
     <PrefsProvider>
       <BatchSimulate
         tree={tree} info={{} as never} mounts={mounts} initialMountId="mount"
-        assignedMountMotors={{}} assignedMotors={{}} assignedMotorIds={{}} assignedIgnitions={{}}
+        assignedMountMotors={{}} assignedMotors={{}} assignedMotorIds={{}} assignedIgnitions={assignedIgnitions}
         launch={launch} rocketName="Sweep bird" weighed={weighed}
         retainedHardware={retainedHardware}
         {...(provenance !== undefined ? { provenance } : {})}
@@ -143,7 +144,80 @@ const type = (input: HTMLInputElement, text: string) => act(() => {
 const start = () => act(async () => { primary().click(); });
 const candidateCount = () => Number(/(\d+) candidate motors/.exec(host.textContent ?? '')![1]);
 
+it('124/125 offers all matching empty tubes by default, restores defaults on picker change and passes ring groups', async () => {
+  localStorage.setItem('online-openrocket.batch-criteria.v1', JSON.stringify({ manufacturers: ['Klima'] }));
+  const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [{ type: 'bodytube', id: 'b', children:
+    [0, 90, 180, 270].map((deg, i) => ({ type: 'innertube', id: i ? `m${i}` : 'mount', name: 'MMT', motorMount: true,
+      outerRadius: 0.0125, thickness: 0.0005, radialPosition: 0.025, radialDirection: deg * Math.PI / 180 })) }] }] };
+  const mounts = ['mount', 'm1', 'm2', 'm3'].map(id => ({ ...MOUNTS[0]!, id, label: id }));
+  sweep.mockResolvedValue({ rows: [], stopped: false });
+  mount({ tree, mounts });
+  const allBox = () => [...host.querySelectorAll('label')].find(l => l.textContent?.includes('Fly each candidate in all'))!.querySelector('input')!;
+  expect(allBox().checked).toBe(true);
+  expect(host.textContent).toContain('Candidates fly in MMT 1, MMT 2, MMT 3 and MMT 4.');
+  const mixed = [...host.querySelectorAll('label')].find(l => l.textContent?.trim() === 'mixed 2+2')!.querySelector('input')!;
+  act(() => mixed.click());
+  await start();
+  expect(sweep.mock.calls[0]![0].targetMountIds).toEqual(['mount', 'm1', 'm2', 'm3']);
+  expect(sweep.mock.calls[0]![0].splits[0]?.mountGroups).toEqual([['mount', 'm2'], ['m1', 'm3']]);
+  mount({ tree, mounts, assignedIgnitions: { m1: { event: 'launch', delay: 1 }, m3: { event: 'launch', delay: 1 } } });
+  const count = candidateCount();
+  expect(host.textContent).toContain(`+${count * (count - 1)} mixed 2+2 combinations`);
+  expect(mixed.closest('label')!.title).toContain(`${count * (count - 1)} extra flights`);
+  expect(mixed.closest('label')!.title).toContain('every arrangement');
+  expect(primary().textContent).toContain(`Simulate ${new Intl.NumberFormat('en-US').format(count ** 2)} flights`);
+  mount({ tree, mounts });
+  act(() => allBox().click());
+  expect(allBox().checked).toBe(false);
+  expect(host.textContent).toContain('Each row is that mix');
+  const picker = [...host.querySelectorAll('select')].find(s => [...s.options].some(o => o.value === 'm1'))!;
+  act(() => { picker.value = 'm1'; picker.dispatchEvent(new Event('change', { bubbles: true })); });
+  expect(allBox().checked).toBe(true);
+  act(() => allBox().click());
+  expect(allBox().checked).toBe(false);
+  mount({ tree, mounts }); // Same design and picker: the explicit tick is retained.
+  // mount() restores initialMountId only when mounting; the existing component stays on m1.
+  expect(allBox().checked).toBe(false);
+  mount({ tree: structuredClone(tree), mounts });
+  expect(allBox().checked).toBe(true);
+  mount({ tree, mounts }); // Returning to an old tree must not resurrect an old explicit tick.
+  expect(allBox().checked).toBe(true);
+  mount({ tree, mounts: mounts.map(m => m.id === 'm2' ? { ...m, maxMotorLengthM: 0 } : m) });
+  expect(candidateCount()).toBe(0);
+  expect(host.textContent).toContain('m2’s max motor length');
+});
+
 describe('the candidates', () => {
+  it.each(['ignition', 'weighed'] as const)('Round 3 six-ring tooltip and visible counts agree for ordered %s groups', async reason => {
+    localStorage.setItem('online-openrocket.batch-criteria.v1', JSON.stringify({ manufacturers: ['Klima'] }));
+    const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [{ type: 'bodytube', id: 'b', children:
+      Array.from({ length: 6 }, (_, i) => ({ type: 'innertube', id: i ? `m${i}` : 'mount', name: `MMT ${i + 1}`,
+        motorMount: true, outerRadius: 0.0125, thickness: 0.0005, radialPosition: 0.025, radialDirection: i * Math.PI / 3 })) }] }] };
+    const mounts = ['mount', 'm1', 'm2', 'm3', 'm4', 'm5'].map(id => ({ ...MOUNTS[0]!, id }));
+    sweep.mockResolvedValue({ rows: [], stopped: false });
+    mount({ tree, mounts });
+    await start();
+    const candidate = sweep.mock.calls[0]![0].candidates[0]!;
+    const weighed = { mountId: 'mount', identity: candidateIdentity(candidate), pinned: false,
+      name: candidate.designation, perMotorShiftKg: 0.1, deltaKg: 0.1 };
+    mount({ tree, mounts, ...(reason === 'weighed' ? { weighed }
+      : { assignedIgnitions: { mount: { event: 'launch' as const, delay: 1 } } }) });
+    const n = candidateCount();
+    for (const [name, extra] of [['mixed 3+3', n ** 2 - n], ['mixed 4+2 / 2+2+2', n ** 3 - n]] as const) {
+      const label = [...host.querySelectorAll('label')].find(l => l.textContent?.trim() === name)!;
+      expect(label.title).toContain(`${extra} extra flights`);
+      expect(label.title).toContain('every arrangement');
+      act(() => label.querySelector('input')!.click());
+      expect(host.textContent).toContain(`+${extra} ${name} combinations`);
+    }
+  });
+
+  it('Round 2 marks a separate-ring mixed row carrying weighed hardware', async () => {
+    sweep.mockResolvedValue({ rows: [{ ...row('mix', '2× E20 + 2× E22', 300), combo: true, weighed: true }], stopped: false });
+    mount();
+    await start();
+    expect(bodyRows()[0]!.querySelector('td')!.textContent).toContain('· weighed');
+  });
   it('N032 batch criteria and apogee cells use Altitude with mixed horizontal units', async () => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { altitude: 'ft', distance: 'km' } }));
     sweep.mockResolvedValue({ rows: [row('split', 'Split', 304.8)], stopped: false });

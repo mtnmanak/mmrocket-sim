@@ -2126,6 +2126,22 @@ describe('CFG-3 Design links to Motors & Configuration', () => {
 describe('the Batch simulate button', () => {
   const batchButton = (host: HTMLElement) => button(host, 'Batch simulate motors…');
 
+  it('Round 2 passes ignition overrides for empty candidate mounts to Batch and its receipts', async () => {
+    const { tree, mount } = await seedStarterSession();
+    await seedStarterSession({ edit: () => ({ ...tree, ignitionDefaults: { [mount]: { event: 'automatic', delay: 0 } } }),
+      over: { configLayers: 1, detachedOverrides: {}, activeConfigId: 'a', mountMotors: {},
+        savedConfigs: [{ id: 'a', name: 'Empty targets', isDefault: true, motors: {},
+          ignitions: { [mount]: { event: 'launch', delay: 1 } } }] } });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Configuration');
+    await settle(50);
+    await act(async () => { batchButton(host).click(); });
+    expect(batchDialog!.assignedIgnitions[mount]).toEqual({ event: 'launch', delay: 1 });
+    const records = batchDialog!.configurationForMount!(undefined, [mount]).flightOverrides!;
+    expect(records).toContainEqual(expect.objectContaining({ family: 'ignition', flies: { event: 'launch', delay: 1 } }));
+    expect(batchDialog!.overrideSummaryForMount!(undefined, [mount])?.records).toEqual(records);
+  }, 30000);
+
   it('FC-4 passes effective recovery and ignition to Batch while defaults stay editable', async () => {
     const { tree, mount, c6 } = await seedStarterSession();
     const chute = tree.components[0]!.children!.flatMap(n => [n, ...(n.children ?? [])]).find(n => n.type === 'parachute')!;

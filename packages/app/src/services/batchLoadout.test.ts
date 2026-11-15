@@ -13,6 +13,17 @@ const mount = (n: number, role: BatchMountRecord['role'] = 'kept', motor: string
 const four = [mount(1, 'candidate', 'M1780NT'), mount(2), mount(3), mount(4)];
 
 describe('batch loadout evidence', () => {
+  it('124 names every candidate when an entire matching set is swept', () => {
+    const batchMounts = four.map(m => ({ ...m, role: 'candidate' as const, motor: 'M1780NT' }));
+    expect(batchLoadoutText({ batch: true, batchMounts })).toBe('M1780NT in 75mm MMT 1, 75mm MMT 2, 75mm MMT 3, 75mm MMT 4');
+    expect(runConfigurationLabel({ batch: true, batchMounts })).toContain('Batch · M1780NT in 75mm MMT 1, 75mm MMT 2');
+  });
+  it('124 validates and labels a swept mount kept at Never ignition', () => {
+    const batchMounts = four.map(m => ({ ...m, role: 'candidate' as const, motor: 'M1780NT' }));
+    batchMounts[1] = { ...batchMounts[1]!, ignition: 'never' } as BatchMountRecord & { motor: string; role: 'candidate' };
+    expect(validBatchMounts(batchMounts)).toBe(true);
+    expect(batchLoadoutText({ batch: true, batchMounts })).toContain('M1780NT (never ignites) in 75mm MMT 2');
+  });
   it('Round 7 repeats legacy duplicate names instead of assigning design numbers in solver order', () => {
     const delayResolution = testResolution(['b', 'c', 'd', 'a'].map(id => [id, testMotor(false, 5)]), [5, 5, 5, 5]);
     delayResolution.mounts.forEach(m => {

@@ -62,7 +62,7 @@ export interface MotorMeta {
   propellant?: string;
   /** Reload case (e.g. "Pro29-6GXL"); empty for single-use. */
   motorCase?: string;
-  /** Motors firing together on the mount (`mountMotorCount`: cluster × enclosing pods/strap-ons); 1 = one motor. */
+  /** Installed candidate motors for multi-mount batches; otherwise motors on the primary mount (cluster × enclosing pods/strap-ons). */
   motorCount?: number;
   /**
    * Over 80 N average thrust or 160 Ns total impulse (isHighPower). Drives the
@@ -504,7 +504,8 @@ export interface SimRun extends WindProfileConditions, AeroProvenance {
   /** Reload case; empty for single-use motors. */
   motorCase?: string;
   /**
-   * Motors firing together: the cluster times any enclosing pod set or
+   * Installed motors in the candidate mounts for multi-mount batches;
+   * otherwise motors firing together: the cluster times any enclosing pod set or
    * strap-on ring (mountMotorCount; the cluster alone in runs stored before
    * audit 2026-09-22, row 351); absent/1 = single motor.
    */
@@ -672,6 +673,8 @@ export interface SimRun extends WindProfileConditions, AeroProvenance {
   batch?: boolean;
   /** Batch rows only (v0.200+): every motor mount and what it carried on this row. */
   batchMounts?: BatchMountRecord[];
+  /** Physical target set of a multi-mount batch; absent on legacy split-cluster rows. */
+  batchTargetMountIds?: string[];
   /**
    * PROVENANCE KEYS — what a stored run has to prove before its numbers may
    * be written into an exported `.ork` as that configuration's simulation

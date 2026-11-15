@@ -1,4 +1,22 @@
 // @vitest-environment happy-dom
+// Batch-all Round 3: BatchSimulate 16 -> 17 adds the shared mixed-tooltip
+// producer, whose count uses the same descriptor as enumeration and visible
+// counts. The 4-/6-ring dialog tests cover ignition and weighed ordering.
+// No measurement-threshold change. Mixed-row
+// nozzle reuse, hardware-sensitive ordering, Auto provenance and recorded
+// target-set wording use the existing comparisons. batchSweep, SimResults,
+// dialog and owner-corpus tests cover them; no new note code or tolerance.
+// Rows 124/125: BatchSimulate 15 -> 16 names the limiting target mount in
+// the existing max-length exclusion. batchSweep 1 -> 3 adds the same refusal
+// in ordinary and separate-ring mixed passes, using the existing 1e-9 m
+// motor-fit slack. batchSweep/batchTargets and dialog tests exercise short
+// targets, same-stage bore matching, ring geometry and excluded candidates.
+// No displayed measurement comparison or published-data tolerance changes.
+// Batch-all Round 2: census unchanged. Motor identity defaults, effective
+// ignition on empty targets, fixed delays on unlit targets, ordered ring
+// assignments and installed-motor wording add no measurement thresholds.
+// batchTargets, batchSweep, batchCriteria, SimResults, App.render and owner
+// corpus tests cover those paths. No note codes or tolerances changed.
 // Row 126 round 3: OtherMountOffer's too-short copy now formats against the
 // mount's actual limit (OtherMountOffer 2 -> 3: one direct noticeQuantity call
 // with against). The offer, browser warnings/EX filtering and batch candidates
