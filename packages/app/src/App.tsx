@@ -4160,14 +4160,14 @@ export function App() {
           Reported 2026-09-01b on two single-stage .ork files that carry no motor. */}
       {showBatch && built && mounts.length > 0 && !isStaged && (
         <BatchSimulate
-          configurationForMount={targetId => ({
+          configurationForMount={(targetId, targetIds) => ({
             flightConfig: overrideConfigLabel ?? (flightWorking ? 'working settings' : 'none'),
             ...(activeConfigId !== null ? { flightConfigId: activeConfigId } : {}),
-            flightOverrides: recordFlightOverrides(tree, activeOverrides, mountMotors, targetId),
+            flightOverrides: recordFlightOverrides(tree, activeOverrides, mountMotors, targetId, targetIds),
           })}
-          overrideSummaryForMount={targetId => describeFlightOverrides(tree, activeOverrides,
+          overrideSummaryForMount={(targetId, targetIds) => describeFlightOverrides(tree, activeOverrides,
             Object.fromEntries(Object.entries(mountMotors).filter(([id]) => id !== targetId)),
-            overrideConfigLabel, prefs.units.altitude)}
+            overrideConfigLabel, prefs.units.altitude, targetIds)}
           onShowOverride={showFlightOverride}
           // The Saved simulations export's key, so both exports agree on Status.
           provenance={provenanceKey}
@@ -4214,7 +4214,9 @@ export function App() {
           // staged design.
           assignedAutoDelays={Object.fromEntries(assigned.map(([id, mm]) => [id, mm.meta.autoDelay === true]))}
           assignedIgnitions={Object.fromEntries(
-            Object.entries(flightState.mountMotors).map(([id, mm]) => [id, mm.ignition]))}
+            mounts.map(m => [m.id!, overrideFor(activeOverrides.ignitions, m.id!)
+              ?? overrideFor((tree as FlightTree).ignitionDefaults, m.id!) ?? flightState.mountMotors[m.id!]?.ignition
+              ?? { event: 'automatic', delay: 0 }]))}
           weighed={batchWeighed}
           retainedHardware={batchRetainedHardware}
           launch={launch}

@@ -1,6 +1,6 @@
 import { runStoppedEarly, type SimRun } from './simReport.js';
 import { classesFittingMount, filterMotors, manufacturersForMount, sortMotors, type MotorDbEntry } from './motorDb.js';
-import { mixedComboCount } from './batchSweep.js';
+import { mixedComboCount, type BatchCombination } from './batchSweep.js';
 import { DEFAULT_TIME_STEP_S, timeStepCostFactor } from './launchConditions.js';
 
 // Pure sweep rules stay independent of the dialog (audit 2026-10-11, S3a-7).
@@ -276,12 +276,12 @@ export function batchCandidates(
  * splits ticked (each split's group count): every candidate alone, plus each
  * split's mixed combinations — the total runBatchSweep counts its progress to.
  */
-export function batchFlightCount(n: number, groups: readonly number[]): number {
-  return n + groups.reduce((sum, g) => sum + mixedComboCount(n, g), 0);
+export function batchFlightCount(n: number, groups: readonly BatchCombination[]): number {
+  return n + groups.reduce<number>((sum, g) => sum + mixedComboCount(n, g), 0);
 }
 
 /** The most candidates whose sweep stays within BATCH_MAX_FLIGHTS with these splits still ticked. */
-export function batchMaxCandidates(groups: readonly number[]): number {
+export function batchMaxCandidates(groups: readonly BatchCombination[]): number {
   let n = 0;
   while (batchFlightCount(n + 1, groups) <= BATCH_MAX_FLIGHTS) n++;
   return n;
@@ -343,13 +343,13 @@ export function batchRefusal({ candidates, withoutOOP, modes, solverFlights, tim
   /** How many unticking "include OOP" would leave (batchCandidates); null while it is unticked. */
   withoutOOP: number | null;
   /** The ticked combination modes: the words on each box, and its split's group count. */
-  modes: readonly { name: string; groups: number }[];
+  modes: readonly { name: string; groups: number; ordered?: boolean }[];
   /** How many of this sweep's flights search for their delay (BatchPace). */
   solverFlights: number;
   timeStepS?: number | null;
 }): string | null {
-  const groupsOf = (ms: readonly { groups: number }[]) => ms.map((m) => m.groups);
-  const fits = (n: number, ms: readonly { groups: number }[]) => batchFlightCount(n, groupsOf(ms)) <= BATCH_MAX_FLIGHTS;
+  const groupsOf = (ms: readonly { groups: number; ordered?: boolean }[]) => ms;
+  const fits = (n: number, ms: readonly { groups: number; ordered?: boolean }[]) => batchFlightCount(n, groupsOf(ms)) <= BATCH_MAX_FLIGHTS;
   const flights = batchFlightCount(candidates, groupsOf(modes));
   if (flights <= BATCH_MAX_FLIGHTS) return null;
   const atCap = batchDurationText(batchSweepSeconds({

@@ -9,26 +9,48 @@ import { noteText } from './noteField.js';
 import type { BatchMountOption } from './batchSweep.js';
 import { mountLoadoutText, namedBatchMounts } from './batchLoadout.js';
 import type { BatchMountRecord } from './simReport.js';
+import { motorIdentity } from './hardwareMass.js';
+import { batchRingSplits } from './batchRing.js';
 
 const and = (names: string[]) => names.length < 3 ? names.join(' and ')
   : `${names.slice(0, -1).join(', ')} and ${names.at(-1)!}`;
 
+/** One definition for the checkbox, disclosure and sweep target set. */
+export function batchMatchingMounts(tree: RocketTree, mounts: readonly BatchMountOption[], selected: BatchMountOption) {
+  const target = findNode(tree, selected.id);
+  const stages = stageIdByNode(tree);
+  const stage = stages.get(selected.id);
+  return mounts.filter(m => {
+    if (m.id === selected.id) return true;
+    const node = findNode(tree, m.id);
+    return !!target && !!node && stage !== undefined && stages.get(m.id) === stage
+      && Math.abs(mountBore(node) - mountBore(target)) <= 0.0005;
+  });
+}
+
+export function batchTargetsDefault(mounts: readonly BatchMountOption[], motors: Record<string, MotorSpec>,
+  metadata: Record<string, MountMotor>, ids: Record<string, string | undefined>) {
+  const identity = (id: string) => {
+    const spec = overrideFor(motors, id);
+    if (!spec) return null;
+    const meta = overrideFor(metadata, id)?.meta;
+    return overrideFor(ids, id) ?? motorIdentity(meta ?? {}, spec.designation);
+  };
+  return mounts.every(m => identity(m.id) === identity(mounts[0]!.id));
+}
+
 /** Current picker evidence only; completed rows always use their frozen loadout. */
 export function batchMountDisclosure(tree: RocketTree, mounts: readonly BatchMountOption[], selected: BatchMountOption,
   motors: Record<string, MotorSpec>, metadata: Record<string, MountMotor>, ids: Record<string, string | undefined>,
-  ignitions: Record<string, { event: IgnitionEvent; delay: number }>) {
+  ignitions: Record<string, { event: IgnitionEvent; delay: number }>, targetIds: readonly string[] = [selected.id]) {
   const target = findNode(tree, selected.id);
   const names = new Map(namedBatchMounts(motorMounts(tree).map(m => ({ id: m.id, mountName: mountName(m) })))
     .map(m => [m.id, m.mountName]));
   const nameOf = (id: string) => names.get(id) ?? noteText(mountName(findNode(tree, id)));
   const count = mountMotorCount(tree, selected.id);
-  const stages = stageIdByNode(tree);
-  const selectedStage = stages.get(selected.id);
-  const others = mounts.filter(m => m.id !== selected.id);
-  const matching = !!target && others.some(m => {
-    const node = findNode(tree, m.id);
-    return node && selectedStage !== undefined && stages.get(m.id) === selectedStage && Math.abs(mountBore(node) - mountBore(target)) <= 0.0005;
-  });
+  const others = mounts.filter(m => !targetIds.includes(m.id));
+  const matchingMounts = batchMatchingMounts(tree, mounts, selected);
+  const matching = matchingMounts.some(m => !targetIds.includes(m.id));
   const groups = new Map<string, { motor: string | null; names: string[] }>();
   const keptMounts: BatchMountRecord[] = [];
   const entries = others.flatMap(m => {
@@ -51,7 +73,8 @@ export function batchMountDisclosure(tree: RocketTree, mounts: readonly BatchMou
   }
   const kept = [...groups.values()].filter(g => g.motor !== null);
   const empty = [...groups.values()].find(g => g.motor === null);
-  const sentences = [`Candidates fly ${count > 1 ? `×${count} ` : ''}in ${nameOf(selected.id)} only.`];
+  const sentences = [targetIds.length > 1 ? `Candidates fly in ${and(targetIds.map(nameOf))}.`
+    : `Candidates fly ${count > 1 ? `×${count} ` : ''}in ${nameOf(selected.id)} only.`];
   if (keptMounts.some(m => m.count > 1)) sentences.push(`Each flight keeps ${mountLoadoutText(keptMounts)}.`);
   else if (kept.length) sentences.push(`${and(kept.map(g => `${and(g.names)} ${g.names.length === 1 ? 'keeps' : 'keep'} ${g.motor!}`))} for every flight.`);
   if (empty) sentences.push(`${and(empty.names)} ${empty.names.length === 1 ? 'stays' : 'stay'} empty.`);
@@ -70,5 +93,12 @@ export function batchMountDisclosure(tree: RocketTree, mounts: readonly BatchMou
     return node?.type === 'innertube' && (node['cluster'] === '4-ring' || node['cluster'] === '6-ring');
   });
   if (mixedUnavailable && qualifying) mixedUnavailable += ` Choose ${nameOf(qualifying.id)} in the mount picker for mixed batches.`;
-  return { text: others.length && motorNames ? sentences.join(' ') : null, matching, mixedUnavailable };
+  if (targetIds.length > 1) {
+    const ring = batchRingSplits(tree, mounts.filter(m => targetIds.includes(m.id)));
+    mixedUnavailable = ring.halves ? null
+      : `Mixed batches (2+2, 3+3) need four or six single tubes on one ring; these ${targetIds.length} mounts are not evenly spaced around one ring with the same parent and bore.`;
+  }
+  return { text: (others.length || targetIds.length > 1) && motorNames ? sentences.join(' ') : null,
+    matching, mixedUnavailable, matchingMounts,
+    matchingLabel: `Fly each candidate in all ${matchingMounts.length} matching mounts (${matchingMounts.map(m => nameOf(m.id)).join(', ')})` };
 }

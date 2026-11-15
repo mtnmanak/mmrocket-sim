@@ -15,7 +15,7 @@ export function validBatchMounts(value: unknown): value is BatchMountRecord[] {
       || !['candidate', 'kept', 'empty'].includes(r.role)
       || (r.role === 'empty' ? r.motor !== null : !text(r.motor) || !noteText(r.motor).trim())
       || !Number.isInteger(r.count) || r.count < 1 || r.count > 1000
-      || (r.ignition !== undefined && (r.ignition !== 'never' || r.role !== 'kept'))) return false;
+      || (r.ignition !== undefined && (r.ignition !== 'never' || r.role === 'empty'))) return false;
     seen.add(r.mountId);
     return true;
   }) && value.some(m => m.role === 'candidate');
@@ -82,7 +82,13 @@ export function delayReportMotorNames(mounts: readonly MountDelayRecord[], run: 
 export function batchLoadoutText(run: LoadoutRun): string | null {
   if (run.batch !== true) return null;
   if (validBatchMounts(run.batchMounts)) {
-    return run.batchMounts.some(m => m.role !== 'candidate') ? mountLoadoutText(namedBatchMounts(run.batchMounts)) : null;
+    // A homogeneous sweep can now target several mounts; separate-ring mixes
+    // also need their tube names. Legacy split-cluster group labels already
+    // carry their counts and retain their compact configuration heading.
+    const severalTargets = run.batchMounts.length > 1 && (run.batchMounts.every(m => m.motor === run.batchMounts![0]!.motor)
+      || run.batchMounts.every(m => m.count === 1));
+    return severalTargets || run.batchMounts.some(m => m.role !== 'candidate')
+      ? mountLoadoutText(namedBatchMounts(run.batchMounts)) : null;
   }
   const cached = legacyLabels.get(run);
   if (cached && cached.evidence === run.delayResolution) return cached.text;

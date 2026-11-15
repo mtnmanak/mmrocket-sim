@@ -16,6 +16,17 @@ it('round 3 batch length fit uses the same tolerance as the motor browser', () =
   expect(batchCandidates(criteria, { ...mount, maxMotorLengthM: motor.length / 1000 - 2e-9 }, [motor]).candidates).toEqual([]);
 });
 
+it('Round 2 counts ordered ring arrangements in estimates and refusal limits', () => {
+  const groups = [{ groups: 2, ordered: true }];
+  expect(mixedComboCount(3, groups[0]!)).toBe(6);
+  expect(batchFlightCount(3, groups)).toBe(9);
+  const max = batchMaxCandidates(groups);
+  expect(batchFlightCount(max, groups)).toBeLessThanOrEqual(BATCH_MAX_FLIGHTS);
+  expect(batchFlightCount(max + 1, groups)).toBeGreaterThan(BATCH_MAX_FLIGHTS);
+  expect(batchRefusal({ candidates: max + 1, withoutOOP: null,
+    modes: [{ name: 'mixed 2+2', ...groups[0]! }], solverFlights: 0 })).toContain(`${(max + 1) ** 2}`.replace(/\B(?=(\d{3})+(?!\d))/g, ','));
+});
+
 describe('batchButtonLabel — the button must name what it will fly', () => {
   it('counts motors while a motor is a flight', () => {
     expect(batchButtonLabel({ candidates: 226, totalFlights: 226, confirming: false }))

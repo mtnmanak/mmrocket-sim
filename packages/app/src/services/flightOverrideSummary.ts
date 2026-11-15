@@ -86,6 +86,7 @@ export function describeFlownIgnition(tuple: IgnitionTuple): string {
 export function describeFlightOverrides(
   tree: FlightTree, overrides: FlightOverrides, motors: Record<string, MountMotor>,
   configLabel: string | null, distanceUnit: string,
+  ignitionMountIds: readonly string[] = [],
 ): FlightOverrideSummary | null {
   const records: RecordedFlightOverride[] = [];
   const groups = new Map<string, Group>();
@@ -123,9 +124,9 @@ export function describeFlightOverrides(
         }
       }
       const motor = id ? overrideFor(motors, id) : undefined;
-      if (id && motor && mountIds.has(id)) {
+      if (id && (motor || ignitionMountIds.includes(id)) && mountIds.has(id)) {
         const tuple = overrideFor(overrides.ignitions, id);
-        const own = overrideFor(tree.ignitionDefaults, id) ?? motor.ignition;
+        const own = overrideFor(tree.ignitionDefaults, id) ?? motor?.ignition ?? { event: 'automatic' as const, delay: 0 };
         if (tuple && sparsify(flownIgnition(own), flownIgnition(tuple))) {
           records.push({ family: 'ignition', kind: 'motor mount', partName: node.name || 'motor mount',
             flies: { ...tuple }, own: { ...own } });
@@ -161,9 +162,9 @@ export function describeRecordedOverride(record: RecordedFlightOverride, side: '
 
 /** Batch changes the swept mount's ignition; every other effective override stays. */
 export function recordFlightOverrides(tree: FlightTree, overrides: FlightOverrides,
-  motors: Record<string, MountMotor>, sweptMountId?: string): RecordedFlightOverride[] {
+  motors: Record<string, MountMotor>, sweptMountId?: string, ignitionMountIds: readonly string[] = []): RecordedFlightOverride[] {
   const selected = sweptMountId === undefined ? overrides : { ...overrides,
     ignitions: Object.fromEntries(Object.entries(overrides.ignitions ?? {}).filter(([id]) => id !== sweptMountId)),
   };
-  return describeFlightOverrides(tree, selected, motors, null, 'm')?.records ?? [];
+  return describeFlightOverrides(tree, selected, motors, null, 'm', ignitionMountIds)?.records ?? [];
 }

@@ -609,6 +609,25 @@ describe('SimRunDetails — the Motors row (audit 2026-09-22, row 351)', () => {
     render(<SimRunDetails run={{ ...run(), motorCount: 1 }} />);
     expect(motorsCell()).toBe('1');
   });
+
+  it('Round 2 reports multi-mount candidate counts as installed motors', () => {
+    render(<SimRunDetails run={{ ...run(), batch: true, batchTargetMountIds: ['a', 'b'], motorCount: 4, batchMounts: [
+      { mountId: 'a', mountName: 'A', motor: 'E20', role: 'candidate', count: 2 },
+      { mountId: 'b', mountName: 'B', motor: 'E20', role: 'candidate', count: 2, ignition: 'never' },
+    ] }} />);
+    showAll();
+    expect(motorsCell()).toBe('4 installed in candidate mounts');
+  });
+
+  it('Round 3 preserves firing-together wording on a saved v0.200 mixed cluster', () => {
+    render(<SimRunDetails run={{ ...run(), batch: true, motorCount: 4, motorConfig: 'mixed 2+2', batchMounts: [
+      { mountId: 'a', mountName: 'Pair A', motor: 'E20', role: 'candidate', count: 2 },
+      { mountId: 'b', mountName: 'Pair B', motor: 'E22', role: 'candidate', count: 2 },
+      { mountId: 'core', mountName: 'Core', motor: 'G80', role: 'kept', count: 1 },
+    ] }} />);
+    showAll();
+    expect(motorsCell()).toBe('4 firing together');
+  });
 });
 
 describe('SimRunDetails — the landing bearing (audit 2026-09-30)', () => {

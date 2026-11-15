@@ -35,10 +35,12 @@ import { padMassSetKey } from './configSync.js';
 import { stageMotors } from './nozzleFollow.js';
 import { historyMotorLabel } from '../components/SimResults.js';
 import { batchMountDisclosure } from './batchMountDisclosure.js';
+import { batchRingSplits } from './batchRing.js';
 import { batchLoadoutText } from './batchLoadout.js';
 import { runsToCsv, runsToTable } from './simStore.js';
 import { matchingRecoveryEvents } from './recoveryFlight.js';
-import { IMPERIAL_UNITS, uiToSi } from '../prefs/units.js';
+import { IMPERIAL_UNITS, INITIAL_UNITS, uiToSi } from '../prefs/units.js';
+import { designPrintHtml } from './designPrintReport.js';
 import type { MountMotor } from '../model/design.js';
 import { resolveFlightState } from './flightState.js';
 import { strFromU8, unzipSync } from 'fflate';
@@ -1168,7 +1170,8 @@ describe('the sweep builds every handle over a stripped tree', () => {
 
   it('strips the design nozzle before the single-motor pass', () => {
     expect(src).toContain('const sweepTree = clearStageNozzles(tree);');
-    expect(src).toContain('const sweepHandle = handlePool(sweepTree, [target.id]);');
+    // 124: the same stripped-tree pool now excludes the entire target set.
+    expect(src).toContain('const sweepHandle = handlePool(sweepTree, targetIds);');
   });
 
   it('strips it for the combination passes too — split.tree comes from the design tree', () => {
@@ -1767,3 +1770,256 @@ it('batch background labels follow an overlay without changing the loaded spec',
     setCatalogueOverlay(null);
   }
 });
+
+function separateRing(n = 4) {
+  const tree = clusterRocket(n === 4 ? '4-ring' : '6-ring', 'apogee');
+  const body = tree.components[0]!.children![1]!;
+  const original = body.children!.find(m => m.id === 'mount')!;
+  const tubes = Array.from({ length: n }, (_, i) => ({ ...original, id: `ring${i}`, name: `MMT ${i + 1}`,
+    cluster: 'single', radialPosition: 0.023, radialDirection: i * Math.PI * 2 / n } as ComponentNode));
+  body.children = [...body.children!.filter(m => m.id !== 'mount'), ...tubes];
+  const mounts = tubes.map(m => ({ ...MOUNT, id: m.id!, label: m.name!, diameterMm: 24 }));
+  return { tree, mounts, target: mounts[0]!, targetMountIds: mounts.map(m => m.id) };
+}
+
+it('124 sweeps every target with its own ignition, sums nozzle counts and freezes all roles', async () => {
+  const setup = separateRing();
+  const c = entry('a', 'Acme', 'E20', '5');
+  const fly = vi.spyOn(flightRunner, 'flyLaunch');
+  const ignitions = Object.fromEntries(setup.mounts.map((m, i) => [m.id,
+    { event: 'launch' as const, delay: i % 2 ? 0.4 : 0 }]));
+  const inp = input(setup.tree, { ...setup, candidates: [c], autoDelay: false, assignedIgnitions: ignitions });
+  const result = await sweep(inp,
+    { fetchSpec: fetchFrom({ a: curve('E20') }), nozzleFor: nozzles({ a: 0.01 }) });
+  const row = result.rows[0]!;
+  expect(row.error).toBeUndefined();
+  expect(row.exitM).toBeCloseTo(0.02, 10);
+  expect(row.run!.motorCount).toBe(4);
+  expect(row.run!.batchTargetMountIds).toEqual(setup.targetMountIds);
+  expect(row.run!.batchMounts?.map(m => [m.mountId, m.role])).toEqual(setup.mounts.map(m => [m.id, 'candidate']));
+  expect(fly.mock.calls[0]![1].assigned.map(([id, m]) => [id, m.ignition])).toEqual(Object.entries(ignitions));
+  expect(runsToTable([row.run!]).rows[0]?.slice(-2)).toEqual(['MMT 1; MMT 2; MMT 3; MMT 4', '']);
+  expect(batchLoadoutText(row.run!)).toBe('E20 in MMT 1, MMT 2, MMT 3, MMT 4');
+  const table = runsToTable([row.run!]);
+  expect(table.rows[0]![table.headers.indexOf('Motors (cluster)')]).toBe(4);
+  const printed = designPrintHtml({ tree: setup.tree, info: inp.info, units: INITIAL_UNITS,
+    radiusMode: 'diameter', withMotors: true, appVersion: 'test', run: row.run!, changedSince: [] });
+  expect(printed).toContain('Motor count (candidate group): 4');
+  expect(printed).toContain('Complete flight motor count: 4');
+  expect(printed).toContain('E20 in MMT 1, MMT 2, MMT 3, MMT 4');
+  expect(row.run!.delayResolution!.mounts).toHaveLength(4);
+}, 30000);
+
+it('124 excludes a candidate too long for any target and names that mount', async () => {
+  const setup = separateRing(); setup.mounts[2]!.maxMotorLengthM = 0.06;
+  const result = await sweep(input(setup.tree, { ...setup,
+    candidates: [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')],
+    splits: [batchRingSplits(setup.tree, setup.mounts).halves!] }),
+    { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }), nozzleFor: nozzles({}) });
+  expect(result.rows[0]!.run).toBeUndefined();
+  expect(result.rows[0]!.error).toContain('max motor length in MMT 3');
+  expect(result.rows).toHaveLength(3);
+  expect(result.rows.every(r => !r.run && r.error?.includes('max motor length in MMT 3'))).toBe(true);
+});
+
+it('124 weighed hardware follows its own target only, including a non-selected mount', async () => {
+  const setup = separateRing();
+  const cands = [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')];
+  const fetchSpec = fetchFrom({ a: curve('E20'), b: curve('E22') });
+  const fly = vi.spyOn(flightRunner, 'flyLaunch');
+  const weighed = { mountId: 'ring2', identity: 'Acme/E20', pinned: false, name: 'E20', perMotorShiftKg: 0.1, deltaKg: 0.1 };
+  const result = await sweep(input(setup.tree, { ...setup, candidates: cands, autoDelay: false, weighed }), { fetchSpec, nozzleFor: nozzles({}) });
+  expect(result.rows.every(r => r.run)).toBe(true);
+  const masses = (i: number) => fly.mock.calls[i]![1].assigned.map(([id, m]) => [id, m.spec.masses[0]]);
+  expect(masses(0)).toEqual(setup.mounts.map(m => [m.id, m.id === weighed.mountId ? 0.17 : 0.07]));
+  expect(masses(1)).toEqual(setup.mounts.map(m => [m.id, 0.07]));
+  expect(result.rows[0]!.run!.launchMass! - result.rows[1]!.run!.launchMass!).toBeCloseTo(0.1, 6);
+}, 30000);
+
+it.each([4, 6])('125 flies separate %s-ring mixtures directly into symmetric tube groups', async n => {
+  const setup = separateRing(n);
+  const ring = batchRingSplits(setup.tree, setup.mounts);
+  const cands = [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5'),
+    ...(n === 6 ? [entry('c', 'Acme', 'E24', '5')] : [])];
+  const fly = vi.spyOn(flightRunner, 'flyLaunch');
+  const result = await sweep(input(setup.tree, { ...setup, candidates: cands, autoDelay: false,
+    splits: [ring.halves!, ...(ring.pairs ? [ring.pairs] : [])] }),
+  { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22', 1.1), c: curve('E24', 1.2) }), nozzleFor: nozzles({ a: 0.01, b: 0.012, c: 0.014 }) });
+  expect(result.rows).toHaveLength(n === 4 ? 3 : 13);
+  expect(result.rows.every(r => r.run && !r.error)).toBe(true);
+  expect(result.rows[cands.length]!.run!.motorConfig).toBe(n === 4 ? 'mixed 2+2' : 'mixed 3+3');
+  expect(result.rows[cands.length]!.run!.motor).toBe(`${n / 2}× Acme E20 + ${n / 2}× Acme E22`);
+  if (n === 6) {
+    expect(result.rows.filter(r => r.run!.motorConfig === 'mixed 3+3')).toHaveLength(3);
+    expect(result.rows.filter(r => r.run!.motorConfig === 'mixed 4+2')).toHaveLength(6);
+    expect(result.rows.filter(r => r.run!.motorConfig === 'mixed 2+2+2')).toHaveLength(1);
+  }
+  for (let index = cands.length; index < result.rows.length; index++) {
+    const assigned = fly.mock.calls[index]![1].assigned;
+    expect(assigned).toHaveLength(n);
+    expect(result.rows[index]!.run!.batchMounts?.every(m => m.role === 'candidate')).toBe(true);
+    expect(result.rows[index]!.run!.motorCount).toBe(n);
+    const moment = assigned.reduce((sum, [id, mm]) => {
+      const angle = Number(findMount(id)['radialDirection']);
+      return [sum[0]! + mm.spec.thrusts[1]! * Math.cos(angle), sum[1]! + mm.spec.thrusts[1]! * Math.sin(angle)];
+    }, [0, 0]);
+    expect(Math.hypot(...moment)).toBeLessThan(1e-10);
+  }
+  function findMount(id: string) { return motorMounts(setup.tree).find(m => m.id === id)!; }
+}, 30000);
+
+it('124 resolves Auto separately on every target, and fixed-delay targets retain Never ignition', async () => {
+  const setup = separateRing();
+  const c = entry('a', 'Acme', 'E20', '5');
+  const assignedIgnitions: BatchSweepInput['assignedIgnitions'] = Object.fromEntries(setup.mounts.map((m, i) => [m.id,
+    { event: 'launch' as const, delay: i % 2 ? 1.1 : 0 }]));
+  const out = await sweep(input(setup.tree, { ...setup, candidates: [c], assignedIgnitions }),
+    { fetchSpec: fetchFrom({ a: curve('E20') }), nozzleFor: nozzles({}) });
+  expect(out.rows[0]!.error).toBeUndefined();
+  expect(out.rows[0]!.run!.delayResolution!.mounts).toHaveLength(4);
+  expect(out.rows[0]!.run!.delayResolution!.mounts.every(m => m.mode === 'auto' && m.status === 'resolved')).toBe(true);
+  assignedIgnitions.ring3!.event = 'never';
+  const fixed = await sweep(input(setup.tree, { ...setup, candidates: [c], assignedIgnitions, autoDelay: false }),
+    { fetchSpec: fetchFrom({ a: curve('E20') }), nozzleFor: nozzles({}) });
+  expect(fixed.rows[0]!.error).toBeUndefined();
+  const run = fixed.rows[0]!.run!;
+  expect(run.batchMounts?.find(m => m.mountId === 'ring3')?.ignition).toBe('never');
+  expect(batchLoadoutText(run)).toContain('never ignites');
+  expect(run.delayResolution!.mounts).toHaveLength(4);
+  expect(run.delayResolution!.mounts.every(m => m.mode === 'manual' && m.status === 'fixed')).toBe(true);
+}, 30000);
+
+it.each(['ring1', 'ring2'])('Round 2 carries weighed hardware and provenance on separate-ring mixed leg %s', async mountId => {
+  const setup = separateRing();
+  const cands = [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')];
+  const motor = mountId === 'ring1' ? 'E22' : 'E20';
+  const weighed = { mountId, identity: `Acme/${motor}`, pinned: false, name: motor, perMotorShiftKg: 0.1, deltaKg: 0.1 };
+  const base = input(setup.tree, { ...setup, candidates: cands, autoDelay: false,
+    splits: [batchRingSplits(setup.tree, setup.mounts).halves!] });
+  const deps = { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }), nozzleFor: nozzles({}) };
+  const control = await sweep(base, deps);
+  const fly = vi.spyOn(flightRunner, 'flyLaunch');
+  const result = await sweep({ ...base, weighed }, deps);
+  const mixedIndex = result.rows.findIndex(r => r.combo && r.weighed);
+  const mixed = result.rows[mixedIndex]!;
+  const bare = control.rows.find(r => r.combo)!;
+  expect(mixed.error).toBeUndefined();
+  expect(mixed.run!.launchMass! - bare.run!.launchMass!).toBeCloseTo(0.1, 8);
+  expect(mixed.run!.motorSetKey).toBe(`${bare.run!.motorSetKey}|hw:1000`);
+  expect(mixed.weighed).toBe(true);
+  expect(mixed.run!.motorDataKey).toBe(bare.run!.motorDataKey);
+  expect(mixed.run!.motorDataKeys).toEqual(bare.run!.motorDataKeys);
+  const assigned = fly.mock.calls[mixedIndex]![1].assigned;
+  expect(assigned.find(([id]) => id === weighed.mountId)![1].spec.masses[0]).toBeCloseTo(0.17, 8);
+  const ordinary = await flyLaunch(OrkRocket.buildTree(engineTree(setup.tree)), {
+    ...fly.mock.calls[mixedIndex]![1], assigned: assigned.map(([id, mm]) => [id, id === weighed.mountId
+      ? { ...mm, spec: { ...curve(motor), masses: curve(motor).masses.map(m => m + 0.1) } } : mm]),
+  });
+  expect(mixed.run!.launchMass).toBeCloseTo(ordinary.result.series.mass[0]!, 3);
+}, 30000);
+
+it('Round 2 empty targets retain own ignition defaults', async () => {
+  const setup = separateRing();
+  const tree = { ...setup.tree, ignitionDefaults: { ring1: { event: 'launch' as const, delay: 1 } } };
+  const fly = vi.spyOn(flightRunner, 'flyLaunch');
+  const out = await sweep(input(tree, { ...setup, tree, candidates: [entry('a', 'Acme', 'E20', '5')], autoDelay: false }),
+    { fetchSpec: fetchFrom({ a: curve('E20') }), nozzleFor: nozzles({}) });
+  expect(out.rows[0]!.error).toBeUndefined();
+  expect(fly.mock.calls[0]![1].assigned.find(([id]) => id === 'ring1')![1].ignition).toEqual({ event: 'launch', delay: 1 });
+}, 30000);
+
+it.each(['never', 'burnout', 'ejectioncharge'] as const)('Round 2 Auto excludes an unlit %s target from solving', async event => {
+  const setup = separateRing();
+  const fly = vi.spyOn(flightRunner, 'flyLaunch');
+  const out = await sweep(input(setup.tree, { ...setup, candidates: [entry('a', 'Acme', 'E20', '5')],
+    assignedIgnitions: { ring3: { event, delay: 0 } } }),
+    { fetchSpec: fetchFrom({ a: curve('E20') }), nozzleFor: nozzles({}) });
+  expect(out.rows[0]!.error).toBeUndefined();
+  expect(out.rows[0]!.run!.delayResolution!.mounts.find(m => m.mountId === 'ring3')?.mode).toBe('manual');
+  expect(fly.mock.calls[0]![1].assigned.find(([id]) => id === 'ring3')![1].meta.autoDelay).toBe(false);
+  if (event === 'never') expect(out.rows[0]!.run!.batchMounts?.find(m => m.mountId === 'ring3')?.ignition).toBe('never');
+  const primary = await sweep(input(setup.tree, { ...setup, candidates: [entry('a', 'Acme', 'E20', '5')],
+    assignedIgnitions: { ring0: { event, delay: 0 } } }),
+    { fetchSpec: fetchFrom({ a: curve('E20') }), nozzleFor: nozzles({}) });
+  expect(primary.rows[0]!.error).toBeUndefined();
+  expect(primary.rows[0]!.run!.delayResolution!.mounts.find(m => m.mountId === 'ring0')?.mode).toBe('manual');
+  expect(primary.rows[0]!.label).not.toContain('automatic delay');
+}, 30000);
+
+it.each([4, 6])('Round 2 enumerates both arrangements for distinct ignition groups in a %s-ring', async n => {
+  const setup = separateRing(n);
+  const ring = batchRingSplits(setup.tree, setup.mounts);
+  const splits = [ring.halves!, ...(ring.pairs ? [ring.pairs] : [])];
+  const cands = [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')];
+  const fly = vi.spyOn(flightRunner, 'flyLaunch');
+  const inp = input(setup.tree, { ...setup, splits, candidates: cands, autoDelay: false,
+    assignedIgnitions: { ring1: { event: 'launch', delay: 1 }, ring3: { event: 'launch', delay: 1 } } });
+  const deps = { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22', 1.1) }), nozzleFor: nozzles({}) };
+  const out = await sweep(inp, deps);
+  expect(out.rows).toHaveLength(n === 4 ? 4 : 10);
+  expect(new Set(out.rows.map(r => r.key)).size).toBe(out.rows.length);
+  expect(out.rows.every(r => r.run && !r.error)).toBe(true);
+  const vectors = fly.mock.calls.slice(cands.length).map(([, options]) => Object.fromEntries(options.assigned.map(([id, m]) => [id, m.meta.motorId])));
+  expect(vectors).toContainEqual(Object.fromEntries(setup.mounts.map((m, i) => [m.id, i % 2 ? 'a' : 'b'])));
+  expect(vectors).toContainEqual(Object.fromEntries(setup.mounts.map((m, i) => [m.id, i % 2 ? 'b' : 'a'])));
+  const reversed = await sweep({ ...inp, candidates: [...cands].reverse() }, deps);
+  expect(reversed.rows.map(r => r.key).sort()).toEqual(out.rows.map(r => r.key).sort());
+}, 60000);
+
+it.each([0, 0.03])('Round 3 matching mixed loadout preserves the typed stage exit %s m', async exit => {
+  const setup = separateRing();
+  setup.tree.components[0]!.nozzleExitDiameter = exit;
+  const split = batchRingSplits(setup.tree, setup.mounts).halves!;
+  const ids = Object.fromEntries(split.mountGroups!.flatMap((group, k) => group.map(id => [id, k ? 'b' : 'a'])));
+  const result = await sweep(input(setup.tree, { ...setup, autoDelay: false, splits: [split],
+    candidates: [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')], assignedMotorIds: ids,
+    assignedIgnitions: { ring1: { event: 'launch', delay: 1 } } }),
+  { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }), nozzleFor: nozzles({ a: 0.01, b: 0.012 }) });
+  const mixed = result.rows.find(r => r.combo)!;
+  expect(mixed.error).toBeUndefined();
+  expect(mixed.exitM).toBe(exit);
+  expect(mixed.run!.nozzleStages).toEqual(exit ? ['Sustainer'] : undefined);
+  expect(mixed.run!.batchTargetMountIds).toEqual(split.mountGroups!.flat());
+  expect(result.rows.filter(r => r.combo)[1]!.exitM).toBeCloseTo(Math.sqrt(2 * 0.01 ** 2 + 2 * 0.012 ** 2), 12);
+});
+
+it('Round 3 weighed synchronous groups enumerate and key both arrangements independent of candidate order', async () => {
+  const setup = separateRing();
+  const candidates = [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')];
+  const weighed = { mountId: 'ring1', identity: 'Acme/E20', pinned: false, name: 'E20', perMotorShiftKg: 0.1, deltaKg: 0.1 };
+  const inp = input(setup.tree, { ...setup, candidates, weighed, autoDelay: false,
+    splits: [batchRingSplits(setup.tree, setup.mounts).halves!] });
+  const deps = { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }), nozzleFor: nozzles({}) };
+  const out = await sweep(inp, deps);
+  const mixed = out.rows.filter(r => r.combo);
+  expect(mixed).toHaveLength(2);
+  expect(mixed.every(r => r.run && !r.error)).toBe(true);
+  expect(new Set(mixed.map(r => r.key)).size).toBe(2);
+  expect(mixed.filter(r => r.weighed)).toHaveLength(1);
+  expect(Math.abs(mixed[0]!.run!.launchMass! - mixed[1]!.run!.launchMass!)).toBeCloseTo(0.1, 8);
+  const reversed = await sweep({ ...inp, candidates: [...candidates].reverse() }, deps);
+  expect(reversed.rows.map(r => r.key).sort()).toEqual(out.rows.map(r => r.key).sort());
+});
+
+it('Round 3 plugged exception provenance preserves unlit legs in both passes', async () => {
+  const setup = separateRing();
+  setup.tree.components[0]!.children![1]!.children!.find(c => c.id === 'chute')!.deployEvent = 'ejection';
+  const fly = vi.spyOn(flightRunner, 'flyLaunch');
+  const out = await sweep(input(setup.tree, { ...setup, autoDelay: false,
+    candidates: [entry('a', 'Acme', 'E20', 'P'), entry('b', 'Acme', 'E22', 'P')],
+    splits: [batchRingSplits(setup.tree, setup.mounts).halves!],
+    assignedIgnitions: { ring3: { event: 'never', delay: 0 } } }),
+  { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }), nozzleFor: nozzles({}) });
+  for (const [i, row] of out.rows.entries()) {
+    expect(row.error).toBeUndefined();
+    const assigned = fly.mock.calls[i]![1].assigned;
+    const unlit = assigned.find(([id]) => id === 'ring3')![1];
+    expect(unlit.meta.autoDelay).toBe(false);
+    expect(unlit.spec.ejectionDelay).toBe(Infinity);
+    const current = designPageKey(designState(setup.tree, Object.fromEntries(assigned.map(([id, mm]) => [id,
+      mm.meta.autoDelay ? { ...mm, spec: { ...mm.spec, ejectionDelay: 0 } } : mm]))));
+    expect(row.run!.motorSetKey).toBe(current.motorSetKey);
+    expect(changedSinceRun(row.run!, current)).toEqual([]);
+    expect(canReplayDelays(row.run!.delayResolution, assigned, assigned[0]![0], row.run!.delayS, true)).toBe(true);
+  }
+}, 60000);
