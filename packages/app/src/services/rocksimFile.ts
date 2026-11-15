@@ -3,7 +3,7 @@ import { cautionNote, flagNote, noteFlags, tierLines, zeroBulkDensityNote } from
 import { KERNEL_DEFAULT_FIN_POINTS, KERNEL_DEFAULT_MATERIALS, kernelNum, kernelRecoveryCd } from '../tree/kernelDefaults.js';
 import { flownTransitionEnds } from '../tree/transitionRadii.js';
 import { tubeFinRadius, tubeFinWall } from '../tree/tubefins.js';
-import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
+import { INITIAL_UNITS, noticeEqual, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { nozzleExportNotes } from './nozzleExport.js';
 import { filletExportNotes } from './filletExport.js';
@@ -19,6 +19,7 @@ import { num as nnum, numOpt } from '../tree/nodeNum.js';
 import { foldDeployEvent } from '../tree/deployEvent.js';
 import { finRootChord, finTabFront } from '../tree/finTab.js';
 import { finCountOf } from '../tree/counts.js';
+import { airfoilFinMassEstimate } from '../tree/finMassEstimate.js';
 import { spansOverlap } from '../tree/finAlign.js';
 import { isFinSet } from '../tree/mountAngle.js';
 import { axialLength, positionOf, startFromPosition } from '../tree/position.js';
@@ -2050,6 +2051,17 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
       + "on each set; clear those to go back to the app's own calculation, which then follows any "
       + 'change you make to the fins.');
   }
+  for (const n of airfoilPinned) {
+    // Only recovery nodes were sanitized above; fins are sanitized at return.
+    // Read a repaired copy without changing the pin or duplicating repair notes.
+    const flown = sanitizeTree({ components: [n] }).components[0]!;
+    const est = airfoilFinMassEstimate(flown);
+    const pinned = numOpt(flown, 'overrideMass');
+    if (est === undefined || pinned === undefined || pinned >= 0.1 * est || noticeEqual(pinned, 0.1 * est)) continue;
+    const material = flownMaterial(flown, 'density', 'materialName', KERNEL_DEFAULT_MATERIALS.bulk);
+    const note = `Fin set “${noteField(n.name ?? 'fins')}”: RockSim recorded ${noticeQuantity('mass', pinned, units, { against: 0.1 * est })} for it, less than a tenth of the ${noticeQuantity('mass', est, units)} the app estimates from its outline, thickness and ${noteField(material.name)} density, tabs left out. That may be a RockSim weighing error. The app still uses the file's number, as desktop OR does. A fin mass that far off puts the CG in the wrong place, so the stability margin the app shows can be wrong. If your fins weigh more, enter their measured mass in **Mass (all fins combined)** under Overrides, or clear the mass and **CG from component top** overrides to use the app's own calculation. Check mass, CG and stability before flying.`;
+    if (!notes.includes(note)) cautionNote(notes, 'I18.airfoil-mass-implausible', note);
+  }
   if (pinnedMassObjects) {
     const n = pinnedMassObjects;
     notes.push(`${n} mass object${n === 1 ? '' : 's'} placed at the exact point the file states. `
@@ -2064,6 +2076,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
   // back to the first motor mount of the EngineSet's stage.
   /** Refs whose <EjectionDelay> was a RockSim sentinel, for the import note below. */
   const sentinelRefs = new Map<OrkMotorRef, 'plugged' | 'every' | 'every-auto' | 'every-unmatched'>();
+  const statedIgnition = new Map<OrkMotorRef, number>();
   /** Stage index (0 = sustainer) of each mount, for the launch keying below. */
   const stageOfMount = new Map<string, number>();
   components.forEach((s, i) => {
@@ -2079,41 +2092,12 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
     let mount = movedSets.get(engineSet) ?? (mountSerial ? serialToNode.get(mountSerial) : undefined);
     if (!mount || mount['motorMount'] !== true) mount = stageFallbackMount(engineSet);
     if (!mount?.id) return null;
-    // RockSim's <IgnitionDelay> is an offset from the STAGE BELOW'S BURNOUT, not
-    // from liftoff. Dropping it entirely (what we did before) made every .rkt
-    // motor {automatic, 0}, which on an upper stage means the stage below's
-    // EJECTION CHARGE — so a staged design lit its sustainer off the wrong event
-    // and ignored the file's timer.
-    //
-    // Three independent confirmations, because getting this backwards moves a
-    // sustainer by tens of seconds:
-    //  1. `2,4-D.rkt` stores three RockSim result sets for the same design. Two
-    //     differ ONLY in the sustainer's IgnitionDelay (0 vs 10 s) and their
-    //     stored <TimeToBurnout> differs by exactly 10.0000 s. Liftoff-relative
-    //     cannot produce that — a sustainer lit at t=10 would still be burning
-    //     inside the booster's burn, and the later burnout would be the
-    //     booster's, identical in both.
-    //  2. `SS Wild Bash 20260623v0.ork`, the same design saved by the same
-    //     author, declares <ignitionevent>burnout</ignitionevent> on BOTH upper
-    //     mounts and `launch` only on the bottom one.
-    //  3. Desktop OpenRocket maps the identical concept the same way in its
-    //     RASAero importer (SimulationHandler: stages below the top get
-    //     IgnitionEvent.BURNOUT), and rasaeroFile.ts already follows it.
-    //
-    // Keyed on STAGE POSITION, not on the delay being non-zero: an upper stage
-    // with an explicit 0 still means "at the stage below's burnout", which is a
-    // different event from 'automatic'. The bottom stage is left 'automatic' —
-    // the kernel resolves that to launch there — so single-stage .rkt files are
-    // untouched, UNLESS it states a delay: nothing burns below the bottom stage,
-    // so RockSim counts that delay from launch — an air start (seam review of
-    // audit 2026-09-22). It was dropped, so every such motor lit at liftoff,
-    // although this app's own writer has written it since the same audit.
-    // RockSim's stored results say so. In PELTZER - LOC Bruiser EXP
-    // v2_1x54mm_6x29mm.rkt (one stage) simulations 5 and 6 differ only in the
-    // H13ST cluster's IgnitionDelay, 1 s against 0, and their TimeToBurnout by
-    // exactly 1.0000 s (16.4325 / 15.4325); simulation 2 burns six H115DM out
-    // at 1.69375 s, and simulation 3, the same six at 2 s under an I599N, at
-    // 3.69375 s — 2 s later, to the digit.
+    // RockSim's <IgnitionDelay> starts at the stage below's separation,
+    // triggered by its ejection charge. Fold its shared delay in below.
+    // Aerobee-Hi simulations 1 and 2 change only the booster delay by 3 s;
+    // their stored final burnouts differ by 2.99875 s (one RockSim step).
+    // Keep the bottom motor automatic (launch), unless it states an air start.
+    // Above an unpowered bottom stage, the per-configuration pass uses launch.
     const ignitionDelay = num(engineSet, 'IgnitionDelay', 0);
     const isBottomStage = components.length <= 1
       || mountsIn(components[components.length - 1]?.children ?? []).some((m) => m.id === mount!.id);
@@ -2150,6 +2134,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
     else if (read === 'every') {
       sentinelRefs.set(ref, every === null ? 'every-unmatched' : every.autoDelay ? 'every-auto' : 'every');
     }
+    statedIgnition.set(ref, ignitionDelay);
     return ref;
   };
 
@@ -2183,6 +2168,35 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
   const ignitionDefaults: Record<string, IgnitionTuple> = {};
   for (const [id, stage] of stageOfMount) ignitionDefaults[id] = {
     event: stage === components.length - 1 ? 'automatic' : 'burnout', delay: 0,
+  };
+  const stageIgnitions = (motors: Record<string, OrkMotorRef>, stagingNotes: string[]): void => {
+    const entries = Object.entries(motors);
+    const lowest = Math.max(...entries.map(([id]) => stageOfMount.get(id) ?? 0));
+    for (const [id, ref] of entries) {
+      const stage = stageOfMount.get(id) ?? 0;
+      if (stage >= lowest) continue;
+      const below = entries.filter(([other]) => stageOfMount.get(other) === stage + 1).map(([, m]) => m);
+      if (!below.length) continue;
+      const delays = new Set(below.map(m => m.autoDelay ? NaN : m.delay));
+      const [shared] = delays;
+      const ig = statedIgnition.get(ref) ?? 0;
+      if (delays.size === 1 && shared !== undefined && Number.isFinite(shared)) {
+        ref.ignitionDelay = Math.round((shared + ig) * 1e6) / 1e6;
+      } else {
+        ref.ignitionDelay = ig;
+        const unresolved = below.some(m => m.autoDelay || sentinelRefs.get(m) === 'every-unmatched');
+        const plugged = below.every(m => !m.autoDelay && sentinelRefs.get(m) !== 'every-unmatched' && !Number.isFinite(m.delay));
+        if (unresolved) {
+          const note = `“${noteField(ref.designation)}”: the app cannot fix the stage below's ejection delay as a number at import. RockSim counts this motor's stated ${ig} s ignition delay from that stage's separation; the app lights it ${ig} s after that stage's burnout. Check the staging on Motors & Configuration before flying.`;
+          if (!stagingNotes.includes(note)) cautionNote(stagingNotes, 'I11.staging-unresolved', note);
+          continue;
+        }
+        const reason = plugged ? `${below.length === 1 ? 'its motor is' : 'its motors are'} plugged, so RockSim would not stage this rocket`
+          : `the motors on that stage carry different delays (${[...delays].map(d => Number.isFinite(d) ? `${d} s` : Number.isNaN(d) ? 'Auto' : 'plugged').join(', ')})`;
+        const note = `“${noteField(ref.designation)}”: RockSim counts its ${ig} s ignition delay from the separation of the stage below, which that stage's ejection charge sets off, and ${reason}. The app lights it ${ig} s after that stage's burnout. Check ${plugged ? 'the staging' : 'the ignition setting'} on Motors & Configuration before flying.`;
+        if (!stagingNotes.includes(note)) cautionNote(stagingNotes, plugged ? 'I11.staging-plugged' : 'I11.staging-delays', note);
+      }
+    }
   };
   /** Per configuration: the simulation it came from (file order, 1-based; null = outside any). */
   const cfgSim = new Map<OrkFlightConfig, { number: number | null; name: string | null }>();
@@ -2253,7 +2267,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
     // Its derived delay/Auto flags are recalculated after gathering evidence.
     const deployments = deploymentsFor(g.number === null ? undefined : simulationRecovery[g.number - 1]);
     const key = comparisonText((motorLoadoutRefusal ?? '') + comparisonJson(deployments) + '\n' + entries.map(([id, r]) => [id, r.designation, r.manufacturer, r.rktEveryDelay ? 'every' : r.delay,
-      r.ignitionEvent ?? '', r.ignitionDelay ?? '', !r.rktEveryDelay && r.autoDelay ? 'auto' : '',
+      r.ignitionEvent ?? '', statedIgnition.get(r) ?? '', !r.rktEveryDelay && r.autoDelay ? 'auto' : '',
       r.rktEveryDelay ? 'every' : ''].join('|')).sort().join('\n'));
     // Absence of burn evidence is not a conflicting duration. Keep any evidence
     // when folding; RockSim time-step noise within 0.02 s or 2% agrees.
@@ -2348,6 +2362,17 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
     if (every?.autoDelay) ref.autoDelay = true;
     else delete ref.autoDelay;
     sentinelRefs.set(ref, every === null ? 'every-unmatched' : every.autoDelay ? 'every-auto' : 'every');
+  }
+  const stagingNotes = new Map<OrkFlightConfig, string[]>();
+  for (const cfg of configs) {
+    const own: string[] = [];
+    stageIgnitions(cfg.motors, own);
+    stagingNotes.set(cfg, own);
+    for (const [id, ref] of Object.entries(cfg.motors)) {
+      const ignition = { event: knownIgnitionEvent(ref.ignitionEvent) ?? 'automatic', delay: ref.ignitionDelay ?? 0 } satisfies IgnitionTuple;
+      if (sparsify(ignitionDefaults[id]!, ignition)) (cfg.ignitions ??= {})[id] = ignition;
+      else if (cfg.ignitions) delete cfg.ignitions[id];
+    }
   }
   // Which configuration to open: the first that puts a motor on the launch
   // stage, which is the one that has to light first — importCdx1's choice.
@@ -2495,7 +2520,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
   const configSources: Record<string, string> = {};
   for (const c of configs) {
     const folded = foldedSources.get(c)!;
-    configNotes[c.id] = [openedNoteFor(c), ...recoveryNotesFor(c), ...sentinelNotesFor(c), ...foldedDiagnostics.get(c)!,
+    configNotes[c.id] = [openedNoteFor(c), ...recoveryNotesFor(c), ...sentinelNotesFor(c), ...stagingNotes.get(c)!, ...foldedDiagnostics.get(c)!,
       ...(folded.length ? [`Also represents ${folded.join('; ')}: the motors, ignition and recovery settings agree.`] : [])]
       .filter((n): n is string => n !== null);
     configSources[c.id] = [simLabel(c), ...folded].join('; ');
@@ -2612,7 +2637,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
     notes,
     // Every producer's record: the opened configuration's lines and every
     // other configuration's (configNotes), which planImport may swap in.
-    noteTiers: [notes, designRecoveryNotes, ...simulationRecoveryNotes, ...foldedDiagnostics.values()].flatMap(noteFlags),
+    noteTiers: [notes, designRecoveryNotes, ...simulationRecoveryNotes, ...stagingNotes.values(), ...foldedDiagnostics.values()].flatMap(noteFlags),
     ...(measured ? { measured } : {}),
     ...(launch ? { launch } : {}),
     ...(launchSiteRefused ? { launchSiteRefused: true as const } : {}),
@@ -4059,8 +4084,8 @@ export function exportRkt(input: RktExportInput): string {
     emit('<SimulationResults>');
     // Staging timer, so a .rkt written here round-trips through our own
     // importer (and through RockSim) with its staging intact. RockSim
-    // measures IgnitionDelay from the stage below's BURNOUT, which is exactly
-    // what the importer maps to `ignitionEvent: 'burnout'`. On the LOWEST
+    // measures IgnitionDelay from the stage below's separation (ejection).
+    // Subtract its shared ejection delay from a burnout timer. On the LOWEST
     // stage carrying a motor nothing below it burns, and RockSim counts the
     // delay from launch — its stored results show it above an empty booster
     // slot (Blackhawk_2-stage.rkt) and on single-stage air-start clusters
@@ -4077,9 +4102,8 @@ export function exportRkt(input: RktExportInput): string {
     // stage and on a strap-on (AxialStage / ParallelStage.isLaunchStage), and
     // there it is written as a launch. Above it, 'automatic' is the EJECTION
     // CHARGE of the stage directly below (IgnitionEvent.EJECTION_CHARGE), which
-    // RockSim cannot name — but when every motor on that stage has the same
-    // finite delay d, its charge fires d s after its burnout, so the file says
-    // d + delay after burnout and the flight is the same. What is left —
+    // RockSim names directly: write the timer after that charge unchanged.
+    // A burnout timer needs a shared finite delay to invert the import. What is left —
     // launch above the pad stage, burnout or a charge on the pad stage (where
     // nothing burns below: the kernel never lights it), a charge below whose
     // motors disagree or are plugged, and 'never' — RockSim has no words for,
@@ -4098,24 +4122,23 @@ export function exportRkt(input: RktExportInput): string {
       };
       return walk(stagesIn.flatMap((s) => s.children ?? []), false) === true;
     };
-    /** The one finite ejection delay every motor on slot `i + 1` shares, else null. */
+    // Use the same value for timing arithmetic and the emitted EjectionDelay.
+    // A resolved Auto may write a number; an unresolved every-delay writes -1.
+    const everyDelay = (m: OrkExportMotor): boolean => m.rktEveryDelay === true
+      || (m.autoDelay === true && rktEveryDelay(m.designation, m.manufacturer ?? 'unknown')?.autoDelay === true);
+    const writtenEjectionDelay = (m: OrkExportMotor): number => everyDelay(m) ? RKT_EVERY_DELAY
+      : Number.isFinite(m.delay) ? m.delay : RKT_PLUGGED_DELAY;
+    /** The one finite, non-sentinel delay actually written on slot `i + 1`, else null. */
     const sharedDelayBelow = (i: number): number | null => {
       const below = stageMotors[i + 1] ?? [];
-      const delays = new Set(below.map(([, m]) => (m.rktEveryDelay ? NaN : m.delay)));
+      const delays = new Set(below.map(([, m]) => writtenEjectionDelay(m)));
       const [d] = delays;
-      return below.length > 0 && delays.size === 1 && d !== undefined && Number.isFinite(d) ? d : null;
+      return below.length > 0 && delays.size === 1 && d !== undefined && Number.isFinite(d) && d >= 0 ? d : null;
     };
-    /**
-     * Every motor on slot `i + 1` plugged. A plugged motor fires no charge —
-     * the kernel schedules EJECTION_CHARGE only for a motor that has one
-     * (BasicEventSimulationEngine, BURNOUT: `motorState.hasEjectionCharge()`)
-     * — so a stage above waiting for one never lights in this app, while the
-     * .rkt lights it at that burnout. One plugged motor does share one delay,
-     * 'plugged', which the note used to deny (review of the seam fixes).
-     */
+    /** Every motor below writes plugged: no charge triggers RockSim separation. */
     const pluggedBelow = (i: number): number => {
       const below = stageMotors[i + 1] ?? [];
-      return below.every(([, m]) => !m.rktEveryDelay && !Number.isFinite(m.delay)) ? below.length : 0;
+      return below.every(([, m]) => writtenEjectionDelay(m) === RKT_PLUGGED_DELAY) ? below.length : 0;
     };
     const writtenIgnition = new Map<string, number>();
     const lostIgnition = new Set<string>();
@@ -4125,13 +4148,30 @@ export function exportRkt(input: RktExportInput): string {
         const raw = knownIgnitionEvent(m.ignitionEvent) ?? 'automatic';
         const event = raw !== 'automatic' ? raw
           : i === bottomSlot || strapOn(id) ? 'launch' : 'ejectioncharge';
-        const shared = event === 'ejectioncharge' && i !== lowestSlot ? sharedDelayBelow(i) : null;
+        const shared = i !== lowestSlot ? sharedDelayBelow(i) : null;
         const said = i === lowestSlot ? event === 'launch'
-          : event === 'burnout' || shared !== null;
-        // Summed in whole microseconds, so 0.1 + 0.2 writes "0.3".
-        writtenIgnition.set(id, shared !== null ? Math.round((shared + delay) * 1e6) / 1e6 : delay);
+          : event === 'burnout' ? shared !== null : event === 'ejectioncharge' && shared !== null;
+        // Whole microseconds avoid decimal round-trip drift.
+        const written = event === 'burnout' && shared !== null ? Math.max(0, Math.round((delay - shared) * 1e6) / 1e6) : delay;
+        writtenIgnition.set(id, written);
+        if (event === 'burnout' && shared !== null && delay < shared) {
+          lostIgnition.add(`“${noteField(m.designation)}” lights ${delay} s after the burnout of the stage below, before that stage separates in RockSim (${shared} s after its burnout), so the .rkt lights it at separation (ignition delay 0).`);
+        }
         if (said) continue;
-        const after = i === lowestSlot ? 'after launch' : 'after the burnout of the stage below';
+        if (event === 'burnout' && i !== lowestSlot) {
+          const below = stageMotors[i + 1] ?? [];
+          const plugged = pluggedBelow(i);
+          const why = plugged > 0 ? `, whose motor${plugged === 1 ? ' is' : 's are all'} plugged`
+            : below.length === 0 ? ', which has no motor'
+              : below.some(([, m]) => writtenEjectionDelay(m) === RKT_EVERY_DELAY)
+                ? ', whose ejection delay is unresolved' : ', whose motors do not share one ejection delay';
+          const consequence = plugged > 0 || below.length === 0
+            ? 'with no ejection charge, that stage never triggers separation, so the upper motor does not light in RockSim'
+            : 'its separation time is not one shared numeric ejection delay, so the ignition timing can change';
+          lostIgnition.add(`“${noteField(m.designation)}” lights ${delay} s after the burnout of the stage below${why}. The .rkt writes IgnitionDelay ${written} s, which RockSim counts from that stage's separation; ${consequence}. Check the staging on Motors & Configuration before flying.`);
+          continue;
+        }
+        const after = i === lowestSlot ? 'after launch' : 'after the separation of the stage below';
         const what = event === 'never' ? 'is set never to light'
           : event === 'launch' ? 'lights at launch, above the stage that leaves the pad'
             : event === 'burnout' ? 'lights on the burnout of the stage below'
@@ -4142,7 +4182,7 @@ export function exportRkt(input: RktExportInput): string {
           : plugged > 0 ? `, whose motor${plugged === 1 ? ' is' : 's are all'} plugged — with no charge to fire, it does not light here either`
             : event === 'ejectioncharge' ? ', whose motors do not share one ejection delay' : '';
         lostIgnition.add(`“${noteField(m.designation)}” ${what}${why}. RockSim times the stage that leaves the pad from `
-          + `launch and every other stage from the burnout of the one below, so the .rkt lights it ${delay} s ${after}.`);
+          + `launch and every other stage from the separation of the one below, so the .rkt lights it ${delay} s ${after}.`);
       }
     }
     notes?.push(...lostIgnition);
@@ -4154,8 +4194,6 @@ export function exportRkt(input: RktExportInput): string {
     // reads back as Auto; a motor that lists delays would read −1 back as its
     // longest instead, so it keeps the delay App hands over and the Save says
     // so (autoDelaySaveNote).
-    const everyDelay = (m: OrkExportMotor): boolean => m.rktEveryDelay === true
-      || (m.autoDelay === true && rktEveryDelay(m.designation, m.manufacturer ?? 'unknown')?.autoDelay === true);
     for (const i of [0, 1, 2]) {
       for (const [, m] of stageMotors[i]!) {
         const said = everyDelay(m) ? null : autoDelaySaveNote(m, '.rkt');
@@ -4207,8 +4245,7 @@ export function exportRkt(input: RktExportInput): string {
           // A reference nothing loaded that the file gave RockSim's "every delay"
           // goes back as the −1 it came in as (OrkMotorRef.rktEveryDelay), and
           // so does an Auto motor with no numeric delay (everyDelay above).
-          emit(`<EjectionDelay>${everyDelay(m) ? RKT_EVERY_DELAY
-            : Number.isFinite(m.delay) ? m.delay : RKT_PLUGGED_DELAY}</EjectionDelay>`);
+          emit(`<EjectionDelay>${writtenEjectionDelay(m)}</EjectionDelay>`);
           emit('</EngineSet>');
         }
       }

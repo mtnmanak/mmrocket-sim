@@ -21,6 +21,8 @@ import { tubeFinRadius } from '../tree/tubefins.js';
 import { engineTree, flownInstanceCount } from '../tree/treeModel.js';
 import { checkFormatLoss } from './formatLoss.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
+import { airfoilFinMassEstimate } from '../tree/finMassEstimate.js';
+import { IMPERIAL_UNITS } from '../prefs/units.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -1647,9 +1649,8 @@ describe('.rkt export writes a stage\'s known mass where RockSim keeps it', () =
 });
 
 /**
- * RockSim's <IgnitionDelay> is an offset from the STAGE BELOW'S BURNOUT, not
- * from liftoff. Getting this backwards lights a sustainer tens of seconds
- * early. It shipped once as 'launch' and was caught in review; these pin it.
+ * With a zero-delay booster, RockSim separation and burnout coincide. These
+ * historical fixtures pin that case; peakOfFlight tests cover finite delays.
  */
 describe('.rkt staging timers', () => {
   const staged = (d: [string, string, string]) => `<RockSimDocument><DesignInformation><RocketDesign>
@@ -1807,14 +1808,14 @@ describe('.rkt ignition delays — read and written for every event RockSim can 
       },
     });
     expect(notes).toEqual([]);
-    expect(xml).toContain('<SimulationName>[M1350W-3-12] [K250W-6-4.5] </SimulationName>');
+    expect(xml).toContain('<SimulationName>[M1350W-3-12] [K250W-6-1.5] </SimulationName>');
     const m = reread(xml);
     expect([m['M1350W']!.ignitionEvent, m['M1350W']!.ignitionDelay]).toEqual(['launch', 12]);
     // The same instant, in RockSim's words: the booster's burnout + 3 s + 1.5 s.
     expect([m['K250W']!.ignitionEvent, m['K250W']!.ignitionDelay]).toEqual(['burnout', 4.5]);
   });
 
-  it('canonicalizes legacy charge ignition before summing the shared delay', () => {
+  it('canonicalizes legacy charge ignition before writing the separation timer', () => {
     const notes: string[] = [];
     const back = reread(exportRkt({ name: 'Alias', tree: twoStage(), notes, motors: {
       m1: motor('M1350W', { delay: 3 }),
@@ -1840,12 +1841,12 @@ describe('.rkt ignition delays — read and written for every event RockSim can 
 
   it('says what RockSim cannot: launch above the pad stage, a charge below that is plugged, never', () => {
     const cases: [Partial<OrkExportMotor>, Partial<OrkExportMotor>, RegExp][] = [
-      [{ ignitionEvent: 'launch', ignitionDelay: 2 }, {}, /“K250W” lights at launch, above the stage that leaves the pad\. .* lights it 2 s after the burnout of the stage below\./],
+      [{ ignitionEvent: 'launch', ignitionDelay: 2 }, {}, /“K250W” lights at launch, above the stage that leaves the pad\. .* lights it 2 s after the separation of the stage below\./],
       // A plugged motor fires no charge (the kernel schedules EJECTION_CHARGE
       // only for a motor with one), so here the stage above never lights —
       // one plugged motor shares 'plugged', so "do not share" was the wrong
       // reason (review of the seam fixes).
-      [{ ignitionEvent: 'automatic' }, { delay: Infinity }, /“K250W” lights on the ejection charge of the stage below, whose motor is plugged — with no charge to fire, it does not light here either\. .* lights it 0 s after the burnout of the stage below\./],
+      [{ ignitionEvent: 'automatic' }, { delay: Infinity }, /“K250W” lights on the ejection charge of the stage below, whose motor is plugged — with no charge to fire, it does not light here either\. .* lights it 0 s after the separation of the stage below\./],
       [{ ignitionEvent: 'never' }, {}, /“K250W” is set never to light\./],
     ];
     for (const [upper, booster, said] of cases) {
@@ -3117,6 +3118,102 @@ describe('RockSim airfoil fin sets take the file’s own computed mass and CG', 
   const finsOf = (fields: string, tip = 2) =>
     flatten(importRkt(design(fields, tip)).tree.components)
       .find((c) => c.type === 'trapezoidfinset')!;
+
+  const implausible = (xml: string) => importRkt(xml).noteTiers?.filter(n => n.kind === 'I18.airfoil-mass-implausible') ?? [];
+
+  it('warns below one tenth of the outline estimate without changing the pin', () => {
+    expect(implausible(design('<CalcMass>0.93</CalcMass>'))).toHaveLength(1);
+    expect(finsOf('<CalcMass>0.93</CalcMass>')['overrideMass']).toBeCloseTo(0.00093, 10);
+    for (const mass of [0.93636, 0.94, 138.211]) expect(implausible(design(`<CalcMass>${mass}</CalcMass>`))).toHaveLength(0);
+  });
+
+  it('uses the flown bulk density, including the default', () => {
+    expect(implausible(design('<CalcMass>0.5</CalcMass><DensityType>0</DensityType><Density>128</Density>'))).toHaveLength(0);
+    expect(implausible(design('<CalcMass>0.5</CalcMass>'))).toHaveLength(1);
+  });
+
+  it('compares against the repaired density the fins actually fly', () => {
+    const fields = '<CalcMass>50</CalcMass><DensityType>0</DensityType><Density>60000</Density>';
+    expect(finsOf(fields)['density']).toBe(30000);
+    expect(implausible(design(fields))).toHaveLength(0);
+    // At the same repaired density a genuinely tiny pin must still warn.
+    expect(implausible(design(fields.replace('<CalcMass>50</CalcMass>', '<CalcMass>1</CalcMass>')))).toHaveLength(1);
+  });
+
+  it('does not warn at the exact 90 g over 0.9 kg display boundary', () => {
+    const xml = design('<CalcMass>90</CalcMass><DensityType>0</DensityType><Density>6535.947712418301</Density>')
+      .replace('<Thickness>3</Thickness>', '<Thickness>30</Thickness>');
+    expect(airfoilFinMassEstimate(flatten(importRkt(xml).tree.components).find(n => n.type === 'trapezoidfinset')!)).toBeCloseTo(0.9, 14);
+    expect(implausible(xml)).toHaveLength(0);
+  });
+
+  it('says just below when the pinned mass rounds to the tenth-estimate boundary', () => {
+    expect(implausible(design('<CalcMass>0.936359</CalcMass>'))[0]!.text).toContain('RockSim recorded just below');
+  });
+
+  it('warns about forward-mounted underweight fins without asserting a CG direction', () => {
+    const [note] = implausible(design('<CalcMass>0.001</CalcMass><Xb>0</Xb>'));
+    expect(note).toBeDefined();
+    expect(note!.text).not.toMatch(/forward|more stability margin/);
+    expect(note!.text).toContain('A fin mass that far off puts the CG in the wrong place, so the stability margin the app shows can be wrong.');
+    expect(note!.text).toContain('Mass (all fins combined)');
+    expect(note!.text).toContain('CG from component top');
+  });
+
+  it('does not warn about unpinned or explicitly weighed fins', () => {
+    for (const tip of [0, 1]) expect(implausible(design('<CalcMass>0.001</CalcMass>', tip))).toHaveLength(0);
+    expect(implausible(design('<CalcMass>0.001</CalcMass><KnownMass>0.001</KnownMass><UseKnownCG>1</UseKnownCG>'))).toHaveLength(0);
+  });
+
+  it('flags the Darkstar freeform surface-density case as a caution in the selected units', () => {
+    const xml = design('<CalcMass>0.00352811</CalcMass><DensityType>1</DensityType><Density>0.313745</Density>')
+      .replaceAll('FinSet>', 'CustomFinSet>').replace('<Thickness>3</Thickness>', '<Thickness>1.5875</Thickness>')
+      .replace('<RootChord>60</RootChord>', '<PointList>67.818,0|49.53,43.18|30.48,49.403|0,0</PointList>');
+    const result = importRkt(xml, { units: IMPERIAL_UNITS });
+    expect(result.noteTiers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'I03.nonbulk-material', tier: 'caution' }),
+      expect.objectContaining({ kind: 'I18.airfoil-mass-implausible', tier: 'caution', text: expect.stringMatching(/RockSim recorded [^ ]+ oz.*less than a tenth of the [^ ]+ oz/) }),
+    ]));
+  });
+
+  it('bounds the real kernel mass from below, with and without a fin tab', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    for (const tabs of ['', '<TabLength>25</TabLength><TabDepth>8</TabDepth>']) {
+      const result = importRkt(design(`<CalcMass>0.93</CalcMass>${tabs}`));
+      const fins = flatten(result.tree.components).find(c => c.type === 'trapezoidfinset')!;
+      delete fins['overrideMass']; delete fins['overrideCGX'];
+      const estimate = airfoilFinMassEstimate(fins)!;
+      resetEngine();
+      const mass = OrkRocket.buildTree(engineTree(result.tree)).componentInfo(fins.id!).mass;
+      expect(estimate).toBeLessThanOrEqual(mass * (1 + 1e-9));
+      if (tabs) expect(estimate).toBeLessThan(mass);
+      else expect(estimate).toBeGreaterThanOrEqual(0.99 * mass);
+    }
+  }, 60_000);
+
+  it('matches a non-default-density freeform estimate to the real kernel', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const xml = design('<CalcMass>0.001</CalcMass><DensityType>0</DensityType><Density>128</Density>')
+      .replaceAll('FinSet>', 'CustomFinSet>')
+      .replace('<RootChord>60</RootChord>', '<PointList>0,0|20,40|50,40|60,0</PointList>');
+    const result = importRkt(xml);
+    const fins = flatten(result.tree.components).find(c => c.type === 'freeformfinset')!;
+    delete fins['overrideMass']; delete fins['overrideCGX'];
+    const estimate = airfoilFinMassEstimate(fins)!;
+    resetEngine();
+    const mass = OrkRocket.buildTree(engineTree(result.tree)).componentInfo(fins.id!).mass;
+    expect(estimate).toBeGreaterThanOrEqual(0.99 * mass);
+    expect(estimate).toBeLessThanOrEqual(mass * (1 + 1e-9));
+  }, 60_000);
+
+  for (const [relative, warned] of [['Wildman/Darkstar_Mini.rkt', true],
+    ['TRF RASAero Files/2,4-D.rkt', false], ['TRF RASAero Files/Mach2.rkt', false]] as const) {
+    const root = rocksimCorpusPath();
+    const path = [join(here, '../../../../docs/User files', relative), ...(root ? [join(root, relative)] : [])].find(existsSync);
+    it.skipIf(!path)(`corpus airfoil caution: ${relative}`, () => {
+      expect(implausible(readFileSync(path!, 'utf8')).length > 0).toBe(warned);
+    });
+  }
 
   it('pins both numbers when the cross-section is airfoil and no override was stated', () => {
     const n = finsOf('<CalcMass>138.211</CalcMass><CalcCG>153.76</CalcCG><UseKnownCG>0</UseKnownCG>');
