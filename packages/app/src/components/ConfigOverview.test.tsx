@@ -53,7 +53,10 @@ const tree: FlightTree = { name: 'T', ignitionDefaults: { mount: { event: 'autom
   { id: 'lower', type: 'stage', name: 'Lower', separationEvent: 'ejection' },
 ] };
 const config: SavedConfig = { id: 'a', name: 'Flight A', isDefault: true,
-  motors: { mount: { label: 'C6-5', ignition: { event: 'burnout', delay: 0 }, spec: {}, meta: {} } as SavedConfig['motors'][string] },
+  motors: { mount: { label: 'C6-5', ignition: { event: 'burnout', delay: 0 }, spec: {
+    designation: 'C6-5', diameter: 0.018, length: 0.07, cgX: 0.035, ejectionDelay: 5,
+    times: [0, 0.1, 1], thrusts: [0, 6, 0], masses: [0.025, 0.024, 0.012],
+  }, meta: {} } as SavedConfig['motors'][string] },
   deployments: { chute: { deployEvent: 'ejection', deployAltitude: 200, deployDelay: 0 } },
   separations: { lower: { separationEvent: 'launch', separationDelay: 2, separationAltitude: 200 },
     top: { separationEvent: 'launch', separationDelay: 2, separationAltitude: 200 } },

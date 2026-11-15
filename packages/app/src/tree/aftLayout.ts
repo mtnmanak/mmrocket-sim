@@ -65,6 +65,7 @@ export interface AftLayout {
  */
 export function aftLayout(
   tree: RocketTree, roll: number, motors?: Record<string, MotorDims>, hiddenIds?: ReadonlySet<string>,
+  onMotor?: (id: string, y: number, z: number) => void,
 ): AftLayout {
   if (motors) motors = lookupTable(motors);
   const hidden = hiddenPartIds(tree, hiddenIds);
@@ -259,7 +260,7 @@ export function aftLayout(
         const rd = num(child, 'radialDirection', 0) + frameRoll;
         const oy = rp * Math.cos(rd);
         const oz = rp * Math.sin(rd);
-        const motor = child.id ? overrideFor(motors, child.id) : undefined;
+        const motor = child['motorMount'] === true && child.id ? overrideFor(motors, child.id) : undefined;
         for (const off of offs) {
           inner.push({
             key: keyFor(child), kind: 'circle', y: cy + oy + off.y, z: cz + oz + off.z, r,
@@ -267,6 +268,7 @@ export function aftLayout(
             title: child.name ?? 'Inner tube',
           });
           if (motor) {
+            onMotor?.(child.id!, cy + oy + off.y, cz + oz + off.z);
             inner.push({
               key: keyFor(child, ':motor'), kind: 'circle', y: cy + oy + off.y, z: cz + oz + off.z, r: motor.diameter / 2,
               fill: AFT_MOTOR_FILL, stroke: 'var(--launch-active)', title: 'Motor',
@@ -339,6 +341,7 @@ export function aftLayout(
         if (n.type === 'bodytube' && n['motorMount'] === true) {
           const motor = n.id ? overrideFor(motors, n.id) : undefined;
           if (motor) {
+            onMotor?.(n.id!, cy, cz);
             inner.push({
               key: keyFor(n, ':motor'), kind: 'circle', y: cy, z: cz, r: motor.diameter / 2,
               fill: AFT_MOTOR_FILL, stroke: 'var(--launch-active)', title: 'Motor',

@@ -1,4 +1,26 @@
 // @vitest-environment happy-dom
+// Row 127 round 5: reviewed common peak/radius floors for unknown-event sets,
+// per-motor relative delays, retained launch-clock times and inclusive 1 mm
+// roundoff. Caution display is capped at 19.9% so rounding cannot print 20%.
+// The same two formatters and physical thresholds remain; round5 tests cover
+// the changed advisory boundaries. noteExplanations 37 -> 38 adds the remedy
+// for unknown sets below the existing thresholds; no flown number changes.
+// Row 127 round 4: reviewed serial-stage plus strap-on whole-burn groups,
+// relative timing for one upper trigger, and early-ended-flight uncertainty.
+// Inclusive 5%/20% now uses a 1e-12 relative arithmetic allowance. No physical
+// threshold or new formatter; group/groupKernel tests cover the changed advice.
+// Row 127 round 3: reviewed vehicle lifetime windows, strict burn overlap,
+// per-vehicle peak/radius and stage/trigger/delay co-ignition sets. The two
+// measurement formatters and the 5%/20%/1 mm policy stay unchanged; no new
+// census producer. vehicle/kernel regressions cover separation and late burns.
+// Row 127 round 2: reviewed the 1 mm advisory offset floor, exact jump limits,
+// overlap grouping and unknown-mount cancellation. The same two formatters
+// emit fraction/time; no new comparison-bearing copy or census count change.
+// asymmetricThrust tests cover each boundary; no flown input or tolerance moves.
+// Row 127: asymmetricThrust adds two formatters for the measured fraction and
+// worst time. Its boundary tests cover inclusive 5%/20%, symmetry, and tail-off
+// peak normalization. noteExplanations 35 -> 37 states those owner thresholds;
+// no flown quantity or existing comparison threshold changes.
 // HF integration: exMotorArchive 7 -> 8 names the number-limit reason for an
 // oversized embedded motor (exMotorBeyondLimits, existing 1e15 kg / 1000 m
 // ceilings); a refusal note, not a measurement comparison. exMotorArchive.test.ts.

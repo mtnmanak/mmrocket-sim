@@ -12,6 +12,8 @@ import * as units from '../prefs/units.js';
 import { buildSimRun, changedSinceRun, type DesignMatchKey, type DeploymentReport, type SimRun, formatRunWhenProse, runStoppedEarly,
 } from '../services/simReport.js';
 import { testResolution } from '../services/autoDelay.testSupport.js';
+import { asymmetricThrustWarnings } from '../services/asymmetricThrust.js';
+import { balanceMotor, balanceTree } from '../services/asymmetricThrust.testSupport.js';
 import { delayMountsOf } from '../services/autoDelaySolver.js';
 import type { MountMotor } from '../model/design.js';
 import { DEFAULT_CONDITIONS } from './LaunchPanel.js';
@@ -38,6 +40,16 @@ const info: StaticInfo = {
   cp: 0.29, cna: 8, stabilityCalibers: 1.3, refDiameter: 0.024,
   warnings: 0, warningTexts: [],
 };
+
+it('row 127 renders the stored thrust warning as Danger in the launch report', () => {
+  const saved = run();
+  saved.simWarnings = asymmetricThrustWarnings(balanceTree(2), [['m0', balanceMotor()]]);
+  render(<SimRunDetails run={saved} />);
+  const code = host.querySelector('button[aria-label="Explain note ASYMMETRIC_THRUST_DANGER"]');
+  expect(code?.closest('.message-danger')?.textContent).toContain('Unbalanced thrust');
+  expect(host.textContent).toContain('cartwheel');
+  expect(host.textContent).toContain('simulation does not show this turn');
+});
 
 it('N046 opens a flight warning explanation from its unchanged code and keeps the tier', () => {
   const saved = run();

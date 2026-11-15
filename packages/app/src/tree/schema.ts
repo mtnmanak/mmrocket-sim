@@ -704,7 +704,8 @@ const MOUNT_ANGLE: FieldDef = {
  * only the CG's x — a lateral CG reaches the numbers through the inertia
  * build-up (RigidBody.rebase) and nowhere else — and an off-axis motor's
  * thrust still makes no moment (upstream's own TODO in
- * RK4SimulationStepper.calculateThrust). Recorded in
+ * RK4SimulationStepper.calculateThrust). asymmetricThrust.ts warns about that
+ * missing turn without changing the flight. Recorded in
  * docs/testing/format-audit-2026-09-03.md rows 81 and 115.
  */
 const RADIAL_PLACEMENT: FieldDef[] = [

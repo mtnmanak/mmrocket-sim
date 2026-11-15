@@ -1,4 +1,5 @@
 import { Note } from './Note.js';
+import { ThrustBalanceMark } from './ThrustBalanceNotes.js';
 import { LaunchOverrideWarning, type LaunchOverrideProps } from './LaunchOverrideWarning.js';
 import type { FlightOverrideSummary } from '../services/flightOverrideSummary.js';
 import {
@@ -608,7 +609,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
             )}
             {pairSplit && (
               <label className="motor-inline-label"
-                title="Also fly the 6-motor cluster as THREE opposite-tube pairs with up to three motor types — 4+2 and 2+2+2 configurations (every pair is thrust-balanced, so all of them are symmetric). Adds every candidate multiset of size 3 — this grows FAST: n candidates add n(n+1)(n+2)/6 − n flights.">
+                title="Also fly the 6-motor cluster as THREE opposite-tube pairs with up to three motor types — 4+2 and 2+2+2 configurations. Each pair balances around the cluster's centre; an off-centre cluster can still push the rocket unevenly. Check the thrust balance warnings. Adds every candidate multiset of size 3 — this grows FAST: n candidates add n(n+1)(n+2)/6 − n flights.">
                 <input type="checkbox" checked={pairMode} style={{ width: 'auto' }}
                   onChange={(e) => setPairMode(e.target.checked)} />
                 {PAIRS_NAME}
@@ -883,6 +884,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
                     <td>{typeof run?.optimumDelayS === 'number' && Number.isFinite(run.optimumDelayS) ? `${run.optimumDelayS.toFixed(1)}s` : '—'}</td>
                     <td className={failed.length ? 'stability-bad' : 'stability-good'}>
                       {error ? `error: ${error}` : failed.length ? `✗ ${failed.join(', ')}` : '✓ accepted'}
+                      <ThrustBalanceMark warnings={run?.simWarnings ?? []} />
                     </td>
                   </tr>
                 ))}
