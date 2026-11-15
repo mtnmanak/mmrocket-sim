@@ -1803,6 +1803,53 @@ function separateRing(n = 4) {
   return { tree, mounts, target: mounts[0]!, targetMountIds: mounts.map(m => m.id) };
 }
 
+it('Round 5 refuses an oversized candidate on a narrower matching target before installing any leg', async () => {
+  const tree = rocket({ sideMount: true, deployEvent: 'apogee' });
+  const tubes = motorMounts(tree);
+  tubes.forEach((m, i) => {
+    m.outerRadius = [16.90, 16.49][i]! / 2000 + 0.0005; m.thickness = 0.0005; m.name = i ? 'Narrow MMT' : 'Wide MMT';
+  });
+  const mounts = tubes.map((m, i) => ({ ...MOUNT, id: m.id!, label: i ? 'Narrow MMT' : 'Wide MMT', diameterMm: i ? 16 : 17 }));
+  const candidate = { ...entry('a', 'Acme', 'D18', '5'), diameter: 18 };
+  expect(motorDb.fitsMount(mounts[0]!.diameterMm, candidate)).toBe(true);
+  expect(motorDb.fitsMount(mounts[1]!.diameterMm, candidate)).toBe(false);
+  const fly = vi.spyOn(flightRunner, 'flyLaunch');
+  const deps = { fetchSpec: fetchFrom({ a: { ...curve('D18'), diameter: 0.018 } }), nozzleFor: nozzles({}) };
+  const inp = input(tree, { target: mounts[0]!, mounts, candidates: [candidate], autoDelay: false,
+    targetMountIds: mounts.map(m => m.id) });
+  const refused = await sweep(inp, deps);
+  expect(refused.rows[0]!.run).toBeUndefined();
+  expect(refused.rows[0]!.error).toContain('Motor diameter does not fit Narrow MMT');
+  expect(fly).not.toHaveBeenCalled();
+  const off = await sweep({ ...inp, targetMountIds: undefined }, deps);
+  expect(off.rows[0]!.error).toBeUndefined();
+  expect(off.rows[0]!.run!.batchMounts?.find(m => m.mountId === 'side')?.role).toBe('empty');
+}, 30000);
+
+it('Round 5 validates each separate-ring mixed leg against its own bore', async () => {
+  const setup = separateRing();
+  motorMounts(setup.tree).forEach((m, i) => {
+    m.outerRadius = (i % 2 ? 16.49 : 16.90) / 2000 + 0.0005; m.thickness = 0.0005;
+    setup.mounts[i]!.diameterMm = i % 2 ? 16 : 17;
+  });
+  const ring = batchRingSplits(setup.tree, setup.mounts);
+  const candidates = [{ ...entry('a', 'Acme', 'D18', '5'), diameter: 18 }, { ...entry('b', 'Acme', 'D13', '5'), diameter: 13 }];
+  const fly = vi.spyOn(flightRunner, 'flyLaunch');
+  const out = await sweep(input(setup.tree, { ...setup, candidates, autoDelay: false, splits: [ring.halves!] }),
+    { fetchSpec: fetchFrom({ a: { ...curve('D18'), diameter: 0.018 }, b: { ...curve('D13'), diameter: 0.013 } }), nozzleFor: nozzles({}) });
+  const mixed = out.rows.filter(r => r.combo);
+  expect(mixed).toHaveLength(2);
+  expect(mixed.filter(r => r.run)).toHaveLength(1);
+  expect(mixed.find(r => r.error)?.error).toContain('Motor diameter does not fit MMT 2');
+  expect(fly).toHaveBeenCalledTimes(2); // One fitting homogeneous row and one fitting arrangement.
+  for (const [, options] of fly.mock.calls) {
+    for (const [id, m] of options.assigned) {
+      expect(motorDb.fitsMount(setup.mounts.find(target => target.id === id)!.diameterMm,
+        { diameter: m.spec.diameter * 1000 })).toBe(true);
+    }
+  }
+}, 30000);
+
 it('124 sweeps every target with its own ignition, sums nozzle counts and freezes all roles', async () => {
   const setup = separateRing();
   const c = entry('a', 'Acme', 'E20', '5');

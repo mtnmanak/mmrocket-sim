@@ -1,4 +1,10 @@
 // @vitest-environment happy-dom
+// Batch-all Round 5: batchSweep 3 -> 4 adds a per-leg diameter refusal using
+// motorDb.fitsMount's existing diameter-class / picker-bore rule. The dialog
+// applies that same rule to the narrowest target (including OOP refusal advice).
+// The 16.90/16.49 mm regressions cover rounded 17/16 mm picker bores, mixed
+// legs and box-OFF preservation. No new tolerance or note code. Frozen-loadout
+// text reuses batchLoadoutText, with rendered six-ring arrangement coverage.
 // Batch-all Round 4: census unchanged. Separate-ring mixtures always use the
 // ordered descriptor; the existing tooltip producer counts those arrangements.
 // Synchronous 4-/6-ring, overhang, loaded-OFF and cluster-split regressions cover
