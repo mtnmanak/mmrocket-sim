@@ -1,4 +1,5 @@
 import { recordedConfiguration, runConfigurationHeading, runConfigurationLabel, runStatus } from '../services/runConfiguration.js';
+import { batchLoadoutText } from '../services/batchLoadout.js';
 import type { DesignMatchKey } from '../services/simReport.js';
 import { deploymentRole, openingPolicy } from '../services/simReport.js';
 import { normalizeFlightAdvisories } from '../prefs/flightAdvisories.js';
@@ -209,8 +210,9 @@ function DeploymentTable({ deployments, alt, vel }: {
   );
 }
 
-export function SimRunDetails({ run, hasSeries, changedSince }: {
+export function SimRunDetails({ run, hasSeries, changedSince, mountOrder }: {
   run: SimRun;
+  mountOrder?: readonly string[];
   hasSeries?: boolean;
   /**
    * What has changed since this run was flown: `[]` when it still describes the
@@ -276,7 +278,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
           ? 'Raw per-timestep flight data downloads under Flight plots, below.'
           : 'Re-fly this design to download its raw flight data — time series aren’t saved with run history.'}
       </p>
-      <MountDelayReport resolution={run.delayResolution} />
+      <MountDelayReport resolution={run.delayResolution} run={run} mountOrder={mountOrder} />
       {!run.delayResolution && (run.optimumDelayS != null || run.recommendedDelayS != null) && (
         <p className="simdet-delay">
           Legacy summary optimum <strong>{s(run.optimumDelayS, 1)} s</strong>
@@ -746,7 +748,7 @@ export function SimHistory({
                   >
                     <td>{r.rocket || '—'}</td>
                     <td>{historyMotorLabel(r)}</td>
-                    <td title={recordedConfiguration(r) === undefined ? 'Not recorded' : undefined}>{runConfigurationLabel(r)}</td>
+                    <td title={recordedConfiguration(r) === undefined && batchLoadoutText(r) === null ? 'Not recorded' : undefined}>{runConfigurationLabel(r)}</td>
                     <td>{Number.isFinite(r.delayS) ? `${r.delayS}s`
                       : r.delayS === Infinity ? 'P' : '—'}</td>
                     {columns.map(column => <td key={column.id}>{summaryCell(column, r, prefs.units)}</td>)}

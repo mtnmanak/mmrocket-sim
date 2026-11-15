@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
+import * as exMotors from './exMotors.js';
 import type { ComponentNode, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { designPrintHtml } from './designPrintReport.js';
 import { INITIAL_UNITS, IMPERIAL_UNITS } from '../prefs/units.js';
@@ -28,6 +29,22 @@ const run = { id: 'selected', rocket: 'Earlier design', motor: 'F40', manufactur
 const input = { tree, info, units: IMPERIAL_UNITS, radiusMode: 'diameter' as const,
   stabilityUnit: 'both' as const, withMotors: true, appVersion: 'test', run, changedSince: ['the design'], };
 function doc(html: string) { return new DOMParser().parseFromString(html, 'text/html').body; }
+it('Round 2 counts every recorded installed motor, including never ignition but excluding empty tubes', () => {
+  const batchMounts: NonNullable<SimRun['batchMounts']> = [
+    { mountId: 'a', mountName: 'A', role: 'candidate', motor: 'Candidate', count: 2 },
+    { mountId: 'b', mountName: 'B', role: 'kept', motor: 'Kept', count: 3, ignition: 'never' },
+    { mountId: 'c', mountName: 'C', role: 'empty', motor: null, count: 4 },
+  ];
+  const selected = { ...run, batch: true, batchMounts };
+  expect(doc(designPrintHtml({ ...input, run: selected })).textContent)
+    .toContain('Complete flight motor count: 5 (installed, including 3 that never ignite).');
+  for (const batch of [false, 'true' as never]) {
+    expect(doc(designPrintHtml({ ...input, run: { ...selected, batch } })).textContent)
+      .toContain('Complete flight motor count: Unknown (not recorded).');
+  }
+  expect(doc(designPrintHtml({ ...input, run: { ...selected, batchMounts: [{ ...batchMounts[0]!, count: 0 }] } })).textContent)
+    .toContain('Complete flight motor count: Unknown (not recorded).');
+});
 it.each([0.0099, 0.0101, 0.01025, 0.0103])('HF7 r2 prints the shared advice beside the ring opening for tube radius %s m', radius => {
   const ring: ComponentNode = { type: 'centeringring', id: 'ring', innerRadius: 0.01, length: 0.003 };
   const tree: RocketTree = { components: [{ type: 'bodytube', length: 0.3, outerRadius: 0.03,
@@ -357,13 +374,55 @@ it('prints the recorded delays for each mount and branch rather than one cluster
   const rows = [...delayTable!.querySelectorAll('tbody tr')];
   expect(rows).toHaveLength(2);
   const values = rows.map(row => [...row.querySelectorAll('th, td')].map(cell => cell.textContent));
-  expect(values[0]).toEqual(['Primary mount (primary)', 'Recorded motor A', 'Core branch (core)', 'auto', '7 s', '7 s', '7 s']);
-  expect(values[1]).toEqual(['Secondary <mount> (secondary)', 'Recorded motor B', 'Separated <branch> (detached)', 'auto', '3 s', '3 s', '3 s']);
+  expect([...delayTable!.querySelectorAll('thead th')].map(th => th.textContent)).toEqual([
+    'Mount', 'Motor', 'Recorded motor identity', 'Branch', 'Mode', 'Ballistic optimum', 'Recommended', 'Flown delay']);
+  expect(values[0]).toEqual(['Primary mount (primary)', 'unknown motor (1)', 'Recorded motor A', 'Core branch (core)', 'auto', '7 s', '7 s', '7 s']);
+  expect(values[1]).toEqual(['Secondary <mount> (secondary)', 'unknown motor (2)', 'Recorded motor B', 'Separated <branch> (detached)', 'auto', '3 s', '3 s', '3 s']);
   expect(d.textContent).toContain('Motor count (primary mount/group): 4');
   expect(d.textContent).not.toContain('99 s');
   expect(delayTable!.textContent).not.toContain('Today');
   expect(JSON.stringify(selected)).toBe(before);
 });
+it('prints a resolved Motor designation alongside the unchanged recorded identity', () => {
+  const resolution = testResolution([['a', testMotor(false, 5)]], [5]);
+  resolution.mounts[0]!.motorIdentity = 'AeroTech/K1499N';
+  const d = doc(designPrintHtml({ ...input, run: { ...run, delayResolution: resolution } }));
+  const cells = d.querySelector('table[aria-label="Per-mount ejection delays"] tbody tr')!.querySelectorAll('td');
+  expect(cells[0]?.textContent).toBe('K1499N');
+  expect(cells[1]?.textContent).toBe('AeroTech/K1499N');
+});
+it('Round 7 preserves typographic quotes in printed motor names and loadout headings', () => {
+  const resolution = testResolution([['a', testMotor(false, 5)], ['b', testMotor(false, 5)]], [5, 5]);
+  resolution.mounts.forEach((m, i) => { m.motorIdentity = i ? 'Home/“Kept”' : 'Home/“Candidate”'; });
+  const batchMounts = resolution.mounts.map((m, i) => ({
+    mountId: m.mountId, mountName: i ? '54mm “main” tube' : '3” MMT',
+    role: i ? 'kept' as const : 'candidate' as const, motor: i ? '“Kept”' : '“Candidate”', count: 1,
+  }));
+  const d = doc(designPrintHtml({ ...input, run: { ...run, batch: true, batchMounts, delayResolution: resolution } }));
+  expect([...d.querySelectorAll('table[aria-label="Per-mount ejection delays"] tbody tr')]
+    .map(row => row.querySelector('td')?.textContent)).toEqual(['“Candidate”', '“Kept”']);
+  expect(d.textContent).toContain('Flew: “Candidate” in 3” MMT; “Kept” in 54mm “main” tube');
+  expect(d.textContent).not.toContain('[U+201');
+});
+
+it('Round 5 print Motor cells distinguish the whole resolution while retaining raw evidence', () => {
+  const ex = exMotors.parseEng('K500 54 300 P 0.1 0.2 Home\n0 0\n0.5 500\n1 0')[0]!;
+  const spy = vi.spyOn(exMotors, 'getExMotor').mockReturnValue(ex);
+  try {
+    const ids = ['Estes/C6', 'Klima/C6', 'ex:alpha', 'ex:beta'];
+    const resolution = testResolution(ids.map((_, i) => [`m${i}`, testMotor(false, 5)]), ids.map(() => 5));
+    resolution.mounts.forEach((m, i) => { m.motorIdentity = ids[i]!; });
+    const d = doc(designPrintHtml({ ...input, run: { ...run, delayResolution: resolution } }));
+    const cells = [...d.querySelectorAll('table[aria-label="Per-mount ejection delays"] tbody tr')]
+      .map(row => [...row.querySelectorAll('td')].slice(0, 2).map(cell => cell.textContent));
+    expect(cells).toEqual([['Estes C6', ids[0]], ['Klima C6', ids[1]], ['EX K500 (1)', ids[2]], ['EX K500 (2)', ids[3]]]);
+    spy.mockReturnValue({ ...ex, designation: 'K'.repeat(1_000_000) });
+    const oversized = doc(designPrintHtml({ ...input, run: { ...run, delayResolution: resolution } }));
+    expect([...oversized.querySelectorAll('table[aria-label="Per-mount ejection delays"] tbody tr')]
+      .map(row => row.querySelector('td')?.textContent)).toEqual(['—', '—', '—', '—']);
+  } finally { spy.mockRestore(); }
+});
+
 it('keeps recorded manual and plugged delays distinct from missing recommendations', () => {
   const resolution = testResolution([['plugged', testMotor(false, Infinity)], ['manual', testMotor(false, 3)]], [Infinity, 3]);
   expect(validDelayResolution(resolution)).toBe(true);
@@ -371,7 +430,7 @@ it('keeps recorded manual and plugged delays distinct from missing recommendatio
   const rows = [...d.querySelectorAll('table[aria-label="Per-mount ejection delays"] tbody tr')];
   expect(rows).toHaveLength(2);
   expect(rows[0]!.textContent).toContain('plugged — no ejection charge');
-  expect(rows[0]!.querySelectorAll('td')[3]!.textContent).toBe('Unknown');
+  expect(rows[0]!.querySelectorAll('td')[4]!.textContent).toBe('Unknown');
   expect(rows[1]!.textContent).toContain('manual');
   expect(rows[1]!.querySelector('td:last-child')!.textContent).toBe('3 s');
 });

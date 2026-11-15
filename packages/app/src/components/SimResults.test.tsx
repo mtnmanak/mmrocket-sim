@@ -353,6 +353,21 @@ it.each(['°', 'rad'])('uses preferred %s in the on-screen q·alpha header and v
   expect(table.querySelector('tbody tr')!.children[index]!.textContent).toBe(angle === '°' ? '115' : '2.00');
 });
 
+it('shows frozen batch loadout without an unrecorded-configuration tooltip', () => {
+  const saved = { ...run(), batch: true, batchMounts: [
+    { mountId: 'a', mountName: 'MMT 1', role: 'candidate' as const, motor: 'M1780NT', count: 1 },
+    { mountId: 'b', mountName: 'MMT 2', role: 'kept' as const, motor: 'K1499N', count: 1 },
+  ] };
+  delete saved.flightConfig;
+  render(<SimHistory runs={[saved]} onRunsChange={() => {}} />);
+  openTable();
+  const cell = host.querySelector('tbody tr')!.querySelectorAll('td')[2]!;
+  expect(cell.textContent).toBe('Batch · M1780NT in MMT 1; K1499N in MMT 2');
+  expect(cell.title).toBe('');
+  render(<SimRunDetails run={saved} />);
+  expect(host.textContent).toContain('· Flew: M1780NT in MMT 1; K1499N in MMT 2.');
+});
+
 it('RES-1 shows configuration and provenance status separately from Safe, lazily', () => {
   const r = { ...run(), flightConfig: 'Club', batch: true, designKey: 'old' };
   render(<SimHistory runs={[r, { ...run(), id: 'old', conditionsKey: undefined, aeroModel: undefined, rogersKbf: undefined }]} onRunsChange={() => {}}

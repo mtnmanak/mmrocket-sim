@@ -1,7 +1,8 @@
 import { changedSinceRun, listAnd, type DesignMatchKey, type SimRun } from './simReport.js';
 import { describeRecordedOverride } from './flightOverrideSummary.js';
+import { batchLoadoutText } from './batchLoadout.js';
 
-type ConfigurationRecord = Pick<SimRun, 'flightConfig' | 'flightConfigId' | 'flightOverrides' | 'batch' | 'importedSummary' | 'importedConfigVerified'>;
+type ConfigurationRecord = Pick<SimRun, 'flightConfig' | 'flightConfigId' | 'flightOverrides' | 'batch' | 'batchMounts' | 'delayResolution' | 'importedSummary' | 'importedConfigVerified'>;
 
 /** Old imports may have put the simulation name here, even with an unmatched ID. */
 export function recordedConfiguration(run: ConfigurationRecord): string | undefined {
@@ -18,9 +19,11 @@ const unsaved = (run: ConfigurationRecord, label: 'none' | 'working settings') =
   !run.flightConfigId && run.flightConfig === label;
 
 export function runConfigurationLabel(run: ConfigurationRecord): string {
+  const loadout = batchLoadoutText(run);
+  if (loadout) return `Batch · ${loadout}`;
   const configuration = recordedConfiguration(run);
   if (configuration === undefined) return '—';
-  if (!run.batch) return configuration;
+  if (run.batch !== true) return configuration;
   return `Batch · ${unsaved(run, 'none') ? 'no configuration' : configuration}`;
 }
 
@@ -31,11 +34,17 @@ export function runOverrideText(run: ConfigurationRecord, unit: string): string 
 }
 
 export function runConfigurationHeading(run: ConfigurationRecord, unit: string): string {
+  const heading = configurationHeading(run, unit);
+  const loadout = batchLoadoutText(run);
+  return loadout ? `${heading} · Flew: ${loadout}.` : heading;
+}
+
+function configurationHeading(run: ConfigurationRecord, unit: string): string {
   const configuration = recordedConfiguration(run);
   if (configuration === undefined) return 'Configuration not recorded';
-  if (unsaved(run, 'none')) return run.batch ? 'Batch with no configuration' : 'Flown with no configuration';
-  const flown = unsaved(run, 'working settings') ? `${run.batch ? 'Batch' : 'Flown'} with working settings`
-    : run.batch ? `Batch from “${configuration}”` : `Flown in “${configuration}”`;
+  if (unsaved(run, 'none')) return run.batch === true ? 'Batch with no configuration' : 'Flown with no configuration';
+  const flown = unsaved(run, 'working settings') ? `${run.batch === true ? 'Batch' : 'Flown'} with working settings`
+    : run.batch === true ? `Batch from “${configuration}”` : `Flown in “${configuration}”`;
   if (!run.flightOverrides?.length) return `${flown} · overrides: ${run.flightOverrides ? 'none' : 'not recorded'}`;
   const groups = new Map<string, { count: number; kind: string; value: string }>();
   for (const record of run.flightOverrides) {

@@ -84,6 +84,15 @@ it.each([
   expect(revisions.map(r => r.id)).toEqual(missed ? ['transonic-ogive-aero-v6a'] : []);
   expect(revisions.some(r => r.ambiguous)).toBe(ambiguous);
 });
+it('Round 2 records batch mounts only for an exact true batch flag', () => {
+  const batchMounts: NonNullable<SimRun['batchMounts']> = [
+    { mountId: 'candidate', mountName: 'Candidate', role: 'candidate', motor: 'E22', count: 1 },
+  ];
+  const input = { result: fakeResult(), info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'Test', execMs: 1, batchMounts };
+  expect(buildSimRun({ ...input, batch: true }).batchMounts).toEqual(batchMounts);
+  expect(buildSimRun({ ...input, batch: 'true' as never })).not.toHaveProperty('batchMounts');
+  expect(buildSimRun(input)).not.toHaveProperty('batchMounts');
+});
 it('removes only camera-shroud thickness warnings from saved flight notes', () => {
   const run = buildSimRun({ result: { ...fakeResult(), warnings: [
     { key: 'THICK_FIN', message: '[Warning.THICK_FIN]:  "Camera"' },
@@ -1673,8 +1682,8 @@ describe('runsToCsv', () => {
     expect(hc[configAt + 2]).toBe('Winds aloft (levels)');
     expect(hc[configAt + 3]).toBe('Rail for 15.0 m/s (m)');
     expect(hc[configAt + 4]).toBe('Max dynamic pressure (Pa)');
-    expect(hc.slice(-6)).toEqual(['Hybrid band lower (Mach)', 'Hybrid band upper (Mach)', 'Travel for 15.0 m/s (m)', 'Overrides', 'Status', 'Wind gusts σ at pad (m/s)']);
-    expect(cells(row!).slice(-3)).toEqual(['not recorded', 'Unknown', '0']);
+    expect(hc.slice(-8)).toEqual(['Hybrid band lower (Mach)', 'Hybrid band upper (Mach)', 'Travel for 15.0 m/s (m)', 'Overrides', 'Status', 'Wind gusts σ at pad (m/s)', 'Batch candidate mount', 'Batch other mounts']);
+    expect(cells(row!).slice(-5)).toEqual(['not recorded', 'Unknown', '0', '', '']);
     expect(cells(row!)[hc.indexOf('Flight config')]).toBe('Club field C6');
     // A run stored before the field existed exports an empty trailing cell.
     const old = buildSimRun({

@@ -1,4 +1,26 @@
 // @vitest-environment happy-dom
+// Batch disclosure: census unchanged. The half-millimetre bore comparison
+// selects a Caution tier; it reports no rounded measurement or flight limit.
+// batchMountDisclosure.test.ts covers both sides and separate-stage exclusion.
+// New text groups recorded motor counts/roles; batchLoadout and dialog tests
+// cover counts, empty/never mounts and supported/unsupported layout copy.
+// Round 2: duplicate-name indices, equal/unequal installed-copy counts and
+// pod/layout explanations compare no flight measurement against a limit.
+// Their branch tests live in batchLoadout and batchMountDisclosure.
+// Round 3: reserved name indices, bounded stored evidence and the eligible-mount
+// hint change no measured-value note or census count. Regression coverage lives
+// in batchLoadout, batchSweep and batchMountDisclosure; flight inputs stay fixed.
+// Round 4: identity clash allocation and scrubbed-text guards add no measurement
+// note. Missing stages cannot match; the existing bore tolerance stays fixed.
+// motorLabels, batchLoadout, batchSweep and batchMountDisclosure cover the changes.
+// Round 5: motor-name length limits, readable collision ordinals and normalized
+// mount-name reservations compare no flight measurement. The census is unchanged;
+// helper, report and App.render regressions guard these display-only branches.
+// Round 6: stable identity ordinals and mount-order indices compare no physical
+// measurement. batchSweep.reports and motorLabels guard frozen/fallback names.
+// Round 7: legacy label memoization, unnumbered legacy mount names and noteText
+// compare no physical measurement; no census count changes. batchLoadout,
+// motorLabels, batchSweep, App.render and report/dialog tests guard these paths.
 // HF integration: exMotorArchive 7 -> 8 names the number-limit reason for an
 // oversized embedded motor (exMotorBeyondLimits, existing 1e15 kg / 1000 m
 // ceilings); a refusal note, not a measurement comparison. exMotorArchive.test.ts.

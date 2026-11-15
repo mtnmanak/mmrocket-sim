@@ -16,6 +16,7 @@ import {
 import { batchSolverFlights, mixedComboCount, type BatchMountOption } from '../services/batchSweep.js';
 import { MOTOR_DB } from '../services/motorDb.js';
 import * as batchSweep from '../services/batchSweep.js';
+import { testMotor } from '../services/autoDelay.testSupport.js';
 
 /**
  * Three ways the batch dialog could throw away a sweep or misdescribe one.
@@ -234,7 +235,7 @@ describe('the batch dialog', () => {
   });
 
   it('prices every flight as searching while a motor on another mount is on Auto, which is solved on each', () => {
-    mount(CHUTE_TREE, CHUTE_MOUNTS, { assignedMotors: { side: {} as MotorSpec }, assignedAutoDelays: { side: true } });
+    mount(CHUTE_TREE, CHUTE_MOUNTS, { assignedMotors: { side: testMotor().spec }, assignedAutoDelays: { side: true } });
     act(() => { box('optimal delay per motor').click(); });
     const n = at38().length;
     expect(primaryText()).toBe(`Simulate ${en(n)} motors · ${batchEstimate({ flights: n, solverFlights: n })}`);
@@ -243,7 +244,7 @@ describe('the batch dialog', () => {
   it('does not count the batch mount’s own motor on Auto as another mount’s: its candidates replace it', () => {
     // The motor loaded in the mount the batch sweeps is swapped out for each
     // candidate, so its Auto delay is never solved; only ANOTHER mount's is.
-    mount(CHUTE_TREE, CHUTE_MOUNTS, { assignedMotors: { mount: {} as MotorSpec }, assignedAutoDelays: { mount: true } });
+    mount(CHUTE_TREE, CHUTE_MOUNTS, { assignedMotors: { mount: testMotor().spec }, assignedAutoDelays: { mount: true } });
     act(() => { box('optimal delay per motor').click(); });
     const candidates = at38();
     const n = candidates.length;

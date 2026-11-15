@@ -2,8 +2,84 @@ import { describe, expect, it } from 'vitest';
 import { displayMotorManufacturer } from './motorDb.js';
 import { exToDbEntry, exToMotorSpec, parseEng } from './exMotors.js';
 import { mountMotorFromDb } from './motorMatch.js';
-import { restoreMotorLabels, motorTooltip } from './motorLabels.js';
+import { restoreMotorLabels, motorTooltip, loadoutMotorNames, motorEntryForIdentity, designationForMotorIdentity } from './motorLabels.js';
 import { batchMotorNames, candidateIdentity } from './batchSweep.js';
+import { catalogueSuffixPair, labelMotor } from './motorLabels.testSupport.js';
+
+describe('Round 4 loadout motor identities', () => {
+  it('Round 7 preserves quoted motor names on unquoted loadout surfaces', () => {
+    expect(loadoutMotorNames([{ designation: '“K500”\n', manufacturerAbbrev: 'Home”' }], [])).toEqual(['“K500”']);
+    expect(loadoutMotorNames(['Home”', 'Other”'].map(manufacturerAbbrev => ({ designation: '“K500”', manufacturerAbbrev })), []))
+      .toEqual(['Home” “K500”', 'Other” “K500”']);
+  });
+  it('distinguishes EX definitions with the same maker and designation without exposing their real makers', () => {
+    const motors = ['alpha', 'beta'].map(id => ({ designation: 'K500', manufacturerAbbrev: 'EX', motorId: `ex:${id}`,
+      realManufacturer: 'Private maker' }));
+    expect(loadoutMotorNames(motors)).toEqual(['EX K500 (1)', 'EX K500 (2)']);
+    expect(loadoutMotorNames([motors[0]!, motors[0]!])).toEqual(['K500', 'K500']);
+  });
+  it('retains synthetic catalogue clash distinctions', () => {
+    const motors = ['229H255-14A', '315H255-14A'].map(d => labelMotor(d, 'Cesaroni'));
+    const labels = loadoutMotorNames(motors, motors);
+    expect(new Set(labels).size).toBe(motors.length);
+    for (const label of labels) expect(label).toMatch(/^\d+H255$/);
+  });
+  it('strips catalogue delay suffixes even when different makers need prefixes', () => {
+    const delayed = labelMotor('381I224-15A', 'Cesaroni');
+    const sameName = { designation: 'I224', manufacturerAbbrev: 'Other', motorId: 'other-i224' };
+    expect(loadoutMotorNames([delayed, sameName], [delayed])).toEqual(['Cesaroni I224', 'Other I224']);
+  });
+  it('treats non-catalogue maker/designation identities as one motor regardless of delay or ids', () => {
+    const motors = ['one', 'two'].map(motorId => ({ designation: 'C6-5', manufacturerAbbrev: 'Acme', motorId }));
+    expect(loadoutMotorNames(motors)).toEqual(['C6', 'C6']);
+  });
+});
+
+describe('Round 5 readable motor names', () => {
+  it('Round 6 allocates collision ordinals independently of input order, including reserved names', () => {
+    const entries = [
+      { designation: 'K500', manufacturerAbbrev: 'EX', motorId: 'ex:beta' },
+      { designation: 'K500', manufacturerAbbrev: 'EX', motorId: 'ex:alpha' },
+      { designation: 'EX K500 (1)', motorId: 'reserved' },
+    ];
+    const names = ['EX K500 (3)', 'EX K500 (2)', 'EX K500 (1)'];
+    expect(loadoutMotorNames(entries, [])).toEqual(names);
+    for (const indices of [[2, 1, 0], [1, 0, 2], [0, 2, 1]]) {
+      expect(loadoutMotorNames(indices.map(i => entries[i]!), [])).toEqual(indices.map(i => names[i]));
+    }
+  });
+  it.each([['D5', 'D5-P'], ['B4', 'B4-4']])('preserves synthetic catalogue suffix distinction %s / %s', (a, b) => {
+    const motors = [a, b].map(designation => labelMotor(designation));
+    expect(loadoutMotorNames(motors, motors)).toEqual([`Acme ${a}`, `Acme ${b}`]);
+    expect(designationForMotorIdentity(motors[1]!.motorId, motors)).toBe(b);
+    expect(designationForMotorIdentity(`Acme/${b}`, motors)).toBe(b);
+  });
+  it.skipIf(!catalogueSuffixPair)('Round 7 preserves a structurally selected shipped suffix pair', () => {
+    const motors = [...catalogueSuffixPair!];
+    expect(loadoutMotorNames(motors)).toEqual(motors.map(m => `${m.manufacturerAbbrev} ${m.designation}`));
+    expect(designationForMotorIdentity(motors[1]!.motorId)).toBe(motors[1]!.designation);
+  });
+  it('uses readable raw names for uncatalogued reloads and groups delay variants', () => {
+    expect(loadoutMotorNames(['229H255-14A', '315H255-14A'].map(designation => ({ designation, manufacturerAbbrev: 'Cesaroni' })), []))
+      .toEqual(['Cesaroni 229H255', 'Cesaroni 315H255']);
+    expect(loadoutMotorNames(['Estes/C6-5', 'Estes/C6-7'].map(id => motorEntryForIdentity(id, [])), []))
+      .toEqual(['C6', 'C6']);
+  });
+  it('uses ordinals for removed catalogue identities without leaking hashes', () => {
+    const identities = ['0123456789abcdef01234567', '0123456789abcdef01234568'];
+    expect(loadoutMotorNames(identities.map(id => motorEntryForIdentity(id, [])), []))
+      .toEqual(['unknown motor (1)', 'unknown motor (2)']);
+  });
+  it('never presents an opaque id or serialized key as an unresolved motor name', () => {
+    const identities = ['removed-catalogue-row', JSON.stringify(['Cesaroni', '229H255-14A']), JSON.stringify(['Cesaroni', '229/H255-14A'])];
+    expect(loadoutMotorNames(identities.map(id => motorEntryForIdentity(id, [])), []))
+      .toEqual(['unknown motor (3)', 'unknown motor (2)', 'unknown motor (1)']);
+  });
+  it('uses ordinals when catalogue records have exactly the same raw designation', () => {
+    const motors = ['id-one', 'id-two'].map(motorId => labelMotor('C6', 'Acme', motorId));
+    expect(loadoutMotorNames(motors, motors)).toEqual(['Acme C6 (1)', 'Acme C6 (2)']);
+  });
+});
 
 it.each(['5', true, null])('never calls invalid live delay %j plugged in its tooltip', delay => {
   const ex = parseEng('C6 18 70 5 0.01 0.02 Home\n0 0\n0.5 6\n1 0')[0]!;

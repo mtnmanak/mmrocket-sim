@@ -32,6 +32,16 @@ import { completedRecoveryEvents, type RecoveryEvent } from './recoveryMass.js';
 import { flightLimitAdvice, groundWindAdvice, peakAirspeed, zeroDelayRecoveryAdvice } from './flightAdvisories.js';
 import { normalizeFlightAdvisories, type FlightAdvisories } from '../prefs/flightAdvisories.js';
 
+export interface BatchMountRecord {
+  mountId: string;
+  mountName: string;
+  role: 'candidate' | 'kept' | 'empty';
+  motor: string | null;
+  /** Physical motors: cluster times enclosing pod multiplicity. */
+  count: number;
+  ignition?: 'never';
+}
+
 /**
  * Post-simulation report: every attribute the owner's flight-day workflow needs,
  * derived from the engine's summary/events/series (all SI). One SimRun is
@@ -643,7 +653,7 @@ export interface SimRun extends WindProfileConditions, AeroProvenance {
    */
   rogersKbf?: boolean;
   /**
-   * Combination-batch grouping: 'single' (one motor type in every tube) or
+   * Combination-batch grouping: 'single' (one motor type in every tube of the selected cluster) or
    * 'mixed 2+2' / 'mixed 3+3'. Absent outside combination batches.
    */
   motorConfig?: string;
@@ -660,6 +670,8 @@ export interface SimRun extends WindProfileConditions, AeroProvenance {
   flightOverrides?: RecordedFlightOverride[];
   /** Candidate sweep based on the recorded configuration. */
   batch?: boolean;
+  /** Batch rows only (v0.200+): every motor mount and what it carried on this row. */
+  batchMounts?: BatchMountRecord[];
   /**
    * PROVENANCE KEYS — what a stored run has to prove before its numbers may
    * be written into an exported `.ork` as that configuration's simulation
@@ -2081,6 +2093,7 @@ export function buildSimRun(input: {
   flightOverrides?: RecordedFlightOverride[];
   /** Candidate sweep based on the recorded configuration. */
   batch?: boolean;
+  batchMounts?: BatchMountRecord[];
   flightConfigId?: string;
   designKey?: string;
   motorSetKey?: string;
@@ -2638,6 +2651,7 @@ export function buildSimRun(input: {
     ...(flightConfig !== undefined ? { flightConfig } : {}),
     ...(input.flightOverrides !== undefined ? { flightOverrides: structuredClone(input.flightOverrides) } : {}),
     ...(input.batch ? { batch: true } : {}),
+    ...(input.batch === true && input.batchMounts ? { batchMounts: input.batchMounts } : {}),
     // Provenance for the .ork <flightdata> guard. Absent inputs stay absent
     // rather than storing empty strings — "unknown" and "known to be empty"
     // must not read the same on the way back out.

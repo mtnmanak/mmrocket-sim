@@ -78,6 +78,14 @@ describe('FlyScreen', () => {
     expect(run).toEqual(before);
   });
 
+  it('shows recorded batch loadout even when the base configuration was not recorded', () => {
+    mount({ run: { ...RUN, batch: true, batchMounts: [
+      { mountId: 'a', mountName: 'MMT 1', role: 'candidate', motor: 'M1780NT', count: 1 },
+      { mountId: 'b', mountName: 'MMT 2', role: 'kept', motor: 'K1499N', count: 1 },
+    ] } });
+    expect(host.textContent).toContain('Flight: Batch · M1780NT in MMT 1; K1499N in MMT 2 ·');
+  });
+
   it('RES-1 names the selected historical flight and applies configurations or None once', () => {
     const config = { id: 'club', name: 'Club day', isDefault: true, motors: {} };
     const onApplyConfig = vi.fn();

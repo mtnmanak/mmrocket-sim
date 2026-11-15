@@ -159,6 +159,70 @@ describe('the batch dialog', () => {
     ));
   }
 
+  const separateMounts = (bores = [75, 75, 75, 75]) => {
+    const tree = structuredClone(TREE);
+    tree.components[0]!.children![0]!.children = bores.map((bore, i) => ({
+      type: 'innertube', id: i ? `side${i}` : 'mount', name: `MMT ${i + 1}`, motorMount: true,
+      outerRadius: bore / 2000 + 0.001, thickness: 0.001, length: 0.3,
+    }));
+    const mounts = bores.map((diameterMm, i) => ({ ...MOUNTS[0]!, id: i ? `side${i}` : 'mount',
+      label: `MMT ${i + 1}`, diameterMm, motorCount: 1 }));
+    return { tree, mounts };
+  };
+  it('discloses four matching mounts with Caution, and updates on picker changes', () => {
+    const extra = separateMounts();
+    mount({}, { ...extra, assignedMotors: { side1: motor(1), side2: motor(1), side3: motor(1) } });
+    const line = [...host.querySelectorAll('p')].find(p => p.textContent?.includes('Candidates fly in'))!;
+    expect(line.textContent).toContain('Candidates fly in MMT 1 only. MMT 2, MMT 3 and MMT 4 keep X1 for every flight.');
+    expect(line.classList.contains('message-caution')).toBe(true);
+    expect(line.textContent).toContain('Each row is that mix, not the candidate in every tube.');
+    expect(host.textContent).toContain('MMT 1 is a single tube, so each candidate flies in it alone.');
+    const picker = host.querySelector<HTMLSelectElement>('select')!;
+    const mountPicker = [...host.querySelectorAll<HTMLSelectElement>('select')].find(s => [...s.options].some(o => o.value === 'side1')) ?? picker;
+    act(() => { mountPicker.value = 'side1'; mountPicker.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(host.textContent).toContain('Candidates fly in MMT 2 only.');
+    expect(host.textContent).toContain('MMT 1 stays empty.');
+  });
+  it.each([75, 38].flatMap(bore => ['-5', 'K'.repeat(1025)].map(designation => ({ bore, designation }))))(
+    'Round 7 omits the disclosure Note for an unusable motor name (%#. case)', ({ bore, designation }) => {
+      mount({}, { ...separateMounts([75, bore]), assignedMotors: { side1: { ...motor(1), designation } } });
+      expect(host.querySelector('p.message-caution')).toBeNull();
+      expect([...host.querySelectorAll('p')].every(p => p.textContent?.trim())).toBe(true);
+    });
+  it('uses information for different bores and names kept-never motors and empty mounts', () => {
+    mount({}, { ...separateMounts([75, 38, 29]), assignedMotors: { side1: motor(2) },
+      assignedIgnitions: { side1: { event: 'never', delay: 0 } } });
+    const line = [...host.querySelectorAll('p')].find(p => p.textContent?.includes('Candidates fly in'))!;
+    expect(line.textContent).toBe('Candidates fly in MMT 1 only. MMT 2 keeps X2 (never ignites) for every flight. MMT 3 stays empty.');
+    expect(line.classList.contains('message-caution')).toBe(false);
+  });
+  it('Round 2 numbers duplicate tree names consistently without picker size labels', () => {
+    const extra = separateMounts();
+    for (const m of extra.tree.components[0]!.children![0]!.children!) m.name = 'Inner Tube';
+    extra.mounts.forEach(m => { m.label = 'Inner Tube (⌀ 75 mm)'; });
+    mount({}, { ...extra, assignedMotors: { side1: motor(1), side2: motor(1), side3: motor(1) } });
+    const line = [...host.querySelectorAll('p')].find(p => p.textContent?.includes('Candidates fly in'))!;
+    expect(line.textContent).toContain('Candidates fly in Inner Tube 1 only. Inner Tube 2, Inner Tube 3 and Inner Tube 4 keep X1 for every flight.');
+    expect(line.textContent).not.toContain('⌀');
+    expect(line.classList.contains('message-caution')).toBe(true);
+    expect(host.textContent).toContain('Inner Tube 1 is a single tube');
+    expect(host.querySelector('option[value="side1"]')?.textContent).toBe('Inner Tube (⌀ 75 mm)');
+  });
+  it('explains a 3-ring using the Design layout label, and omits the line for supported or single mounts', () => {
+    const tree = structuredClone(TREE);
+    tree.components[0]!.children![0]!.children![0]!.cluster = '3-ring';
+    mount({}, { tree });
+    expect(host.textContent).toContain("Mixed batches (2+2, 3+3) need a 4-ring or 6-ring cluster; this mount's layout is 3-ring (3 motors).");
+    expect(host.textContent).not.toContain('Candidates fly in');
+    mount();
+    expect(host.textContent).toContain('mixed 2+2');
+    expect(host.textContent).not.toContain('Mixed batches (2+2, 3+3) need');
+    tree.components[0]!.children![0]!.children![0]!.cluster = 'single';
+    mount({}, { tree, mounts: [{ ...MOUNTS[0]!, motorCount: 1 }] });
+    expect(host.textContent).not.toContain('Candidates fly in');
+    expect(host.textContent).not.toContain('Mixed batches (2+2, 3+3) need');
+  });
+
   it('keeps batch criteria free of motor-browser bound sizing', () => {
     mount();
     const row = host.querySelector('#batch-rod')!.closest('.motor-filter-row')!;
