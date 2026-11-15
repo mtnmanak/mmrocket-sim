@@ -16,6 +16,8 @@ import {
 import { downloadBlob } from '../services/saveFile.js';
 import { addRuns } from '../services/simStore.js';
 import { importedSummaryRuns } from '../services/orkFlightData.js';
+import { asymmetricThrustWarnings } from '../services/asymmetricThrust.js';
+import { balanceMotor, balanceTree } from '../services/asymmetricThrust.testSupport.js';
 
 /**
  * THE DIALOG AROUND A SWEEP — what BatchSimulate does with the rows, the
@@ -185,6 +187,24 @@ it('124/125 offers all matching empty tubes by default, restores defaults on pic
   mount({ tree, mounts: mounts.map(m => m.id === 'm2' ? { ...m, maxMotorLengthM: 0 } : m) });
   expect(candidateCount()).toBe(0);
   expect(host.textContent).toContain('m2’s max motor length');
+});
+
+it('round 2 puts an expandable thrust mark only on the warned Batch row without changing its grade', async () => {
+  const warned = row('warned', 'Unbalanced', 300), balanced = row('balanced', 'Balanced', 310);
+  warned.run!.simWarnings = asymmetricThrustWarnings(balanceTree(2), [['m0', balanceMotor()]]);
+  sweep.mockResolvedValue({ rows: [warned, balanced], stopped: false });
+  mount();
+  await start();
+  const warnedRow = bodyRows().find(tr => tr.querySelector('td')?.textContent?.startsWith('Unbalanced'))!;
+  const balancedRow = bodyRows().find(tr => tr.querySelector('td')?.textContent?.startsWith('Balanced'))!;
+  expect(warnedRow.querySelector('td:last-child')?.textContent).toContain('accepted');
+  expect(balancedRow.querySelector('td:last-child')?.textContent).toContain('accepted');
+  const mark = warnedRow.querySelector('details.message-danger')!;
+  expect(mark).not.toBeNull();
+  expect(balancedRow.querySelector('details.message-danger')).toBeNull();
+  act(() => mark.querySelector('summary')!.click());
+  expect(mark.hasAttribute('open')).toBe(true);
+  expect(mark.querySelector('p')?.textContent).toContain('simulation does not show this turn');
 });
 
 describe('the candidates', () => {

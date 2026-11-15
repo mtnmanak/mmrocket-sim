@@ -157,7 +157,7 @@ it('S4a-2 draws no aft circles for a zero-radius tube-fin set', () => {
           id: 'b1', type: 'bodytube', length: 0.3, outerRadius: 0.03, motorMount: true,
           children: [
             { id: 'f1', type: 'trapezoidfinset', finCount: 4, height: 0.03 },
-            { id: 'mt', type: 'innertube', length: 0.1, outerRadius: 0.009, cluster: '3-ring' },
+            { id: 'mt', type: 'innertube', motorMount: true, length: 0.1, outerRadius: 0.009, cluster: '3-ring' },
             {
               id: 'p1', type: 'podset', instanceCount: 3, radiusOffset: 0.05,
               children: [{

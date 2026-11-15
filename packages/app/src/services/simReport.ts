@@ -22,6 +22,7 @@ import type { WeatherSnapshot } from './weatherSnapshot.js';
 import { motorIdentity } from './hardwareMass.js';
 import { displayDesignation } from './motorDb.js';
 import { formatWarningText, staticWarningTier } from './simWarnings.js';
+import { asymmetricThrustWarnings } from './asymmetricThrust.js';
 import { AERO_NAME, aeroOptionLabel } from '../prefs/aeroChoice.js';
 import { densityAltitudeM, padFieldsAsFlown, usesGeopotentialIsa, type AtmosphereModel } from './atmosphere.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
@@ -2567,6 +2568,8 @@ export function buildSimRun(input: {
   }
 
   const stopWarnings = abortWarnings(result);
+  const thrustWarnings = input.advisoryTree ? asymmetricThrustWarnings(input.advisoryTree,
+    (input.advisoryMotors ?? []).filter(([id]) => !input.refusedMountIds?.includes(id)), result) : [];
   return {
     id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     when: Date.now(),
@@ -2633,8 +2636,8 @@ export function buildSimRun(input: {
     // before this a design that never left the pad came back with apogee 0, an
     // empty warning list and nothing anywhere saying why. On the beta test
     // corpus 17 of the 72 flyable designs end this way, almost all .CDX1.
-    ...(result.warnings !== undefined || stopWarnings.length > 0
-      ? { simWarnings: storedWarnings([...stopWarnings, ...(result.warnings ?? []).filter(w =>
+    ...(result.warnings !== undefined || stopWarnings.length > 0 || thrustWarnings.length > 0
+      ? { simWarnings: storedWarnings([...stopWarnings, ...thrustWarnings, ...(result.warnings ?? []).filter(w =>
         w.key !== 'THICK_FIN' || keepWarning(w.message))]) }
       : {}),
     landingDistanceM: drift.distanceM,

@@ -1,4 +1,5 @@
 import * as flightRunner from './flightRunner.js';
+import { gradeBatchRun } from './batchCriteria.js';
 import { notePluggedAtOptimum } from './batchSweep.js';
 import type { SimRun } from './simReport.js';
 
@@ -347,6 +348,25 @@ it('does not claim a background motor with a refused ignition event was kept', a
   expect(out.rows[0]?.error).toBeUndefined();
   expect(out.rows[0]?.run?.batchMounts?.find(m => m.mountId === 'side')).toMatchObject({ role: 'empty', motor: null });
 }, 60_000);
+
+it('row 127 warns from each candidate loadout without changing Batch acceptance', async () => {
+  const tree = rocket({ sideMount: true });
+  Object.assign(motorMounts(tree).find(m => m.id === 'mount')!, { radialPosition: 0.01, radialDirection: 0 });
+  Object.assign(motorMounts(tree).find(m => m.id === 'side')!, { radialPosition: 0.01, radialDirection: Math.PI });
+  const out = await sweep(input(tree, { autoDelay: false,
+    mounts: [MOUNT, { ...MOUNT, id: 'side' }], assignedMotors: { side: curve('Other') },
+    candidates: [entry('matched', 'Acme', 'Matched', '5'), entry('strong', 'Acme', 'Stronger', '5')],
+  }), { fetchSpec: fetchFrom({ matched: curve('Matched'), strong: curve('Stronger', 2) }), nozzleFor: nozzles({}) });
+  expect(out.rows).toHaveLength(2);
+  const matched = out.rows.find(r => r.entry.motorId === 'matched')!.run!;
+  const strong = out.rows.find(r => r.entry.motorId === 'strong')!.run!;
+  expect(matched).toBeDefined(); expect(strong).toBeDefined();
+  expect(matched.simWarnings?.some(w => w.key.startsWith('ASYMMETRIC_THRUST_')) ?? false).toBe(false);
+  expect(strong.simWarnings?.map(w => w.key)).toContain('ASYMMETRIC_THRUST_DANGER');
+  const criteria = { minRodExit: null, minThrustToWeight: null, minApogee: null, maxApogee: null,
+    autoDelay: false, includeOOP: false, manufacturers: [], classes: [] };
+  expect(gradeBatchRun(strong, criteria)).toEqual(gradeBatchRun({ ...strong, simWarnings: [] }, criteria));
+});
 it.each(['toString', 'constructor', '__proto__'])('flies a loaded legacy sibling without inherited motor metadata: %s', async id => {
   const tree = rocket({ sideMount: true });
   tree.components[0]!.children![1]!.children!.find(n => n.id === 'side')!.id = id;

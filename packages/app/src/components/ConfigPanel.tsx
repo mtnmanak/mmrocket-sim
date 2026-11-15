@@ -1,8 +1,10 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { savedConfigLabel, type SavedConfig, type FlightTree, type FlightOverrides, type MountMotor } from '../model/design.js';
 import { MAX_CONFIG_NAME_LENGTH, MAX_ORK_CONFIGURATIONS } from '../services/configSnapshot.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { activeFlightOverrides, isWorkingSettings, noSavedConfigurationsText } from '../services/flightState.js';
+import { activeFlightOverrides, isWorkingSettings, noSavedConfigurationsText, resolveFlightState } from '../services/flightState.js';
+import { asymmetricThrustWarnings } from '../services/asymmetricThrust.js';
+import { ThrustBalanceNotes } from './ThrustBalanceNotes.js';
 import { describeFlightOverrides } from '../services/flightOverrideSummary.js';
 import type { OrkMotorRef } from '../services/orkFile.js';
 import { Note } from './Note.js';
@@ -14,7 +16,7 @@ export const CONFIG_DELETE_LOSS = 'Its name, its entry in the list and any simul
   + 'Ctrl+Z does not bring a deleted configuration back, and no saved .ork holds this design as it is now.';
 
 /** The active flight owns the controls below this bar. Native select is deliberate. */
-export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, unmatchedRefs, detachedOverrides = NO_OVERRIDES,
+export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, refusedMountIds, unmatchedRefs, detachedOverrides = NO_OVERRIDES,
   onApply, onClear, onCreate, onDuplicate, onRename, onDelete, onResetOverrides, deletionUnprotected = false }: {
   configs: SavedConfig[];
   /**
@@ -26,6 +28,7 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, 
   deletionUnprotected?: boolean;
   tree?: FlightTree;
   motors?: Record<string, MountMotor>;
+  refusedMountIds?: readonly string[];
   unmatchedRefs?: Record<string, OrkMotorRef>;
   detachedOverrides?: FlightOverrides;
   activeConfigId: string | null;
@@ -69,6 +72,12 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, 
     if (resetting) setResetting(false);
   }
   const active = configs.find(c => c.id === activeConfigId);
+  const thrustWarnings = useMemo(() => {
+    if (!tree) return [];
+    const flight = resolveFlightState(tree, configs, activeConfigId, detachedOverrides, motors ?? active?.motors ?? {});
+    return asymmetricThrustWarnings(flight.tree,
+      Object.entries(flight.mountMotors).filter(([id]) => !refusedMountIds?.includes(id)));
+  }, [tree, configs, activeConfigId, detachedOverrides, motors, active, refusedMountIds]);
   const overrides = activeFlightOverrides(configs, activeConfigId, detachedOverrides);
   const hasOverrides = Object.values(overrides).some(map => Object.keys(map ?? {}).length > 0);
   const working = isWorkingSettings({ active: !!active, hasMotors,
@@ -89,6 +98,7 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, 
     return sort.endsWith('-desc') ? -compared : compared;
   });
   return <section className="panel config-panel" aria-label="Flight configuration">
+    <ThrustBalanceNotes warnings={thrustWarnings} />
     <div className="config-bar" aria-current={active ? 'true' : undefined}>
       <label className="config-chooser">Flight configuration
         <select ref={chooser} aria-label="Flight configuration" value={active?.id ?? (working ? '__working__' : '')}

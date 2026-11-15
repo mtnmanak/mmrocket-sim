@@ -1,4 +1,5 @@
 import { Note } from './Note.js';
+import { ThrustBalanceMark } from './ThrustBalanceNotes.js';
 import { LaunchOverrideWarning, type LaunchOverrideProps } from './LaunchOverrideWarning.js';
 import type { FlightOverrideSummary } from '../services/flightOverrideSummary.js';
 import {
@@ -473,7 +474,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   const halvesCombination = clusterSplit ? batchSplitCombination(clusterSplit, assignedIgnitions, weighed, candidates) : null;
   const pairsCombination = pairSplit ? batchSplitCombination(pairSplit, assignedIgnitions, weighed, candidates) : null;
   const mixedTitle = (combination: NonNullable<typeof halvesCombination>, groups: string) =>
-    `Also fly ${groups}. ${combination.ordered ? 'Fly every arrangement because ignition settings or weighed hardware differ between groups.' : 'Fly each mix once because the groups are interchangeable.'} With ${candidates.length} candidates, adds ${mixedComboCount(candidates.length, combination)} extra flights. Off = one motor type in every target tube.`;
+    `Also fly ${groups}. ${combination.ordered ? 'Fly every arrangement because ignition settings or weighed hardware differ between groups.' : 'Fly each mix once because the groups are interchangeable.'} With ${candidates.length} candidates, adds ${mixedComboCount(candidates.length, combination)} extra flights. Off = one motor type in every target tube. Each group balances around its own centre; an off-centre cluster or ring can still push the rocket unevenly, so check the thrust balance warnings.`;
   const ticked = [
     ...(comboMode && halvesCombination ? [{ name: halvesName, ...halvesCombination }] : []),
     ...(pairMode && pairsCombination ? [{ name: PAIRS_NAME, ...pairsCombination }] : []),
@@ -919,6 +920,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
                     <td>{typeof run?.optimumDelayS === 'number' && Number.isFinite(run.optimumDelayS) ? `${run.optimumDelayS.toFixed(1)}s` : '—'}</td>
                     <td className={failed.length ? 'stability-bad' : 'stability-good'}>
                       {error ? `error: ${error}` : failed.length ? `✗ ${failed.join(', ')}` : '✓ accepted'}
+                      <ThrustBalanceMark warnings={run?.simWarnings ?? []} />
                     </td>
                   </tr>
                 ))}

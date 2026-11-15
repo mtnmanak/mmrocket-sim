@@ -1959,8 +1959,10 @@ export function splitClusterTree(tree: RocketTree, mountId: string): ClusterSpli
  * PAIR-level split of a 6-ring: THREE 'double' mounts, one per opposite-tube
  * pair (hexagon diagonals at 90°/30°/−30° + the base rotation, scale ×2 so
  * each pair's tubes land on the original circumradius). Every pair is
- * individually thrust-balanced, so ANY per-pair motor assignment is
- * symmetric — the owner's real-world 2+2+2 (and 4+2) practice (2026-08-05d).
+ * individually thrust-balanced about the cluster centre, so ANY per-pair motor
+ * assignment is symmetric there — the owner's real-world 2+2+2 (and 4+2)
+ * practice (2026-08-05d). An off-axis cluster still has a net moment about the
+ * rocket axis; asymmetricThrust.ts checks the actual motor positions.
  * A 4-ring's pair split is already splitClusterTree. Null otherwise.
  */
 export function splitClusterPairsTree(tree: RocketTree, mountId: string): ClusterSplit | null {
