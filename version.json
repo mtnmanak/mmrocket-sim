@@ -1,5 +1,5 @@
 {
-  "version": "0.200",
-  "released": "2026-11-14",
-  "note": "Batch rows, the launch report, the print report and the CSV/XLSX downloads say what every motor mount carried; a visible mount line and a reason when the mixed boxes are missing in the batch dialog; a Motor column in the per-mount delay tables; an offer to load one motor into the other mounts of a stage; motor data refreshed to 9 November; no flight input changed."
+  "version": "0.201",
+  "released": "2026-11-15",
+  "note": "Batch simulate can fly each candidate in all matching mounts (ticked by default when they carry the same motor; changes new batch rows on such designs, untick for v0.200 behaviour); mixed batches on rings of separate tubes; a Caution/Danger warning when the motors push the rocket off its centreline, which the simulation itself cannot show."
 }
