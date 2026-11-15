@@ -208,7 +208,7 @@ it('round 2 puts an expandable thrust mark only on the warned Batch row without 
 });
 
 describe('the candidates', () => {
-  it.each(['ignition', 'weighed'] as const)('Round 3 six-ring tooltip and visible counts agree for ordered %s groups', async reason => {
+  it.each(['synchronous', 'ignition', 'weighed'] as const)('Round 4 six-ring tooltip and visible counts agree for %s groups', async reason => {
     localStorage.setItem('online-openrocket.batch-criteria.v1', JSON.stringify({ manufacturers: ['Klima'] }));
     const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [{ type: 'bodytube', id: 'b', children:
       Array.from({ length: 6 }, (_, i) => ({ type: 'innertube', id: i ? `m${i}` : 'mount', name: `MMT ${i + 1}`,
@@ -221,7 +221,7 @@ describe('the candidates', () => {
     const weighed = { mountId: 'mount', identity: candidateIdentity(candidate), pinned: false,
       name: candidate.designation, perMotorShiftKg: 0.1, deltaKg: 0.1 };
     mount({ tree, mounts, ...(reason === 'weighed' ? { weighed }
-      : { assignedIgnitions: { mount: { event: 'launch' as const, delay: 1 } } }) });
+      : reason === 'ignition' ? { assignedIgnitions: { mount: { event: 'launch' as const, delay: 1 } } } : {}) });
     const n = candidateCount();
     for (const [name, extra] of [['mixed 3+3', n ** 2 - n], ['mixed 4+2 / 2+2+2', n ** 3 - n]] as const) {
       const label = [...host.querySelectorAll('label')].find(l => l.textContent?.trim() === name)!;
@@ -230,6 +230,7 @@ describe('the candidates', () => {
       act(() => label.querySelector('input')!.click());
       expect(host.textContent).toContain(`+${extra} ${name} combinations`);
     }
+    expect(primary().textContent).toContain(`Simulate ${new Intl.NumberFormat('en-US').format(n ** 3 + n ** 2 - n)} flights`);
   });
 
   it('Round 2 marks a separate-ring mixed row carrying weighed hardware', async () => {

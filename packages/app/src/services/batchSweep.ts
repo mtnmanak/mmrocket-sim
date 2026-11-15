@@ -74,8 +74,8 @@ export interface BatchSplit extends ClusterSplit {
  * How many mixed combinations a split into `groups` mounts adds for `n`
  * candidates — exactly what the comboAssignments() generator below yields:
  * multisets of group assignments minus the all-same ones, which are the
- * single-motor rows already flown. Distinct ignition schedules use ordered
- * assignments instead: n^groups - n. Two interchangeable groups: C(n,2). Three groups (the
+ * single-motor rows already flown. Separate-tube rings always use ordered
+ * assignments instead: n^groups - n. Two cluster groups: C(n,2). Three groups (the
  * 4+2 / 2+2+2 pair split): C(n+2,3) − n. ONE definition, keyed on the split's
  * own mountIds.length, because the count used to be spelled out in three
  * places — the sweep's progress total, the meta line, and the time-step
@@ -95,15 +95,9 @@ export function batchTargetIgnition(tree: RocketTree, ignitions: BatchSweepInput
   return overrideFor(ignitions, id) ?? overrideFor((tree as FlightTree).ignitionDefaults, id) ?? { event: 'automatic' as const, delay: 0 };
 }
 
-/** Distinct ignition schedules or mount-specific weighed hardware order physical ring groups. */
-export function batchSplitCombination(split: BatchSplit, ignitions: BatchSweepInput['assignedIgnitions'],
-  weighed?: BatchWeighed, candidates: readonly MotorDbEntry[] = []): { groups: number; ordered: boolean } {
-  const hardwareMatters = weighed && weighed.perMotorShiftKg !== 0 && candidates.some(e => isWeighedCandidate(e, weighed));
-  const signatures = split.mountGroups?.map(ids => JSON.stringify(ids.map(id => {
-    const ignition = batchTargetIgnition(split.tree, ignitions, id);
-    return JSON.stringify([ignition.event, ignition.delay, !!hardwareMatters && id === weighed.mountId]);
-  }).sort()));
-  return { groups: split.mountIds.length, ordered: signatures?.some(s => s !== signatures[0]) ?? false };
+/** Every arrangement flies on separate tubes; split clusters keep their multiset enumeration. */
+export function batchSplitCombination(split: BatchSplit): { groups: number; ordered: boolean } {
+  return { groups: split.mountIds.length, ordered: split.mountGroups !== undefined };
 }
 
 /**
@@ -782,7 +776,7 @@ export async function runBatchSweep(
   };
 
   const n = candidates.length;
-  const total = n + splits.reduce((sum, s) => sum + mixedComboCount(n, batchSplitCombination(s, assignedIgnitions, weighed, candidates)), 0);
+  const total = n + splits.reduce((sum, s) => sum + mixedComboCount(n, batchSplitCombination(s)), 0);
   const comboActive = splits.length > 0;
   const out: BatchRow[] = [];
   // Motor specs fetched in the single pass, reused by the combination pass.
@@ -898,9 +892,9 @@ export async function runBatchSweep(
 
   // ---- Combination passes (opt-in): symmetric group splits of the
   // cluster, each on a SEPARATE engine handle (the design handle is
-  // untouched). Group mode = 2 halves (2+2 / 3+3, unordered pairs of
-  // candidates); pair mode (6-ring) = 3 opposite-tube pairs, flying every
-  // MULTISET of candidates except all-same (covers 4+2 and 2+2+2 —
+  // untouched). Group mode = 2 halves (2+2 / 3+3); pair mode (6-ring) =
+  // 3 opposite-tube pairs. Separate tubes fly every ordered arrangement;
+  // split clusters fly every MULTISET except all-same (covers 4+2 and 2+2+2 —
   // the owner's real-world configs, 2026-08-05d).
   let done = n;
   for (const split of splits) {
@@ -932,7 +926,7 @@ export async function runBatchSweep(
     // 2026-09-22, row 351, from review — the single-motor pass above already
     // counted the pods through `target.motorCount`).
     const groupFires = groups.map(ids => ids.reduce((sum, id) => sum + mountMotorCount(split.tree, id), 0));
-    const combination = batchSplitCombination(split, assignedIgnitions, weighed, candidates);
+    const combination = batchSplitCombination(split);
     const ordered = combination.ordered;
     for (const idxs of comboAssignments(n, split.mountIds.length, ordered)) {
       if (signal.aborted) break;
