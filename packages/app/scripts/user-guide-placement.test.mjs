@@ -5,6 +5,12 @@ import { compileGuide } from '../../../scripts/build-user-guide.mjs';
 const html = () => [...compileGuide().ts.matchAll(/"html": (".*")/g)]
   .map((match) => JSON.parse(match[1])).join('\n');
 
+it('round 2 puts the RASAero save-note explanation before the Optimum round-trip detail', () => {
+  const rendered = html();
+  expect(rendered.indexOf('The save note names that choice and the parts whose finish changes.'))
+    .toBeLessThan(rendered.indexOf("The app's Optimum paint"));
+});
+
 it('keeps the Mach-Alt import rule inside its anchored glossary entry', () => {
   const entry = html().match(/<p id="glossary-mach-alt-table"[^>]*>(.*?)<\/p>/s)?.[1];
   expect(entry).toContain('each nonblank row must contain exactly two period-decimal numbers');

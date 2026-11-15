@@ -636,6 +636,13 @@ describe('catalogue workflow isolation and approval boundary', () => {
     expect(value(child(upload, 'with'), 'overwrite')).toBe('true');
   });
 
+  it('row 112 (c): catalogue-plan upload replaces a same-name artifact on a re-run', () => {
+    const upload = steps(CATALOGUE, 'plan').find((s) => value(child(s, 'with'), 'name') === 'catalogue-plan');
+    expect(upload).toBeDefined();
+    expect(value(upload, 'uses')).toMatch(/^actions\/upload-artifact@/);
+    expect(value(child(upload, 'with'), 'overwrite')).toBe('true');
+  });
+
   it('R4 #4/#5: classifies a 404 environment and records manifest/plan failures in the step summary', () => {
     const approval = child(steps(CATALOGUE, 'plan').find((s) => value(s, 'name') === 'Check approval protection (informational)'), 'run')
       .filter(isContent).map((l) => l.trim());

@@ -7,6 +7,7 @@ import { ScaleDialog } from './ScaleDialog.js';
 import { loadPresets } from '../services/presets.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import type { ScaleResult } from '../tree/scaleRocket.js';
+import { findNode } from '../tree/treeModel.js';
 
 /**
  * The dialog's own job is the FACTOR ↔ TARGET DIAMETER link — the pair desktop
@@ -520,6 +521,15 @@ describe('ScaleDialog', () => {
    * scaled walls are 1.6 mm, so the widest bore that fits is 98 − 3.2 = 94.8 mm.
    */
   describe('bounds', () => {
+    it('round 2 refuses a chosen bore when the scaled wall reaches the radius limit', async () => {
+      await render({}, { components: [{ type: 'bodytube', outerRadius: 0.025, thickness: 0.001 },
+        { type: 'innertube', id: 'm', motorMount: true, outerRadius: 800, thickness: 600 }] });
+      pick(mountSelect(), 'c54');
+      expect(applyButton().disabled).toBe(true);
+      expect(text()).toContain("exceeds the property field's hard limit");
+      act(() => applyButton().click());
+      expect(applied).toBeNull();
+    });
     it.each([0.04, 0.96])('shows an accepted sub-mm bore limit (%s mm)', async maxBoreMm => {
       const design: RocketTree = { components: [{ type: 'bodytube', outerRadius: (maxBoreMm + 0.4) / 4000,
         thickness: 0.00005, children: [{ type: 'innertube', id: 'm', motorMount: true,
@@ -560,8 +570,12 @@ describe('ScaleDialog', () => {
       pick(mountSelect(), 'custom');
       type(customBore(), '38');
       expect(applyButton().disabled).toBe(false);
+      type(customBore(), '2500000');
+      expect(customBore().getAttribute('aria-invalid')).toBe('true');
+      expect(text()).not.toContain('2500000 mm');
       act(() => applyButton().click());
       expect(applied).not.toBeNull();
+      expect(findNode(applied!.tree, 'm')!['outerRadius']).toBeCloseTo(0.02, 9);
     });
     it('blocks an enclosed 98 mm choice after its enclosing mount shrinks to 54 mm', async () => {
       const design: RocketTree = { components: [{ type: 'bodytube', outerRadius: 0.15, thickness: 0.001,

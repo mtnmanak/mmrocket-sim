@@ -12,6 +12,7 @@ import { axialLength, positionOf, startFromPosition } from './position.js';
 import { lookupTable } from '../services/xmlUtil.js';
 import { TUBE_HOLE_DEFAULTS } from './tubeHoles.js';
 import { limitPatch } from './sanitize.js';
+import { MAX_DIMENSION_M } from './schema.js';
 import { resolveTransitionRadii } from './transitionRadii.js';
 import { profileRadius } from './shapeProfile.js';
 import { noseEnds } from './tailCone.js';
@@ -441,6 +442,8 @@ export interface MountPreview {
    * Apply wrote as a negative outer radius.
    */
   maxBoreMm: number | null;
+  /** Widest bore whose outer radius, including the scaled wall, meets the field limit. */
+  hardMaxBoreMm: number;
   /**
    * The tube around this mount is SOLID (Solid (filled)) — why `maxBoreMm` is
    * 0, which the dialog says in words.
@@ -488,7 +491,7 @@ export function previewMounts(
     // Each ancestor is resized before descending to its children.
     if (n['motorMount'] === true) {
       const target = targetBore(scaled, mountBore(scaled) * 1000);
-      if (target !== null) scaled['outerRadius'] = round(outerRadiusForBore(scaled, target / 1000));
+      if (target !== null) Object.assign(scaled, limitPatch(n, { outerRadius: round(outerRadiusForBore(scaled, target / 1000)) }));
     }
     return { ...scaled, ...(n.children ? { children: scaleNodes(n.children) } : {}) };
   });
@@ -615,6 +618,7 @@ export function previewMounts(
       motorStillFits: fits(finalBoreMm),
       motorFitsUnsnapped: fits(scaledBoreMm),
       maxBoreMm,
+      hardMaxBoreMm: Math.max(0, (MAX_DIMENSION_M - outerRadiusForBore(scaledMount, 0)) * 2000),
       inSolidTube,
     };
   });
@@ -856,7 +860,7 @@ export function scaleRocket(
         // mount type. The wall it uses is the SCALED wall (this runs on the
         // scaled tree), so the snapped tube keeps the proportions the scale
         // gave it and only its bore lands on the standard size.
-        out = { ...n, outerRadius: round(outerRadiusForBore(n, target)) } as ComponentNode;
+        out = { ...n, ...limitPatch(n, { outerRadius: round(outerRadiusForBore(n, target)) }, limitNotes, units) } as ComponentNode;
       }
       return out.children ? { ...out, children: snap(out.children) } as ComponentNode : out;
     });

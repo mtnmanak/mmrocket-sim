@@ -2,9 +2,19 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { importMotorFiles } from './importMotorFiles.js';
 import { sessionDebugLog } from './sessionDebugLog.js';
-import { EX_IMPORT_BYTES_NOTE, MAX_EX_IMPORT_BYTES } from './exMotorLimits.js';
+import { EX_IMPORT_BYTES_NOTE, EX_NO_MOTOR_FILES_NOTE, MAX_EX_IMPORT_BYTES } from './exMotorLimits.js';
 
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
+
+it('row 112 (d): names every accepted motor extension when no motor files match', async () => {
+  const out = await importMotorFiles([new File(['x'], 'notes.pdf')]);
+  expect(out.error).toBe(EX_NO_MOTOR_FILES_NOTE);
+  expect.soft(out.error).toBe('No .eng, .rse or .txt motor files found in that selection.');
+  expect.soft(out.tier).toBe('information');
+  expect.soft(sessionDebugLog.text()).toContain('import-failed: Error: ' + EX_NO_MOTOR_FILES_NOTE);
+  expect(out.parsed).toEqual([]);
+  expect(out.write).toBeNull();
+});
 
 it('decodes cap-sized Latin-1 RASP without a per-byte array, preserving C1 bytes', async () => {
   const motor = '\nKept 18 70 P 0.01 0.02 Cr\u00e9ateur\u0080\n0 0\n0.5 20\n1 0';

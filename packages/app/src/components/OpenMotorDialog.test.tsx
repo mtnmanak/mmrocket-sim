@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OpenMotorDialog } from './OpenMotorDialog.js';
 import { findDbMotor } from '../services/motorDb.js';
 import { addExMotors, loadExMotors, parseEng } from '../services/exMotors.js';
+import { EX_NO_MOTOR_FILES_NOTE } from '../services/exMotorLimits.js';
 import type { OpenMotorIdentity } from '../services/openMotorChoices.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -69,7 +70,7 @@ it('B establishes an empty alert region that receives a refused selection', asyn
   Object.defineProperty(input, 'files', { configurable: true, value: [new File(['x'], 'notes.pdf')] });
   await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
   expect(host.querySelector('[role="alert"]')).toBe(alert);
-  expect(alert!.textContent).toBe('No .eng or .rse files found in that selection.');
+  expect(alert!.textContent).toBe(EX_NO_MOTOR_FILES_NOTE);
 });
 async function importText(section: number, text: string, click = true) {
   if (click) act(() => host.querySelectorAll('fieldset')[section]!.querySelector('button')!.click());

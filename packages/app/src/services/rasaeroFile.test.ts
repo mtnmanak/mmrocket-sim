@@ -2015,6 +2015,30 @@ describe('RASAero surface finish is desktop’s map (audit rows 3/41)', () => {
     expect(paint['finish']).toBe('optimum');      // was smooth (20 µm) — the mover
   });
 
+  it('row 118 (a): exports desktop finish choices and the nearer RASAero roughness for Optimum', () => {
+    // RASAero II Users Manual v1.0.2.0, p. 53, Table 1: sand roughness in inches.
+    const roughnessInches = {
+      'Smooth (Zero Roughness)': 0, 'Polished': 0.00005,
+      'Sheet Metal': 0.00016, 'Smooth Paint': 0.00025,
+      'Camouflage Paint': 0.0004, 'Rough Camouflage Paint': 0.0012,
+      'Galvanized Metal': 0.006, 'Cast Iron (Very Rough)': 0.01,
+    };
+    const desktopExport = [
+      ['mirror', 'Smooth (Zero Roughness)'], ['finishpolished', 'Polished'],
+      ['optimum', 'Sheet Metal'], ['smooth', 'Camouflage Paint'],
+      ['normal', 'Rough Camouflage Paint'], ['unfinished', 'Galvanized Metal'],
+      ['roughunfinished', 'Cast Iron (Very Rough)'],
+    ] as const;
+    for (const [finish, surface] of desktopExport) {
+      const tree = importCdx1(withSurface('Smooth Paint')).tree;
+      for (const part of flatten(tree.components)) part.finish = finish;
+      expect(exportCdx1({ name: 'Finish', tree }), finish).toContain(`<Surface>${surface}</Surface>`);
+    }
+    const optimumM = 5e-6;
+    expect(Math.abs(roughnessInches['Sheet Metal'] * 0.0254 - optimumM))
+      .toBeLessThan(Math.abs(roughnessInches['Smooth Paint'] * 0.0254 - optimumM));
+  });
+
   it('round-trips every finish through the exporter with nearest RASAero choices', () => {
     // RASAero has eight strings for our nine finishes, so POLISHED and ROUGH
     // must share. Desktop leaves both to an `else` that returns the SMOOTHEST
@@ -2024,7 +2048,7 @@ describe('RASAero surface finish is desktop’s map (audit rows 3/41)', () => {
       // finish            → RASAero string             → what a re-import gives
       ['mirror', 'Smooth (Zero Roughness)', 'mirror'],
       ['finishpolished', 'Polished', 'finishpolished'],
-      ['optimum', 'Smooth Paint', 'optimum'], // Preserve the file's 5 µm paint.
+      ['optimum', 'Sheet Metal', 'optimum'], // Desktop's map; Table 1: 4.06 µm is nearer 5 µm than Smooth Paint's 6.35.
       ['smooth', 'Camouflage Paint', 'smooth'],
       ['normal', 'Rough Camouflage Paint', 'normal'],
       ['unfinished', 'Galvanized Metal', 'unfinished'],

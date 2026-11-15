@@ -74,9 +74,14 @@ describe('M3 RASAero regressions', () => {
     expect(cdx1SurfaceFinish(t).note).toContain('Rough lug');
   });
 
-  it('keeps RASAero Smooth Paint unchanged instead of mapping its 5 µm finish to 2 µm Sheet Metal', () => {
+  it('Smooth Paint opens as Optimum and saves as RASAero\'s nearer Sheet Metal', () => {
     const imported = importCdx1('<RASAeroDocument><RocketDesign><Surface>Smooth Paint</Surface><BodyTube><Length>20</Length><Diameter>3</Diameter></BodyTube></RocketDesign></RASAeroDocument>');
-    expect(exportCdx1({ name: 'Paint', tree: imported.tree })).toContain('<Surface>Smooth Paint</Surface>');
+    const xml = exportCdx1({ name: 'Paint', tree: imported.tree });
+    expect(xml).toContain('<Surface>Sheet Metal</Surface>');
+    const back = importCdx1(xml);
+    expect.soft(all(back.tree.components).find(n => n.type === 'bodytube')!.finish).toBe('optimum');
+    expect.soft(cdx1SurfaceFinish(imported.tree).note).toBeNull();
+    expect.soft(cdx1SurfaceFinish(back.tree).note).toBeNull();
   });
 
   it.each(['NoThrust', 'real engine'])('ignores excluded booster figures with %s, even without a chosen configuration', shape => {

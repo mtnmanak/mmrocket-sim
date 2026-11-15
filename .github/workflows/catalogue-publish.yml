@@ -134,6 +134,9 @@ jobs:
           path: ${{ runner.temp }}/catalogue-plan
           if-no-files-found: error
           retention-days: 35
+          # A re-run of all jobs replaces the earlier attempt's plan; the catalogue
+          # job of the same attempt reads only the plan this attempt wrote.
+          overwrite: true
 
   catalogue:
     needs: plan
