@@ -9,9 +9,9 @@ import type { MmrNav, MmrNavSource } from '../services/useMmrNav.js';
  * hardcoded WordPress links this tool shipped through v0.043; the data now
  * comes from the published Nav Contract (see `services/useMmrNav.ts`).
  *
- * `target="_top"` on every link is load-bearing, not decoration: this app is
- * embeddable (vite `base: './'`), so a click has to navigate the WHOLE tab out
- * to the site rather than load mountainmanrockets.com inside a nested frame.
+ * `target="_top"` on every link navigates the WHOLE tab out to the site,
+ * including a copy embedded on its own host. The hosted app refuses
+ * cross-origin framing (public/_headers).
  *
  * The visual voice is deliberately the one the old `.site-nav` had — tracked
  * 11.5px caps on `--surface-2` with an orange hover — because that was tuned
@@ -112,7 +112,7 @@ function BandBody({ nav, source }: { nav: MmrNav; source: MmrNavSource }) {
             strip"). Decorative: the link's own text names the site, so the
             image is alt="" rather than a second "Mountain Man Rockets".
             BASE_URL, not a root path: vite's base is './' so the same build
-            works embedded, and './' resolves against the page like
+            works at another path, and './' resolves against the page like
             version.json does. */}
         <img
           className="mmr-band-mark"

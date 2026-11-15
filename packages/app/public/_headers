@@ -1,0 +1,7 @@
+# Cloudflare Pages response headers for every path. Every inline <script> in
+# index.html needs its sha256 here; the build fails otherwise (scripts/served-headers.mjs).
+/*
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; script-src 'self' https://static.cloudflareinsights.com 'sha256-/eM7xoO5iVgvzUFrv+udEGiod+bM/9h7HNDaL8YXOCY=' 'sha256-3p8mcCDsEfXxDfCRRItnkfNYwKQgBI1U9keBvaL97Yc=' 'sha256-3VeL4GvdaxW6hoBlpxQpm9WLfra4YGmZzJ5xqGa3Q5U='; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; worker-src 'self'; connect-src 'self' data: https://www.thrustcurve.org https://catalogue.mountainmanrockets.com https://www.mountainmanrockets.com https://api.open-meteo.com https://archive-api.open-meteo.com https://geocoding-api.open-meteo.com https://cloudflareinsights.com
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Permissions-Policy: camera=(), microphone=(), geolocation=(self)

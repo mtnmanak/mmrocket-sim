@@ -106,7 +106,7 @@ describe('saveFile — with a Save-As dialog (Chrome, Edge)', () => {
   });
 
   it('a picker that FAILS still produces the file', async () => {
-    // A cross-origin iframe (this build is embeddable) raises SecurityError,
+    // A copy embedded in a cross-origin iframe elsewhere raises SecurityError,
     // and a picker opened after an await has lost its user activation and
     // raises NotAllowedError. The user asked for a file either way.
     for (const name of ['SecurityError', 'NotAllowedError']) {

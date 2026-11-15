@@ -43,7 +43,7 @@ const VERSION_RE = /^\d+(\.\d+)+$/;
  * `fetchNav`'s contract.
  *
  * The shape guard is load-bearing rather than defensive. The deploy ships no
- * 404.html and no `_headers`, so a missing `/version.json` can come back as
+ * 404.html, so a missing `/version.json` can come back as
  * `index.html` at HTTP 200; `npm run dev` always does that, because the file
  * is not in `public/`. Without the guard the app would parse a page of HTML,
  * fail, and — worse, if it ever half-succeeded — tell a developer their

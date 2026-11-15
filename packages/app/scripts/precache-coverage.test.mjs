@@ -35,8 +35,8 @@ describe('precache coverage — every built file is offline, or deliberately not
     ], SW_MIN)).toEqual(['assets/logo-Ab12Cd34.svg']);
   });
 
-  it('leaves out the service worker, its runtime and version.json on purpose', () => {
-    expect(uncachedFiles(['index.html', 'sw.js', 'workbox-9c191d2f.js', 'version.json'], SW_MIN)).toEqual([]);
+  it('leaves out the service worker, its runtime, version.json and host header rules on purpose', () => {
+    expect(uncachedFiles(['index.html', 'sw.js', 'workbox-9c191d2f.js', 'version.json', '_headers'], SW_MIN)).toEqual([]);
     // Only the runtime's own name: an app chunk that merely starts "workbox-"
     // (vite names one workbox-window.prod.es5-<hash>.js) is still checked.
     expect(uncachedFiles(['workbox-window.prod.es5-BqEJf4Xk.js'], SW_MIN))

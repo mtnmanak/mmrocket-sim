@@ -10,8 +10,8 @@ import { versionEarlierThan } from './session.js';
  * it must never tell an up-to-date user to reload, and it must never treat a
  * page of HTML as a version.
  *
- * That second one is not defensive coding. The deploy ships no 404.html and no
- * `_headers`, so Cloudflare Pages can answer a missing `/version.json` with
+ * That second one is not defensive coding. The deploy ships no 404.html,
+ * so Cloudflare Pages can answer a missing `/version.json` with
  * `index.html` at HTTP 200 — and `npm run dev` always does, because the file
  * is not in `public/`. A `res.ok` check alone would sail straight past both.
  */

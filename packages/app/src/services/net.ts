@@ -19,9 +19,9 @@
 
 /**
  * Every outside origin the app fetches from. The version badge's
- * `./version.json` is same-origin and is not listed. A CSP, if one is ever
- * added, needs exactly these in `connect-src` (there is none today: no meta
- * tag, no `_headers`).
+ * `./version.json` is same-origin and is not listed. connect-src in
+ * public/_headers lists exactly these, plus self, data: examples and the
+ * Cloudflare beacon host; scripts/served-headers.test.mjs holds it.
  */
 export const NETWORK_HOSTS: readonly string[] = [
   // thrust-curve downloads (services/thrustcurve.ts download.json).

@@ -171,7 +171,7 @@ export async function saveFile(data: BlobPart, opts: SaveOptions): Promise<SaveO
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') return { kind: 'cancelled' };
       // Everything else is a reason to fall back rather than to fail: a
-      // cross-origin iframe (this build is embeddable — `base: './'`) raises
+      // copy embedded in a cross-origin iframe elsewhere raises
       // SecurityError, and a picker opened after an `await` has lost its
       // transient user activation and raises NotAllowedError/SecurityError.
       // The user asked for a file; they should get one.

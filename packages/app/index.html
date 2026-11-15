@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- Each inline script's SHA-256 is listed in public/_headers; changing a script's text fails the build (scripts/served-headers.mjs). -->
     <script>
       // Canonical-host redirect, BEFORE the app (or its service worker)
       // loads: the pages.dev origin still answers — it is the deploy target —
