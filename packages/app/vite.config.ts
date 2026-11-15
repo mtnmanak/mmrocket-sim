@@ -6,6 +6,7 @@ import { defineConfig, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { lazyModulesInEntry } from './scripts/lazy-chunks.mjs';
 import { checkDist, duplicatePrecacheUrls } from './scripts/precache-coverage.mjs';
+import { checkDistHtml } from './scripts/served-headers.mjs';
 import { RELEASES_NAVIGATION, releaseNotesPlugin } from './scripts/release-notes.mjs';
 import { CHANGELOG, PRE_VERSIONING_NOTE } from './src/changelog';
 import { XML_JS_SETUP, XML_JS_SUITES } from './scripts/xml-js-suites.mjs';
@@ -65,6 +66,14 @@ function precacheCoversBuild(): Plugin {
             + `so they would be missing offline: ${missing.join(', ')}. Add the extension to `
             + 'workbox.globPatterns in vite.config.ts, or, if it must never be cached, to '
             + 'DELIBERATELY_UNCACHED in scripts/precache-coverage.mjs with the reason.');
+        }
+        const headerProblems = checkDistHtml(
+          outDir,
+          readFileSync(resolve(outDir, '_headers'), 'utf8'),
+        );
+        if (headerProblems.length > 0) {
+          throw new Error(`Served headers do not match the build: ${headerProblems.join('; ')}. `
+            + 'Review the inline script change and edit the hash in public/_headers deliberately.');
         }
       },
     },
@@ -127,8 +136,8 @@ function brandTokensModule(): Plugin {
   };
 }
 
-// base './' keeps built asset URLs relative so the same build works
-// standalone AND embedded in a WordPress page or iframe.
+// base './' keeps the build relocatable; the hosted app refuses cross-origin
+// framing (public/_headers).
 export default defineConfig({
   plugins: [
     react(),

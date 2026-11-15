@@ -21,6 +21,8 @@
  *                             it is copied into dist after the build today, and
  *                             is named here so moving it into public/ cannot
  *                             turn a deliberate exclusion into a failed build
+ *   _headers                  Cloudflare Pages' header rules, read by the host,
+ *                             never fetched by the app
  *
  * Node-only (it reads the disk); imported by vite.config.ts, typed for it by
  * precache-coverage.d.mts beside it.
@@ -38,7 +40,7 @@ import { join, relative, sep } from 'node:path';
 // the two font licences and the icon sprite's usage note. They ship because
 // sync-brand.mjs vendors the folder whole and --verify checks every file.
 export const DELIBERATELY_UNCACHED = [
-  /^sw\.js$/, /^workbox-[0-9a-f]+\.js$/, /^version\.json$/, /^releases\//,
+  /^sw\.js$/, /^workbox-[0-9a-f]+\.js$/, /^version\.json$/, /^_headers$/, /^releases\//,
   /^brand\/brand-manifest\.json$/, /^brand\/tokens\.json$/, /^brand\/fonts\/OFL-[A-Za-z]+\.txt$/, /^brand\/icons\/USAGE\.md$/,
 ];
 
