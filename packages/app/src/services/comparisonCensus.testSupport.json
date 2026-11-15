@@ -33,6 +33,7 @@
     "components/MyMaterialsDialog.tsx": 1,
     "components/NozzleField.tsx": 8,
     "components/OpenMotorDialog.tsx": 1,
+    "components/OtherMountOffer.tsx": 3,
     "components/PaperTemplateButton.tsx": 3,
     "components/PreferencesDialog.tsx": 13,
     "components/PreflightAudit.tsx": 5,

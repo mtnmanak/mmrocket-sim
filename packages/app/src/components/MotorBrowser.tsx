@@ -455,7 +455,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       // chip hid it while the EX chip counted it. "Only motors that fit" goes
       // off only when one of them is too long for it.
       const tooLongNow = maxMotorLengthM !== null
-        && parsed.some((m) => m.length / 1000 > maxMotorLengthM);
+        && parsed.some((m) => m.length / 1000 > maxMotorLengthM + 1e-9);
       setFilters(current => ({
         ...current, ...FOLDED_CLEAR, manufacturers: [], classes: [], impulse: [],
         fitsOnly: current.fitsOnly && !tooLongNow,
@@ -506,7 +506,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   }, [catalogue]);
 
   const tooLong = (m: MotorDbEntry) =>
-    maxMotorLengthM !== null && m.length / 1000 > maxMotorLengthM;
+    maxMotorLengthM !== null && m.length / 1000 > maxMotorLengthM + 1e-9;
 
   const toggle = <T,>(list: T[], v: T): T[] =>
     list.includes(v) ? list.filter((x) => x !== v) : [...list, v];

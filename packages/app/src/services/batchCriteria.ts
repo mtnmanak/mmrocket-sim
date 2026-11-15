@@ -263,7 +263,7 @@ export function batchCandidates(
     text: '',
   }, motors);
   const room = mount.maxMotorLengthM;
-  const fitting = room === null ? filtered : filtered.filter((m) => m.length / 1000 <= room);
+  const fitting = room === null ? filtered : filtered.filter((m) => m.length / 1000 <= room + 1e-9);
   return {
     candidates: sortMotors(fitting, 'totImpulseNs', -1),
     tooLongCount: filtered.length - fitting.length,

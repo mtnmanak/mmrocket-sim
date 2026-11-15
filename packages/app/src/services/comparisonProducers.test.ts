@@ -1,4 +1,18 @@
 // @vitest-environment happy-dom
+// Row 126 round 3: OtherMountOffer's too-short copy now formats against the
+// mount's actual limit (OtherMountOffer 2 -> 3: one direct noticeQuantity call
+// with against). The offer, browser warnings/EX filtering and batch candidates
+// reuse motorDb's existing 1e-9 m slack; no flight threshold changes.
+// Rounded peer bores remain consistent with the invalidation signature.
+// otherMountLoad, OtherMountOffer, MotorBrowser and batchCriteria tests cover it.
+// Row 126 round 2: the same-bore offer gate now reuses MOUNT_TOLERANCE_MM
+// from the browser fit test on the same rounded bores. Reviewed: no new copy
+// producer or census change; otherMountLoad.test covers both rounding directions
+// and a wider bore that remains excluded. No browser or flight tolerance changed.
+// Row 126: OtherMountOffer adds two producers: the shared motor-dimension
+// formatter and the too-short skip reason. The browser's exact length bound
+// is reused (otherMountLoad.test.ts); no flight threshold or tolerance changes.
+// OtherMountOffer.test.tsx checks both unit preferences and file-name escaping.
 // HF integration: exMotorArchive 7 -> 8 names the number-limit reason for an
 // oversized embedded motor (exMotorBeyondLimits, existing 1e15 kg / 1000 m
 // ceilings); a refusal note, not a measurement comparison. exMotorArchive.test.ts.
