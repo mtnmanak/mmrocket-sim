@@ -745,7 +745,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                   e.target.value = '';
                 }} />
             </label>
-            <label className="file-btn" title="Pick your EX motor folder: imports up to 1,000 .eng/.rse files in path order, within file and total size limits; reports any skipped files">
+            <label className="file-btn" title="Pick your EX motor folder: imports up to 1,000 .eng, .rse or .txt files in path order, within file and total size limits; reports any skipped files">
               📁 Import EX folder
               <input type="file" className="file-btn-input"
                 aria-label="Import every EX motor file in a folder"

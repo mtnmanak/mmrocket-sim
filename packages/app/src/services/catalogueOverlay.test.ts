@@ -6,7 +6,7 @@ import {
 } from './motorDb.js';
 import {
   OVERLAY_KEY, RECHECK_MIN_MS, changedMotorsInDesign, checkForCatalogueUpdates as checkUpdates, describeOverlay,
-  diffCatalogue, discardCatalogueOverlay, loadStoredOverlay, restoreCatalogueOverlay, screenEntry,
+  diffCatalogue, discardCatalogueOverlay, loadStoredOverlay, restoreCatalogueOverlay, screenEntry, designChangeLine,
 } from './catalogueOverlay.js';
 import { mountMotorFromDb } from './motorMatch.js';
 import type { MotorSpec } from '@online-openrocket/engine';
@@ -786,6 +786,36 @@ describe('checkForCatalogueUpdates — a deadline and a cap on every answer', ()
 });
 
 describe('the words the browser shows', () => {
+  it('round 2 neutralises a silent catalogue maker before returning its note identifier', async () => {
+    const previous: CatalogueOverlay = { baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date(0).toISOString(),
+      liveCount: 1, added: [row({ manufacturerAbbrev: 'AC\u0000ME\u202eX' })], changed: [], removed: [], rejected: [] };
+    localStorage.setItem(OVERLAY_KEY, JSON.stringify(previous));
+    const { silent } = await checkForCatalogueUpdates({ force: true,
+      fetchImpl: stubCatalogue([row({ motorId: 'other', manufacturerAbbrev: 'Other' })]) as typeof fetch });
+    expect(silent).toContain('ACME[U+202E]X');
+  });
+  it('round 2 neutralises catalogue identifiers and stored explanations without changing ordinary notes', () => {
+    const ordinary: CatalogueOverlay = { baseGenerated: MOTOR_DB_DATE, fetchedAt: '', liveCount: 0,
+      added: [], changed: [], removed: [], rejected: [{ entry: { manufacturerAbbrev: 'ACME', designation: 'C10' },
+        reason: 'not a motor' }] };
+    expect(describeOverlay(ordinary).at(-1)).toBe('Refused ACME C10: not a motor.');
+    const poisoned = { ...ordinary, rejected: [{ entry: { manufacturerAbbrev: 'AC\u0000ME', designation: 'C10\u202e001' },
+      reason: 'bad\u202ereason\n\u0001' }] };
+    expect(describeOverlay(poisoned).at(-1)).toBe('Refused ACME C10[U+202E]001: bad[U+202E]reason.');
+    localStorage.setItem(OVERLAY_KEY, JSON.stringify(poisoned));
+    expect(loadStoredOverlay()!.rejected[0]!.reason).toBe('bad[U+202E]reason');
+    const after = row({ manufacturerAbbrev: 'AC\u0000ME', designation: 'C10\u202e001', commonName: 'C\u202e10\n' });
+    const change = { motorId: after.motorId, before: row(), after, fields: ['commonName'] };
+    expect(describeOverlay({ ...ordinary, changed: [change] })[1]).toBe('ACME C10[U+202E]001: commonName Z9 → C[U+202E]10');
+    expect(designChangeLine([change])).toContain('ACME C10[U+202E]001 (commonName)');
+  });
+
+  it.each(['diameter', 'length', 'totalWeightG', 'propWeightG', 'availability'])(
+    'round 2 neutralises unreadable catalogue %s tokens at the producer', field => {
+      const reason = screenEntry({ ...row(), [field]: 'bad\u202etoken\n\u0001' } as unknown as MotorDbEntry)!;
+      expect(reason).toContain('bad[U+202E]token');
+      expect(reason).not.toMatch(/[\u0000-\u001f\u202e]/u);
+    });
   const c6 = MOTOR_DB.find((m) => m.manufacturerAbbrev === 'Estes' && m.designation === 'C6')!;
   const overlay: CatalogueOverlay = {
     baseGenerated: MOTOR_DB_DATE, fetchedAt: '2026-10-01T09:00:00Z', liveCount: 1200,

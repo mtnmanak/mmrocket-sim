@@ -197,8 +197,8 @@ export function ScaleDialog({
    * previewed as "resized" in a 98 mm rocket and applied a motor tube four
    * times the airframe's width.
    */
-  const fitsRoom = (m: MountPreview, boreMm: number) =>
-    m.maxBoreMm === null || boreMm <= m.maxBoreMm + 1e-6;
+  const boreLimitMm = (m: MountPreview) => Math.min(m.hardMaxBoreMm, m.maxBoreMm ?? Infinity);
+  const fitsRoom = (m: MountPreview, boreMm: number) => boreMm <= boreLimitMm(m) + 1e-6;
   /** A size someone CHOSE, or the snap picked, that does not fit. */
   const overflows = (m: MountPreview) => m.targetBoreMm !== null && !fitsRoom(m, m.targetBoreMm);
   /** A bore that can be chosen for this mount: a real, positive one that fits. */
@@ -463,7 +463,9 @@ export function ScaleDialog({
                       )}
                       {/* Why Apply is off: the size chosen (or snapped to) no
                           longer fits the tube around it — `usable`. */}
-                      {overflows(m) && (m.maxBoreMm === 0
+                      {overflows(m) && (m.hardMaxBoreMm < (m.maxBoreMm ?? Infinity)
+                        ? <> <strong>The chosen mount bore exceeds the property field's hard limit of {noticeQuantity('motorDimensions', m.hardMaxBoreMm / 1000, prefs.units)}. Choose a smaller bore.</strong></>
+                        : m.maxBoreMm === 0
                         ? <> <strong>A {noticeQuantity('motorDimensions', m.finalBoreMm / 1000, prefs.units)} mount does not fit inside the
                           tube around it once scaled — that tube {noRoomWhy(m)}, so no size does.</strong>
                           {' '}Choose the scaled size.</>
@@ -513,7 +515,7 @@ export function ScaleDialog({
                               <span className="inline-numfield" style={{ display: 'inline-block', width: 90 }}>
                                 <NumField
                                   min={m.maxBoreMm !== null && m.maxBoreMm > 0 && m.maxBoreMm < 1 ? 0 : 1}
-                                  max={m.maxBoreMm === null ? undefined : m.maxBoreMm + 1e-6}
+                                  max={boreLimitMm(m) + 1e-6}
                                   validate={value => goodBore(m, value)}
                                   ariaLabel={`Custom mount bore for ${m.name}, mm`}
                                   invalid={customBad(m)}

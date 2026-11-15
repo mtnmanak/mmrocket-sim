@@ -12,6 +12,7 @@ import {
 } from './catalogueClient.js';
 import { correctMotorRow } from '../../scripts/motor-corrections.mjs';
 import { bundledSnapshot } from './bundledSnapshot.js';
+import { noteField, noteText } from './noteField.js';
 
 /**
  * "Check for newer motors" — the user's way round a stale shipped catalogue,
@@ -122,14 +123,14 @@ export function screenEntry(m: Partial<MotorDbEntry>, units: UnitSelection = INI
   // missing: describeOverlay shows the reason, and it read "diameter undefined
   // mm is not a motor" (audit 2026-09-30).
   if (!(Number.isFinite(m.diameter) && m.diameter! > 0 && m.diameter! <= 300)) {
-    return m.diameter == null ? 'no diameter' : `diameter ${Number.isFinite(m.diameter) ? noticeQuantity('motorDimensions', m.diameter! / 1000, units) : `"${String(m.diameter)}"`} is not a motor`;
+    return m.diameter == null ? 'no diameter' : `diameter ${Number.isFinite(m.diameter) ? noticeQuantity('motorDimensions', m.diameter! / 1000, units) : `"${noteField(String(m.diameter))}"`} is not a motor`;
   }
   if (!(Number.isFinite(m.length) && m.length! > 0 && m.length! <= 3000)) {
-    return m.length == null ? 'no length' : `length ${Number.isFinite(m.length) ? noticeQuantity('motorDimensions', m.length! / 1000, units) : `"${String(m.length)}"`} is not a motor`;
+    return m.length == null ? 'no length' : `length ${Number.isFinite(m.length) ? noticeQuantity('motorDimensions', m.length! / 1000, units) : `"${noteField(String(m.length))}"`} is not a motor`;
   }
   const tw = m.totalWeightG; const pw = m.propWeightG;
-  if (tw !== undefined && tw !== null && !(Number.isFinite(tw) && tw > 0)) return `loaded weight ${Number.isFinite(tw) ? noticeQuantity('mass', tw / 1000, units) : `"${String(tw)}"`}`;
-  if (pw !== undefined && pw !== null && !(Number.isFinite(pw) && pw >= 0)) return `propellant weight ${Number.isFinite(pw) ? noticeQuantity('mass', pw / 1000, units) : `"${String(pw)}"`}`;
+  if (tw !== undefined && tw !== null && !(Number.isFinite(tw) && tw > 0)) return `loaded weight ${Number.isFinite(tw) ? noticeQuantity('mass', tw / 1000, units) : `"${noteField(String(tw))}"`}`;
+  if (pw !== undefined && pw !== null && !(Number.isFinite(pw) && pw >= 0)) return `propellant weight ${Number.isFinite(pw) ? noticeQuantity('mass', pw / 1000, units) : `"${noteField(String(pw))}"`}`;
   if (Number.isFinite(tw) && Number.isFinite(pw) && (pw as number) > (tw as number) && !noticeEqual((pw as number) / 1000, (tw as number) / 1000)) {
     const [propellant, loaded] = noticeComparison('mass', (pw as number) / 1000, (tw as number) / 1000, units, { parenthesized: true });
     return propellant.startsWith('just ') ? `slightly more propellant than loaded mass (${loaded})` : `more propellant (${propellant}) than loaded mass (${loaded})`;
@@ -144,7 +145,7 @@ export function screenEntry(m: Partial<MotorDbEntry>, units: UnitSelection = INI
     return m.burnTimeS == null ? 'no burn time' : `burn time ${m.burnTimeS} s`;
   }
   if (m.availability !== undefined && !['regular', 'occasional', 'OOP'].includes(String(m.availability))) {
-    return `unknown availability "${m.availability}"`;
+    return `unknown availability "${noteField(String(m.availability))}"`;
   }
   return null;
 }
@@ -202,14 +203,19 @@ function rescreen(o: CatalogueOverlay): CatalogueOverlay {
   const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
   let repaired = false;
   const rejected: CatalogueOverlay['rejected'] = o.rejected.map(r => {
-    if (object(r) && object(r.entry) && typeof r.reason === 'string') return r;
+    if (object(r) && object(r.entry) && typeof r.reason === 'string') {
+      const reason = noteText(r.reason);
+      if (reason === r.reason) return r;
+      repaired = true;
+      return { ...r, reason };
+    }
     repaired = true;
     return { entry: {}, reason: 'unreadable stored refusal record discarded' };
   });
   const passes = (entry: unknown): boolean => {
     const reason = object(entry)
       ? screenEntry(entry as Partial<MotorDbEntry>) : 'not a motor row';
-    if (reason) rejected.push({ entry: object(entry) ? entry : {}, reason });
+    if (reason) rejected.push({ entry: object(entry) ? entry : {}, reason: noteText(reason) });
     return !reason;
   };
   // Only the catalogue fields, as fetchLiveCatalogue writes them (closure
@@ -446,7 +452,7 @@ export async function checkForCatalogueUpdates(
       current();
       const stored = storeOverlay(overlay);
       setCatalogueOverlay(overlay);
-      return { overlay, skipped: null, stored, silent };
+      return { overlay, skipped: null, stored, silent: silent.map(maker => noteField(maker)) };
     };
     const checkedAt = new Date(now()).toISOString();
     // A snapshot OLDER than the shipped catalogue (a release built from a
@@ -510,12 +516,12 @@ function overlayFrom(live: MotorDbEntry[], previous: CatalogueOverlay | null, fe
   const rejected: { entry: Partial<MotorDbEntry>; reason: string }[] = [];
   const added = d.added.filter((m) => {
     const reason = screenEntry(m);
-    if (reason) rejected.push({ entry: m, reason });
+    if (reason) rejected.push({ entry: m, reason: noteText(reason) });
     return !reason;
   });
   const changed = d.changed.filter((c) => {
     const reason = screenEntry(c.after);
-    if (reason) rejected.push({ entry: c.after, reason });
+    if (reason) rejected.push({ entry: c.after, reason: noteText(reason) });
     return !reason; // a refused change keeps the shipped row as it was
   });
   // "No longer listed" is believed motor by motor, never for a whole maker at
@@ -569,11 +575,11 @@ function overlayFrom(live: MotorDbEntry[], previous: CatalogueOverlay | null, fe
 
 /** "12 new, 3 changed, 0 removed" and the per-field detail, for the browser's note. */
 export function describeOverlay(o: CatalogueOverlay, units: UnitSelection = INITIAL_UNITS): string[] {
-  const scalar = (v: unknown): string => typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' ? String(v) : '?';
+  const scalar = (v: unknown): string => typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' ? noteField(String(v)) : '?';
   const lines: string[] = [];
   lines.push(`${o.added.length} new, ${o.changed.length} changed, ${o.removed.length} no longer listed`
     + (o.rejected.length ? `, ${o.rejected.length} refused as implausible` : '')
-    + ` — ${o.snapshot ? `curated catalogue ${o.snapshot.id}` : isThrustcurvePull(o) ? 'thrustcurve.org' : 'curated catalogue'} checked ${o.fetchedAt ? o.fetchedAt.slice(0, 10) : "on an unknown date"} against the catalogue of ${o.baseGenerated}.`);
+    + ` — ${o.snapshot ? `curated catalogue ${noteField(o.snapshot.id)}` : isThrustcurvePull(o) ? 'thrustcurve.org' : 'curated catalogue'} checked ${o.fetchedAt ? noteField(o.fetchedAt.slice(0, 10)) : "on an unknown date"} against the catalogue of ${noteField(o.baseGenerated)}.`);
   for (const c of o.changed.slice(0, 12)) {
     const parts = c.fields.map((f) => {
       const a = field(c.before, f); const b = field(c.after, f);
@@ -581,17 +587,17 @@ export function describeOverlay(o: CatalogueOverlay, units: UnitSelection = INIT
         : f === 'totalWeightG' || f === 'propWeightG' ? 'mass' : null;
       if (quantity && typeof a === 'number' && typeof b === 'number') {
         const [before, after] = noticeComparison(quantity, a / 1000, b / 1000, units);
-        return `${f} ${noticeChange(before, after, before.startsWith('just ') || noticeEqual(a / 1000, b / 1000))}`;
+        return `${noteField(f)} ${noticeChange(before, after, before.startsWith('just ') || noticeEqual(a / 1000, b / 1000))}`;
       }
       const show = (v: unknown) => typeof v === 'number' ? noticeNumber(v, 6) : scalar(v);
-      return `${f} ${noticeChange(show(a), show(b))}`;
+      return `${noteField(f)} ${noticeChange(show(a), show(b))}`;
     });
-    lines.push(`${c.after.manufacturerAbbrev} ${c.after.designation}: ${parts.join(', ')}`);
+    lines.push(`${noteField(c.after.manufacturerAbbrev)} ${noteField(c.after.designation)}: ${parts.join(', ')}`);
   }
   if (o.changed.length > 12) lines.push(`…and ${o.changed.length - 12} more changed.`);
   for (const r of o.rejected.slice(0, 5)) {
     const reason = screenEntry(r.entry, units);
-    lines.push(`Refused ${scalar(r.entry.manufacturerAbbrev)} ${scalar(r.entry.designation)}: ${reason && !reason.startsWith('no ') ? reason : r.reason}.`);
+    lines.push(`Refused ${scalar(r.entry.manufacturerAbbrev)} ${scalar(r.entry.designation)}: ${noteText(reason && !reason.startsWith('no ') ? reason : r.reason)}.`);
   }
   return lines;
 }
@@ -604,7 +610,7 @@ export function describeOverlay(o: CatalogueOverlay, units: UnitSelection = INIT
  * App's message strip shows it for an automatic check (catalogueAutoCheck.ts).
  */
 export function designChangeLine(mine: readonly CatalogueChange[]): string {
-  return `In this design: ${mine.map((c) => `${c.after.manufacturerAbbrev} ${c.after.designation} (${c.fields.join(', ')})`).join('; ')} — pick the motor again to fly the new figures.`;
+  return `In this design: ${mine.map((c) => `${noteField(c.after.manufacturerAbbrev)} ${noteField(c.after.designation)} (${c.fields.map(f => noteField(f)).join(', ')})`).join('; ')} — pick the motor again to fly the new figures.`;
 }
 
 /** Prefer catalogue identity; older records without ids can match either side of a rename. */

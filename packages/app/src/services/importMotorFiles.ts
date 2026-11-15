@@ -2,7 +2,7 @@ import { noteField, noteText } from './noteField.js';
 import { INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
 import type { NoteTier } from '../components/Note.js';
 import { exLibraryBackupNote, addExMotors, parseMotorFile, refusedExMotorNote, validExMotor, type ExMotor } from './exMotors.js';
-import { EX_IMPORT_BYTES_NOTE, EX_MOTOR_COUNT_NOTE, MAX_EX_IMPORT_BYTES, MAX_EX_IMPORT_FILES, MAX_EX_IMPORT_MOTORS, MAX_EX_SELECTION_BYTES } from './exMotorLimits.js';
+import { EX_IMPORT_BYTES_NOTE, EX_MOTOR_COUNT_NOTE, EX_NO_MOTOR_FILES_NOTE, MAX_EX_IMPORT_BYTES, MAX_EX_IMPORT_FILES, MAX_EX_IMPORT_MOTORS, MAX_EX_SELECTION_BYTES } from './exMotorLimits.js';
 import { sessionDebugLog } from './sessionDebugLog.js';
 import { decodeXml } from './xmlUtil.js';
 
@@ -25,9 +25,9 @@ export async function importMotorFiles(files: File[], units: UnitSelection = INI
       tier: 'information' as NoteTier, noticeTier: 'information' as NoteTier };
   }
   if (motorFiles.length === 0) {
-    sessionDebugLog.record('import-failed', new Error('No .eng or .rse files found in that selection.'));
+    sessionDebugLog.record('import-failed', new Error(EX_NO_MOTOR_FILES_NOTE));
     return {
-      parsed: [], write: null, error: 'No .eng or .rse files found in that selection.', notice: null,
+      parsed: [], write: null, error: EX_NO_MOTOR_FILES_NOTE, notice: null,
       tier: 'information' as NoteTier, noticeTier: 'information' as NoteTier,
     };
   }

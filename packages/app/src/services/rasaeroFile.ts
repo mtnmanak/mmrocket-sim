@@ -148,8 +148,10 @@ const DEFAULT_SURFACE_FINISH = 'normal';
 
 /**
  * The reverse. Missing desktop cases use nearest neighbours below. Optimum
- * uses Smooth Paint (5 µm), preserving RASAero's own 5 µm surface rather
- * than desktop's Sheet Metal (2 µm); both import as optimum here.
+ * follows desktop's OPENROCKET_TO_RASAERO_SURFACE (:372-373). RASAero's
+ * Users Manual p. 53, Table 1 rates Sheet Metal at 0.00016 in (4.06 µm)
+ * and Smooth Paint at 0.00025 in (6.35 µm): Sheet Metal is nearer the app's
+ * 5 µm. Both import as optimum, so Smooth Paint saves back as Sheet Metal.
  *
  * RASAero has eight surface strings and OpenRocket has nine finishes, so
  * desktop's export leaves POLISHED (2 µm) and ROUGH (500 µm) with no case at
@@ -161,13 +163,13 @@ const DEFAULT_SURFACE_FINISH = 'normal';
  * roughness on a re-import rather than the whole scale:
  *   polished (2 µm)  → "Sheet Metal"            → optimum (5 µm)
  *   rough    (500)   → "Cast Iron (Very Rough)" → roughunfinished (250 µm)
- * Both of those RASAero strings are already the destination of another finish,
+ * Sheet Metal and Cast Iron are already the destination of another finish,
  * which is unavoidable with eight slots for nine values.
  */
 const FINISH_TO_SURFACE: Record<string, string> = lookupTable({
   mirror: 'Smooth (Zero Roughness)',
   finishpolished: 'Polished',
-  optimum: 'Smooth Paint',
+  optimum: 'Sheet Metal',
   smooth: 'Camouflage Paint',
   normal: 'Rough Camouflage Paint',
   unfinished: 'Galvanized Metal',

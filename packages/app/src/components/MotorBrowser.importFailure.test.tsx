@@ -23,6 +23,8 @@ it('A reports a thrown motor import in the always-mounted alert region', async (
     const alert = host.querySelector('.motor-import-notes [role="alert"]')!;
     expect(alert).not.toBeNull();
     expect(alert.textContent).toBe('');
+    const folder = host.querySelector('input[aria-label="Import every EX motor file in a folder"]')!.closest('label')!;
+    expect(folder.title).toContain('.eng, .rse or .txt files');
     const input = host.querySelector<HTMLInputElement>('input[aria-label="Import EX motor files (.eng or .rse)"]')!;
     Object.defineProperty(input, 'files', { value: [new File(['x'], 'z9.eng')], configurable: true });
     await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); });

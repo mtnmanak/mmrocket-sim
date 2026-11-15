@@ -2,7 +2,7 @@ import { APP_VERSION } from '../version.js';
 import type { Preferences } from '../prefs/preferences.js';
 import { AERO_NAME, type AeroChoice } from '../prefs/aeroChoice.js';
 import { UNITS, type Quantity } from '../prefs/units.js';
-import { EX_IMPORT_BYTES_NOTE, MAX_EX_MOTOR_SAMPLES } from './exMotorLimits.js';
+import { EX_IMPORT_BYTES_NOTE, EX_NO_MOTOR_FILES_NOTE, MAX_EX_MOTOR_SAMPLES } from './exMotorLimits.js';
 import { MAX_MACH_ALT_ROWS } from './machAltLimits.js';
 import { PRESET_CSV_ROWS_CAUTION, PRESET_CSV_SIZE_CAUTION } from './presetCsvLimits.js';
 
@@ -29,7 +29,7 @@ const SAFE_MESSAGES = new Set(['No stage found', 'Failed to fetch', 'Load failed
   'Not a RockSim design file (missing RocketDesign)', 'Not a RASAero design file (missing RocketDesign)',
   'Cache Storage is unavailable.', 'Empty .ork archive', 'Empty .rkt archive', 'Empty .CDX1 archive',
   'File exceeds the design-file size limit.',
-  'No .eng or .rse files found in that selection.', 'No motors found in .eng file', 'No <engine> entries in .rse file',
+  EX_NO_MOTOR_FILES_NOTE, 'No motors found in .eng file', 'No <engine> entries in .rse file',
   'Motor storage is full or blocked; imported motors are available only for this session.',
   'No presets found in that CSV.', 'No valid preset rows found.', 'Preset storage refused the import.',
   'not a share link (missing the d=<version>.<data> payload)', 'the compressed data is corrupt or cut short',

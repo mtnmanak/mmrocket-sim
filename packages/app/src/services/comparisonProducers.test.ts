@@ -1,4 +1,10 @@
 // @vitest-environment happy-dom
+// Misc round 2: ScaleDialog 36 -> 38 adds the hard motor-mount bore refusal
+// and its preferred-unit formatter. MAX_DIMENSION_M (1000 m radius), less
+// the scaled wall, supplies the bound; no flight tolerance changes. The
+// unresolved-host custom-bore and radius-limit wall fixtures in ScaleDialog.test
+// cover rejection and the last accepted value. scaleRocket.test checks both
+// snap writers and load-boundary identity near the same limit.
 // Batch-all Round 5: batchSweep 3 -> 4 adds a per-leg diameter refusal using
 // motorDb.fitsMount's existing diameter-class / picker-bore rule. The dialog
 // applies that same rule to the narrowest target (including OOP refusal advice).

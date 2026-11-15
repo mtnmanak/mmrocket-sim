@@ -7,6 +7,7 @@ import {
 import { engineTree, findNode } from './treeModel.js';
 import { axialLength, startFromPosition } from './position.js';
 import { FIELDS, MIN_POSITIVE_DIMENSION_M } from './schema.js';
+import { sanitizeTree } from './sanitize.js';
 import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
 import { INITIAL_UNITS, IMPERIAL_UNITS } from '../prefs/units.js';
 
@@ -167,6 +168,58 @@ describe('F2 scale regressions', () => {
     expect(part.position!.offset).toBe(Math.sign(offset) * 1000);
     expect(result.notes.join(' ')).toContain('1500');
     expect(result.notes.join(' ')).toContain('1000');
+    expect(result.needsAttention).toBe(true);
+  });
+
+  it.each([0.01, 100])('a scaled tree needs no load-boundary repair (S4a-g7 class guard) at %s×', k => {
+    const components = Object.entries(FIELDS).filter(([type]) => type !== 'freeformfinset').map(([type, defs]) => {
+      const node: ComponentNode = { type: type as ComponentNode['type'], id: type, name: type, mass: 0.2,
+        overrideCGX: 15, radialPosition: 15, instanceSeparation: 15, radiusOffset: 15,
+        position: { method: 'top', offset: -15 } };
+      for (const field of defs) {
+        if (!field.options && !field.bool && (field.unit === 'mm' || field.unit === 'm')) node[field.key] = 15;
+      }
+      return node;
+    });
+    // A non-solid mount exercises the snap writer too, including its radius.
+    components.push({ type: 'bodytube', id: 'mount-host', length: 0.5, outerRadius: 0.1, thickness: 0.001,
+      children: [{ type: 'innertube', id: 'snap-mount', motorMount: true, length: 0.2,
+        outerRadius: 0.015, thickness: 0.0005 }] });
+    components.push({ type: 'innertube', id: 'limit-mount', motorMount: true,
+      outerRadius: 30, thickness: 15, length: 30, children: [{ type: 'innertube',
+        id: 'limit-child', motorMount: true, outerRadius: 0.015, thickness: 0.000001 }] });
+    const input = sanitizeTree({ components });
+    const result = scaleRocket(input, k, { snapMounts: true });
+    const notes: string[] = [];
+    expect(sanitizeTree(result.tree, notes)).toBe(result.tree);
+    expect(notes).toEqual([]);
+    if (k === 100) {
+      expect(previewMounts(input, k, { snapMounts: true }).find(m => m.id === 'limit-child')!.maxBoreMm).toBe(0);
+      expect(result.notes.join(' ')).toContain('CG override');
+      expect(result.notes.join(' ')).toContain('position');
+    }
+  });
+
+  it('round 2 bounds a custom bore without a known host and reports the radius clamp', () => {
+    const tree: RocketTree = { components: [{ type: 'innertube', id: 'm', name: 'Mount',
+      motorMount: true, outerRadius: 0.015, thickness: 0.0005 }] };
+    const result = scaleRocket(tree, 2, { mountChoices: { m: { boreMm: 2_500_000 } } });
+    expect(findNode(result.tree, 'm')!['outerRadius']).toBe(1000);
+    expect(result.needsAttention).toBe(true);
+    expect(result.notes.join(' ')).toMatch(/Mount.*[Oo]uter radius.*limit/);
+    expect(sanitizeTree(result.tree)).toBe(result.tree);
+  });
+
+  it('a scaled freeform tree needs no load-boundary repair when its planform is allowed', () => {
+    // Freeform points have a separate refusal in scaledFinProblems, before Apply.
+    const input = sanitizeTree({ components: [{ type: 'freeformfinset', id: 'freeform',
+      points: [[0, 0], [0.1, 0.05], [0.2, 0]], thickness: 0.001,
+      overrideCGX: 0.1, position: { method: 'top', offset: -0.1 } }] });
+    expect(scaledFinProblems(input, 2)).toEqual([]);
+    const result = scaleRocket(input, 2);
+    const notes: string[] = [];
+    expect(sanitizeTree(result.tree, notes)).toBe(result.tree);
+    expect(notes).toEqual([]);
   });
   it('S4a-3 measures and scales only neighbourless automatic transition ends', () => {
     const tree: RocketTree = { components: [{ type: 'stage', children: [

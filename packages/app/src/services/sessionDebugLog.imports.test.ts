@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { zipSync } from 'fflate';
 import { createSessionDebugLog, MAX_DEBUG_LOG_BYTES, sessionDebugLog } from './sessionDebugLog.js';
 import { importMotorFiles } from './importMotorFiles.js';
-import { EX_IMPORT_BYTES_NOTE, EX_SAMPLE_LIMIT_NOTE, MAX_EX_MOTOR_SAMPLES } from './exMotorLimits.js';
+import { EX_IMPORT_BYTES_NOTE, EX_NO_MOTOR_FILES_NOTE, EX_SAMPLE_LIMIT_NOTE, MAX_EX_MOTOR_SAMPLES } from './exMotorLimits.js';
 import { MAX_MACH_ALT_ROWS } from './machAltLimits.js';
 import { importOrk } from './orkFile.js';
 import { importRkt } from './rocksimFile.js';
@@ -73,6 +73,7 @@ describe('C-H3 real import diagnostics', () => {
 
   it.each([
     EX_IMPORT_BYTES_NOTE,
+    EX_NO_MOTOR_FILES_NOTE,
     `Mach-Alt table exceeds the limit of ${MAX_MACH_ALT_ROWS.toLocaleString('en-US')} distinct rows.`,
   ])('round1 retains the count-only limit refusal: %s', message => {
     expect(logged(new Error(message))).toContain(`import-failed: Error: ${message}`);

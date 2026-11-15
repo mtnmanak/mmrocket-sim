@@ -216,6 +216,16 @@ describe('GitHub REST source eligibility', () => {
       reason: expect.stringContaining('source refresh attempt 2 ran the catalogue pipeline but uploaded no catalogue-input artifact') });
   });
 
+  it.each([true, false])('row 112 (c): a later failed attempt beside a passing owner publishes the owner\'s input (seal %s)', sealed => {
+    const data = fixture(), next = structuredClone(job(data));
+    next.id = 987; next.run_attempt = 2; next.conclusion = 'failure';
+    next.started_at = '2026-10-21T12:00:00Z'; next.steps[1].completed_at = '2026-10-21T12:05:00Z';
+    if (!sealed) next.steps = next.steps.filter(s => s.name !== SEAL_STEP);
+    data.attempts[1].pages[0].jobs.push(next);
+    expect(selectSource(data)).toMatchObject({ eligible: true, source_attempt: '1', artifact_id: String(artifact(data).id),
+      reason: expect.stringContaining('artifact attempt 1') });
+  });
+
   it('R4 #3: exports the cross-file names it matches', () => {
     expect([REFRESH_JOB, SEAL_STEP, INPUT_ARTIFACT]).toEqual(['refresh', 'Seal frozen artifact time window', 'catalogue-input']);
     const data = fixture();
