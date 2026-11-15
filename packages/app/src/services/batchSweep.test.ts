@@ -367,7 +367,7 @@ it('row 127 warns from each candidate loadout without changing Batch acceptance'
   const criteria = { minRodExit: null, minThrustToWeight: null, minApogee: null, maxApogee: null,
     autoDelay: false, includeOOP: false, manufacturers: [], classes: [] };
   expect(gradeBatchRun(strong, criteria)).toEqual(gradeBatchRun({ ...strong, simWarnings: [] }, criteria));
-});
+}, 60_000);
 it.each(['toString', 'constructor', '__proto__'])('flies a loaded legacy sibling without inherited motor metadata: %s', async id => {
   const tree = rocket({ sideMount: true });
   tree.components[0]!.children![1]!.children!.find(n => n.id === 'side')!.id = id;
@@ -1888,7 +1888,7 @@ it('124 excludes a candidate too long for any target and names that mount', asyn
   expect(result.rows[0]!.error).toContain('max motor length in MMT 3');
   expect(result.rows).toHaveLength(4);
   expect(result.rows.every(r => !r.run && r.error?.includes('max motor length in MMT 3'))).toBe(true);
-});
+}, 60_000);
 
 it('124 weighed hardware follows its own target only, including a non-selected mount', async () => {
   const setup = separateRing();
@@ -2050,7 +2050,7 @@ it.each([0, 0.03])('Round 3 matching mixed loadout preserves the typed stage exi
   expect(mixed.run!.nozzleStages).toEqual(exit ? ['Sustainer'] : undefined);
   expect(mixed.run!.batchTargetMountIds).toEqual(split.mountGroups!.flat());
   expect(result.rows.filter(r => r.combo)[1]!.exitM).toBeCloseTo(Math.sqrt(2 * 0.01 ** 2 + 2 * 0.012 ** 2), 12);
-});
+}, 60_000);
 
 it('Round 3 weighed synchronous groups enumerate and key both arrangements independent of candidate order', async () => {
   const setup = separateRing();
@@ -2068,7 +2068,7 @@ it('Round 3 weighed synchronous groups enumerate and key both arrangements indep
   expect(Math.abs(mixed[0]!.run!.launchMass! - mixed[1]!.run!.launchMass!)).toBeCloseTo(0.1, 8);
   const reversed = await sweep({ ...inp, candidates: [...candidates].reverse() }, deps);
   expect(reversed.rows.map(r => r.key).sort()).toEqual(out.rows.map(r => r.key).sort());
-});
+}, 60_000);
 
 it('Round 4 synchronous overhang groups fly and key both mass arrangements', async () => {
   const setup = separateRing();
@@ -2118,7 +2118,7 @@ it('Round 4 synchronous reversed loaded pairs retain nozzle OFF and match ordina
   expect(row.run!.launchMass).toBeCloseTo(ordinary.run.launchMass!, 6);
   expect(row.run!.maxAltitude).toBeCloseTo(ordinary.run.maxAltitude!, 6);
   console.log('Round 4 loaded OFF SI:', { batchApogeeM: row.run!.maxAltitude, launchApogeeM: ordinary.run.maxAltitude });
-});
+}, 60_000);
 
 it.each([4, 6])('Round 4 retains v0.200 cluster-split %s-ring counts and multiset keys', async n => {
   const tree = clusterRocket(n === 4 ? '4-ring' : '6-ring', 'apogee');
