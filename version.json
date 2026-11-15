@@ -1,5 +1,5 @@
 {
-  "version": "0.199",
-  "released": "2026-11-10",
-  "note": "Number limits that keep rotational inertia finite, RockSim motor evidence from every simulation, per-motor refusal in embedded EX archives, RASAero recovery notes, a centering-ring fit caution and angle units in more displays; flight results for the scored tester flights and the tester corpus unchanged."
+  "version": "0.200",
+  "released": "2026-11-14",
+  "note": "Batch rows, the launch report, the print report and the CSV/XLSX downloads say what every motor mount carried; a visible mount line and a reason when the mixed boxes are missing in the batch dialog; a Motor column in the per-mount delay tables; an offer to load one motor into the other mounts of a stage; motor data refreshed to 9 November; no flight input changed."
 }
