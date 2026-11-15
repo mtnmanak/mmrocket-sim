@@ -1,6 +1,6 @@
 import { Note } from './Note.js';
 import { validDelayResolution, type MountDelayRecord } from '../services/autoDelaySolver.js';
-import { formatDelayBand, publishedDelayBand, PUBLISHED_DELAYS_URL } from '../services/publishedDelays.js';
+import { formatDelayAverage, formatDelayBand, publishedDelayAverage, publishedDelayBand, PRINTED_AVERAGE_NOTE, PUBLISHED_DELAYS_URL } from '../services/publishedDelays.js';
 import { delayReportMotorNames } from '../services/batchLoadout.js';
 import type { SimRun } from '../services/simReport.js';
 import { noteText } from '../services/noteField.js';
@@ -18,11 +18,13 @@ export function MountDelayReport({ resolution, run, mountOrder }: {
   resolution: unknown; run?: Pick<SimRun, 'batch' | 'batchMounts'>; mountOrder?: readonly string[];
 }) {
   if (!validDelayResolution(resolution)) return null;
-  // AeroTech's published measured delays (ruled 2026-09-08): a column only when
-  // some mount flew a motor and delay the certification tests fired, so a
-  // report with nothing to show is unchanged.
+  // Published measurements (2026-09-08) and separately labelled printed
+  // averages (2026-11-15), only at the exact catalogue motor and flown setting.
   const bands = resolution.mounts.map((m) => publishedDelayBand(m.motorIdentity, m.flownDelay));
+  const averages = resolution.mounts.map((m, i) => bands[i] ? null : publishedDelayAverage(m.motorIdentity, m.flownDelay));
   const anyBand = bands.some((b) => b !== null);
+  const anyAverage = averages.some(a => a !== null);
+  const anyPublished = anyBand || anyAverage;
   const motorNames = delayReportMotorNames(resolution.mounts, run, mountOrder);
   return <section aria-label="Per-mount ejection delays">
     <p className="simdet-delay">Auto targets each mount’s recovery-free branch apogee, rounded to a whole second.</p>
@@ -31,7 +33,7 @@ export function MountDelayReport({ resolution, run, mountOrder }: {
         <caption>Ejection delays by mount</caption>
         <thead><tr><th scope="col">Mount</th><th scope="col">Motor</th><th scope="col">Branch</th><th scope="col">Mode</th>
           <th scope="col">Ballistic optimum</th><th scope="col">Recommended</th><th scope="col">Flown delay</th>
-          {anyBand && <th scope="col">Published test delays</th>}</tr></thead>
+          {anyPublished && <th scope="col">Published test delays</th>}</tr></thead>
         <tbody>{resolution.mounts.map((m, i) => <tr key={m.mountId}>
           <th scope="row">{m.mountName}</th><td>{noteText(motorNames?.get(m.mountId) ?? '—')}</td><td>{m.branchName ?? '—'}</td><td>{m.exception ? 'plugged → Auto (charge recovery)' : m.mode}</td>
           <td>{m.rawOptimum === null ? '—' : `${m.rawOptimum.toFixed(1)} s`}</td>
@@ -45,7 +47,7 @@ export function MountDelayReport({ resolution, run, mountOrder }: {
             {m.mode === 'auto' && m.rawOptimum !== null && m.rawOptimum < 0
               && <span className="simdet-delay-mark"> · limited by burnout</span>}
             {m.caution && <Note as="p" tier="caution">{m.caution}</Note>}</td>
-          {anyBand && <td>{bands[i] ? formatDelayBand(bands[i]) : '—'}</td>}
+          {anyPublished && <td>{bands[i] ? formatDelayBand(bands[i]) : averages[i] ? formatDelayAverage(averages[i]) : '—'}</td>}
         </tr>)}</tbody>
       </table>
     </div>
@@ -54,6 +56,9 @@ export function MountDelayReport({ resolution, run, mountOrder }: {
       its certification tests, and how many motors were fired (<a href={PUBLISHED_DELAYS_URL} target="_blank" rel="noopener noreferrer">AeroTech’s
       published delay measurements</a>). The flight fires the charge at exactly the flown delay. A real charge can fire
       anywhere in that range, and the tests are a small sample of motors, not a guarantee: it can fire outside it too.
+    </p>}
+    {anyAverage && <p className="simdet-delay">{PRINTED_AVERAGE_NOTE}{' '}
+      Source: <a href={PUBLISHED_DELAYS_URL} target="_blank" rel="noopener noreferrer">AeroTech’s certification documents</a>.
     </p>}
   </section>;
 }

@@ -1,5 +1,5 @@
 """
-AeroTech's published MEASURED ejection delays, read into
+AeroTech's published measured ejection delays and printed averages, read into
 src/data/aerotechDelays.json: what the launch report shows beside a delay the
 certification tests fired (Eric's ruling of 2026-09-08, "yes" to the
 delay-time band; docs/research/aerotech-document-set-2026-09-08.md section 4).
@@ -14,8 +14,8 @@ not a guarantee, and the report says so.
 WHAT IS READ. `Cert Docs/NAR` and `Cert Docs/TRA` under `docs/RCS Schematics`
 (local-only, gitignored): the certification documents AeroTech's maker, RCS
 Rocket Motor Components, links from its own page (PUBLISHED_ON), fetched by the
-folder's Download-CertDocs.ps1, whose list gives each file's URL. Only the
-documents that print EACH motor's delay are read; two forms do:
+folder's Download-CertDocs.ps1, whose list gives each file's URL. Individual
+measured samples come only from documents printing EACH motor's delay:
 
   - TMT letters (TRA, 2019 on): a "Delay Time Data" row, one line per nominal
     delay, "5 s | 4.946, 4.507, 5.158 s".
@@ -23,9 +23,10 @@ documents that print EACH motor's delay are read; two forms do:
     designation carrying the delay it was sold with ("E20-4W", "F51-NT-10",
     "G53-10FJ") and a Delay (or T-DELAY) column holding what it measured.
 
-Documents that print only an AVERAGE per delay (the 1998-2014 NAR summary
-sheets without a motor table, and TRA's "Delay Performance (labeled/tested
-average)" letters) give no spread and are counted, not read. The 100 scans with
+The 43 reviewed average-only scans supply printed averages separately from
+individual measurements (Eric's 2026-11-15 ruling); they supply no spread.
+Text-layer average-only NAR summaries and TRA letters remain inventory only
+(row 133). The 100 scans with
 no text layer use the reviewed, source-positioned transcriptions beside this
 script. A scan needs an agreeing delay average or repeated summary; a count
 of motors tested alone does not verify a manually read value (b10 DELAY).
@@ -58,7 +59,7 @@ motor stops this run instead of shipping a dangling key. RUN IT AFTER
 fetch-motor-db.mjs (motors.json), in the same sitting as any motors refresh.
 
 Usage:
-  python extract-aerotech-delays.py [--source "<RCS Schematics folder>"] [--motors <motors.json>] [--out <file>] [--check] [--join <file>] [--transcriptions <file>] [--watch-out <file>]
+  python extract-aerotech-delays.py [--source "<RCS Schematics folder>"] [--motors <motors.json>] [--out <file>] [--check] [--join <file>] [--average-join <file>] [--transcriptions <file>] [--watch-out <file>]
 
 --source defaults to $RCS_SCHEMATICS, then to the repo's docs/RCS Schematics.
 --motors defaults to src/data/motors.json. --out defaults to
@@ -69,7 +70,9 @@ JOIN table with a JSON file's (the tests' synthetic documents).
 script. Accepted `documents` carry manufacturer/designation, the PDF's SHA-256,
 and delays whose `measurements` and `crossChecks` preserve printed strings and
 1-based page / row / column positions. `unread` entries carry reasons and may
-hold candidate values, which never enter the shipped bands.
+hold candidate values, which never enter the shipped bands. Reviewed
+`printedAverages` enter only `averages`, never `motors` or `measuredS`.
+--average-join replaces AVERAGE_JOIN for synthetic-document checks.
 --watch-out also writes (or, with --check, compares) the upstream-watch snapshot:
 all published PDF URLs from the downloader, plus hashes of shipped delay source
 documents and withheld individual-sample scans. Run it in the same regeneration.
@@ -140,6 +143,63 @@ JOIN = {
     'TRA/38mm High Power Single-Use/I175WS-13A DMS.pdf': ('AeroTech', 'I175WS'),
     'TRA/54mm High Power Single-Use/K455NW-17A DMS.pdf': ('AeroTech', 'K455NW-17'),
 }
+
+# Average-only scans: hand joins use the same designation/case/propellant
+# rules as JOIN. None means the catalogue cannot identify this motor safely.
+AVERAGE_JOIN = {
+    'NAR/18mm Model Rocket Single-Use/D21T.pdf': ('AeroTech', 'D21T'),
+    'NAR/18mm Model Rocket Single-Use/E25T.pdf': None,
+    'NAR/18mm Model Rocket Single-Use/E45T.pdf': None,
+    'NAR/24mm Model Rocket Single-Use/E15W.pdf': ('AeroTech', 'E15W'),
+    # Old case vs new thrust-ring case: the catalogue designation alone cannot
+    # establish which certified case its E30T represents.
+    'NAR/24mm Model Rocket Single-Use/E30T.pdf': None,
+    'NAR/24mm Model Rocket Single-Use/E6T.pdf': None,
+    'NAR/24mm Model Rocket Single-Use/F32W.pdf': ('AeroTech', 'F32W'),
+    'NAR/24mm Model Rocket Single-Use/F44 Classic.pdf': None,
+    'NAR/24mm Model Rocket Single-Use/F72T.pdf': None,
+    'NAR/24mm Model Rocket Single-Use/G42W.pdf': None,
+    'NAR/24mm Model Rocket Single-Use/G55W.pdf': None,
+    'NAR/29mm Model Rocket Single-Use/F10T.pdf': None,
+    'NAR/29mm Model Rocket Single-Use/F14J.pdf': None,
+    # The catalogue's Econojet F20 is the LMS /L row, as with JOIN's F42.
+    'NAR/29mm Model Rocket Single-Use/F20W.pdf': ('AeroTech', 'F20W/L'),
+    'NAR/29mm Model Rocket Single-Use/F25W.pdf': ('AeroTech', 'F25W'),
+    'NAR/29mm Model Rocket Single-Use/F50T.pdf': ('AeroTech', 'F50T'),
+    # Discontinued single-use motor; the catalogue G25W is an RMS-29/120 reload.
+    'NAR/29mm Model Rocket Single-Use/G25W.pdf': None,
+    'NAR/29mm Model Rocket Single-Use/G40W.pdf': ('AeroTech', 'G40W'),
+    # Old G80: measured data for the new 137 N-sec version wins.
+    'NAR/29mm Model Rocket Single-Use/G80T.pdf': None,
+    'NAR/RMS-18-20/C12T.pdf': None,
+    'NAR/RMS-18-20/C6W.pdf': None,
+    'NAR/RMS-18-20/D13W.pdf': ('AeroTech', 'D13W'),
+    'NAR/RMS-18-20/E27T.pdf': None,
+    'NAR/RMS-24-40/D15T.pdf': ('AeroTech', 'D15T'),
+    'NAR/RMS-24-40/D9W.pdf': ('AeroTech', 'D9W'),
+    'NAR/RMS-24-40/E11J.pdf': ('AeroTech', 'E11J'),
+    'NAR/RMS-24-40/E18W.pdf': ('AeroTech', 'E18W'),
+    'NAR/RMS-24-40/E28T.pdf': ('AeroTech', 'E28T'),
+    'NAR/RMS-24-40/F12J.pdf': ('AeroTech', 'F12J'),
+    'NAR/RMS-24-40/F24W.pdf': ('AeroTech', 'F24W'),
+    'NAR/RMS-24-40/F39T.pdf': ('AeroTech', 'F39T'),
+    'NAR/RMS-29-100/G54W.pdf': ('AeroTech', 'G54W'),
+    'NAR/RMS-29-240/H220T.pdf': ('AeroTech', 'H220T'),
+    'NAR/RMS-29-40-120/E16W.pdf': ('AeroTech', 'E16W'),
+    'NAR/RMS-29-40-120/F22J.pdf': ('AeroTech', 'F22J'),
+    'NAR/RMS-29-40-120/F40W.pdf': ('AeroTech', 'F40W'),
+    'NAR/RMS-29-40-120/F52T.pdf': ('AeroTech', 'F52T'),
+    'NAR/RMS-29-40-120/G33J.pdf': None,
+    'NAR/RMS-29-40-120/G64W.pdf': ('AeroTech', 'G64W'),
+    'NAR/RMS-29-60/F37W.pdf': ('AeroTech', 'F37W'),
+    'NAR/RMS-38-480/I300T.pdf': ('AeroTech', 'I300T'),
+    'TRA/RMS-29-100/G54W.pdf': ('AeroTech', 'G54W'),
+    'TRA/RMS-29-60/F37W.pdf': ('AeroTech', 'F37W'),
+}
+
+# (manufacturer, designation) -> nominals whose independent printed averages
+# disagree. Checked both ways: corrected documents must lose their exception.
+AVERAGE_DISPUTED = {}
 
 ROW_TOLERANCE_PT = 3.0
 CELL_GAP_PT = 12.0
@@ -468,10 +528,10 @@ def source_hash(path):
 
 
 def checked_transcriptions(cert_docs, path):
-    """Only reviewed scans with a value cross-check may supplement the coordinate reader."""
+    """Separate cross-checked individual measurements from independently read averages."""
     with open(path, encoding='utf-8') as fh:
         data = json.load(fh)
-    accepted, seen = {}, set()
+    accepted, averages, seen = {}, {}, set()
     for entry in data['documents'] + data['unread']:
         rel = entry['document']
         if rel in seen or not re.match(r'^(NAR|TRA)/', rel) or '..' in rel.split('/'):
@@ -484,11 +544,6 @@ def checked_transcriptions(cert_docs, path):
             if any(page.get_text('words') for page in doc):
                 raise SystemExit(f'{rel}: transcription source is not a scan')
             pages = len(doc)
-        if entry in data['unread']:
-            if not entry.get('reason'):
-                raise SystemExit(f'{rel}: unread scan needs a reason')
-            continue
-
         def position(item):
             p = item.get('position') or {}
             if (type(p.get('page')) is not int or not 1 <= p['page'] <= pages
@@ -499,6 +554,31 @@ def checked_transcriptions(cert_docs, path):
             if not printed or any(not isinstance(v, str) or num(v) is None or num(v) <= 0 for v in printed):
                 raise SystemExit(f'{rel}: expected positive printed seconds')
             return [float(v) for v in printed]
+
+        if entry in data['unread']:
+            if not entry.get('reason'):
+                raise SystemExit(f'{rel}: unread scan needs a reason')
+            printed = {}
+            for item in entry.get('printedAverages', []):
+                nominal = item['nominalS']
+                if type(nominal) is not int or nominal <= 0 or nominal in printed:
+                    raise SystemExit(f'{rel}: invalid or duplicate average nominal')
+                position(item)
+                p = item['position']
+                if (type(p['column']) is not int or p['column'] < 1
+                        or p['row'] != 'Avg. Measured Delay'):
+                    raise SystemExit(f'{rel}: invalid average source position')
+                value = numbers([item.get('printed')])[0]
+                if abs(value - nominal) >= nominal / 2:
+                    raise SystemExit(f'{rel}: average outside half the nominal')
+                if item.get('label') != 'Avg. Measured Delay':
+                    raise SystemExit(f'{rel}: unexpected average label')
+                printed[nominal] = value
+            if entry.get('category') == 'average-only' and not printed:
+                raise SystemExit(f'{rel}: average-only scan needs printed averages')
+            if printed:
+                averages[rel] = printed
+            continue
 
         delays = {}
         for delay in entry['delays']:
@@ -529,13 +609,14 @@ def checked_transcriptions(cert_docs, path):
         if not delays:
             raise SystemExit(f'{rel}: reviewed scan has no delays')
         accepted[rel] = (entry, delays)
-    return accepted, data['unread']
+    return accepted, data['unread'], averages
 
 
-def read_all(source, motors_path, join=None, transcriptions=DEFAULT_TRANSCRIPTIONS):
+def read_all(source, motors_path, join=None, transcriptions=DEFAULT_TRANSCRIPTIONS,
+             average_join=None, average_disputed=None):
     join = dict(JOIN if join is None else join)
     cert_docs = os.path.join(source, 'Cert Docs')
-    reviewed, unread = checked_transcriptions(cert_docs, transcriptions)
+    reviewed, unread, printed_averages = checked_transcriptions(cert_docs, transcriptions)
     unread_paths = {entry['document'] for entry in unread}
     for rel, (entry, _delays) in reviewed.items():
         target = (entry['manufacturer'], entry['designation'])
@@ -593,9 +674,12 @@ def read_all(source, motors_path, join=None, transcriptions=DEFAULT_TRANSCRIPTIO
     stale = sorted(set(join) - seen)
     if stale:
         raise SystemExit(f'JOIN names documents with no measured delays read: {stale}')
+    averages = join_averages(printed_averages, by_name, motors, urls,
+                            AVERAGE_JOIN if average_join is None else average_join,
+                            AVERAGE_DISPUTED if average_disputed is None else average_disputed)
     pairs = sum(len(m['delays']) for m in motors.values())
     return {
-        'source': 'AeroTech (RCS Rocket Motor Components) NAR and TRA certification documents: each test motor\'s measured ejection delay',
+        'source': 'AeroTech (RCS Rocket Motor Components) NAR and TRA certification documents: individual measured delays and separately labelled printed averages',
         'publishedOn': PUBLISHED_ON,
         'folder': 'docs/RCS Schematics/Cert Docs (local-only)',
         'extractedBy': 'packages/app/scripts/extract-aerotech-delays.py',
@@ -604,13 +688,74 @@ def read_all(source, motors_path, join=None, transcriptions=DEFAULT_TRANSCRIPTIO
             'reviewed': len(reviewed) + len(unread),
             'accepted': len(reviewed),
             'unreadForMerge': len(unread),
+            'averagesRead': len(printed_averages),
             'source': 'packages/app/scripts/aerotech-delay-transcriptions.json',
         },
         'notInCatalogue': unjoined,
         'motorCount': len(motors),
         'pairCount': pairs,
         'motors': dict(sorted(motors.items(), key=lambda kv: (kv[1]['manufacturer'], kv[1]['designation']))),
+        'averageMotorCount': len(averages),
+        'averagePairCount': sum(len(m['delays']) for m in averages.values()),
+        'averages': averages,
     }
+
+
+def check_hardware(rel, motor):
+    """A source folder must describe the catalogue motor's hardware class."""
+    folder = rel.rsplit('/', 1)[0]
+    hardware = ('SU' if re.search(r'Single[- ]Use', folder, re.I) else
+                'reload' if re.search(r'RMS-|reload', folder, re.I) else None)
+    if hardware is None or hardware != motor.get('type'):
+        raise SystemExit(f'{rel}: HARDWARE_MISMATCH: folder class {hardware!r}, '
+                         f'catalogue {motor["designation"]} type {motor.get("type")!r}')
+
+
+def join_averages(printed, by_name, measured, urls, joins, disputed):
+    """Join averages separately; every duplicate source must agree at a nominal."""
+    grouped = {}
+    for rel, delays in printed.items():
+        if rel not in joins:
+            raise SystemExit(f'{rel}: printed averages and no AVERAGE_JOIN entry')
+        if joins[rel] is None:
+            continue
+        target = tuple(joins[rel])
+        rows = by_name.get(target, [])
+        if len(rows) != 1:
+            raise SystemExit(f'{rel}: AVERAGE_JOIN {target} matches {len(rows)} catalogue rows')
+        motor = rows[0]
+        check_hardware(rel, motor)
+        if motor['motorId'] in measured:
+            raise SystemExit(f'{rel}: average joins a measured motor; measured data wins')
+        if rel not in urls:
+            raise SystemExit(f'{rel}: average source URL is unknown')
+        grouped.setdefault(target, []).append((rel, delays, motor))
+    stale = set(joins) - set(printed)
+    if stale:
+        raise SystemExit(f'AVERAGE_JOIN names documents with no averages: {sorted(stale)}')
+    out, found_disputes = {}, {}
+    for target, sources in sorted(grouped.items()):
+        sources.sort(key=lambda source: source[0])
+        nominals = set().union(*(set(d) for _, d, _ in sources))
+        bad, delays = set(), []
+        for n in sorted(nominals):
+            values = [d[n] for _, d, _ in sources if n in d]
+            if len(values) != len(sources) or max(values) - min(values) > PRINT_TOLERANCE_S:
+                bad.add(n)
+            else:
+                delays.append({'nominalS': n, 'averageS': as_number(values[0])})
+        if bad:
+            found_disputes[target] = bad
+        if delays:
+            rel, _, motor = sources[0]
+            out[motor['motorId']] = {
+                'designation': motor['designation'], 'manufacturer': motor['manufacturerAbbrev'],
+                'documents': sorted(r for r, _, _ in sources), 'url': urls[rel],
+                'form': 'scan-average', 'delays': delays,
+            }
+    if found_disputes != disputed:
+        raise SystemExit(f'AVERAGE_DISPUTED lists {disputed}, documents give {found_disputes}')
+    return out
 
 
 def main(argv):
@@ -623,12 +768,17 @@ def main(argv):
     ap.add_argument('--watch-out', help='also generate/check the published-source watch snapshot')
     # extract-aerotech-delays.test.mjs's synthetic documents are not the real ones.
     ap.add_argument('--join', help='a JSON file replacing JOIN: {document: [manufacturer, designation] or null}')
+    ap.add_argument('--average-join', help='a JSON file replacing AVERAGE_JOIN, with the same format as --join')
     args = ap.parse_args(argv)
     join = None
     if args.join:
         with open(args.join, encoding='utf-8') as fh:
             join = json.load(fh)
-    data = read_all(args.source, args.motors, join, args.transcriptions)
+    average_join = None
+    if args.average_join:
+        with open(args.average_join, encoding='utf-8') as fh:
+            average_join = json.load(fh)
+    data = read_all(args.source, args.motors, join, args.transcriptions, average_join)
     outputs = {args.out: json.dumps(data, ensure_ascii=False, indent=2) + '\n'}
     if args.watch_out:
         cert_docs = os.path.join(args.source, 'Cert Docs')
@@ -638,6 +788,7 @@ def main(argv):
         # Watch all index links, plus the bytes we consume or may consume after
         # Eric rules on the four count-only scans. Do not fetch 312 PDFs per run.
         paths = {m['document'] for m in data['motors'].values()}
+        paths.update(rel for m in data['averages'].values() for rel in m['documents'])
         paths.update(e['document'] for e in review['unread'] if e.get('candidateDelays'))
         snapshot = {
             'publishedOn': PUBLISHED_ON,
@@ -654,10 +805,12 @@ def main(argv):
             same = same and matches
             print(f'{os.path.basename(path)} is what the documents give' if matches else
                   f'{os.path.basename(path)} DIFFERS from what the documents give: re-run without --check')
+        print(f'averageMotorCount={data["averageMotorCount"]} averagePairCount={data["averagePairCount"]}')
         return 0 if same else 1
     for path, text in outputs.items():
         atomic_write(path, text)
         print(f'wrote {path}')
+    print(f'averageMotorCount={data["averageMotorCount"]} averagePairCount={data["averagePairCount"]}')
     return 0
 
 

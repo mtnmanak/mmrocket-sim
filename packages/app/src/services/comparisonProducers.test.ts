@@ -17,6 +17,15 @@
 // density and selected-unit tests live in rocksimFile.test; exact timeline
 // and inverse export cases live in rocksimStaging.peakOfFlight.test. The
 // I11/I18 explanation codes share existing groups, so no explanation count moves.
+// Row 96 round 2: designPrintReport 24 -> 25 is the average-only source-link
+// HTML literal (the census matches angle brackets). It adds no measured
+// comparison or tolerance; designPrintReport.test checks its URL and the
+// exact flown-delay explanation with no band present. The prose stays census-safe.
+// Row 96: designPrintReport 21 -> 24 adds the conditional published-delay
+// cell/header HTML literals and the existing measured-band safety explanation.
+// It reuses formatDelayBand's outward rounding; designPrintReport.test covers
+// bands, averages, missing figures and separate explanations. The new average
+// label/note compare no measurements and add no census producer or tolerance.
 // Batch-all Round 5: batchSweep 3 -> 4 adds a per-leg diameter refusal using
 // motorDb.fitsMount's existing diameter-class / picker-bore rule. The dialog
 // applies that same rule to the narrowest target (including OOP refusal advice).

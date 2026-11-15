@@ -194,7 +194,9 @@ describe('AeroTech published delay source watch (offline)', () => {
   });
 
   it('watches every shipped band source and each withheld scan with individual samples', () => {
-    const required = [...Object.values(delays.motors), ...review.unread.filter((e) => e.candidateDelays)];
+    const required = [...Object.values(delays.motors),
+      ...Object.values(delays.averages).flatMap(m => m.documents.map(document => ({ document }))),
+      ...review.unread.filter((e) => e.candidateDelays)];
     const documents = new Map(shipped.documents.map((d) => [d.document, d]));
     expect(documents.size).toBe(shipped.documents.length);
     for (const entry of required) {
@@ -212,6 +214,7 @@ describe('AeroTech published delay source watch (offline)', () => {
     expect(delays.scanReview.accepted).toBe(review.documents.length);
     expect(delays.scanReview.unreadForMerge).toBe(review.unread.length);
     expect(delays.scanReview.unreadForMerge).toBe(delays.documents.scan);
+    expect(delays.scanReview.averagesRead).toBe(review.unread.filter(e => e.printedAverages?.length).length);
     const shippedPaths = new Set(Object.values(delays.motors).map((m) => m.document));
     for (const entry of review.unread) {
       expect(entry.reason.length).toBeGreaterThan(0);

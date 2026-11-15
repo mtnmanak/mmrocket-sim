@@ -19,6 +19,7 @@ import { printDocument } from './printDocument.js';
 import { couplerRingFitNote } from '../components/ringFit.js';
 import { noteText } from './noteField.js';
 import { delayReportMotorNames, validBatchMounts } from './batchLoadout.js';
+import { formatDelayAverage, formatDelayBand, publishedDelayAverage, publishedDelayBand, PRINTED_AVERAGE_NOTE, PUBLISHED_DELAYS_URL } from './publishedDelays.js';
 
 export interface DesignPrintInput {
   tree: RocketTree; info: StaticInfo | null; units: UnitSelection;
@@ -138,19 +139,26 @@ export function designPrintHtml(input: DesignPrintInput): string {
     else body.push(p('This flight matches the current design, motors, conditions and model.'));
     if (validDelayResolution(run.delayResolution)) {
       const motorNames = delayReportMotorNames(run.delayResolution.mounts, run, motorMounts(tree).map(m => m.id!));
-      const rows = run.delayResolution.mounts.map(m => {
+      const bands = run.delayResolution.mounts.map(m => publishedDelayBand(m.motorIdentity, m.flownDelay));
+      const averages = run.delayResolution.mounts.map((m, i) => bands[i] ? null : publishedDelayAverage(m.motorIdentity, m.flownDelay));
+      const anyBand = bands.some(b => b !== null);
+      const anyAverage = averages.some(a => a !== null);
+      const anyPublished = anyBand || anyAverage;
+      const rows = run.delayResolution.mounts.map((m, i) => {
         const flown = m.flownDelay === 'plugged' ? 'plugged — no ejection charge' : sec(m.flownDelay);
         const marks = (m.exception === 'plugged-on-charge' ? ' · hypothetical charge (motor sold plugged)' : '')
           + (m.mode === 'auto' && m.rawOptimum !== null && m.rawOptimum < 0 ? ' · limited by burnout' : '');
         return `<tr><th scope="row">${e(`${m.mountName} (${m.mountId})`)}</th><td>${e(noteText(motorNames?.get(m.mountId) ?? '—'))}</td><td>${e(m.motorIdentity)}</td>
 <td>${e(m.branchName === null || m.branchId === null ? 'Unknown' : `${m.branchName} (${m.branchId})`)}</td>
 <td>${e(m.exception ? 'plugged → Auto (charge recovery)' : m.mode)}</td><td>${e(sec(m.rawOptimum))}</td>
-<td>${e(sec(m.recommendedDelay))}</td><td>${e(flown + marks)}${m.caution ? note(m.caution, 'caution') : ''}</td></tr>`;
+<td>${e(sec(m.recommendedDelay))}</td><td>${e(flown + marks)}${m.caution ? note(m.caution, 'caution') : ''}</td>${anyPublished ? `<td>${e(bands[i] ? formatDelayBand(bands[i]) : averages[i] ? formatDelayAverage(averages[i]) : '—')}</td>` : ''}</tr>`;
       }).join('');
       body.push(p('Auto targets each mount’s recovery-free branch apogee, rounded to a whole second.'),
         `<table aria-label="Per-mount ejection delays"><caption>Ejection delays by mount — selected flight</caption>
 <thead><tr><th scope="col">Mount</th><th scope="col">Motor</th><th scope="col">Recorded motor identity</th><th scope="col">Branch</th><th scope="col">Mode</th>
-<th scope="col">Ballistic optimum</th><th scope="col">Recommended</th><th scope="col">Flown delay</th></tr></thead><tbody>${rows}</tbody></table>`);
+<th scope="col">Ballistic optimum</th><th scope="col">Recommended</th><th scope="col">Flown delay</th>${anyPublished ? '<th scope="col">Published test delays</th>' : ''}</tr></thead><tbody>${rows}</tbody></table>`);
+      if (anyBand) body.push(p('Published test delays: the shortest and longest delay measured when that motor was fired at that delay setting in its certification tests, and how many motors were fired. The flight fires the charge at exactly the flown delay. A real charge can fire anywhere in that range, and the tests are a small sample of motors, not a guarantee: it can fire outside it too.'));
+      if (anyAverage) body.push(`<p>${e(PRINTED_AVERAGE_NOTE)} Source: <a href="${e(PUBLISHED_DELAYS_URL)}" target="_blank" rel="noopener noreferrer">AeroTech’s certification documents</a>.</p>`);
     } else {
       body.push(note(run.delayResolution === undefined
         ? 'Legacy scalar delay evidence. Other mounts’ delays are not recorded; do not apply the primary motor’s recommendation to them.'

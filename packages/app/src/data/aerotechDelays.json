@@ -1,5 +1,5 @@
 {
-  "source": "AeroTech (RCS Rocket Motor Components) NAR and TRA certification documents: each test motor's measured ejection delay",
+  "source": "AeroTech (RCS Rocket Motor Components) NAR and TRA certification documents: individual measured delays and separately labelled printed averages",
   "publishedOn": "https://www.rocketmotorparts.com/page/nar-tra-certification-docs",
   "folder": "docs/RCS Schematics/Cert Docs (local-only)",
   "extractedBy": "packages/app/scripts/extract-aerotech-delays.py",
@@ -15,6 +15,7 @@
     "reviewed": 100,
     "accepted": 0,
     "unreadForMerge": 100,
+    "averagesRead": 43,
     "source": "packages/app/scripts/aerotech-delay-transcriptions.json"
   },
   "notInCatalogue": [],
@@ -1004,6 +1005,543 @@
             7.335,
             7.506
           ]
+        }
+      ]
+    }
+  },
+  "averageMotorCount": 25,
+  "averagePairCount": 64,
+  "averages": {
+    "5f4294d20002310000000021": {
+      "designation": "D13W",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/RMS-18-20/D13W.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/d13w_nar_cert_1642720989029.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 3.32
+        },
+        {
+          "nominalS": 7,
+          "averageS": 6.8
+        },
+        {
+          "nominalS": 10,
+          "averageS": 8.27
+        }
+      ]
+    },
+    "5f4294d20002310000000022": {
+      "designation": "D15T",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/RMS-24-40/D15T.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/d15t_nar_cert_1642721160896.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 3.55
+        },
+        {
+          "nominalS": 6,
+          "averageS": 5.79
+        },
+        {
+          "nominalS": 8,
+          "averageS": 8.22
+        }
+      ]
+    },
+    "5f4294d20002310000000023": {
+      "designation": "D21T",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/18mm Model Rocket Single-Use/D21T.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/d21t_nar_cert_1642719749017.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 4.8
+        },
+        {
+          "nominalS": 7,
+          "averageS": 7.38
+        }
+      ]
+    },
+    "5f4294d2000231000000001d": {
+      "designation": "D9W",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/RMS-24-40/D9W.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/d9w_nar_cert_1642721145897.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 4.45
+        },
+        {
+          "nominalS": 7,
+          "averageS": 7.58
+        }
+      ]
+    },
+    "5f4294d200023100000001f9": {
+      "designation": "E11J",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/RMS-24-40/E11J.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/e11j_nar_cert_1642721175409.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 4.25
+        }
+      ]
+    },
+    "5f4294d2000231000000002d": {
+      "designation": "E15W",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/24mm Model Rocket Single-Use/E15W.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/e15w_nar_cert_1642720072436.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 4.56
+        },
+        {
+          "nominalS": 7,
+          "averageS": 7.97
+        }
+      ]
+    },
+    "5f4294d20002310000000030": {
+      "designation": "E16W",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/RMS-29-40-120/E16W.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/e16w_nar_cert_1642721629364.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 3.86
+        },
+        {
+          "nominalS": 7,
+          "averageS": 6.55
+        },
+        {
+          "nominalS": 10,
+          "averageS": 10.9
+        }
+      ]
+    },
+    "5f4294d20002310000000031": {
+      "designation": "E18W",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/RMS-24-40/E18W.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/e18w_nar_cert_1642721188937.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 3.87
+        },
+        {
+          "nominalS": 8,
+          "averageS": 8.14
+        },
+        {
+          "nominalS": 10,
+          "averageS": 10.79
+        }
+      ]
+    },
+    "5f4294d20002310000000033": {
+      "designation": "E28T",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/RMS-24-40/E28T.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/e28t_nar_cert_1642721203375.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 2,
+          "averageS": 2.03
+        },
+        {
+          "nominalS": 5,
+          "averageS": 4.87
+        },
+        {
+          "nominalS": 8,
+          "averageS": 7.48
+        }
+      ]
+    },
+    "5f4294d20002310000000036": {
+      "designation": "F12J",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/RMS-24-40/F12J.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/f12j_nar_cert_1642721221799.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 2,
+          "averageS": 1.33
+        }
+      ]
+    },
+    "5f4294d20002310000000039": {
+      "designation": "F20W/L",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/29mm Model Rocket Single-Use/F20W.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/f20w_nar_cert_1642720542103.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 4.09
+        },
+        {
+          "nominalS": 7,
+          "averageS": 6.93
+        }
+      ]
+    },
+    "5f4294d2000231000000003b": {
+      "designation": "F22J",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/RMS-29-40-120/F22J.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/f22j_nar_cert_1642721656272.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 3.59
+        }
+      ]
+    },
+    "5f4294d2000231000000003f": {
+      "designation": "F24W",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/RMS-24-40/F24W.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/f24w_nar_cert_1642721232969.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 3.71
+        },
+        {
+          "nominalS": 7,
+          "averageS": 6.6
+        }
+      ]
+    },
+    "5f4294d20002310000000040": {
+      "designation": "F25W",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/29mm Model Rocket Single-Use/F25W.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/f25w_nar_cert_1642720562609.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 4.29
+        },
+        {
+          "nominalS": 6,
+          "averageS": 6.38
+        },
+        {
+          "nominalS": 9,
+          "averageS": 9.3
+        }
+      ]
+    },
+    "5f4294d20002310000000042": {
+      "designation": "F32W",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/24mm Model Rocket Single-Use/F32W.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/f32w_nar_cert_1642720132081.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 5,
+          "averageS": 5.6
+        },
+        {
+          "nominalS": 10,
+          "averageS": 9.48
+        },
+        {
+          "nominalS": 15,
+          "averageS": 16.45
+        }
+      ]
+    },
+    "5f4294d20002310000000045": {
+      "designation": "F37W",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/RMS-29-60/F37W.pdf",
+        "TRA/RMS-29-60/F37W.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/f37w_nar_cert_1642721987397.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 6,
+          "averageS": 5.13
+        },
+        {
+          "nominalS": 10,
+          "averageS": 9.93
+        },
+        {
+          "nominalS": 14,
+          "averageS": 12.43
+        }
+      ]
+    },
+    "5f4294d20002310000000046": {
+      "designation": "F39T",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/RMS-24-40/F39T.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/f39t_nar_cert_1642721244562.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 3,
+          "averageS": 3.17
+        },
+        {
+          "nominalS": 6,
+          "averageS": 6.27
+        },
+        {
+          "nominalS": 9,
+          "averageS": 9.56
+        }
+      ]
+    },
+    "5f4294d20002310000000047": {
+      "designation": "F40W",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/RMS-29-40-120/F40W.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/f40w_nar_cert_1642721668478.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 3.21
+        },
+        {
+          "nominalS": 7,
+          "averageS": 6.74
+        },
+        {
+          "nominalS": 10,
+          "averageS": 8.97
+        }
+      ]
+    },
+    "5f4294d20002310000000049": {
+      "designation": "F50T",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/29mm Model Rocket Single-Use/F50T.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/f50t_nar_cert_1642720658601.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 4.25
+        },
+        {
+          "nominalS": 6,
+          "averageS": 6.05
+        },
+        {
+          "nominalS": 9,
+          "averageS": 9.2
+        }
+      ]
+    },
+    "5f4294d2000231000000004b": {
+      "designation": "F52T",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/RMS-29-40-120/F52T.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/f52t_nar_cert_1642721682880.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 5,
+          "averageS": 5.75
+        },
+        {
+          "nominalS": 8,
+          "averageS": 8.85
+        },
+        {
+          "nominalS": 11,
+          "averageS": 11.56
+        }
+      ]
+    },
+    "5f4294d20002310000000059": {
+      "designation": "G40W",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/29mm Model Rocket Single-Use/G40W.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/g40w_nar_cert_1642720718181.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 3.48
+        },
+        {
+          "nominalS": 7,
+          "averageS": 7.97
+        },
+        {
+          "nominalS": 10,
+          "averageS": 11.15
+        }
+      ]
+    },
+    "5f4294d2000231000000005a": {
+      "designation": "G54W",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/RMS-29-100/G54W.pdf",
+        "TRA/RMS-29-100/G54W.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/g54w_nar_cert_1642722001197.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 6,
+          "averageS": 6.22
+        },
+        {
+          "nominalS": 10,
+          "averageS": 8.99
+        },
+        {
+          "nominalS": 14,
+          "averageS": 13.32
+        }
+      ]
+    },
+    "5f4294d20002310000000060": {
+      "designation": "G64W",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/RMS-29-40-120/G64W.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/g64w_nar_cert_1642721715244.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 4.04
+        },
+        {
+          "nominalS": 8,
+          "averageS": 8.39
+        },
+        {
+          "nominalS": 10,
+          "averageS": 11.08
+        }
+      ]
+    },
+    "5f4294d2000231000000008e": {
+      "designation": "H220T",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/RMS-29-240/H220T.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/h220t_nar_cert_1642722024587.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 6,
+          "averageS": 5.11
+        },
+        {
+          "nominalS": 10,
+          "averageS": 8.64
+        },
+        {
+          "nominalS": 14,
+          "averageS": 13.31
+        }
+      ]
+    },
+    "5f4294d200023100000000cb": {
+      "designation": "I300T",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/RMS-38-480/I300T.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/i300t_nar_cert_1642722311890.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 6,
+          "averageS": 6.68
+        },
+        {
+          "nominalS": 10,
+          "averageS": 10.76
+        },
+        {
+          "nominalS": 14,
+          "averageS": 14.41
         }
       ]
     }

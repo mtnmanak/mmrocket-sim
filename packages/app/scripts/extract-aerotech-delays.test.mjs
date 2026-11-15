@@ -83,7 +83,7 @@ let dir;
 afterEach(() => { if (dir) rmSync(dir, { recursive: true, force: true }); dir = undefined; });
 
 /** A Cert Docs folder holding `docs`, a one-motor catalogue, and a JOIN naming text-layer docs. */
-function run(docs, transcriptions = { documents: [], unread: [] }) {
+function run(docs, transcriptions = { documents: [], unread: [] }, averageDisputed = [], hardwareType = 'SU') {
   dir = mkdtempSync(join(tmpdir(), 'delay-docs-'));
   const certDocs = join(dir, 'Cert Docs');
   const spec = Object.fromEntries(Object.entries(docs).map(([p, lines]) => [join(certDocs, p), lines]));
@@ -101,16 +101,137 @@ function run(docs, transcriptions = { documents: [], unread: [] }) {
   writeFileSync(join(certDocs, 'Download-CertDocs.ps1'), `$Docs = @(\n${entries.join('\n')}\n)\n`);
   writeFileSync(join(dir, 'motors.json'), JSON.stringify({
     generated: '2026-10-11',
-    motors: [{ motorId: 'id-e99w', manufacturerAbbrev: 'AeroTech', designation: 'E99W' }],
+    motors: [{ motorId: 'id-e99w', manufacturerAbbrev: 'AeroTech', designation: 'E99W', type: hardwareType }],
   }));
   writeFileSync(join(dir, 'join.json'), JSON.stringify(Object.fromEntries(Object.entries(docs)
     .filter(([_path, lines]) => !lines.scan).map(([p]) => [p, ['AeroTech', 'E99W']]))));
   const out = join(dir, 'out.json');
-  const res = spawnSync(python, [extractor, '--source', dir, '--motors', join(dir, 'motors.json'),
-    '--join', join(dir, 'join.json'), '--transcriptions', join(dir, 'transcriptions.json'), '--out', out],
+  const averageJoin = Object.fromEntries(transcriptions.unread.filter(e => e.printedAverages)
+    .map(e => [e.document, ['AeroTech', 'E99W']]));
+  writeFileSync(join(dir, 'average-join.json'), JSON.stringify(averageJoin));
+  // Test-only injection keeps the production dispute table hand-reviewed.
+  const bootstrap = `import sys, importlib.util, json
+sys.path.insert(0, ${JSON.stringify(here)})
+spec = importlib.util.spec_from_file_location('delays', ${JSON.stringify(extractor)})
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+m.AVERAGE_DISPUTED = {tuple(e[:2]): set(e[2]) for e in json.loads(sys.argv.pop(1))}
+sys.exit(m.main(sys.argv[1:]))`;
+  const res = spawnSync(python, ['-c', bootstrap, JSON.stringify(averageDisputed), '--source', dir, '--motors', join(dir, 'motors.json'),
+    '--join', join(dir, 'join.json'), '--average-join', join(dir, 'average-join.json'),
+    '--transcriptions', join(dir, 'transcriptions.json'), '--out', out],
+    // Synthetic sources replace both hand-join tables.
   { encoding: 'utf8', env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
   return { ...res, json: existsSync(out) ? JSON.parse(readFileSync(out, 'utf8')) : null };
 }
+
+function averageTranscription(document = scanPath, printed = '4.34') {
+  return { document, category: 'average-only', reason: 'Average only, no individual measurements or spread.',
+    printedAverages: [{ nominalS: 4, printed, label: 'Avg. Measured Delay',
+      position: { page: 1, row: 'Avg. Measured Delay', column: 1 } }] };
+}
+
+describe.skipIf(!hasPyMuPDF)('printed scan averages', { timeout: 30_000 }, () => {
+  it('ships a printed average separately, never as a measured sample', () => {
+    const result = run({ [scanPath]: { scan: report() } }, { documents: [], unread: [averageTranscription()] });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.motors).toEqual({});
+    expect(result.json).toMatchObject({ averageMotorCount: 1, averagePairCount: 1, scanReview: { averagesRead: 1 } });
+    expect(result.json.averages['id-e99w']).toMatchObject({ form: 'scan-average', documents: [scanPath],
+      delays: [{ nominalS: 4, averageS: 4.34 }] });
+    expect(JSON.stringify(result.json.averages)).not.toContain('measuredS');
+  });
+
+  it.each([
+    ['average outside half the nominal', e => { e.printedAverages[0].printed = '6.00'; }, /outside half the nominal/],
+    ['average at the lower half-nominal bound', e => { e.printedAverages[0].printed = '2.00'; }, /outside half the nominal/],
+    ['missing source position', e => { delete e.printedAverages[0].position; }, /source position/],
+    ['out-of-range source page', e => { e.printedAverages[0].position.page = 2; }, /source position/],
+    ['invalid source column', e => { e.printedAverages[0].position.column = -1; }, /source position/],
+    ['fractional source column', e => { e.printedAverages[0].position.column = 1.5; }, /source position/],
+    ['string source column', e => { e.printedAverages[0].position.column = '1'; }, /source position/],
+    ['boolean source column', e => { e.printedAverages[0].position.column = true; }, /source position/],
+    ['non-integer nominal', e => { e.printedAverages[0].nominalS = 4.1; }, /average nominal/],
+    ['boolean nominal', e => { e.printedAverages[0].nominalS = true; }, /average nominal/],
+    ['string nominal', e => { e.printedAverages[0].nominalS = '4'; }, /average nominal/],
+    ['duplicate nominal', e => { e.printedAverages.push(e.printedAverages[0]); }, /average nominal/],
+    ['non-positive average', e => { e.printedAverages[0].printed = '0'; }, /positive printed seconds/],
+  ])('refuses %s', (_name, edit, message) => {
+    const entry = averageTranscription();
+    edit(entry);
+    const result = run({ [scanPath]: { scan: report() } }, { documents: [], unread: [entry] });
+    expect(result.status).not.toBe(0);
+    expect(result.stdout + result.stderr).toMatch(message);
+    expect(result.json).toBeNull();
+  });
+
+  it('refuses an average joined to a motor with individual measurements', () => {
+    const result = run({ [scanPath]: { scan: report() }, 'NAR/Test/Measured.pdf': report() },
+      { documents: [], unread: [averageTranscription()] });
+    expect(result.status).not.toBe(0);
+    expect(result.stdout + result.stderr).toContain('measured data wins');
+    expect(result.json).toBeNull();
+  });
+
+  it.each([
+    ['NAR/29mm Model Rocket Single-Use/E99W.pdf', 'reload'],
+    ['TRA/29mm Model Rocket Single Use/E99W.pdf', 'reload'],
+    ['NAR/RMS-29-120/E99W.pdf', 'SU'],
+    ['TRA/29mm Reload/E99W.pdf', 'SU'],
+  ])('refuses the hardware mismatch %s -> %s', (document, hardwareType) => {
+    const result = run({ [document]: { scan: report() } },
+      { documents: [], unread: [averageTranscription(document)] }, [], hardwareType);
+    expect(result.status).toBe(1);
+    expect(result.stdout + result.stderr).toContain('HARDWARE_MISMATCH');
+    expect(result.json).toBeNull();
+  });
+
+  it('leaves the discontinued single-use G25W unjoined to the catalogue reload', () => {
+    const bootstrap = `import importlib.util, json, sys
+sys.path.insert(0, ${JSON.stringify(here)})
+spec = importlib.util.spec_from_file_location('delays', ${JSON.stringify(extractor)})
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+rel = 'NAR/29mm Model Rocket Single-Use/G25W.pdf'
+row = {'motorId': 'catalogue-reload', 'manufacturerAbbrev': 'AeroTech', 'designation': 'G25W', 'type': 'reload'}
+print(json.dumps(m.join_averages({rel: {4: 4.34}}, {('AeroTech', 'G25W'): [row]}, {}, {rel: 'https://example.invalid/G25W.pdf'}, {rel: m.AVERAGE_JOIN[rel]}, {})))`;
+    const result = spawnSync(python, ['-c', bootstrap], { encoding: 'utf8' });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({});
+  });
+
+  it.each([false, true])('chooses the sorted duplicate source for its URL and value (reversed=%s)', reverse => {
+    const other = 'TRA/Test Single-Use/E99W.pdf';
+    const unread = [averageTranscription(), averageTranscription(other, '4.344')];
+    if (reverse) unread.reverse();
+    const result = run({ [scanPath]: { scan: report() }, [other]: { scan: report() } }, { documents: [], unread });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.averages['id-e99w']).toMatchObject({
+      documents: [scanPath, other], url: 'https://example.invalid/0.pdf',
+      delays: [{ nominalS: 4, averageS: 4.34 }],
+    });
+  });
+
+  it.each([
+    ['4.34', [], true],
+    ['4.35', [], false],
+    ['4.35', [['AeroTech', 'E99W', [4]]], true],
+    ['4.34', [['AeroTech', 'E99W', [4]]], false],
+  ])('checks duplicate averages and stale disputes both ways (%s, %j)', (printed, disputes, ok) => {
+    const other = 'TRA/Test Single-Use/E99W.pdf';
+    const result = run({ [scanPath]: { scan: report() }, [other]: { scan: report() } },
+      { documents: [], unread: [averageTranscription(), averageTranscription(other, printed)] }, disputes);
+    expect(result.status, result.stderr).toBe(ok ? 0 : 1);
+    if (!ok) {
+      expect(result.stdout + result.stderr).toContain('AVERAGE_DISPUTED');
+      expect(result.json).toBeNull();
+    } else if (!disputes.length) {
+      expect(result.json.averages['id-e99w'].documents).toEqual([scanPath, other]);
+    } else {
+      expect(result.json.averages).toEqual({});
+    }
+  });
+});
 
 // Each case spawns Python twice (build the PDFs, then extract); under a full-suite
 // load that has run past Vitest's 5 s default (extract-aerotech-certified.test.mjs).
@@ -170,7 +291,7 @@ describe.skipIf(!hasPyMuPDF)('extract-aerotech-delays.py reads each motor\'s del
   });
 });
 
-const scanPath = 'NAR/Test/E99W.pdf';
+const scanPath = 'NAR/Test Single-Use/E99W.pdf';
 const position = { page: 1, row: '4 s', column: 'Delay (seconds)' };
 function transcription() {
   return { documents: [{ document: scanPath, manufacturer: 'AeroTech', designation: 'E99W', delays: [{
