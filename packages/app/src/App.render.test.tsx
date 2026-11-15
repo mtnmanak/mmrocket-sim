@@ -8,7 +8,8 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { createRoot, type Root } from 'react-dom/client';
 import { App } from './App.js';
 import * as mountAngle from './tree/mountAngle.js';
-import { testResolution } from './services/autoDelay.testSupport.js';
+import { testMotor, testResolution } from './services/autoDelay.testSupport.js';
+import { catalogueSuffixPair } from './services/motorLabels.testSupport.js';
 import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
 import { findAllowance, solePinnedStage } from './services/buildAllowance.js';
@@ -726,6 +727,38 @@ describe('a v0.117 session\'s weighed pad mass', () => {
   const storedRecord = (mount: string) => (JSON.parse(localStorage.getItem(SESSION_KEY)!) as {
     mountMotors: Record<string, { padMassKg?: number; padMassWeighedWith?: string }>;
   }).mountMotors[mount]!;
+
+  it.each([
+    ['0123456789abcdef01234567', 'unknown motor'],
+    ['ex:missing-round2', 'experimental motor (no longer in your library)'],
+  ])('Round 2 describes a stale weighing identity %s without presenting its id as a motor name', async (identity, expected) => {
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    const tree = defaultTree();
+    const id = motorMounts(tree)[0]!.id!;
+    await seedStarterSession({ edit: () => tree, over: { mountMotors: {
+      [id]: { ...c6, padMassKg: 0.25, padMassWeighedWith: JSON.stringify([[id, identity, 1]]) },
+    } } });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Configuration');
+    expect(host.textContent).toContain(`weighed with ${expected}`);
+    expect(host.textContent).not.toContain(`weighed with ${identity} on`);
+  }, 30_000);
+
+  it.skipIf(!catalogueSuffixPair)('Round 7 distinguishes shipped suffix weighed evidence from the current base motor', async () => {
+    const [base, suffixed] = catalogueSuffixPair!;
+    const mm = testMotor(false, 5);
+    const tree = defaultTree();
+    const id = motorMounts(tree)[0]!.id!;
+    findNode(tree, id)!.name = 'Booster MMT';
+    const current = { ...mm, spec: { ...mm.spec, designation: base.designation },
+      meta: { ...mm.meta, manufacturer: base.manufacturerAbbrev, motorId: base.motorId } };
+    await seedStarterSession({ edit: () => tree, over: { mountMotors: {
+      [id]: { ...current, padMassKg: 0.25, padMassWeighedWith: JSON.stringify([[id, `${suffixed.manufacturerAbbrev}/${suffixed.designation}`, 1]]) },
+    } } });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Configuration');
+    expect(host.textContent).toContain(`weighed with ${suffixed.designation} on Booster MMT, which now has ${base.designation}`);
+  }, 30_000);
 
   it('is placed under the motor it was weighed with, re-keyed to the set, and the bar says where', async () => {
     const mount = await legacySession((dry, motor) => dry + motor + 0.005);
@@ -2551,6 +2584,42 @@ it('the Batch weighed-pad note receives the loaded designation without its delay
   expect(batchDialog!.retainedHardware?.mountId).toBe(mount);
   expect(batchDialog!.retainedHardware?.deltaKg).toBeCloseTo(0.005, 8);
 });
+
+it('Round 5 mixed-mount pointer names an actual rendered numbered picker option', async () => {
+  const tree = defaultTree();
+  const original = motorMounts(tree)[0]!;
+  original.name = ' Inner   Tube ';
+  const parent = tree.components[0]!.children!.find(n => n.children?.some(c => c.id === original.id))!;
+  parent.children!.push({ ...original, id: 'round5-other', name: 'Inner Tube', cluster: '4-ring' });
+  await seedStarterSession({ edit: () => tree });
+  const host = await mountApp();
+  await openTab(host, 'Motors & Configuration');
+  await act(async () => { button(host, 'Batch simulate motors…').click(); });
+  await waitFor(() => batchDialog !== null, 'batch dialog');
+  const dialog = host.querySelector('[role="dialog"][aria-label="Batch simulate motors"]')!;
+  expect(dialog.textContent).toContain('Choose Inner Tube 2 in the mount picker for mixed batches.');
+  expect([...dialog.querySelectorAll('option')].map(o => o.textContent))
+    .toContain('Inner Tube 2 (⌀ 18 mm ×4)');
+  expect(batchDialog!.mounts.map(m => m.label)).toEqual(['Inner Tube 1 (⌀ 18 mm)', 'Inner Tube 2 (⌀ 18 mm ×4)']);
+}, 30_000);
+
+it('Round 7 keeps typographic quotes in rendered batch mount picker options', async () => {
+  const tree = defaultTree();
+  const original = motorMounts(tree)[0]!;
+  original.name = '3” MMT';
+  const parent = tree.components[0]!.children!.find(n => n.children?.some(c => c.id === original.id))!;
+  parent.children!.push({ ...original, id: 'round7-other', name: '54mm “main” tube' });
+  await seedStarterSession({ edit: () => tree });
+  const host = await mountApp();
+  await openTab(host, 'Motors & Configuration');
+  await act(async () => { button(host, 'Batch simulate motors…').click(); });
+  await waitFor(() => batchDialog !== null, 'batch dialog');
+  const dialog = host.querySelector('[role="dialog"][aria-label="Batch simulate motors"]')!;
+  expect([...dialog.querySelectorAll('option')].map(o => o.textContent))
+    .toEqual(expect.arrayContaining(['3” MMT (⌀ 18 mm)', '54mm “main” tube (⌀ 18 mm)']));
+  expect(dialog.textContent).toContain('Candidates fly in 3” MMT only.');
+  expect(dialog.textContent).not.toMatch(/\[U\+201[CD]\]/);
+}, 30_000);
 
 /**
  * K1 (board Tier 2): an air start on a SINGLE-stage rocket — a RockSim

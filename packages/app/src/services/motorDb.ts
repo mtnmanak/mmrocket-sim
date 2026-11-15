@@ -187,7 +187,7 @@ export function displayDesignation(designation: string, manufacturer?: string): 
 
 const labelGroups = new WeakMap<MotorDbEntry[], Map<string, boolean>>();
 
-function withoutLabelDelay(designation: string): string {
+export function withoutLabelDelay(designation: string): string {
   // Three or more digits can be an AMW case's impulse, not a delay.
   return designation.replace(/-(?:\d{1,2}[A-Z]?|P)$/, '');
 }

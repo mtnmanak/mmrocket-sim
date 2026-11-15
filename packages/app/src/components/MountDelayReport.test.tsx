@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
+import * as exMotors from '../services/exMotors.js';
 import { DELAY_POLICY, delayMountsOf, LATE_BURNOUT_CAUTION, solveAutoDelays } from '../services/autoDelaySolver.js';
 import { probeFlight, testMotor } from '../services/autoDelay.testSupport.js';
 import { autoDelayCardText, MountDelayReport } from './MountDelayReport.js';
@@ -26,7 +27,36 @@ function manual(motorIdentity: string, flownDelay: number | 'plugged', mountName
   };
 }
 const resolution = (...mounts: ReturnType<typeof manual>[]) => ({ policy: DELAY_POLICY, mounts, probes: 0, elapsedMs: 0 });
+it('Round 7 preserves typographic quotes in the resolved Motor column', () => {
+  const html = renderToStaticMarkup(<MountDelayReport resolution={resolution(manual('Home/“K500”', 5, '3” MMT'))} />);
+  expect(html).toContain('<th scope="row">3” MMT</th><td>“K500”</td>');
+  expect(html).not.toContain('[U+201');
+});
+it('Round 5 resolves the whole delay table for different makers and EX identities', () => {
+  const ex = exMotors.parseEng('K500 54 300 P 0.1 0.2 Home\n0 0\n0.5 500\n1 0')[0]!;
+  const spy = vi.spyOn(exMotors, 'getExMotor').mockReturnValue(ex);
+  try {
+    const r = resolution(...['Estes/C6', 'Klima/C6', 'ex:alpha', 'ex:beta'].map((id, i) => manual(id, 5, `MMT ${i}`)));
+    const html = renderToStaticMarkup(<MountDelayReport resolution={r} />);
+    for (const name of ['Estes C6', 'Klima C6', 'EX K500 (1)', 'EX K500 (2)']) expect(html).toContain(`<td>${name}</td>`);
+  } finally { spy.mockRestore(); }
+});
+it('Round 5 omits all resolved motor cells when an EX name exceeds the display bound', () => {
+  const ex = exMotors.parseEng('K500 54 300 P 0.1 0.2 Home\n0 0\n0.5 500\n1 0')[0]!;
+  const spy = vi.spyOn(exMotors, 'getExMotor').mockReturnValue({ ...ex, designation: 'K'.repeat(1_000_000) });
+  try {
+    const html = renderToStaticMarkup(<MountDelayReport resolution={resolution(manual('ex:oversized-round5', 5))} />);
+    expect(html).toContain('<th scope="row">Motor mount</th><td>—</td>');
+    expect(html.length).toBeLessThan(5000);
+  } finally { spy.mockRestore(); }
+});
 const F52C = '5f5e57811e865c0004c955d8';
+
+it('puts the resolved Motor immediately after Mount', () => {
+  const html = renderToStaticMarkup(<MountDelayReport resolution={resolution(manual('AeroTech/K1499N', 5, 'MMT 2'))} />);
+  expect(html).toContain('<th scope="col">Mount</th><th scope="col">Motor</th><th scope="col">Branch</th>');
+  expect(html).toContain('<th scope="row">MMT 2</th><td>K1499N</td><td>—</td><td>manual</td>');
+});
 
 it('fills a substituted Auto-delay caution, leaving a manual delay quiet', () => {
   const fixed = manual(F52C, 5);

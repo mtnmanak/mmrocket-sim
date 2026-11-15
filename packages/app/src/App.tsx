@@ -102,7 +102,8 @@ import { TreeSchematic } from './components/TreeSchematic.js';
 import { AftView } from './components/AftView.js';
 import { View3DBoundary } from './components/View3DBoundary.js';
 import { PanelBoundary } from './components/PanelBoundary.js';
-import { motorTooltip, restoreConfigLabels, restoreMotorLabels } from './services/motorLabels.js';
+import { designationForMotorIdentity, motorTooltip, restoreConfigLabels, restoreMotorLabels } from './services/motorLabels.js';
+import { namedBatchMounts } from './services/batchLoadout.js';
 import { MOTOR_DB_DATE, getCatalogue, getCatalogueOverlay, subscribeCatalogue, type CatalogueOverlay, classLabel, diameterClass } from './services/motorDb.js';
 import { useCatalogue } from './components/useCatalogue.js';
 import { loadCatalogueMotor, matchImportedMotor } from './services/motorMatch.js';
@@ -122,7 +123,7 @@ import { installedMounts, reflyRun } from './services/flightRunner.js';
 import { flyBuiltDesign } from './services/simulateDesign.js';
 import { buildDesign, KERNEL_HANDLES, type DesignBuild } from './services/buildDesign.js';
 import { preflightAudit, readAuditMasses } from './services/preflightAudit.js';
-import { loadExMotorIdentities, loadExMotors } from './services/exMotors.js';
+import { loadExMotorIdentities } from './services/exMotors.js';
 import { exportOrk, importOrk, type MeasuredFigures, type OrkExportFlightData, type OrkMotorRef } from './services/orkFile.js';
 import {
   decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS, shareLinkOpenFailure,
@@ -2127,21 +2128,14 @@ export function App() {
 
   /**
    * A stored set-identity term for display on the pad-mass line:
-   * 'AeroTech/I284W' → 'I284W'; 'ex:…' → the EX library entry's designation
-   * (or the id when the library no longer has it); 'unmatched:K' → 'K (named
-   * by the file, not loaded)'. Lives here because loadExMotors reads the
-   * browser's EX library, which the pure component must not.
+   * Resolve loaded identities through the shared motor-name reader;
+   * 'unmatched:K' remains 'K (named by the file, not loaded)'.
    */
   const describeIdentity = (identity: string): string => {
     if (identity.startsWith('unmatched:')) {
-      return `${identity.slice('unmatched:'.length)} (named by the file, not loaded)`;
+      return `${noteText(identity.slice('unmatched:'.length))} (named by the file, not loaded)`;
     }
-    if (identity.startsWith('ex:')) {
-      const ex = loadExMotors().find((m) => m.motorId === identity);
-      return ex?.flightSnapshot?.designation ?? ex?.designation ?? identity;
-    }
-    const slash = identity.indexOf('/');
-    return slash === -1 ? identity : identity.slice(slash + 1);
+    return noteText(designationForMotorIdentity(identity));
   };
 
   const onLaunch = (options?: unknown) => {
@@ -4181,7 +4175,7 @@ export function App() {
           tree={flightTree}
           // Every mount is batchable — a cluster ring around a central mount
           // (the owner's Darkstar) needs the RING selectable, not just the primary.
-          mounts={mounts.map((m) => {
+          mounts={namedBatchMounts(mounts.map(m => ({ node: m, mountName: mountName(m) }))).map(({ node: m, mountName: displayName }) => {
             const mNode = findNode(tree, m.id!);
             // Every motor a candidate fires on this mount: the cluster times any
             // enclosing pod set or strap-on ring (audit 2026-09-22, row 351). It
@@ -4190,7 +4184,7 @@ export function App() {
             const motorCount = mountMotorCount(tree, m.id!);
             return {
               id: m.id!,
-              label: `${mountName(m)} (⌀ ${classLabel(diameterClass(mountDiaMm(mNode)))} mm${motorCount > 1 ? ` ×${motorCount}` : ''})`,
+              label: `${displayName} (⌀ ${classLabel(diameterClass(mountDiaMm(mNode)))} mm${motorCount > 1 ? ` ×${motorCount}` : ''})`,
               diameterMm: mountDiaMm(mNode),
               motorCount,
               maxMotorLengthM: motorLengthLimit(mNode),
@@ -5382,7 +5376,7 @@ export function App() {
             <>
               <PanelBoundary what="This flight's report" resetKey={lastRun}>
                 <FlightStats run={lastRun} />
-                <SimRunDetails run={lastRun} hasSeries changedSince={changedSince} />
+                <SimRunDetails run={lastRun} hasSeries changedSince={changedSince} mountOrder={motorMounts(tree).map(m => m.id!)} />
               </PanelBoundary>
               <PanelBoundary what="The flight plots" resetKey={shownResult}>
                 <FlightCharts result={shownResult} onFullSeries={fetchFullSeriesResult}
@@ -5409,7 +5403,7 @@ export function App() {
             <>
               <PanelBoundary what="This flight's report" resetKey={reportRun}>
                 <FlightStats run={reportRun} />
-                <SimRunDetails run={reportRun} changedSince={inspectedSummary ? null : changedSince} />
+                <SimRunDetails run={reportRun} changedSince={inspectedSummary ? null : changedSince} mountOrder={motorMounts(tree).map(m => m.id!)} />
               </PanelBoundary>
               {!inspectedSummary && lastRun && (
               <div className="panel placeholder empty-state">

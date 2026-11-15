@@ -1,5 +1,6 @@
 import { savedConfigLabel, type SavedConfig } from '../model/design.js';
 import { recordedConfiguration, runConfigurationLabel } from '../services/runConfiguration.js';
+import { batchLoadoutText } from '../services/batchLoadout.js';
 import { noSavedConfigurationsText } from '../services/flightState.js';
 import { LaunchOverrideWarning, type LaunchOverrideProps } from './LaunchOverrideWarning.js';
 import { GroundWindNote } from './GroundWindNote.js';
@@ -189,7 +190,7 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
           {/* No flight yet, no line: "Not recorded" is about a run that exists
               and did not record its configuration (review of b9-int). */}
           {run && <p className="download-caption">
-            {recordedConfiguration(run) !== undefined
+            {recordedConfiguration(run) !== undefined || batchLoadoutText(run) !== null
               ? `Flight: ${runConfigurationLabel(run)} · ${formatRunWhenProse(run.when)}` : 'Not recorded'}
           </p>}
           <label className="field" style={{ minWidth: 0 }}>

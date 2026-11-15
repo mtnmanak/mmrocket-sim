@@ -51,6 +51,8 @@ export const XML_JS_SUITES = [
   // E7 S4a-g1: motor room on real tester designs (local corpus) through either XML parser.
   'src/tree/motorRoom.tester.test.ts',
   'src/tree/solidContext.tester.test.ts',
+  // Tier 1 row 48 (2026-11-14): the owner's four-mount design opened and batch-swept under either XML parser.
+  'src/services/batchDisclosure.corpus.test.ts',
   'src/components/PropertyPanel.filled.test.tsx',
   // M2: desktop-linked fields are cleared through the imported property panel.
   'src/components/PropertyPanel.inputs.test.tsx',

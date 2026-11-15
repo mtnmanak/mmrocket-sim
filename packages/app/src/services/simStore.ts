@@ -11,6 +11,8 @@ import { warningKeysCell } from './simWarnings.js';
 import { INITIAL_UNITS, noticeQuantity, siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
 import { normalizeFlightAdvisories } from '../prefs/flightAdvisories.js';
 import { validWindLevels, validWindProfileSource } from './windProfile.js';
+import { batchLoadoutText, batchOtherMountsText, namedBatchMounts, validBatchMounts } from './batchLoadout.js';
+import { noteText } from './noteField.js';
 
 /**
  * Persisted simulation-run history (localStorage). the owner's flight-day flow:
@@ -84,6 +86,7 @@ export function loadRuns(): SimRun[] {
       }
       if (r.timeStepS !== undefined && (!Number.isFinite(r.timeStepS) || !(r.timeStepS > 0))) delete r.timeStepS;
       if (r.exportContext !== undefined && !validRunExportContext(r.exportContext)) delete r.exportContext;
+      if (r.batchMounts !== undefined && !validBatchMounts(r.batchMounts)) delete r.batchMounts;
       if (r.windSigma !== undefined && (!Number.isFinite(r.windSigma) || r.windSigma < 0)) delete r.windSigma;
       if (r.lastBurnoutOptimalDelayS !== undefined && r.lastBurnoutOptimalDelayS !== null
         && !Number.isFinite(r.lastBurnoutOptimalDelayS)) delete r.lastBurnoutOptimalDelayS;
@@ -545,7 +548,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   // column positions; runs stored before the field export an empty cell.
   // The table's own label, so a Batch row says "Batch · <label>" here too: a
   // bare configuration name read as a flight of it (review of b9-int).
-  ['Flight config', (r) => recordedConfiguration(r) === undefined ? '' : runConfigurationLabel(r)],
+  ['Flight config', (r) => recordedConfiguration(r) === undefined && batchLoadoutText(r) === null ? '' : runConfigurationLabel(r)],
   // Trailing for the same reason, after it (weather build, 2026-09-22): the
   // dry-air density altitude the run flew in, stored at launch. A run flown
   // before the field, or a stored value that is not a finite number, is an
@@ -574,6 +577,10 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['Overrides', (r) => runOverrideText(r, u?.altitude ?? 'm')],
   ['Status', (r) => runStatus(r, provenance).label],
   [`Wind gusts σ at pad (${sym('windspeed', 'm/s')})`, (r) => cv('windspeed', r.windSigma, 1)],
+  // Append to preserve existing spreadsheet column positions.
+  ['Batch candidate mount', r => r.batch === true && validBatchMounts(r.batchMounts)
+    ? namedBatchMounts(r.batchMounts).filter(m => m.role === 'candidate').map(m => noteText(m.mountName)).join('; ') : ''],
+  ['Batch other mounts', batchOtherMountsText],
   ];
 }
 

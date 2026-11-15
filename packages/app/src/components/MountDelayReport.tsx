@@ -1,6 +1,9 @@
 import { Note } from './Note.js';
 import { validDelayResolution, type MountDelayRecord } from '../services/autoDelaySolver.js';
 import { formatDelayBand, publishedDelayBand, PUBLISHED_DELAYS_URL } from '../services/publishedDelays.js';
+import { delayReportMotorNames } from '../services/batchLoadout.js';
+import type { SimRun } from '../services/simReport.js';
+import { noteText } from '../services/noteField.js';
 
 export function autoDelayCardText(record: MountDelayRecord | undefined, current: boolean): string {
   if (!record || record.mode !== 'auto' || record.status !== 'resolved') return 'Auto delay not yet calculated.';
@@ -11,23 +14,26 @@ export function autoDelayCardText(record: MountDelayRecord | undefined, current:
 }
 
 /** Same persisted evidence supplies the report and mount cards. */
-export function MountDelayReport({ resolution }: { resolution: unknown }) {
+export function MountDelayReport({ resolution, run, mountOrder }: {
+  resolution: unknown; run?: Pick<SimRun, 'batch' | 'batchMounts'>; mountOrder?: readonly string[];
+}) {
   if (!validDelayResolution(resolution)) return null;
   // AeroTech's published measured delays (ruled 2026-09-08): a column only when
   // some mount flew a motor and delay the certification tests fired, so a
   // report with nothing to show is unchanged.
   const bands = resolution.mounts.map((m) => publishedDelayBand(m.motorIdentity, m.flownDelay));
   const anyBand = bands.some((b) => b !== null);
+  const motorNames = delayReportMotorNames(resolution.mounts, run, mountOrder);
   return <section aria-label="Per-mount ejection delays">
     <p className="simdet-delay">Auto targets each mount’s recovery-free branch apogee, rounded to a whole second.</p>
     <div style={{ overflowX: 'auto' }}>
       <table>
         <caption>Ejection delays by mount</caption>
-        <thead><tr><th scope="col">Mount</th><th scope="col">Branch</th><th scope="col">Mode</th>
+        <thead><tr><th scope="col">Mount</th><th scope="col">Motor</th><th scope="col">Branch</th><th scope="col">Mode</th>
           <th scope="col">Ballistic optimum</th><th scope="col">Recommended</th><th scope="col">Flown delay</th>
           {anyBand && <th scope="col">Published test delays</th>}</tr></thead>
         <tbody>{resolution.mounts.map((m, i) => <tr key={m.mountId}>
-          <th scope="row">{m.mountName}</th><td>{m.branchName ?? '—'}</td><td>{m.exception ? 'plugged → Auto (charge recovery)' : m.mode}</td>
+          <th scope="row">{m.mountName}</th><td>{noteText(motorNames?.get(m.mountId) ?? '—')}</td><td>{m.branchName ?? '—'}</td><td>{m.exception ? 'plugged → Auto (charge recovery)' : m.mode}</td>
           <td>{m.rawOptimum === null ? '—' : `${m.rawOptimum.toFixed(1)} s`}</td>
           <td>{m.recommendedDelay === null ? '—' : `${m.recommendedDelay} s`}</td>
           <td>{m.flownDelay === 'plugged' ? 'plugged' : `${m.flownDelay} s`}

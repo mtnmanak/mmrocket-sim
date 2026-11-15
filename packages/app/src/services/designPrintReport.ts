@@ -2,7 +2,7 @@ import type { ComponentInfo, ComponentNode, RocketTree, StaticInfo } from '@onli
 import { fmtSi, type Quantity, type UnitSelection } from '../prefs/units.js';
 import { layoutSchematic, schematicFrame, type SchematicShape } from '../tree/schematicLayout.js';
 import { componentTable } from './componentTable.js';
-import { asStageNodes, mountName } from '../tree/treeModel.js';
+import { asStageNodes, motorMounts, mountName } from '../tree/treeModel.js';
 import { solidContextFor } from '../tree/solidContext.js';
 import { kernelFinPoints } from '../tree/finOutline.js';
 import { finRootChord } from '../tree/finTab.js';
@@ -17,6 +17,8 @@ import { aeroModelLabel, commentsOf, formatRunStability, formatRunWhenProse, for
 import { escapeXml } from './xmlUtil.js';
 import { printDocument } from './printDocument.js';
 import { couplerRingFitNote } from '../components/ringFit.js';
+import { noteText } from './noteField.js';
+import { delayReportMotorNames, validBatchMounts } from './batchLoadout.js';
 
 export interface DesignPrintInput {
   tree: RocketTree; info: StaticInfo | null; units: UnitSelection;
@@ -118,12 +120,16 @@ export function designPrintHtml(input: DesignPrintInput): string {
   else {
     const stability = formatRunStability(run.launchStaticMarginCal, run.launchStaticMarginPct, input.stabilityUnit);
     const motorCountScope = run.importedSummary ? 'scope not recorded'
-      : run.batch || run.motorConfig ? 'candidate group' : 'primary mount/group';
+      : run.batch === true || run.motorConfig ? 'candidate group' : 'primary mount/group';
+    const installed = run.batch === true && validBatchMounts(run.batchMounts)
+      ? run.batchMounts.filter(m => m.role !== 'empty') : null;
+    const unlit = installed?.filter(m => m.ignition === 'never').reduce((sum, m) => sum + m.count, 0) ?? 0;
     body.push(p(flightCardHeader(run)), p(`Run ID: ${run.id}`),
       p(`Configuration: ${recordedConfiguration(run) ?? 'Unknown'}${run.motorConfig ? ` (${run.motorConfig})` : ''}`),
       p(runConfigurationHeading(run, u.altitude)),
       p(`Motor count (${motorCountScope}): ${run.motorCount ?? 'Unknown'}`),
-      p('Complete flight motor count: Unknown (not recorded).'),
+      p(installed ? `Complete flight motor count: ${installed.reduce((sum, m) => sum + m.count, 0)} (installed, including ${unlit} that never ignite).`
+        : 'Complete flight motor count: Unknown (not recorded).'),
       ...((run.boosterMotors ?? []).map(m => p(`Other motor: ${m}`))),
       p(`Aerodynamics: ${aeroModelLabel(run.aeroModel, run.rogersKbf)}`));
     if (run.importedSummary) body.push(note('Imported summary. Design match and safety are unknown; only the file’s recorded predictions are shown.', 'caution'));
@@ -131,18 +137,19 @@ export function designPrintHtml(input: DesignPrintInput): string {
     else if (input.changedSince.length) body.push(note(`${describeRunChanges(input.changedSince, 'since this flight')}. Its results describe the earlier rocket and conditions.`, 'caution'));
     else body.push(p('This flight matches the current design, motors, conditions and model.'));
     if (validDelayResolution(run.delayResolution)) {
+      const motorNames = delayReportMotorNames(run.delayResolution.mounts, run, motorMounts(tree).map(m => m.id!));
       const rows = run.delayResolution.mounts.map(m => {
         const flown = m.flownDelay === 'plugged' ? 'plugged — no ejection charge' : sec(m.flownDelay);
         const marks = (m.exception === 'plugged-on-charge' ? ' · hypothetical charge (motor sold plugged)' : '')
           + (m.mode === 'auto' && m.rawOptimum !== null && m.rawOptimum < 0 ? ' · limited by burnout' : '');
-        return `<tr><th scope="row">${e(`${m.mountName} (${m.mountId})`)}</th><td>${e(m.motorIdentity)}</td>
+        return `<tr><th scope="row">${e(`${m.mountName} (${m.mountId})`)}</th><td>${e(noteText(motorNames?.get(m.mountId) ?? '—'))}</td><td>${e(m.motorIdentity)}</td>
 <td>${e(m.branchName === null || m.branchId === null ? 'Unknown' : `${m.branchName} (${m.branchId})`)}</td>
 <td>${e(m.exception ? 'plugged → Auto (charge recovery)' : m.mode)}</td><td>${e(sec(m.rawOptimum))}</td>
 <td>${e(sec(m.recommendedDelay))}</td><td>${e(flown + marks)}${m.caution ? note(m.caution, 'caution') : ''}</td></tr>`;
       }).join('');
       body.push(p('Auto targets each mount’s recovery-free branch apogee, rounded to a whole second.'),
         `<table aria-label="Per-mount ejection delays"><caption>Ejection delays by mount — selected flight</caption>
-<thead><tr><th scope="col">Mount</th><th scope="col">Recorded motor identity</th><th scope="col">Branch</th><th scope="col">Mode</th>
+<thead><tr><th scope="col">Mount</th><th scope="col">Motor</th><th scope="col">Recorded motor identity</th><th scope="col">Branch</th><th scope="col">Mode</th>
 <th scope="col">Ballistic optimum</th><th scope="col">Recommended</th><th scope="col">Flown delay</th></tr></thead><tbody>${rows}</tbody></table>`);
     } else {
       body.push(note(run.delayResolution === undefined

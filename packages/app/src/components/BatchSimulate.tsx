@@ -43,6 +43,7 @@ import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import { safeName } from '../services/fileName.js';
 import { downloadBlob } from '../services/saveFile.js';
+import { batchMountDisclosure } from '../services/batchMountDisclosure.js';
 
 /**
  * Batch simulation: fly EVERY motor that fits the mount (after filters)
@@ -220,6 +221,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   const includedMotor = useMemo(() => includedMotorOf(tree, sel.id), [tree, sel.id]);
   const clusterSplit = useMemo(() => splitClusterTree(tree, sel.id), [tree, sel.id]);
   const pairSplit = useMemo(() => splitClusterPairsTree(tree, sel.id), [tree, sel.id]);
+  const disclosure = batchMountDisclosure(tree, mounts, sel, assignedMotors, assignedMountMotors, assignedMotorIds, assignedIgnitions);
   /** The halves box's words — on the box, and in the refusal that tells you to untick it. */
   const halvesName = clusterSplit ? `mixed ${clusterSplit.groupSize}+${clusterSplit.groupSize}` : '';
   const [rows, setRows] = useState<BatchRow[]>([]);
@@ -600,7 +602,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
             )}
             {clusterSplit && (
               <label className="motor-inline-label"
-                title={`Also fly every PAIR of candidates split symmetrically across the ${clusterSplit.groupSize * 2}-motor cluster (${clusterSplit.groupSize}+${clusterSplit.groupSize}). Off = one motor type in every tube (the default). Pairs grow fast — n candidates add n·(n−1)/2 extra flights.`}>
+                title={`Also fly every PAIR of candidates split symmetrically across the ${clusterSplit.groupSize * 2}-motor cluster (${clusterSplit.groupSize}+${clusterSplit.groupSize}). Off = one motor type in every tube of this cluster (the default). Pairs grow fast — n candidates add n·(n−1)/2 extra flights.`}>
                 <input type="checkbox" checked={comboMode} style={{ width: 'auto' }}
                   onChange={(e) => setComboMode(e.target.checked)} />
                 {halvesName}
@@ -626,6 +628,10 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
             </label>
           </div>
         </div>
+
+        {mounts.length > 1 && disclosure.text !== null && <Note as="p" tier={disclosure.matching ? 'caution' : 'information'}>{disclosure.text}</Note>}
+        {!clusterSplit && !pairSplit && disclosure.mixedUnavailable
+          && <Note as="p" tier="information">{disclosure.mixedUnavailable}</Note>}
 
         <TimeStepCaution dt={candidates.length > 0 ? launch.timeStepS : undefined} flights={totalFlights} />
 

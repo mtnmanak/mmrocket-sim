@@ -11,13 +11,14 @@ import {
 } from '../tree/treeModel.js';
 import { equivalentExitDiameterM } from './nozzleFollow.js';
 import { numOrNull } from '../tree/nodeNum.js';
-import { noteField } from './noteField.js';
+import { noteText } from './noteField.js';
 import { nozzleForMotorId } from './nozzleDb.js';
 import { displayDesignation, displayMotorManufacturer, motorLabel, isHighPower, type MotorDbEntry } from './motorDb.js';
-import { motorLabelEntry } from './motorLabels.js';
+import { boundedLoadoutMotorNames, loadoutMotorNames, motorLabelEntry } from './motorLabels.js';
+import { namedBatchMounts } from './batchLoadout.js';
 import { defaultDelay, delayOptions, fetchMotorSpec, requireCurveBundle, type TcMotor } from './thrustcurve.js';
 import { motorIdentity, shiftMotorMass } from './hardwareMass.js';
-import { buildSimRun, type MotorMeta, type SimRun } from './simReport.js';
+import { buildSimRun, type BatchMountRecord, type MotorMeta, type SimRun } from './simReport.js';
 import { normalizeFlightAdvisories, type FlightAdvisories } from '../prefs/flightAdvisories.js';
 import { INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
 import { aeroModelFor, rogersKbfFor, type AeroMode } from './flightPipeline.js';
@@ -370,7 +371,7 @@ export function notePluggedAtOptimum(run: SimRun, legs: number): void {
   const them = legs > 1 ? 'them' : 'it';
   const flown = run.delayResolution?.mounts.filter((m) => m.exception === 'plugged-on-charge');
   const delays = legs > 1 && flown?.length
-    ? `per-mount optimum delays (${flown.map((m) => `${noteField(m.mountName).replace(/\|/g, '/')}: ${m.flownDelay} s`).join(', ')})`
+    ? `per-mount optimum delays (${flown.map((m) => `${noteText(m.mountName).replace(/\|/g, '/')}: ${m.flownDelay} s`).join(', ')})`
     : `the optimum delay of ${run.delayS} s`;
   const note = `${legs > 1 ? 'Every motor in this combination is' : 'This motor is'} sold plugged `
     + `(no ejection charge), and this design deploys its recovery on the motor’s charge, so the `
@@ -617,6 +618,36 @@ export async function runBatchSweep(
   const names = batchMotorNames(candidates);
   // @atestani, TRF #162, 2026-10-06: maker display must not rewrite exported runs.
   const storedNames = batchMotorNames(candidates, false);
+  const designMountNames = new Map(namedBatchMounts(motorMounts(tree).map(m => ({ id: m.id!, mountName: mountName(m) })))
+    .map(m => [m.id, m.mountName]));
+
+  // Read the completed flight's installed vector, not the requested assignments:
+  // a refused ignition was never installed. This changes no flight inputs.
+  const batchMountsFor = (flownTree: RocketTree, candidateEntries: ReadonlyMap<string, MotorDbEntry>,
+    installedIds: readonly string[], displayNames = designMountNames): BatchMountRecord[] | undefined => {
+    const motors: Parameters<typeof loadoutMotorNames>[0][number][] = [];
+    const records = motorMounts(flownTree).map(m => {
+      const id = m.id!;
+      const candidate = candidateEntries.get(id);
+      const spec = overrideFor(assignedMotors, id);
+      const kept = candidate === undefined && installedIds.includes(id) && spec !== undefined;
+      const loaded = kept ? motorLabelEntry({ spec, meta: {
+        ...overrideFor(input.assignedMountMotors, id)?.meta, label: '', motorId: overrideFor(assignedMotorIds, id),
+      } }) : undefined;
+      if (candidate || loaded) motors.push(candidate ?? { ...loaded!, motorId: overrideFor(assignedMotorIds, id) ?? loaded!.motorId });
+      return {
+        mountId: id, mountName: noteText(displayNames.get(id) ?? mountName(m)),
+        role: candidate !== undefined ? 'candidate' as const : kept ? 'kept' as const : 'empty' as const,
+        motor: candidate || loaded ? '' : null,
+        count: mountMotorCount(flownTree, id),
+        ...(kept && overrideFor(assignedIgnitions, id)?.event === 'never' ? { ignition: 'never' as const } : {}),
+      };
+    });
+    const motorNames = boundedLoadoutMotorNames(motors);
+    if (!motorNames) return undefined;
+    let index = 0;
+    return records.map(m => ({ ...m, motor: m.motor === null ? null : noteText(motorNames[index++]!) }));
+  };
 
   /**
    * ONE FLIGHT, for either pass: the model choice, the Mach backstop and the
@@ -634,6 +665,7 @@ export async function runBatchSweep(
     }[],
     probeTree: RocketTree,
     replacedMountId?: string,
+    displayNames = designMountNames,
   ) => {
     const optimumForPlugged = !autoDelay && deploysOnCharge
       && legs.every((l) => l.spec.ejectionDelay === Infinity && !l.noListedDelay);
@@ -672,7 +704,8 @@ export async function runBatchSweep(
     const flight = await flyLaunch(rocket, {
       assigned, hardware: undefined, primaryMountId: legs[0]!.mountId,
       mountNames: Object.fromEntries([...mounts.map((m) => [m.id, m.label]),
-        ...motorMounts(probeTree).filter(m => !mounts.some(original => original.id === m.id)).map(m => [m.id, mountName(m)])]),
+        ...motorMounts(probeTree).filter(m => !mounts.some(original => original.id === m.id))
+          .map(m => [m.id, displayNames.get(m.id!) ?? mountName(m)])]),
       simOptions: simOpts, aeroMode, supersonic: model === 'supersonic',
       supersonicSimOptions: supersonicSimOpts,
       isOnLaunchStage: (id) => isOnLaunchStage(probeTree, id),
@@ -764,6 +797,7 @@ export async function runBatchSweep(
         weatherSnapshot,
         advisoryLimits, advisoryTree: keyTree, advisoryMotors: f.assigned,
         ...configuration, batch: true,
+        batchMounts: batchMountsFor(tree, new Map([[target.id, entry]]), f.delayResolution.mounts.map(m => m.mountId)),
         result: f.res,
         delayResolution: f.delayResolution, primaryMountId: f.primaryMountId,
         info,
@@ -819,6 +853,18 @@ export async function runBatchSweep(
   let done = n;
   for (const split of splits) {
     if (signal.aborted) break;
+    const splitMountNames = new Map(designMountNames);
+    const reservedNames = new Set(designMountNames.values());
+    const originalName = mountName(findNode(tree, target.id));
+    for (const id of split.mountIds) {
+      const suffix = mountName(findNode(split.tree, id)).slice(originalName.length);
+      const base = `${designMountNames.get(target.id)!}${suffix}`;
+      let name = base;
+      let index = 2;
+      while (reservedNames.has(name)) name = `${base} ${index++}`;
+      reservedNames.add(name);
+      splitMountNames.set(id, name);
+    }
     // Same strip and the same per-candidate re-apply as the single-motor
     // pass: `split.tree` is derived from the DESIGN tree, so it carries the
     // design's nozzles too, and its own pool is keyed on the equivalent exit
@@ -895,7 +941,7 @@ export async function runBatchSweep(
             },
             noListedDelay: listsNoDelay(entries[k]!),
           })),
-          split.tree, target.id);
+          split.tree, target.id, splitMountNames);
         const manuf = [...new Set(entries.map((e) => e.manufacturerAbbrev))].join('+');
         const provenance = provenanceKeyOf({
           physicsKey: physicsKeyOf(keyTree.components),
@@ -917,6 +963,8 @@ export async function runBatchSweep(
             ? applyStageNozzles(split.tree, { [stageIdOfTarget]: exitM }) : split.tree,
           advisoryMotors: f.assigned,
           ...configuration, batch: true,
+          batchMounts: batchMountsFor(split.tree, new Map(split.mountIds.map((id, k) => [id, entries[k]!])),
+            f.delayResolution.mounts.map(m => m.mountId), splitMountNames),
           result: f.res,
           delayResolution: f.delayResolution, primaryMountId: f.primaryMountId,
           info,

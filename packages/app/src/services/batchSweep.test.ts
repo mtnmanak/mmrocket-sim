@@ -22,6 +22,8 @@ import { OrkRocket, type ComponentNode, type MotorSpec, type RocketTree } from '
 import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
 import { applyStageNozzles, defaultTree, engineTree, motorMounts, splitClusterPairsTree, splitClusterTree } from '../tree/treeModel.js';
 import { MOTOR_DB, MOTOR_DB_DATE, setCatalogueOverlay, type MotorDbEntry } from './motorDb.js';
+import { labelMotor } from './motorLabels.testSupport.js';
+import * as motorDb from './motorDb.js';
 import { diffCatalogue } from './catalogueOverlay.js';
 import type { NozzleEntry } from './nozzleDb.js';
 import { defaultDelay, delayOptions, fetchMotorSpec } from './thrustcurve.js';
@@ -32,6 +34,9 @@ import { flownSpec, LEGACY_PAD_MASS_KEY, motorIdentity } from './hardwareMass.js
 import { padMassSetKey } from './configSync.js';
 import { stageMotors } from './nozzleFollow.js';
 import { historyMotorLabel } from '../components/SimResults.js';
+import { batchMountDisclosure } from './batchMountDisclosure.js';
+import { batchLoadoutText } from './batchLoadout.js';
+import { runsToCsv, runsToTable } from './simStore.js';
 import { matchingRecoveryEvents } from './recoveryFlight.js';
 import { IMPERIAL_UNITS, uiToSi } from '../prefs/units.js';
 import type { MountMotor } from '../model/design.js';
@@ -162,6 +167,184 @@ function input(tree: RocketTree, over: Partial<BatchSweepInput> = {}): BatchSwee
 
 const sweep = (inp: BatchSweepInput, deps: Partial<BatchSweepDeps>, signal = new AbortController().signal) =>
   runBatchSweep(inp, { signal }, { yieldToUi: noYield, ...deps });
+
+it('Round 5 reserves split-group names against kept design mounts on every disclosure surface', async () => {
+  const tree = clusterRocket('4-ring');
+  const body = tree.components[0]!.children![1]!;
+  body.children!.find(m => m.id === 'mount')!.name = 'Cluster';
+  body.children!.push({ type: 'innertube', id: 'side', name: 'Cluster (pair A)', length: 0.2,
+    outerRadius: 0.0125, thickness: 0.0005, motorMount: true });
+  const target = { ...MOUNT, motorCount: 4 };
+  const mounts = [target, { ...MOUNT, id: 'side' }];
+  const assignedMotors = { side: curve('E20') };
+  const metadata = { side: { spec: assignedMotors.side, label: 'E20',
+    ignition: { event: 'automatic' as const, delay: 0 }, meta: { label: '', manufacturer: 'Acme', motorId: 'a' } } };
+  const out = await sweep(input(tree, { mounts, target, candidates: [entry('a', 'Acme', 'E20', '5'), entry('b', 'Bolt', 'E22', '5')],
+    splits: [splitClusterTree(tree, 'mount')!], autoDelay: false, assignedMotors, assignedMountMotors: metadata,
+    assignedMotorIds: { side: 'a' },
+  }), { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }), nozzleFor: nozzles({}) });
+  expect(out.rows).toHaveLength(3);
+  expect(batchMountDisclosure(tree, mounts, target, assignedMotors, metadata, { side: 'a' }, {}).text)
+    .toContain('Cluster (pair A) keeps E20');
+  for (const row of out.rows) {
+    expect(row.error).toBeUndefined();
+    const run = row.run!;
+    expect(run.batchMounts!.find(m => m.role === 'kept')?.mountName).toBe('Cluster (pair A)');
+    const candidateNames = row.combo ? ['Cluster (pair A) 2', 'Cluster (pair B)'] : ['Cluster'];
+    expect(run.batchMounts!.filter(m => m.role === 'candidate').map(m => m.mountName)).toEqual(candidateNames);
+    if (row.combo) expect(run.delayResolution!.mounts.filter(m => m.mountId !== 'side').map(m => m.mountName)).toEqual(candidateNames);
+    expect(batchLoadoutText(run)).toContain('in Cluster (pair A)');
+    expect(runsToTable([run]).rows[0]!.slice(-2)).toEqual([candidateNames.join('; '), 'E20 in Cluster (pair A)']);
+    expect(runsToCsv([run])).toContain(`${candidateNames.join('; ')},E20 in Cluster (pair A)`);
+  }
+}, 60_000);
+
+it('Round 5 discards an entire new record vector with an oversized resolved name', async () => {
+  const tree = rocket({ sideMount: true });
+  const candidate = entry('ex:oversized-round5', 'EX', 'K'.repeat(1_000_000), '5');
+  const out = await sweep(input(tree, { candidates: [candidate], autoDelay: false }), {
+    fetchSpec: fetchFrom({ [candidate.motorId]: curve('E20') }), nozzleFor: nozzles({}),
+  });
+  expect(out.rows[0]?.error).toBeUndefined();
+  expect(out.rows[0]?.run).toBeDefined();
+  expect(out.rows[0]?.run?.batchMounts).toBeUndefined();
+}, 60_000);
+
+it.each([{ diameter: 1001 }, { masses: [1e16] }])('Round 4 refuses the whole row for an over-limit background spec: %j', async invalid => {
+  const out = await sweep(input(rocket({ sideMount: true }), { autoDelay: false,
+    candidates: [entry('a', 'Acme', 'E20', '5')], assignedMotors: { side: { ...curve('Refused'), ...invalid } },
+  }), { fetchSpec: fetchFrom({ a: curve('E20') }), nozzleFor: nozzles({}) });
+  expect(out.rows[0]?.error).toContain('the motor was left off the rocket');
+  expect(out.rows[0]?.run).toBeUndefined();
+}, 60_000);
+
+it('Round 4 groups a legacy kept catalogue motor with the same swept motor', async () => {
+  const candidate = entry('round7-delayed', 'Cesaroni', '381I224-15A', '5');
+  vi.spyOn(motorDb, 'getCatalogue').mockReturnValue([candidate]);
+  const spec = curve(candidate.designation);
+  const out = await sweep(input(rocket({ sideMount: true }), { autoDelay: false, candidates: [candidate],
+    assignedMotors: { side: spec }, assignedMountMotors: { side: {
+      spec, label: '', meta: { label: '', manufacturer: candidate.manufacturerAbbrev }, ignition: { event: 'automatic', delay: 0 },
+    } },
+  }), { fetchSpec: fetchFrom({ [candidate.motorId]: spec }), nozzleFor: nozzles({}) });
+  expect(out.rows[0]?.error).toBeUndefined();
+  expect(out.rows[0]?.run?.batchMounts?.map(m => m.motor)).toEqual(['I224', 'I224']);
+  expect(batchLoadoutText(out.rows[0]!.run!)).toBe('I224 in Motor mount 1, Motor mount 2');
+}, 60_000);
+
+it('Round 7 preserves typographic quotes in frozen records and both export columns', async () => {
+  const tree = rocket({ sideMount: true });
+  const mounts = motorMounts(tree);
+  mounts[0]!.name = '3” MMT';
+  mounts[1]!.name = '54mm “main” tube';
+  const candidate = entry('round7-quotes', 'Home', '“Candidate”', '5');
+  const spec = curve(candidate.designation);
+  const out = await sweep(input(tree, { autoDelay: false, candidates: [candidate],
+    assignedMotors: { side: curve('“Kept”') },
+  }), { fetchSpec: fetchFrom({ [candidate.motorId]: spec }), nozzleFor: nozzles({}) });
+  expect(out.rows[0]?.error).toBeUndefined();
+  const run = out.rows[0]!.run!;
+  expect(run.batchMounts?.map(m => [m.mountName, m.motor])).toEqual([
+    ['3” MMT', '“Candidate”'], ['54mm “main” tube', '“Kept”'],
+  ]);
+  expect(batchLoadoutText(run)).toBe('“Candidate” in 3” MMT; “Kept” in 54mm “main” tube');
+  expect(runsToTable([run]).rows[0]!.slice(-2)).toEqual(['3” MMT', '“Kept” in 54mm “main” tube']);
+  expect(runsToCsv([run])).toContain('3” MMT,\u201cKept\u201d in 54mm “main” tube');
+}, 60_000);
+
+it('Round 4 records the uncatalogued candidate designation from the actual sweep', async () => {
+  const candidate = entry('0123456789abcdef01234567', 'Uncatalogued', 'Candidate42', '5');
+  expect(MOTOR_DB.some(m => m.motorId === candidate.motorId)).toBe(false);
+  const out = await sweep(input(rocket({ sideMount: true }), { autoDelay: false, candidates: [candidate] }), {
+    fetchSpec: fetchFrom({ [candidate.motorId]: curve(candidate.designation) }), nozzleFor: nozzles({}),
+  });
+  expect(out.rows[0]?.error).toBeUndefined();
+  expect(out.rows[0]?.run?.batchMounts?.find(m => m.role === 'candidate')?.motor).toBe(candidate.designation);
+}, 60_000);
+
+it('Round 3 freezes design numbering for ordinary rows, split groups and the picker', async () => {
+  const tree = clusterRocket('4-ring');
+  const body = tree.components[0]!.children![1]!;
+  body.children!.find(m => m.id === 'mount')!.name = 'Inner Tube';
+  for (const id of ['side', 'side2']) body.children!.push({ type: 'innertube', id, name: 'Inner Tube', length: 0.2,
+    outerRadius: 0.0125, thickness: 0.0005, motorMount: true });
+  const target = { ...MOUNT, motorCount: 4 };
+  const mounts = [target, { ...MOUNT, id: 'side' }, { ...MOUNT, id: 'side2' }];
+  const assignedMotors = { side: curve('E20'), side2: curve('E20') };
+  const metadata = Object.fromEntries(['side', 'side2'].map(id => [id, {
+    spec: assignedMotors[id as keyof typeof assignedMotors], label: 'E20', ignition: { event: 'automatic' as const, delay: 0 },
+    meta: { label: '', manufacturer: 'Acme', motorId: 'a' },
+  }]));
+  const out = await sweep(input(tree, { mounts, target, candidates: [entry('a', 'Acme', 'E20', '5'), entry('b', 'Bolt', 'E22', '5')],
+    splits: [splitClusterTree(tree, 'mount')!], autoDelay: false, assignedMotors, assignedMountMotors: metadata,
+    assignedMotorIds: { side: 'a', side2: 'a' },
+  }), { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }), nozzleFor: nozzles({}) });
+  expect(out.rows).toHaveLength(3);
+  for (const row of out.rows) {
+    expect(row.error).toBeUndefined();
+    expect(row.run!.batchMounts!.filter(m => m.role === 'kept').map(m => m.mountName)).toEqual(['Inner Tube 2', 'Inner Tube 3']);
+    expect(row.run!.batchMounts!.filter(m => m.role === 'candidate').map(m => m.mountName))
+      .toEqual(row.combo ? ['Inner Tube 1 (pair A)', 'Inner Tube 1 (pair B)'] : ['Inner Tube 1']);
+  }
+  expect(batchMountDisclosure(tree, mounts, target, assignedMotors, metadata, { side: 'a', side2: 'a' }, {}).text)
+    .toContain('Inner Tube 2 and Inner Tube 3 keep E20');
+  expect(batchLoadoutText(out.rows[0]!.run!)).toBe('E20 ×4 in Inner Tube 1, ×1 in Inner Tube 2, ×1 in Inner Tube 3');
+}, 60_000);
+
+it('Round 3 names both roles together and never exports the imported real maker', async () => {
+  const tree = rocket({ sideMount: true });
+  const candidates = [entry('a', 'Acme', 'E20', '5'), entry('b', 'Bolt', 'E20', '5'),
+    { ...entry('ex:round3', 'EX', 'E22', '5'), realManufacturer: 'Private maker' }];
+  const out = await sweep(input(tree, { candidates, autoDelay: false,
+    assignedMotors: { side: curve('E20') }, assignedMotorIds: { side: 'a' },
+    assignedMountMotors: { side: { spec: curve('E20'), label: 'E20', ignition: { event: 'automatic', delay: 0 },
+      meta: { label: '', manufacturer: 'Acme', motorId: 'a' } } },
+  }), { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E20'), 'ex:round3': curve('E22') }), nozzleFor: nozzles({}) });
+  expect(out.rows).toHaveLength(3);
+  for (const row of out.rows) expect(row.error).toBeUndefined();
+  expect(out.rows.map(row => row.run!.batchMounts!.map(m => m.motor))).toEqual([
+    ['E20', 'E20'], ['Bolt E20', 'Acme E20'], ['E22', 'E20'],
+  ]);
+  expect(JSON.stringify(out.rows.map(row => row.run!.batchMounts))).not.toContain('Private maker');
+}, 60_000);
+
+it('records actual ordinary and mixed loadouts in tree order, including kept-never and empty mounts', async () => {
+  const tree = clusterRocket('4-ring');
+  const body = tree.components[0]!.children![1]!;
+  body.children!.push({ type: 'innertube', id: 'side', name: 'Other mount', length: 0.2,
+    outerRadius: 0.0125, thickness: 0.0005, motorMount: true },
+  { type: 'innertube', id: 'empty', name: 'Empty mount', length: 0.2,
+    outerRadius: 0.0125, thickness: 0.0005, motorMount: true });
+  const target = { ...MOUNT, label: 'Picker label (⌀ 24 mm ×4)', motorCount: 4 };
+  const split = splitClusterTree(tree, 'mount')!;
+  const out = await sweep(input(tree, { target, mounts: [target, { ...MOUNT, id: 'side', label: 'Other mount' }],
+    candidates: [entry('a', 'Acme', 'E20', '5'), entry('b', 'Bolt', 'E22', '5')], splits: [split], autoDelay: false,
+    assignedMotors: { side: curve('Side') }, assignedIgnitions: { side: { event: 'never', delay: 0 } },
+  }), { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22', 1.1) }), nozzleFor: nozzles({}) });
+  expect(out.rows).toHaveLength(3);
+  for (const row of out.rows) {
+    expect(row.error).toBeUndefined();
+    const records = row.run!.batchMounts!;
+    expect(records.map(m => m.mountId)).toEqual(motorMounts(row.combo ? split.tree : tree).map(m => m.id));
+    expect(records.find(m => m.mountId === 'side')).toEqual({ mountId: 'side', mountName: 'Other mount',
+      role: 'kept', motor: 'Side', count: 1, ignition: 'never' });
+    expect(records.find(m => m.mountId === 'empty')).toEqual({ mountId: 'empty', mountName: 'Empty mount',
+      role: 'empty', motor: null, count: 1 });
+    const candidates = records.filter(m => m.role === 'candidate');
+    if (!row.combo) expect(candidates[0]?.mountName).not.toContain('Picker label');
+    expect(candidates.map(m => [m.motor, m.count])).toEqual(row.combo ? [['E20', 2], ['E22', 2]] : [[row.entry.designation, 4]]);
+  }
+}, 60_000);
+
+it('does not claim a background motor with a refused ignition event was kept', async () => {
+  const tree = rocket({ sideMount: true });
+  const out = await sweep(input(tree, { autoDelay: false, candidates: [entry('a', 'Acme', 'E20', '5')],
+    assignedMotors: { side: curve('Refused') },
+    assignedIgnitions: { side: { event: 'bogus' as never, delay: 0 } },
+  }), { fetchSpec: fetchFrom({ a: curve('E20') }), nozzleFor: nozzles({}) });
+  expect(out.rows[0]?.error).toBeUndefined();
+  expect(out.rows[0]?.run?.batchMounts?.find(m => m.mountId === 'side')).toMatchObject({ role: 'empty', motor: null });
+}, 60_000);
 it.each(['toString', 'constructor', '__proto__'])('flies a loaded legacy sibling without inherited motor metadata: %s', async id => {
   const tree = rocket({ sideMount: true });
   tree.components[0]!.children![1]!.children!.find(n => n.id === 'side')!.id = id;
@@ -636,9 +819,9 @@ describe('deploysOnEjectionCharge', () => {
 
 describe('batchMotorNames and batchRowKey — rows that can be told apart', () => {
   it('names the manufacturer, and falls back to the raw designation only where two candidates would read alike', () => {
-    const cti = MOTOR_DB.filter((m) => m.manufacturerAbbrev === 'Cesaroni' && /^\d+H255-14A$/.test(m.designation));
+    const cti = ['229H255-14A', '315H255-14A'].map(d => labelMotor(d, 'Cesaroni'));
     expect(cti.map((m) => m.designation).sort()).toEqual(['229H255-14A', '315H255-14A']);
-    const other = MOTOR_DB.find((m) => m.manufacturerAbbrev === 'AeroTech' && m.designation === 'F13-RCT')!;
+    const other = labelMotor('F13-RCT', 'AeroTech');
     const names = batchMotorNames([...cti, other]);
     expect(names.get(other.motorId)).toBe('AeroTech F13-RCT');
     expect(names.get(cti[0]!.motorId)).toBe(`Cesaroni ${cti[0]!.designation}`);
@@ -836,10 +1019,14 @@ describe('the sweep, flown on the real kernel', () => {
     const combo = rows.find((r) => r.combo)!;
     expect(combo.label).toBe('6× Acme E20 + 6× Acme E22');
     expect(combo.run!.motorCount).toBe(12);
+    expect(combo.run!.batchMounts?.map(m => [m.role, m.motor, m.count])).toEqual([
+      ['candidate', 'E20', 6], ['candidate', 'E22', 6],
+    ]);
     // Twelve 10 mm exits, summed by area: 10·√12 mm.
     expect(combo.exitM).toBeCloseTo(0.01 * Math.sqrt(12), 12);
     // The single-motor rows already counted the pods, and still do.
     expect(rows.find((r) => !r.combo)!.run!.motorCount).toBe(12);
+    expect(rows.find((r) => !r.combo)!.run!.batchMounts?.[0]?.count).toBe(12);
   }, 60000);
 
   it('the history keeps the maker in front of a combination stored before its label named one', () => {
