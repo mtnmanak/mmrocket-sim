@@ -13,6 +13,8 @@ import type { MountMotor } from '../model/design.js';
 import { importedSummaryRuns } from './orkFlightData.js';
 import { importOrk } from './orkFile.js';
 import { couplerRingFitNote } from '../components/ringFit.js';
+import delayData from '../data/aerotechDelays.json';
+import { formatDelayAverage, PRINTED_AVERAGE_NOTE, PUBLISHED_DELAYS_URL } from './publishedDelays.js';
 
 const tree: RocketTree = { name: 'Current <script>rocket</script>', components: [
   { type: 'stage', id: 'stage', children: [{ type: 'bodytube', id: 'tube', name: 'Tube', length: 0.254, outerRadius: 0.0254, materialName: 'Paper' }] },
@@ -29,6 +31,44 @@ const run = { id: 'selected', rocket: 'Earlier design', motor: 'F40', manufactur
 const input = { tree, info, units: IMPERIAL_UNITS, radiusMode: 'diameter' as const,
   stabilityUnit: 'both' as const, withMotors: true, appVersion: 'test', run, changedSince: ['the design'], };
 function doc(html: string) { return new DOMParser().parseFromString(html, 'text/html').body; }
+
+it('prints the measured band column that was previously missing from the range card', () => {
+  const resolution = testResolution([['band', testMotor(false, 5)]], [5]);
+  resolution.mounts[0]!.motorIdentity = '5f5e57811e865c0004c955d8';
+  const d = doc(designPrintHtml({ ...input, run: { ...run, delayResolution: resolution } }));
+  const table = d.querySelector('table[aria-label="Per-mount ejection delays"]')!;
+  expect(table.querySelector('thead th:last-child')!.textContent).toBe('Published test delays');
+  expect(table.querySelector('tbody tr td:last-child')!.textContent).toBe('4.5–5.2 s (3 motors)');
+  expect(d.textContent).toContain('not a guarantee');
+  expect(d.textContent).not.toContain('Printed average only:');
+});
+
+it('prints published bands and printed averages with their separate explanations', () => {
+  const [id, motor] = Object.entries(delayData.averages)[0]!;
+  const delay = motor.delays[0]!;
+  const resolution = testResolution([['average', testMotor(false, delay.nominalS)], ['band', testMotor(false, 5)]], [delay.nominalS, 5]);
+  resolution.mounts[0]!.motorIdentity = id;
+  resolution.mounts[1]!.motorIdentity = '5f5e57811e865c0004c955d8';
+  const d = doc(designPrintHtml({ ...input, run: { ...run, delayResolution: resolution } }));
+  const table = d.querySelector('table[aria-label="Per-mount ejection delays"]')!;
+  expect(table.querySelector('thead th:last-child')!.textContent).toBe('Published test delays');
+  expect(table.textContent).toContain(formatDelayAverage(delay));
+  expect(table.textContent).toContain('4.5–5.2 s (3 motors)');
+  const rows = table.querySelectorAll('tbody tr');
+  expect(rows).toHaveLength(2);
+  expect(rows[0]!.querySelector('th')!.textContent).toContain('average');
+  expect(rows[0]!.querySelector('td:last-child')!.textContent).toBe(formatDelayAverage(delay));
+  expect(rows[1]!.querySelector('th')!.textContent).toContain('band');
+  expect(rows[1]!.querySelector('td:last-child')!.textContent).toBe('4.5–5.2 s (3 motors)');
+  expect(d.textContent).toContain(PRINTED_AVERAGE_NOTE);
+  expect(d.textContent).toContain('shortest and longest');
+  resolution.mounts.pop();
+  const averageOnly = doc(designPrintHtml({ ...input, run: { ...run, delayResolution: resolution } }));
+  expect(averageOnly.textContent).toContain(PRINTED_AVERAGE_NOTE);
+  expect(averageOnly.textContent).not.toContain('shortest and longest');
+  expect(averageOnly.textContent).toContain('The flight fires the charge at exactly the flown delay.');
+  expect(averageOnly.querySelector(`a[href="${PUBLISHED_DELAYS_URL}"]`)?.textContent).toBe('AeroTech’s certification documents');
+});
 it('Round 2 counts every recorded installed motor, including never ignition but excluding empty tubes', () => {
   const batchMounts: NonNullable<SimRun['batchMounts']> = [
     { mountId: 'a', mountName: 'A', role: 'candidate', motor: 'Candidate', count: 2 },

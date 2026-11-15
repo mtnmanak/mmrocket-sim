@@ -1,9 +1,80 @@
 import { describe, expect, it } from 'vitest';
 import data from '../data/aerotechDelays.json';
 import motorsJson from '../data/motors.json';
-import { formatDelayBand, publishedDelayBand, PUBLISHED_DELAYS_URL } from './publishedDelays.js';
+import { formatDelayAverage, formatDelayBand, publishedDelayAverage, publishedDelayBand, PUBLISHED_DELAYS_URL } from './publishedDelays.js';
 
 const F52C = '5f5e57811e865c0004c955d8';
+
+describe('printed delay averages', () => {
+  it('rejects prototype keys, plugged settings and non-finite settings', () => {
+    expect(publishedDelayAverage('toString', 5)).toBeNull();
+    expect(publishedDelayAverage('toString', 'plugged')).toBeNull();
+    expect(publishedDelayAverage('toString', Infinity)).toBeNull();
+    expect(publishedDelayAverage('toString', NaN)).toBeNull();
+  });
+
+  it('looks up only a catalogue identity at its exact finite printed nominal', () => {
+    for (const [id, motor] of Object.entries(data.averages)) {
+      for (const delay of motor.delays) {
+        expect(publishedDelayAverage(id, delay.nominalS)).toEqual({
+          designation: motor.designation, nominalS: delay.nominalS, averageS: delay.averageS, url: motor.url,
+        });
+        for (const flown of [delay.nominalS + 0.1, 'plugged', Infinity, NaN] as const) {
+          expect(publishedDelayAverage(id, flown)).toBeNull();
+        }
+        expect(publishedDelayAverage(`${motor.manufacturer}/${motor.designation}`, delay.nominalS)).toBeNull();
+        expect(publishedDelayAverage('toString', delay.nominalS)).toBeNull();
+      }
+    }
+  });
+
+  it('labels a rounded average without suggesting spread or a sample count', () => {
+    const text = formatDelayAverage({ averageS: 4.34 });
+    expect(text).toBe('4.3 s (printed average only)');
+    expect(formatDelayAverage({ averageS: 4.36 })).toBe('4.4 s (printed average only)');
+    expect(text).not.toContain('–');
+    expect(text).not.toContain('motor');
+  });
+
+  it('matches every average source folder hardware class to its catalogue type', () => {
+    const catalogue = new Map(motorsJson.motors.map(m => [m.motorId, m]));
+    for (const [id, motor] of Object.entries(data.averages)) {
+      for (const document of motor.documents) {
+        const folder = document.slice(0, document.lastIndexOf('/'));
+        const hardware = /Single[- ]Use/i.test(folder) ? 'SU'
+          : /RMS-|reload/i.test(folder) ? 'reload' : null;
+        expect(hardware, document).not.toBeNull();
+        expect(catalogue.get(id)?.type, `${motor.designation}: ${document}`).toBe(hardware);
+      }
+    }
+  });
+
+  it('ships averages separately, with catalogue joins, positive values and matching counts', () => {
+    const catalogue = new Map(motorsJson.motors.map(m => [m.motorId, m]));
+    const entries = Object.entries(data.averages);
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries.length).toBe(data.averageMotorCount);
+    let pairs = 0;
+    for (const [id, motor] of entries) {
+      const row = catalogue.get(id)!;
+      expect(row).toBeDefined();
+      expect([motor.manufacturer, motor.designation]).toEqual([row.manufacturerAbbrev, row.designation]);
+      expect(Object.hasOwn(data.motors, id)).toBe(false);
+      expect(motor.form).toBe('scan-average');
+      expect(motor.documents.length).toBeGreaterThan(0);
+      expect(motor.delays.length).toBeGreaterThan(0);
+      expect(new Set(motor.delays.map(d => d.nominalS)).size).toBe(motor.delays.length);
+      for (const delay of motor.delays) {
+        pairs++;
+        expect(Object.hasOwn(delay, 'measuredS')).toBe(false);
+        expect(Number.isInteger(delay.nominalS) && delay.nominalS > 0).toBe(true);
+        expect(delay.averageS).toBeGreaterThan(0);
+        expect(Math.abs(delay.averageS - delay.nominalS)).toBeLessThan(delay.nominalS / 2);
+      }
+    }
+    expect(pairs).toBe(data.averagePairCount);
+  });
+});
 
 describe('publishedDelayBand', () => {
   it('gives the F52C its letter\'s 5 s band: 4.507 to 5.158 s across three motors', () => {

@@ -1,12 +1,34 @@
 {
   "reviewedOn": "2026-10-13",
   "method": "Visual review of all 114 pages rendered with pymupdf at 200 dpi, outside the repo; no OCR. Positions use 1-based pages and printed row/column labels.",
-  "policy": "Merge individual measurements only when the document also prints an agreeing delay average or repeated summary. Count checks are recorded but do not verify values. Candidates in unread are never merged.",
+  "policy": "Merge individual measurements only when the document also prints an agreeing delay average or repeated summary. Count checks are recorded but do not verify values. Candidates in unread are never merged. Printed averages are separate from individual measurements and never supply spread. The 43 average-only scans were read independently by Claude (Opus 5.5, workflow wf_04bb1231-230, 4 agents, Read on 200 dpi renders) and agy (Gemini 4 Carbon High, agent reviewer, read_file on the same renders); all 113 cells agreed, including 111 numeric averages and two plugged columns excluded from averages.",
   "documents": [],
   "unread": [
     {
       "index": 0,
       "document": "NAR/18mm Model Rocket Single-Use/D21T.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 4,
+          "printed": "4.80",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 7,
+          "printed": "7.38",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        }
+      ],
       "filenameMotor": "D21T",
       "metadata": {
         "format": "PDF 1.1",
@@ -33,6 +55,28 @@
     {
       "index": 1,
       "document": "NAR/18mm Model Rocket Single-Use/E25T.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 4,
+          "printed": "4.72",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 7,
+          "printed": "8.00",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        }
+      ],
       "filenameMotor": "E25T",
       "metadata": {
         "format": "PDF 1.1",
@@ -59,6 +103,38 @@
     {
       "index": 2,
       "document": "NAR/18mm Model Rocket Single-Use/E45T.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 4,
+          "printed": "4.19",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 8,
+          "printed": "7.40",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 12,
+          "printed": "9.86",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "E45T",
       "metadata": {
         "format": "PDF 1.1",
@@ -85,6 +161,28 @@
     {
       "index": 3,
       "document": "NAR/24mm Model Rocket Single-Use/E15W.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 4,
+          "printed": "4.56",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 7,
+          "printed": "7.97",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        }
+      ],
       "filenameMotor": "E15W",
       "metadata": {
         "format": "PDF 1.1",
@@ -111,6 +209,28 @@
     {
       "index": 4,
       "document": "NAR/24mm Model Rocket Single-Use/E30T.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 4,
+          "printed": "4.25",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 7,
+          "printed": "6.56",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        }
+      ],
       "filenameMotor": "E30T",
       "metadata": {
         "format": "PDF 1.1",
@@ -137,6 +257,38 @@
     {
       "index": 5,
       "document": "NAR/24mm Model Rocket Single-Use/E6T.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 2,
+          "printed": "2.16",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 4,
+          "printed": "4.08",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 8,
+          "printed": "8.09",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "E6T",
       "metadata": {
         "format": "PDF 1.1",
@@ -163,6 +315,38 @@
     {
       "index": 6,
       "document": "NAR/24mm Model Rocket Single-Use/F32W.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 5,
+          "printed": "5.60",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 10,
+          "printed": "9.48",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 15,
+          "printed": "16.45",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "F32W",
       "metadata": {
         "format": "PDF 1.1",
@@ -189,6 +373,38 @@
     {
       "index": 7,
       "document": "NAR/24mm Model Rocket Single-Use/F44 Classic.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 5,
+          "printed": "5.92",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 10,
+          "printed": "11.24",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 15,
+          "printed": "15.54",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "F44 Classic",
       "metadata": {
         "format": "PDF 1.1",
@@ -215,6 +431,38 @@
     {
       "index": 8,
       "document": "NAR/24mm Model Rocket Single-Use/F72T.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 5,
+          "printed": "5.42",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 10,
+          "printed": "10.40",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 15,
+          "printed": "15.04",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "F72T",
       "metadata": {
         "format": "PDF 1.1",
@@ -241,6 +489,38 @@
     {
       "index": 9,
       "document": "NAR/24mm Model Rocket Single-Use/G42W.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 4,
+          "printed": "3.82",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 8,
+          "printed": "8.15",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 12,
+          "printed": "12.60",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "G42W",
       "metadata": {
         "format": "PDF 1.1",
@@ -267,6 +547,38 @@
     {
       "index": 10,
       "document": "NAR/24mm Model Rocket Single-Use/G55W.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 5,
+          "printed": "4.81",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 10,
+          "printed": "9.60",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 15,
+          "printed": "13.77",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "G55W",
       "metadata": {
         "format": "PDF 1.1",
@@ -293,6 +605,38 @@
     {
       "index": 11,
       "document": "NAR/29mm Model Rocket Single-Use/F10T.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 2,
+          "printed": "2.40",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 4,
+          "printed": "4.32",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 8,
+          "printed": "8.21",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "F10T",
       "metadata": {
         "format": "PDF 1.1",
@@ -319,6 +663,28 @@
     {
       "index": 12,
       "document": "NAR/29mm Model Rocket Single-Use/F14J.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 4,
+          "printed": "4.89",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 6,
+          "printed": "6.27",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        }
+      ],
       "filenameMotor": "F14J",
       "metadata": {
         "format": "PDF 1.1",
@@ -345,6 +711,28 @@
     {
       "index": 13,
       "document": "NAR/29mm Model Rocket Single-Use/F20W.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 4,
+          "printed": "4.09",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 7,
+          "printed": "6.93",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        }
+      ],
       "filenameMotor": "F20W",
       "metadata": {
         "format": "PDF 1.1",
@@ -371,6 +759,38 @@
     {
       "index": 14,
       "document": "NAR/29mm Model Rocket Single-Use/F25W.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 4,
+          "printed": "4.29",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 6,
+          "printed": "6.38",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 9,
+          "printed": "9.30",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "F25W",
       "metadata": {
         "format": "PDF 1.1",
@@ -397,6 +817,38 @@
     {
       "index": 15,
       "document": "NAR/29mm Model Rocket Single-Use/F50T.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 4,
+          "printed": "4.25",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 6,
+          "printed": "6.05",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 9,
+          "printed": "9.20",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "F50T",
       "metadata": {
         "format": "PDF 1.1",
@@ -423,6 +875,38 @@
     {
       "index": 16,
       "document": "NAR/29mm Model Rocket Single-Use/G25W.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 5,
+          "printed": "5.23",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 10,
+          "printed": "9.63",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 15,
+          "printed": "15.30",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "G25W",
       "metadata": {
         "format": "PDF 1.1",
@@ -449,6 +933,38 @@
     {
       "index": 17,
       "document": "NAR/29mm Model Rocket Single-Use/G40W.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 4,
+          "printed": "3.48",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 7,
+          "printed": "7.97",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 10,
+          "printed": "11.15",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "G40W",
       "metadata": {
         "format": "PDF 1.1",
@@ -475,6 +991,38 @@
     {
       "index": 18,
       "document": "NAR/29mm Model Rocket Single-Use/G80T.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 4,
+          "printed": "4.15",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 7,
+          "printed": "7.13",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 10,
+          "printed": "9.10",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "G80T",
       "metadata": {
         "format": "PDF 1.1",
@@ -501,6 +1049,38 @@
     {
       "index": 19,
       "document": "NAR/RMS-18-20/C12T.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 2,
+          "printed": "2.39",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 5,
+          "printed": "4.51",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 7,
+          "printed": "6.80",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "C12T",
       "metadata": {
         "format": "PDF 1.1",
@@ -527,6 +1107,28 @@
     {
       "index": 20,
       "document": "NAR/RMS-18-20/C6W.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 3,
+          "printed": "2.37",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 7,
+          "printed": "6.29",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        }
+      ],
       "filenameMotor": "C6W",
       "metadata": {
         "format": "PDF 1.1",
@@ -553,6 +1155,38 @@
     {
       "index": 21,
       "document": "NAR/RMS-18-20/D13W.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 4,
+          "printed": "3.32",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 7,
+          "printed": "6.80",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 10,
+          "printed": "8.27",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "D13W",
       "metadata": {
         "format": "PDF 1.1",
@@ -579,6 +1213,18 @@
     {
       "index": 22,
       "document": "NAR/RMS-18-20/E27T.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 3,
+          "printed": "2.56",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        }
+      ],
       "filenameMotor": "E27T",
       "metadata": {
         "format": "PDF 1.1",
@@ -605,6 +1251,38 @@
     {
       "index": 23,
       "document": "NAR/RMS-24-40/D15T.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 4,
+          "printed": "3.55",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 6,
+          "printed": "5.79",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 8,
+          "printed": "8.22",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "D15T",
       "metadata": {
         "format": "PDF 1.1",
@@ -631,6 +1309,28 @@
     {
       "index": 24,
       "document": "NAR/RMS-24-40/D9W.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 4,
+          "printed": "4.45",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 7,
+          "printed": "7.58",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        }
+      ],
       "filenameMotor": "D9W",
       "metadata": {
         "format": "PDF 1.1",
@@ -657,6 +1357,18 @@
     {
       "index": 25,
       "document": "NAR/RMS-24-40/E11J.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 4,
+          "printed": "4.25",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        }
+      ],
       "filenameMotor": "E11J",
       "metadata": {
         "format": "PDF 1.1",
@@ -683,6 +1395,38 @@
     {
       "index": 26,
       "document": "NAR/RMS-24-40/E18W.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 4,
+          "printed": "3.87",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 8,
+          "printed": "8.14",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 10,
+          "printed": "10.79",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "E18W",
       "metadata": {
         "format": "PDF 1.1",
@@ -709,6 +1453,38 @@
     {
       "index": 27,
       "document": "NAR/RMS-24-40/E28T.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 2,
+          "printed": "2.03",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 5,
+          "printed": "4.87",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 8,
+          "printed": "7.48",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "E28T",
       "metadata": {
         "format": "PDF 1.1",
@@ -735,6 +1511,18 @@
     {
       "index": 28,
       "document": "NAR/RMS-24-40/F12J.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 2,
+          "printed": "1.33",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        }
+      ],
       "filenameMotor": "F12J",
       "metadata": {
         "format": "PDF 1.1",
@@ -761,6 +1549,28 @@
     {
       "index": 29,
       "document": "NAR/RMS-24-40/F24W.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 4,
+          "printed": "3.71",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 7,
+          "printed": "6.60",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        }
+      ],
       "filenameMotor": "F24W",
       "metadata": {
         "format": "PDF 1.1",
@@ -787,6 +1597,38 @@
     {
       "index": 30,
       "document": "NAR/RMS-24-40/F39T.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 3,
+          "printed": "3.17",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 6,
+          "printed": "6.27",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 9,
+          "printed": "9.56",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "F39T",
       "metadata": {
         "format": "PDF 1.1",
@@ -813,6 +1655,38 @@
     {
       "index": 31,
       "document": "NAR/RMS-29-100/G54W.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 6,
+          "printed": "6.22",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 10,
+          "printed": "8.99",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 14,
+          "printed": "13.32",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "G54W",
       "metadata": {
         "format": "PDF 1.1",
@@ -839,6 +1713,38 @@
     {
       "index": 32,
       "document": "NAR/RMS-29-240/H220T.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 6,
+          "printed": "5.11",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 10,
+          "printed": "8.64",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 14,
+          "printed": "13.31",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "H220T",
       "metadata": {
         "format": "PDF 1.1",
@@ -865,6 +1771,38 @@
     {
       "index": 33,
       "document": "NAR/RMS-29-40-120/E16W.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 4,
+          "printed": "3.86",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 7,
+          "printed": "6.55",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 10,
+          "printed": "10.90",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "E16W",
       "metadata": {
         "format": "PDF 1.1",
@@ -891,6 +1829,18 @@
     {
       "index": 34,
       "document": "NAR/RMS-29-40-120/F22J.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 4,
+          "printed": "3.59",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        }
+      ],
       "filenameMotor": "F22J",
       "metadata": {
         "format": "PDF 1.1",
@@ -917,6 +1867,38 @@
     {
       "index": 35,
       "document": "NAR/RMS-29-40-120/F40W.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 4,
+          "printed": "3.21",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 7,
+          "printed": "6.74",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 10,
+          "printed": "8.97",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "F40W",
       "metadata": {
         "format": "PDF 1.1",
@@ -943,6 +1925,38 @@
     {
       "index": 36,
       "document": "NAR/RMS-29-40-120/F52T.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 5,
+          "printed": "5.75",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 8,
+          "printed": "8.85",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 11,
+          "printed": "11.56",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "F52T",
       "metadata": {
         "format": "PDF 1.1",
@@ -969,6 +1983,28 @@
     {
       "index": 37,
       "document": "NAR/RMS-29-40-120/G33J.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 5,
+          "printed": "4.98",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 7,
+          "printed": "7.65",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        }
+      ],
       "filenameMotor": "G33J",
       "metadata": {
         "format": "PDF 1.1",
@@ -995,6 +2031,38 @@
     {
       "index": 38,
       "document": "NAR/RMS-29-40-120/G64W.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 4,
+          "printed": "4.04",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 8,
+          "printed": "8.39",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 10,
+          "printed": "11.08",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "G64W",
       "metadata": {
         "format": "PDF 1.1",
@@ -1021,6 +2089,38 @@
     {
       "index": 39,
       "document": "NAR/RMS-29-60/F37W.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 6,
+          "printed": "5.13",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 10,
+          "printed": "9.93",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 14,
+          "printed": "12.43",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "F37W",
       "metadata": {
         "format": "PDF 1.1",
@@ -1047,6 +2147,38 @@
     {
       "index": 40,
       "document": "NAR/RMS-38-480/I300T.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 6,
+          "printed": "6.68",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 10,
+          "printed": "10.76",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 14,
+          "printed": "14.41",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "I300T",
       "metadata": {
         "format": "PDF 1.1",
@@ -2113,6 +3245,38 @@
     {
       "index": 70,
       "document": "TRA/RMS-29-100/G54W.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 6,
+          "printed": "6.22",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 10,
+          "printed": "8.99",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 14,
+          "printed": "13.32",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "G54W",
       "metadata": {
         "format": "PDF 1.1",
@@ -2295,6 +3459,38 @@
     {
       "index": 77,
       "document": "TRA/RMS-29-60/F37W.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 6,
+          "printed": "5.13",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 10,
+          "printed": "9.93",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        },
+        {
+          "nominalS": 14,
+          "printed": "12.43",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 3
+          }
+        }
+      ],
       "filenameMotor": "F37W",
       "metadata": {
         "format": "PDF 1.1",

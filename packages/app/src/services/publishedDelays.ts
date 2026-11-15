@@ -22,9 +22,36 @@ interface DelayRow { nominalS: number; measuredS: number[] }
 interface MotorRow { designation: string; manufacturer: string; document: string; url: string; delays: DelayRow[] }
 
 const MOTORS: Readonly<Record<string, MotorRow>> = data.motors;
+const published: { publishedOn: string; averages?: Readonly<Record<string, {
+  designation: string; url: string; delays: { nominalS: number; averageS: number }[];
+}>> } = data;
+const AVERAGES = published.averages ?? {};
 
 /** The manufacturer's page listing every certification document the figures come from. */
 export const PUBLISHED_DELAYS_URL: string = data.publishedOn;
+
+export const PRINTED_AVERAGE_NOTE = "Printed average only: that motor's certification document prints the average delay its test motors measured at that setting, not each motor's own figure, so no spread can be given. A real charge can fire early or late, by an amount the document does not record. The flight fires the charge at exactly the flown delay.";
+
+export interface PublishedDelayAverage {
+  designation: string;
+  nominalS: number;
+  averageS: number;
+  url: string;
+}
+
+/** Only this catalogue motor at this exact printed nominal supplies an average. */
+export function publishedDelayAverage(motorIdentity: string, flown: StoredDelay): PublishedDelayAverage | null {
+  if (typeof flown !== 'number' || !Number.isFinite(flown)) return null;
+  if (!Object.hasOwn(AVERAGES, motorIdentity)) return null;
+  const motor = AVERAGES[motorIdentity]!;
+  const row = motor.delays.find(d => d.nominalS === flown);
+  if (!row) return null;
+  return { designation: motor.designation, nominalS: row.nominalS, averageS: row.averageS, url: motor.url };
+}
+
+export function formatDelayAverage(a: Pick<PublishedDelayAverage, 'averageS'>): string {
+  return `${a.averageS.toFixed(1)} s (printed average only)`;
+}
 
 export interface PublishedDelayBand {
   designation: string;

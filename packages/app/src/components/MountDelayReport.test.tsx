@@ -4,6 +4,9 @@ import * as exMotors from '../services/exMotors.js';
 import { DELAY_POLICY, delayMountsOf, LATE_BURNOUT_CAUTION, solveAutoDelays } from '../services/autoDelaySolver.js';
 import { probeFlight, testMotor } from '../services/autoDelay.testSupport.js';
 import { autoDelayCardText, MountDelayReport } from './MountDelayReport.js';
+import delayData from '../data/aerotechDelays.json';
+import { formatDelayAverage, PRINTED_AVERAGE_NOTE } from '../services/publishedDelays.js';
+import * as publishedDelays from '../services/publishedDelays.js';
 
 it('shows per-mount evidence, an honest empty state and a previous-flight label', async () => {
   const r = await solveAutoDelays({ mounts: delayMountsOf([['a', testMotor()], ['b', testMotor()]]),
@@ -51,6 +54,61 @@ it('Round 5 omits all resolved motor cells when an EX name exceeds the display b
   } finally { spy.mockRestore(); }
 });
 const F52C = '5f5e57811e865c0004c955d8';
+
+it('prefers a measured band even if an average lookup could supply a figure', () => {
+  const spy = vi.spyOn(publishedDelays, 'publishedDelayAverage').mockReturnValue({
+    designation: 'Fixture', nominalS: 5, averageS: 4.34, url: 'https://example.invalid/cert.pdf',
+  });
+  try {
+    const html = renderToStaticMarkup(<MountDelayReport resolution={resolution(manual(F52C, 5))} />);
+    expect(html).toContain('4.5–5.2 s (3 motors)');
+    expect(html).not.toContain('printed average only');
+  } finally { spy.mockRestore(); }
+});
+
+it('keeps the band explanation out of a table supplied only with a printed average', () => {
+  const spy = vi.spyOn(publishedDelays, 'publishedDelayAverage').mockReturnValue({
+    designation: 'Fixture', nominalS: 5, averageS: 4.34, url: 'https://example.invalid/cert.pdf',
+  });
+  try {
+    const html = renderToStaticMarkup(<MountDelayReport resolution={resolution(manual('fixture-average', 5))} />);
+    expect(html).toContain('Published test delays');
+    expect(html).toContain('4.3 s (printed average only)');
+    expect(html).toContain(PRINTED_AVERAGE_NOTE.replaceAll("'", '&#x27;'));
+    expect(html).toContain('The flight fires the charge at exactly the flown delay.');
+    expect(html).toContain(`<a href="${publishedDelays.PUBLISHED_DELAYS_URL}" target="_blank" rel="noopener noreferrer">AeroTech’s certification documents</a>`);
+    expect(html).not.toContain('shortest and longest');
+  } finally { spy.mockRestore(); }
+});
+
+it('shows a printed average and its safety note without implying a measured band', () => {
+  const [id, motor] = Object.entries(delayData.averages)[0]!;
+  const delay = motor.delays[0]!;
+  const html = renderToStaticMarkup(<MountDelayReport resolution={resolution(manual(id, delay.nominalS))} />);
+  expect(html).toContain('Published test delays');
+  expect(html).toContain(formatDelayAverage(delay));
+  expect(html).toContain(PRINTED_AVERAGE_NOTE.replaceAll("'", '&#x27;'));
+  expect(html).not.toContain('shortest and longest');
+  const absent = renderToStaticMarkup(<MountDelayReport resolution={resolution(manual(id, delay.nominalS + 0.1))} />);
+  expect(absent).not.toContain('Published test delays');
+  expect(absent).not.toContain('Printed average only:');
+});
+
+it('keeps both explanations and band precedence in a mixed table', () => {
+  const [id, motor] = Object.entries(delayData.averages)[0]!;
+  const html = renderToStaticMarkup(<MountDelayReport resolution={resolution(
+    manual(id, motor.delays[0]!.nominalS, 'Average'), manual(F52C, 5, 'Band'),
+  )} />);
+  expect(html).toContain('Printed average only:');
+  expect(html).toContain('shortest and longest');
+  expect(html).toContain('4.5–5.2 s (3 motors)');
+  const rows = html.match(/<tr><th scope="row">.*?<\/tr>/g)!;
+  expect(rows).toHaveLength(2);
+  expect(rows[0]).toContain(`<th scope="row">Average</th>`);
+  expect(rows[0]).toContain(`<td>${formatDelayAverage(motor.delays[0]!)}</td></tr>`);
+  expect(rows[1]).toContain('<th scope="row">Band</th>');
+  expect(rows[1]).toContain('<td>4.5–5.2 s (3 motors)</td></tr>');
+});
 
 it('puts the resolved Motor immediately after Mount', () => {
   const html = renderToStaticMarkup(<MountDelayReport resolution={resolution(manual('AeroTech/K1499N', 5, 'MMT 2'))} />);

@@ -74,7 +74,7 @@
     "services/describeFile.ts": 1,
     "services/designFile.ts": 4,
     "services/designFileName.ts": 1,
-    "services/designPrintReport.ts": 21,
+    "services/designPrintReport.ts": 25,
     "services/designProvenance.ts": 5,
     "services/documentMaterials.ts": 6,
     "services/dragTable.ts": 4,
