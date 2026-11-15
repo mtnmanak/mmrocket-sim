@@ -1,4 +1,8 @@
 // @vitest-environment happy-dom
+// Row 127 round 7: the early-ended report shares the preflight source-event
+// keys and combined moment bound. Relative display time subtracts the first
+// ignition delay; thresholds and the two formatter census counts are unchanged.
+// Real kernel aborts and a delayed upper burn are covered by round7 tests.
 // Row 127 round 6: reviewed owning/source-stage activation keys and the
 // conservative preflight sum of known/unknown maximum moment magnitudes.
 // Existing 5%/20%/1 mm thresholds, two formatters and census counts remain.

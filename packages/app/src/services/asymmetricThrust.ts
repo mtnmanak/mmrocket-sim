@@ -175,7 +175,7 @@ export function asymmetricThrustWarnings(
     const prefix = serial.length > 1 ? `Stage ${noteField(stage?.name || 'Stage')}: ` : '';
     const sets = new Map<string, ThrustSite[]>();
     for (const site of sites.filter(s => s.ignition === null)) {
-      const key = result ? trigger(site.mountId) ?? 'automatic' : triggerKey(site.mountId);
+      const key = triggerKey(site.mountId);
       const copies = sets.get(key) ?? [];
       copies.push(site);
       sets.set(key, copies);
@@ -197,18 +197,19 @@ export function asymmetricThrustWarnings(
     // the known motors' largest moment. Aligning those magnitudes bounds
     // every possible overlap; checking the sets separately can miss a warning.
     const boundOffset = measuredWorst.offset + unknownWorst.reduce((sum, worst) => sum + worst.offset, 0);
-    const unknown = !relative && (result ? unknownWorst.some(worst => {
-      return reaches(worst.fraction, 0.05) && reaches(worst.offset, MIN_THRUST_OFFSET_M);
-    }) : timedSets.length > 0 && radius > 0 && reaches(boundOffset / radius, 0.05)
-      && reaches(boundOffset, MIN_THRUST_OFFSET_M));
+    const unknown = !relative && timedSets.length > 0 && radius > 0 && reaches(boundOffset / radius, 0.05)
+      && reaches(boundOffset, MIN_THRUST_OFFSET_M);
     const { fraction, time, firing, offset } = measuredWorst;
+    // Relative samples include each mount's event delay. Name the first
+    // motor's ignition as the origin, rather than the unknown trigger time.
+    const displayTime = relative ? time - Math.min(...measured.map(s => s.ignition!)) : time;
     if (reaches(fraction, 0.05) && reaches(offset, MIN_THRUST_OFFSET_M)) {
       const danger = reaches(fraction, 0.20);
       // Round down within Caution rather than displaying Danger's 20% boundary.
       const percent = danger ? Math.max(20, fraction * 100) : Math.min(19.9, fraction * 100);
       warnings.push({ key: danger ? 'ASYMMETRIC_THRUST_DANGER' : 'ASYMMETRIC_THRUST_CAUTION',
         priority: danger ? 'HIGH' : 'NORMAL',
-        message: `${prefix}At its worst, ${fmtSig(time, 3, 2)} s after ${relative ? 'ignition' : 'launch'}, `
+        message: `${prefix}At its worst, ${fmtSig(displayTime, 3, 2)} s after ${relative ? 'ignition' : 'launch'}, `
           + `the net thrust moment reaches ${fmtSig(percent, 3, 1)} % of peak total thrust times mount radius. Firing then: ${firing.map(name => noteField(name)).join(', ')}.`
           + (danger ? ' A real rocket turns toward the weaker side and can fly far off course or cartwheel.'
             : ' A real rocket can turn off course; check that the motors are matched.')
