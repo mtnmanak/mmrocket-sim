@@ -20,7 +20,7 @@ import {
 } from '../tree/treeModel.js';
 import { sheetsToXlsx, type Sheet } from '../services/xlsx.js';
 import {
-  classLabel, classesFittingMount, manufacturersForMount,
+  classLabel, classesFittingMount, fitsMount, manufacturersForMount,
 } from '../services/motorDb.js';
 import { exToDbEntry, loadExMotors } from '../services/exMotors.js';
 import { SAFETY, type DesignMatchKey, type SimRun } from '../services/simReport.js';
@@ -45,6 +45,7 @@ import { safeName } from '../services/fileName.js';
 import { downloadBlob } from '../services/saveFile.js';
 import { batchMatchingMounts, batchMountDisclosure, batchTargetsDefault } from '../services/batchMountDisclosure.js';
 import { batchRingSplits } from '../services/batchRing.js';
+import { batchLoadoutText } from '../services/batchLoadout.js';
 import { noteText } from '../services/noteField.js';
 
 /**
@@ -202,6 +203,9 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   // One-mount sweeps use automatic ignition; matching sets keep every mount's own ignition.
   const overrideSummary = overrideSummaryForMount?.(allMatching ? undefined : sel.id, allMatching ? targetIds : undefined);
   const mountDiameterMm = sel.diameterMm;
+  // Diameter-class fit is monotonic: the smallest picker bore limits every target.
+  const diameterMount = targets.reduce((a, b) => b.diameterMm < a.diameterMm ? b : a, sel);
+  const targetDiameterMm = diameterMount.diameterMm;
   const limitingMount = targets.reduce((a, b) => b.maxMotorLengthM !== null
     && (a.maxMotorLengthM === null || b.maxMotorLengthM < a.maxMotorLengthM) ? b : a, sel);
   const maxMotorLengthM = limitingMount.maxMotorLengthM;
@@ -288,15 +292,17 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
     [mountDiameterMm, criteria.includeOOP, allMotors],
   );
   // The candidates, through the maker chips that apply here (batchCandidates).
-  const { candidates, tooLongCount, appliedMakers } = useMemo(
-    () => batchCandidates(criteria, { diameterMm: mountDiameterMm, maxMotorLengthM }, allMotors),
-    [criteria, mountDiameterMm, maxMotorLengthM, allMotors]);
+  const { candidates, tooLongCount, tooWideCount, appliedMakers } = useMemo(() => {
+    const selected = batchCandidates(criteria, { diameterMm: mountDiameterMm, maxMotorLengthM }, allMotors);
+    const candidates = selected.candidates.filter(m => fitsMount(targetDiameterMm, m));
+    return { ...selected, candidates, tooWideCount: selected.candidates.length - candidates.length };
+  }, [criteria, mountDiameterMm, targetDiameterMm, maxMotorLengthM, allMotors]);
   // What unticking "include OOP" would leave — the same filters, run again —
   // so the refusal offers it only when it is enough.
   const withoutOOP = useMemo(() => (criteria.includeOOP
     ? batchCandidates({ ...criteria, includeOOP: false }, { diameterMm: mountDiameterMm, maxMotorLengthM }, allMotors)
-      .candidates.length
-    : null), [criteria, mountDiameterMm, maxMotorLengthM, allMotors]);
+      .candidates.filter(m => fitsMount(targetDiameterMm, m)).length
+    : null), [criteria, mountDiameterMm, targetDiameterMm, maxMotorLengthM, allMotors]);
 
   /**
    * Separate from the abort signal, which the Stop BUTTON also fires. Both stop
@@ -695,6 +701,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
             {pairMode && pairSplit
               && ` · +${mixedComboCount(candidates.length, pairsCombination!)} ${PAIRS_NAME} combinations`}
             {tooLongCount > 0 && ` · ${tooLongCount} excluded — over ${allMatching ? noteText(limitingMount.label) : 'this mount'}’s max motor length`}
+            {tooWideCount > 0 && ` · ${tooWideCount} excluded — too wide for ${noteText(diameterMount.label)}`}
             {criteria.autoDelay ? ' · 2 sims each (delay probe + final)' : ''}
             {progress && ` — simulating ${progress.done + 1}/${progress.total}: ${progress.current}`}
           </span>
@@ -910,6 +917,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
                       */}
                       {run && !(run.aeroModel === 'classic' && !run.rogersKbf) && (run.nozzleStages?.length ?? 0) > 0
                         && <span className="motor-db-meta"> · nozzle</span>}
+                      {combo && run && batchLoadoutText(run) && <div className="motor-db-meta">{batchLoadoutText(run)}</div>}
                     </td>
                     <td>{batchDelayCell(run, optimumForPlugged)}</td>
                     <td>{run ? fmtSi('altitude', alt, run.maxAltitude) : '—'}</td>

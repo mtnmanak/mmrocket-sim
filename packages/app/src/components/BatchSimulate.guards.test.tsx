@@ -203,8 +203,8 @@ describe('the batch dialog', () => {
       children: [{
         type: 'bodytube', id: 'bt', length: 0.8,
         children: [
-          { type: 'innertube', id: 'mount', length: 0.35 },
-          { type: 'innertube', id: 'side', length: 0.2 },
+          { type: 'innertube', id: 'mount', length: 0.35, motorMount: true, outerRadius: 0.0195, thickness: 0.0005 },
+          { type: 'innertube', id: 'side', length: 0.2, motorMount: true, outerRadius: 0.0125, thickness: 0.0005 },
           { type: 'parachute', id: 'chute', name: 'Main' } as ComponentNode,
         ],
       }],
@@ -221,6 +221,7 @@ describe('the batch dialog', () => {
 
   it('prices a flight that still searches for its delay, "optimal delay per motor" unticked, at the solver’s pace', () => {
     mount(CHUTE_TREE, CHUTE_MOUNTS);
+    expect(host.textContent).not.toContain('Fly each candidate in all');
     act(() => { box('optimal delay per motor').click(); });
     const candidates = at38();
     const searching = batchSolverFlights({

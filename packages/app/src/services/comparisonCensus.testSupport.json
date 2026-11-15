@@ -65,7 +65,7 @@
     "prefs/units.ts": 19,
     "services/baseDragImportNotes.ts": 1,
     "services/batchCriteria.ts": 3,
-    "services/batchSweep.ts": 3,
+    "services/batchSweep.ts": 4,
     "services/catalogueClient.ts": 2,
     "services/catalogueOverlay.ts": 17,
     "services/componentTable.ts": 3,

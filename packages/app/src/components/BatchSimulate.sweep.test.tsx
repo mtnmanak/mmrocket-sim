@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IgnitionEvent, RocketTree } from '@online-openrocket/engine';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import type { DesignMatchKey, SimRun } from '../services/simReport.js';
-import { MOTOR_DB, MOTOR_DB_DATE, isAvailable, setCatalogueOverlay } from '../services/motorDb.js';
+import { MOTOR_DB, MOTOR_DB_DATE, fitsMount, isAvailable, setCatalogueOverlay } from '../services/motorDb.js';
+import { batchLoadoutText } from '../services/batchLoadout.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
 import { BatchSimulate } from './BatchSimulate.js';
 import { BATCH_TABLE_ROWS, batchCapNote } from '../services/batchCriteria.js';
@@ -143,6 +144,51 @@ const type = (input: HTMLInputElement, text: string) => act(() => {
 });
 const start = () => act(async () => { primary().click(); });
 const candidateCount = () => Number(/(\d+) candidate motors/.exec(host.textContent ?? '')![1]);
+
+it('Round 5 filters every target bore and names the limiting mount, preserving box-OFF candidates', async () => {
+  const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [{ type: 'bodytube', id: 'b', children:
+    [16.90, 16.49].map((bore, i) => ({ type: 'innertube', id: i ? 'narrow' : 'mount', name: i ? 'Narrow MMT' : 'Wide MMT',
+      motorMount: true, outerRadius: bore / 2000 + 0.0005, thickness: 0.0005 })) }] }] };
+  const mounts = [{ ...MOUNTS[0]!, diameterMm: 17, label: 'Wide MMT' },
+    { ...MOUNTS[0]!, id: 'narrow', diameterMm: 16, label: 'Narrow MMT' }];
+  sweep.mockResolvedValue({ rows: [], stopped: false });
+  mount({ tree, mounts });
+  const expected = MOTOR_DB.filter(m => isAvailable(m) && mounts.every(target => fitsMount(target.diameterMm, m)));
+  expect(candidateCount()).toBe(expected.length);
+  expect(host.textContent).toContain('excluded — too wide for Narrow MMT');
+  await start();
+  expect(sweep.mock.calls[0]![0].candidates).toEqual(expect.arrayContaining(expected));
+  expect(sweep.mock.calls[0]![0].candidates).toHaveLength(expected.length);
+  const allBox = [...host.querySelectorAll('label')].find(l => l.textContent?.includes('Fly each candidate in all'))!.querySelector('input')!;
+  act(() => allBox.click());
+  const selectedOnly = MOTOR_DB.filter(m => isAvailable(m) && fitsMount(17, m));
+  expect(selectedOnly.some(m => m.diameter === 18)).toBe(true);
+  expect(candidateCount()).toBe(selectedOnly.length);
+  expect(host.textContent).not.toContain('excluded — too wide for');
+  await start();
+  expect(sweep.mock.calls[1]![0].targetMountIds).toBeUndefined();
+  expect(sweep.mock.calls[1]![0].candidates).toHaveLength(selectedOnly.length);
+});
+
+it('Round 5 distinguishes six-ring arrangements with identical motor totals using frozen loadouts', async () => {
+  const mixed = (key: string, pairs: string[]): BatchRow => {
+    const result = { ...row(key, '4× Acme E22 + 2× Acme E20', 300), combo: true };
+    result.run = { ...result.run!, batch: true, motorConfig: 'mixed 4+2', batchMounts:
+      Array.from({ length: 6 }, (_, i) => ({ mountId: `tube${i + 1}`, mountName: `MMT ${i + 1}`,
+        role: 'candidate' as const, motor: `Acme ${pairs[i % 3]}`, count: 1 })) };
+    return result;
+  };
+  const rows = [mixed('a', ['E22', 'E20', 'E22']), mixed('b', ['E22', 'E22', 'E20'])];
+  sweep.mockResolvedValue({ rows, stopped: false });
+  mount();
+  await start();
+  const cells = bodyRows().map(tr => tr.querySelector('td')!.textContent!);
+  for (const r of rows) expect(cells.find(text => text.includes(batchLoadoutText(r.run!)!))).toBeDefined();
+  expect(cells[0]).not.toBe(cells[1]);
+  // Editing the current picker/tree cannot replace a completed row's evidence.
+  mount({ tree: structuredClone(TREE), mounts: [{ ...MOUNTS[0]!, label: 'Renamed today' }] });
+  expect(bodyRows().map(tr => tr.querySelector('td')!.textContent!)).toEqual(cells);
+});
 
 it('124/125 offers all matching empty tubes by default, restores defaults on picker change and passes ring groups', async () => {
   localStorage.setItem('online-openrocket.batch-criteria.v1', JSON.stringify({ manufacturers: ['Klima'] }));

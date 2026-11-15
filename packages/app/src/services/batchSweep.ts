@@ -13,7 +13,7 @@ import { equivalentExitDiameterM } from './nozzleFollow.js';
 import { numOrNull } from '../tree/nodeNum.js';
 import { noteText } from './noteField.js';
 import { nozzleForMotorId } from './nozzleDb.js';
-import { displayDesignation, displayMotorManufacturer, motorLabel, isHighPower, type MotorDbEntry } from './motorDb.js';
+import { displayDesignation, displayMotorManufacturer, fitsMount, motorLabel, isHighPower, type MotorDbEntry } from './motorDb.js';
 import { boundedLoadoutMotorNames, loadoutMotorNames, motorLabelEntry } from './motorLabels.js';
 import { namedBatchMounts } from './batchLoadout.js';
 import { defaultDelay, delayOptions, fetchMotorSpec, requireCurveBundle, type TcMotor } from './thrustcurve.js';
@@ -702,6 +702,14 @@ export async function runBatchSweep(
     replacedMountId?: string,
     displayNames = designMountNames,
   ) => {
+    // Opt-in matching sets must pass the same diameter-class check as each
+    // mount's picker, before Launch can install any candidate leg.
+    if (multiple) for (const leg of legs) {
+      const mount = targets.find(m => m.id === leg.mountId);
+      if (mount && !fitsMount(mount.diameterMm, leg.entry)) {
+        throw new Error(`Motor diameter does not fit ${noteText(displayNames.get(mount.id) ?? mount.label)}.`);
+      }
+    }
     const optimumForPlugged = !autoDelay && deploysOnCharge
       && legs.every((l) => l.spec.ejectionDelay === Infinity && !l.noListedDelay);
     const liveMountIds = new Set(motorMounts(probeTree).map((m) => m.id));

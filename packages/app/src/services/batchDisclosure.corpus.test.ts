@@ -9,7 +9,7 @@ import { importOrk } from './orkFile.js';
 import { importRkt } from './rocksimFile.js';
 import { importCdx1 } from './rasaeroFile.js';
 import { matchImportedMotor } from './motorMatch.js';
-import { MOTOR_DB } from './motorDb.js';
+import { MOTOR_DB, fitsMount, isAvailable } from './motorDb.js';
 import { provisionalDelay, runBatchSweep } from './batchSweep.js';
 import { applyStageNozzles, clearStageNozzles, engineTree, hasParallelStage, motorMounts, mountMotorCount, mountName, stageIdByNode, stages } from '../tree/treeModel.js';
 import { mountBore } from '../tree/scaleRocket.js';
@@ -98,6 +98,7 @@ it.skipIf(!existsSync(corpus))('124/125 measures target-set eligibility across t
   walk(corpus);
   const distinct = new Map(inputs.map(i => [createHash('sha256').update(i.bytes).digest('hex'), i]));
   const affected: { file: string; matching: number; defaultOn: boolean; mixedRing: boolean }[] = [];
+  const diameterChanges: { file: string; selected: string; before: number; after: number; excluded: string[] }[] = [];
   const refused: string[] = [];
   let imported = 0;
   for (const { path, bytes } of distinct.values()) {
@@ -106,8 +107,17 @@ it.skipIf(!existsSync(corpus))('124/125 measures target-set eligibility across t
       imported++;
       const tree = loaded.tree;
       if (stages(tree).length > 1 || hasParallelStage(tree)) continue;
-      const mounts = motorMounts(tree).map(m => ({ id: m.id!, label: mountName(m), diameterMm: mountBore(m) * 1000,
+      // Match App's rounded picker bores when measuring the changed candidate set.
+      const mounts = motorMounts(tree).map(m => ({ id: m.id!, label: mountName(m), diameterMm: Math.round(mountBore(m) * 1000),
         motorCount: mountMotorCount(tree, m.id!), maxMotorLengthM: null }));
+      for (const selected of mounts) {
+        const targets = batchMatchingMounts(tree, mounts, selected);
+        if (targets.length < 2) continue;
+        const before = MOTOR_DB.filter(m => isAvailable(m) && fitsMount(selected.diameterMm, m));
+        const after = before.filter(m => targets.every(target => fitsMount(target.diameterMm, m)));
+        if (before.length !== after.length) diameterChanges.push({ file: path.slice(corpus.length + 1), selected: selected.label,
+          before: before.length, after: after.length, excluded: before.filter(m => !after.includes(m)).map(m => m.designation) });
+      }
       const sets = mounts.map(m => batchMatchingMounts(tree, mounts, m)).filter(ms => ms.length > 1);
       if (!sets.length) continue;
       const resolved = await Promise.all(Object.entries(loaded.motors).map(async ([id, ref]) => [id, await matchImportedMotor(ref)] as const));
@@ -122,7 +132,7 @@ it.skipIf(!existsSync(corpus))('124/125 measures target-set eligibility across t
   }
   expect(inputs.length).toBeGreaterThan(0);
   console.log('124/125 tester corpus eligibility (not flown cases):', JSON.stringify({
-    inputFilesAndZipMembers: inputs.length, distinctDesigns: distinct.size, imported, affected, refused,
+    inputFilesAndZipMembers: inputs.length, distinctDesigns: distinct.size, imported, affected, refused, diameterChanges,
     changedDefaultTargetSets: affected.filter(f => f.defaultOn).length, optInTargetSets: affected.length,
     newlyAvailableMixedRings: affected.filter(f => f.mixedRing).length }));
 }, 120_000);
