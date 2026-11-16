@@ -159,11 +159,13 @@ const DEFAULT_SURFACE_FINISH = 'normal';
  * Roughness)", the SMOOTHEST string it has (`:384-387`). Exporting a
  * 500 µm surface as a mirror inverts the roughness by three orders of
  * magnitude and hands RASAero a rocket with far too little skin friction. We
- * send each to its nearest neighbour instead, which costs one step of
- * roughness on a re-import rather than the whole scale:
- *   polished (2 µm)  → "Sheet Metal"            → optimum (5 µm)
+ * send each to its nearest neighbour instead. Table 1 rates "Polished" at
+ * 0.00005 in (1.27 µm), nearer polished's 2 µm than "Sheet Metal" at
+ * 0.00016 in (4.06 µm). On re-import, "Polished" becomes finishpolished
+ * (0.5 µm): one step away, and closer than the old optimum (5 µm).
+ *   polished (2 µm)  → "Polished"               → finishpolished (0.5 µm)
  *   rough    (500)   → "Cast Iron (Very Rough)" → roughunfinished (250 µm)
- * Sheet Metal and Cast Iron are already the destination of another finish,
+ * Polished and Cast Iron are already the destination of another finish,
  * which is unavoidable with eight slots for nine values.
  */
 const FINISH_TO_SURFACE: Record<string, string> = lookupTable({
@@ -176,7 +178,7 @@ const FINISH_TO_SURFACE: Record<string, string> = lookupTable({
   roughunfinished: 'Cast Iron (Very Rough)',
   // Desktop has no case for these two and defaults both to the smoothest
   // string; nearest-neighbour is the honest answer. See the note above.
-  polished: 'Sheet Metal',
+  polished: 'Polished',
   rough: 'Cast Iron (Very Rough)',
 });
 

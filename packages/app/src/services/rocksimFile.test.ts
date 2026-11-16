@@ -3159,6 +3159,7 @@ describe('RockSim airfoil fin sets take the file’s own computed mass and CG', 
     expect(note!.text).toContain('A fin mass that far off puts the CG in the wrong place, so the stability margin the app shows can be wrong.');
     expect(note!.text).toContain('Mass (all fins combined)');
     expect(note!.text).toContain('CG from component top');
+    expect(note!.text).not.toContain('**');
   });
 
   it('does not warn about unpinned or explicitly weighed fins', () => {

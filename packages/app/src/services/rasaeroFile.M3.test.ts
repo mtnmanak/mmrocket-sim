@@ -186,8 +186,8 @@ describe('M3 RASAero regressions', () => {
     t.components[0]!.children![1]!.finish = 'polished';
     t.components[0]!.children![1]!.children![0]!.finish = 'polished';
     const notes: string[] = [];
-    expect(exportCdx1({ name: 'Inner finish', tree: t, notes })).toContain('<Surface>Sheet Metal</Surface>');
-    expect(notes.join('\n')).toMatch(/Surface finish.*Sheet Metal/);
+    expect(exportCdx1({ name: 'Inner finish', tree: t, notes })).toContain('<Surface>Polished</Surface>');
+    expect(notes.join('\n')).toMatch(/Surface finish.*Polished/);
   });
 
   it.each(['BodyTube', 'Booster', 'FinCan'])('builds desktop lugs on %s', tag => {

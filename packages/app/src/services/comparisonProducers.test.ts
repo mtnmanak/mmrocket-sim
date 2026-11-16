@@ -1,4 +1,15 @@
 // @vitest-environment happy-dom
+// Row 132 r3 (closure review): rocksimFile 292 -> 290 removes the import-time
+// CG-direction diagnostic (an unloaded CG named the wrong direction) and its
+// noticeEqual colocated guard; the Caution now states both cases against the
+// loaded CG. rocksimRecoveryCount tests both cases at two device positions and
+// the unchanged 0.1 boundary. Each no-Caution test has a positive control.
+// Row 132: rocksimFile 284 -> 290 adds the recovery pin's noticeEqual guard,
+// two mass formatters, per-device comparison and aggregate consequence/remedy.
+// noteExplanations 39 -> 41 explains the same threshold and override remedy.
+// rocksimRecoveryCount.test covers both sides and equality at one tenth,
+// half/twice the estimate, both device types, both unit systems and retained
+// flown mass. The existing noticeEqual residue rule is unchanged.
 // Row 129 round 2: MaximumFlightTimeField 7 -> 13 disambiguates near-bound
 // clamps and ignores residue. Its mounted test covers typing, blur/refocus,
 // arrow/spinner bounds and file replacement. importApply 16 -> 31 mirrors

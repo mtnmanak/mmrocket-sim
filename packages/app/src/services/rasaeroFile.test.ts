@@ -2054,7 +2054,7 @@ describe('RASAero surface finish is desktop’s map (audit rows 3/41)', () => {
       ['unfinished', 'Galvanized Metal', 'unfinished'],
       ['roughunfinished', 'Cast Iron (Very Rough)', 'roughunfinished'],
       // The two divergences, and the single step each costs:
-      ['polished', 'Sheet Metal', 'optimum'],
+      ['polished', 'Polished', 'finishpolished'],
       ['rough', 'Cast Iron (Very Rough)', 'roughunfinished'],
     ];
     for (const [finish, surface, backAs] of EXPORT) {

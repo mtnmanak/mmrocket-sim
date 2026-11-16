@@ -49,6 +49,7 @@ import { overrideFor, sparsify } from './flightState.js';
 import { deploymentTuple, exportIgnitions } from './foreignConfigLayers.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 import { refuseOversizedForeignXml } from './foreignPartPrecount.js';
+import { readAuditMasses } from './preflightAudit.js';
 
 export const MAX_RKT_SIMULATION_RECORDS = 4096;
 
@@ -2059,7 +2060,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
     const pinned = numOpt(flown, 'overrideMass');
     if (est === undefined || pinned === undefined || pinned >= 0.1 * est || noticeEqual(pinned, 0.1 * est)) continue;
     const material = flownMaterial(flown, 'density', 'materialName', KERNEL_DEFAULT_MATERIALS.bulk);
-    const note = `Fin set “${noteField(n.name ?? 'fins')}”: RockSim recorded ${noticeQuantity('mass', pinned, units, { against: 0.1 * est })} for it, less than a tenth of the ${noticeQuantity('mass', est, units)} the app estimates from its outline, thickness and ${noteField(material.name)} density, tabs left out. That may be a RockSim weighing error. The app still uses the file's number, as desktop OR does. A fin mass that far off puts the CG in the wrong place, so the stability margin the app shows can be wrong. If your fins weigh more, enter their measured mass in **Mass (all fins combined)** under Overrides, or clear the mass and **CG from component top** overrides to use the app's own calculation. Check mass, CG and stability before flying.`;
+    const note = `Fin set “${noteField(n.name ?? 'fins')}”: RockSim recorded ${noticeQuantity('mass', pinned, units, { against: 0.1 * est })} for it, less than a tenth of the ${noticeQuantity('mass', est, units)} the app estimates from its outline, thickness and ${noteField(material.name)} density, tabs left out. That may be a RockSim weighing error. The app still uses the file's number, as desktop OR does. A fin mass that far off puts the CG in the wrong place, so the stability margin the app shows can be wrong. If your fins weigh more, enter their measured mass in Mass (all fins combined) under Overrides, or clear the mass and CG from component top overrides to use the app's own calculation. Check mass, CG and stability before flying.`;
     if (!notes.includes(note)) cautionNote(notes, 'I18.airfoil-mass-implausible', note);
   }
   if (pinnedMassObjects) {
@@ -2623,6 +2624,34 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
   refuseTooManyParts(components);
   const tree: FlightTree = { ...sanitizeTree({ name, components }, notes, units),
     ...(Object.keys(ignitionDefaults).length ? { ignitionDefaults } : {}) };
+  const recoveryPinIds = new Set(recoveryNodes.filter(node => recoveryStatedMass.has(node)).map(node => node.id));
+  const pinnedRecovery = recoveryIn(tree.components).filter(node => recoveryPinIds.has(node.id));
+  if (pinnedRecovery.length) {
+    // Compare each sanitized equivalent device's own mass, independently of
+    // ancestor overrides or cluster multiplicity. The existing diagnostic
+    // reader clears overrides on a copy and uses the mass panel's kernel API;
+    // it never resets or alters an existing flown handle.
+    const estimates = readAuditMasses({ components: [{ type: 'stage', children: [{ type: 'bodytube',
+      children: pinnedRecovery.map(node => ({ ...node, children: undefined })),
+    }] }] });
+    const light = pinnedRecovery.flatMap(node => {
+      const estimate = estimates[node.id!];
+      const pinned = numOpt(node, 'overrideMass');
+      if (estimate == null || pinned === undefined || pinned >= 0.1 * estimate || noticeEqual(pinned, 0.1 * estimate)) return [];
+      return [{ node, estimate, pinned }];
+    });
+    if (light.length) {
+      // Which way the CG moves depends on where each device sits against the
+      // LOADED rocket's CG, and the motor (which can move the CG past the
+      // device) is not known while the file is read (closure review r2: an
+      // unloaded CG named the wrong direction). Say both cases plainly.
+      const lines = light.map(({ node, estimate, pinned }) => `“${noteField(node.name ?? node.type)}”: the mass pinned from RockSim's CalcMass for ${nnum(node, 'rktRecoveryCount', 1)} ${node.type === 'parachute' ? 'canopies' : 'streamers'} is ${noticeQuantity('mass', pinned, units, { against: 0.1 * estimate })}, `
+        + `less than a tenth of the ${noticeQuantity('mass', estimate, units)} the app calculates from its dimensions and materials`);
+      cautionNote(notes, 'I18.recovery-mass-pinned', `${lines.join('; ')}. `
+        + 'Too little recovery mass puts the CG in the wrong place: for a device ahead of the CG with the motor loaded, the CG sits too far aft and the shown stability margin is smaller than the rocket really has; for a device behind it, the CG sits too far forward and the margin shown is larger than the rocket really has. '
+        + 'The app still uses the pinned mass. Enter the measured total recovery mass, or clear Mass under Overrides on each named device to use the app’s own calculation. Check mass, CG and stability before flying.');
+    }
+  }
   return {
     sourceFormat: 'rkt',
     name,
