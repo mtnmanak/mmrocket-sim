@@ -194,19 +194,19 @@ export async function planHeadlessImport(
 export async function simulateImported(
   imported: ImportedDesign, opts: SimulateFileOptions = {},
 ): Promise<SimulateFileResult> {
+  const limit = opts.maxFlightTimeS === undefined ? undefined : flownMaxFlightTimeS(opts);
+  const changedLimit = limit !== undefined && !noticeEqual(flownMaxFlightTimeS(imported.launch ?? {}), limit);
   if (opts.maxFlightTimeS !== undefined) {
     // The host supplies the flown limit; the panel's intermediate clamp and
     // its edit instructions do not describe this operation.
     const clamps = new Set(imported.noteTiers?.filter(line => line.kind === 'I25.clamped'
       && line.text.includes('Maximum flight time field')).map(line => line.text));
     imported = { ...imported, notes: imported.notes.filter(text => !clamps.has(text)),
-      noteTiers: imported.noteTiers?.filter(line => !clamps.has(line.text)) };
+      noteTiers: imported.noteTiers?.filter(line => !clamps.has(line.text)),
+      launch: { ...imported.launch, maxFlightTimeS: limit } };
   }
   const plan = await planHeadlessImport(imported, opts);
-  const { tree, mountMotors, measured, savedConfigs, activeConfigId } = plan.snapshot;
-  let { launch } = plan.snapshot;
-  const limit = opts.maxFlightTimeS === undefined ? undefined : flownMaxFlightTimeS(opts);
-  const changedLimit = limit !== undefined && !noticeEqual(flownMaxFlightTimeS(launch), limit);
+  const { tree, mountMotors, launch, measured, savedConfigs, activeConfigId } = plan.snapshot;
   const limitNote = (flown: boolean) => {
     if (!changedLimit) return;
     const text = flown
@@ -215,10 +215,6 @@ export async function simulateImported(
     plan.note = { ...plan.note, text: `${plan.note.text}\n${text}`,
       group: { ...plan.note.group, lines: [...plan.note.group.lines, infoLine(text)] } };
   };
-  if (opts.maxFlightTimeS !== undefined) {
-    launch = { ...launch, maxFlightTimeS: limit };
-    plan.snapshot = { ...plan.snapshot, launch };
-  }
   try {
     const out = await simulateDesign(
       { tree, mountMotors, launch, measured, savedConfigs, activeConfigId, unmatchedRefs: plan.unmatchedRefs }, opts);
