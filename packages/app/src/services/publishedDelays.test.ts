@@ -1,11 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import data from '../data/aerotechDelays.json';
 import motorsJson from '../data/motors.json';
+import delaySources from '../../scripts/aerotech-delay-sources.json';
 import { formatDelayAverage, formatDelayBand, publishedDelayAverage, publishedDelayBand, PUBLISHED_DELAYS_URL } from './publishedDelays.js';
 
 const F52C = '5f5e57811e865c0004c955d8';
 
 describe('printed delay averages', () => {
+  it('ships text averages with watched source documents and no measured-data overlap', () => {
+    const entries = Object.entries(data.averages).filter(([, motor]) => motor.form === 'text-average');
+    const watched = new Set(delaySources.documents.map(source => source.document));
+    expect(entries.length).toBeGreaterThan(0);
+    for (const [id, motor] of entries) {
+      expect(Object.hasOwn(data.motors, id), `${motor.designation}: measured data wins`).toBe(false);
+      expect(motor.documents.length).toBeGreaterThan(0);
+      for (const document of motor.documents) expect(watched.has(document), document).toBe(true);
+    }
+  });
+
   it('rejects prototype keys, plugged settings and non-finite settings', () => {
     expect(publishedDelayAverage('toString', 5)).toBeNull();
     expect(publishedDelayAverage('toString', 'plugged')).toBeNull();
@@ -60,7 +72,8 @@ describe('printed delay averages', () => {
       expect(row).toBeDefined();
       expect([motor.manufacturer, motor.designation]).toEqual([row.manufacturerAbbrev, row.designation]);
       expect(Object.hasOwn(data.motors, id)).toBe(false);
-      expect(motor.form).toBe('scan-average');
+      // Both coordinate-read text and reviewed scans supply averages, never samples.
+      expect(['scan-average', 'text-average']).toContain(motor.form);
       expect(motor.documents.length).toBeGreaterThan(0);
       expect(motor.delays.length).toBeGreaterThan(0);
       expect(new Set(motor.delays.map(d => d.nominalS)).size).toBe(motor.delays.length);
