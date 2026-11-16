@@ -18,7 +18,7 @@ import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './flightPipeline.js'
 import { flyLaunch, type FlightHandle } from './flightRunner.js';
 import { catalogueMotorMass, type HardwareMassResult } from './hardwareMass.js';
 import { planImport, resolveImportMotors } from './importApply.js';
-import { DEFAULT_CONDITIONS, kernelSimOptions, type LaunchConditions } from './launchConditions.js';
+import { DEFAULT_CONDITIONS, flownMaxFlightTimeS, kernelSimOptions, type LaunchConditions } from './launchConditions.js';
 import { loadCatalogueMotor } from './motorMatch.js';
 import { importOrk } from './orkFile.js';
 import { buildSimRun, type DesignMatchKey, type FreshSimRun } from './simReport.js';
@@ -264,6 +264,7 @@ describe('flyBuiltDesign hands buildSimRun what onLaunch handed it', () => {
     const activeConfig = activeConfigId === null ? undefined : savedConfigs.find((c) => c.id === activeConfigId);
     return {
       weatherSnapshot: input.weatherSnapshot ?? null,
+      maxFlightTimeS: flownMaxFlightTimeS(input.launch),
       advisoryLimits: input.advisoryLimits,
       advisoryTree: tree,
       advisoryMotors: assigned,
@@ -391,6 +392,7 @@ async function referenceLaunch(x: {
   const activeConfig = activeConfigId === null ? undefined
     : savedConfigs.find((c) => c.id === activeConfigId);
   const run = buildSimRun({
+    maxFlightTimeS: flownMaxFlightTimeS(launch),
     weatherSnapshot: null,
     advisoryLimits: undefined,
     advisoryTree: tree,

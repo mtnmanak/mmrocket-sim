@@ -1,6 +1,6 @@
 import { noteField, noteText } from './noteField.js';
 import { lookupTable } from './xmlUtil.js';
-import { noticeEqual, type UnitSelection } from '../prefs/units.js';
+import { noticeEqual, noticeNumber, type UnitSelection } from '../prefs/units.js';
 import { applyStageMass, pruneStageMass } from './stageMassOverrides.js';
 import { ownEntry } from './ownEntry.js';
 import { hasSimulationExtensions } from './orkExtensions.js';
@@ -11,7 +11,7 @@ import { launchFieldLabels } from './formatLoss.js';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { savedConfigLabel } from '../model/design.js';
-import { DEFAULT_TIME_STEP_S, type LaunchConditions } from './launchConditions.js';
+import { DEFAULT_MAX_FLIGHT_TIME_S, DEFAULT_TIME_STEP_S, flownMaxFlightTimeS, type LaunchConditions } from './launchConditions.js';
 import type { NoticeSeverity } from '../components/NoticeBar.js';
 import { designFingerprint, type DesignSnapshot } from './dirtyState.js';
 import { LEGACY_PAD_MASS_KEY } from './hardwareMass.js';
@@ -122,6 +122,7 @@ export function importedLaunch(
   // Older files must open with guide allowance on, even after an off design.
   if (fromFile?.launchGuideAllowance == null) delete next.launchGuideAllowance;
   if (fromFile?.geodeticMethod == null) delete next.geodeticMethod;
+  if (fromFile?.maxFlightTimeS == null) delete next.maxFlightTimeS;
   // A file without a profile must not inherit the previous rocket's winds.
   if (!fromFile?.windLevels?.length) {
     delete next.windLevels;
@@ -139,7 +140,7 @@ export function retainedLaunchNote(
   if (format !== 'rkt' && format !== 'cdx1' && format !== 'ork') return null;
   const profileReset = prev.windLevels?.length && !fromFile?.windLevels?.length
     ? ' The previous winds aloft were removed; the flight uses the surface wind at every height.' : '';
-  const reset = new Set(['timeStepS', 'geodeticMethod', 'launchGuideAllowance']);
+  const reset = new Set(['timeStepS', 'maxFlightTimeS', 'geodeticMethod', 'launchGuideAllowance']);
   const kept = (Object.keys(launchFieldLabels) as (keyof LaunchConditions)[])
     .filter(k => !reset.has(k) && k in prev && !(fromFile && k in fromFile));
   let message = '';
@@ -635,6 +636,19 @@ export function planImport(
       if (fmtStepS(DEFAULT_TIME_STEP_S) === fmtStepS(prevStepS)) cautionNote(notes, 'I24.timestep-default', `The simulation time step changed slightly (now ${fmtStepS(DEFAULT_TIME_STEP_S)} s, the default). This file carries none; the previous value belonged to the design it was set for.`);
       else cautionNote(notes, 'I24.timestep-default', `The simulation time step is back to the ${fmtStepS(DEFAULT_TIME_STEP_S, prevStepS)} s default `
         + `— this file carries none, and the ${fmtStepS(prevStepS, DEFAULT_TIME_STEP_S)} s in the Launch panel `
+        + 'belonged to the design it was set for.');
+    }
+  }
+  const prevMaxS = flownMaxFlightTimeS(ctx.launch);
+  const nextMaxS = flownMaxFlightTimeS(imported.launch ?? {});
+  if (!noticeEqual(prevMaxS, nextMaxS)) {
+    if (imported.launch?.maxFlightTimeS != null) {
+      if (noticeNumber(nextMaxS, 6) === noticeNumber(prevMaxS, 6)) notes.push(`The Maximum flight time changed slightly (now ${noticeNumber(nextMaxS, 6)} s).`);
+      else notes.push(`Flights here now use a ${noticeNumber(nextMaxS, 6)} s Maximum flight time, replacing the ${noticeNumber(prevMaxS, 6)} s they were using.`);
+    } else {
+      if (noticeNumber(DEFAULT_MAX_FLIGHT_TIME_S, 6) === noticeNumber(prevMaxS, 6)) cautionNote(notes, 'I24.maxtime-default', `The Maximum flight time changed slightly (now ${noticeNumber(DEFAULT_MAX_FLIGHT_TIME_S, 6)} s, the default). This file carries none; the previous value belonged to the design it was set for.`);
+      else cautionNote(notes, 'I24.maxtime-default', `The Maximum flight time is back to the ${noticeNumber(DEFAULT_MAX_FLIGHT_TIME_S, 6)} s default `
+        + `— this file carries none, and the ${noticeNumber(prevMaxS, 6)} s in the Launch panel `
         + 'belonged to the design it was set for.');
     }
   }

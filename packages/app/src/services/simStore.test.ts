@@ -1111,7 +1111,7 @@ describe('stored runs: a flight the time limit cut off (audit S6-1)', () => {
     expect(runStoppedEarly(r!)).toBe(true);
     expect(KERNEL_MAX_FLIGHT_TIME_S).toBe(1200);
     expect(r!.simWarnings![0]).toEqual(incompleteFlightWarning(undefined, r!.totalFlightTime, false));
-    expect(r!.simWarnings![0]!.message).toMatch(/^The flight ended at T\+1200\.\d\d s before ground contact was recorded\. The flight is incomplete; landing rate and landing drift are unavailable\.$/);
+    expect(r!.simWarnings![0]!.message).toMatch(/^The flight ended at T\+1200\.\d\d s before ground contact was recorded\. Maximum flight time \(1200 s, Launch conditions\) stops the simulation even if the rocket is still in the air\. The flight is incomplete; landing rate and landing drift are unavailable\.$/);
     expect([r!.landingRate, r!.safeLandingRate, r!.landingDistanceM, r!.landingBearingDeg]).toEqual([null, null, null, null]);
     expect(r!.deployments!.map(d => [d.descentRate, d.groundSpeed])).toEqual([[20, 21], [null, null]]);
     expect(gradeBatchRun(r!, NO_CRITERIA)).toContain('flight stopped early');

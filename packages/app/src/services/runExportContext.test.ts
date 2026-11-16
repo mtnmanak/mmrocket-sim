@@ -6,6 +6,14 @@ import { loadRuns } from './simStore.js';
 
 beforeEach(() => localStorage.clear());
 
+it('129 keeps a valid recorded flight limit and rejects unreadable limit metadata', () => {
+  const context = runExportContext({ ...DEFAULT_CONDITIONS, maxFlightTimeS: 3600 });
+  expect(validRunExportContext(context)).toBe(true);
+  for (const maxFlightTimeS of ['3600', {}, NaN, Infinity]) {
+    expect(validRunExportContext({ ...context, launch: { ...context.launch, maxFlightTimeS } })).toBe(false);
+  }
+});
+
 it.each([undefined, []].map(levels => [levels]))('refuses orphan wind provenance when levels are %j', windLevels => {
   const context = runExportContext(DEFAULT_CONDITIONS);
   const damaged = { ...context, launch: { ...context.launch, windLevels, windProfileSource: { kind: 'ork' } } };

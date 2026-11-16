@@ -3,7 +3,9 @@ import { InflatedFileTooLargeError } from './zipMember.js';
 import type { NoticeSeverity } from '../components/NoticeBar.js';
 import { designFileOpenFailure, designFileTooLarge, openDesignFile } from './designFile.js';
 import { planImport, resolveImportMotors, type ImportedDesign, type ImportPlan } from './importApply.js';
-import { DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, type LaunchConditions } from './launchConditions.js';
+import { DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, flownMaxFlightTimeS, type LaunchConditions } from './launchConditions.js';
+import { noticeNumber } from '../prefs/units.js';
+import { infoLine } from './importNotes.js';
 import { XmlBudgetExceededError } from './xmlParse.js';
 import { MOTOR_DB } from './motorDb.js';
 import { matchImportedMotor, type MotorMatchResult } from './motorMatch.js';
@@ -48,6 +50,8 @@ import { statedWeightTextFor } from './unitText.js';
  */
 
 export interface SimulateFileOptions extends SimulateDesignOptions {
+  /** Host policy (API): override the uploaded limit, with an import disclosure. */
+  maxFlightTimeS?: number;
   /** Optional inflated XML cap; absent retains the browser default. */
   maxInflatedBytes?: number;
   /** The Launch panel's conditions the file's own are merged onto (planImport's). Default DEFAULT_CONDITIONS. */
@@ -190,16 +194,41 @@ export async function planHeadlessImport(
 export async function simulateImported(
   imported: ImportedDesign, opts: SimulateFileOptions = {},
 ): Promise<SimulateFileResult> {
+  if (opts.maxFlightTimeS !== undefined) {
+    // The host supplies the flown limit; the panel's intermediate clamp and
+    // its edit instructions do not describe this operation.
+    const clamps = new Set(imported.noteTiers?.filter(line => line.kind === 'I25.clamped'
+      && line.text.includes('Maximum flight time field')).map(line => line.text));
+    imported = { ...imported, notes: imported.notes.filter(text => !clamps.has(text)),
+      noteTiers: imported.noteTiers?.filter(line => !clamps.has(line.text)) };
+  }
   const plan = await planHeadlessImport(imported, opts);
-  const { tree, mountMotors, launch, measured, savedConfigs, activeConfigId } = plan.snapshot;
+  const { tree, mountMotors, measured, savedConfigs, activeConfigId } = plan.snapshot;
+  let { launch } = plan.snapshot;
+  const limit = opts.maxFlightTimeS === undefined ? undefined : flownMaxFlightTimeS(opts);
+  const changedLimit = limit !== undefined && !noticeEqual(flownMaxFlightTimeS(launch), limit);
+  const limitNote = (flown: boolean) => {
+    if (!changedLimit) return;
+    const text = flown
+      ? `This API overrides the file's Maximum flight time; flown at ${noticeNumber(limit!, 6)} s.`
+      : `This API uses a Maximum flight time of ${noticeNumber(limit!, 6)} s instead of the file's setting. The flight was refused.`;
+    plan.note = { ...plan.note, text: `${plan.note.text}\n${text}`,
+      group: { ...plan.note.group, lines: [...plan.note.group.lines, infoLine(text)] } };
+  };
+  if (opts.maxFlightTimeS !== undefined) {
+    launch = { ...launch, maxFlightTimeS: limit };
+    plan.snapshot = { ...plan.snapshot, launch };
+  }
   try {
     const out = await simulateDesign(
       { tree, mountMotors, launch, measured, savedConfigs, activeConfigId, unmatchedRefs: plan.unmatchedRefs }, opts);
+    limitNote(true);
     return { ...out, plan, importNote: plan.note };
   } catch (e) {
     // The import note is often the reason ("matched no motor in the motor
     // database"), so a refusal carries it.
     if (e instanceof SimulateDesignError) {
+      limitNote(false);
       throw new SimulateDesignError(e.kind, e.message, { cause: e.cause, importNote: plan.note });
     }
     throw e;

@@ -25,7 +25,7 @@ export function validRunExportContext(value: unknown): value is RunExportContext
   for (const key of ['temperatureC', 'pressureHPa']) {
     if (launch[key] !== null && (typeof launch[key] !== 'number' || !Number.isFinite(launch[key]))) return false;
   }
-  for (const key of ['longitudeDeg', 'launchRodAimDeg', 'timeStepS']) {
+  for (const key of ['longitudeDeg', 'launchRodAimDeg', 'timeStepS', 'maxFlightTimeS']) {
     if (launch[key] != null && (typeof launch[key] !== 'number' || !Number.isFinite(launch[key]))) return false;
   }
   if (launch['launchGuideAllowance'] !== undefined && typeof launch['launchGuideAllowance'] !== 'boolean') return false;

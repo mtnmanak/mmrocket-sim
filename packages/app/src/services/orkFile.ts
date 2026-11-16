@@ -18,7 +18,7 @@ import { isAeroModel, validHybridBand, type AeroProvenance } from './aeroProvena
 import type { ComponentNode, ComponentPosition, ComponentType, EngineWarning, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import {
   canonicalRodAimDeg, DEFAULT_TIME_STEP_S, flownGeodeticMethod, importLaunchValue, KERNEL_DEFAULT_LONGITUDE_DEG,
-  LATITUDE_DEG_RANGE, LONGITUDE_DEG_RANGE,
+  flownMaxFlightTimeS, DEFAULT_MAX_FLIGHT_TIME_S, MAX_FLIGHT_TIME_S_RANGE, LATITUDE_DEG_RANGE, LONGITUDE_DEG_RANGE,
   PANEL_TIME_STEP_FLOOR_S, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, WIND_MS_RANGE, type LaunchConditions,
 } from './launchConditions.js';
 import { asStageNodes, freshId, nozzleStages } from '../tree/treeModel.js';
@@ -2061,6 +2061,11 @@ function readLaunchConditions(
   const launch: Partial<LaunchConditions> = {
     launchGuideAllowance: text(condEl, ':scope > launchguideallowance') !== 'false',
   };
+  const maxTime = num(condEl, 'maxtime', DEFAULT_MAX_FLIGHT_TIME_S, notes);
+  if (text(condEl, ':scope > maxtime')) launch.maxFlightTimeS = importLaunchValue(maxTime, MAX_FLIGHT_TIME_S_RANGE,
+    { what: 'maximum flight time', field: 'Maximum flight time', show: (x, against) =>
+      against !== undefined && !noticeEqual(x, against) && noticeNumber(x, 6) === noticeNumber(against, 6)
+        ? `just ${x < against ? 'below' : 'above'} ${noticeNumber(against, 6)} s` : `${noticeNumber(x, 6)} s` }, notes);
   // A file THIS APP wrote: its <timestep> and its <geodeticmethod> are
   // settings the user chose here, not a stranger's desktop defaults (below).
   const ourOwnFile = isAppCreator(doc.documentElement?.getAttribute('creator'));
@@ -4004,7 +4009,8 @@ export function exportOrk({
       // writes the clamped value, not the original — which is the honest thing
       // to write, because the clamped value is what produced the results.)
       emit(4, `<timestep>${launch.timeStepS ?? DEFAULT_TIME_STEP_S}</timestep>`);
-      emit(4, '<maxtime>1200.0</maxtime>');
+      const maxTime = flownMaxFlightTimeS(launch);
+      emit(4, `<maxtime>${maxTime === DEFAULT_MAX_FLIGHT_TIME_S ? '1200.0' : maxTime}</maxtime>`);
       emit(3, '</conditions>');
       // OpenRocketSaver: extensions follow conditions, before flightdata.
       // Push whole source slices: indenting their lines would change script bytes.

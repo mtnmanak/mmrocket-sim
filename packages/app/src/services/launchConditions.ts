@@ -116,6 +116,8 @@ export interface LaunchConditions extends WindProfileConditions {
    * several times the run time cannot be invisible.
    */
   timeStepS?: number | null;
+  /** Seconds; absent in older designs means DEFAULT_MAX_FLIGHT_TIME_S. */
+  maxFlightTimeS?: number;
 }
 
 /**
@@ -174,6 +176,7 @@ export function kernelSimOptions(l: LaunchConditions, model?: AtmosphereModel): 
   const aim = flownRodAimDeg(l);
   const geodetic = flownGeodeticMethod(l);
   return {
+    maxTime: flownMaxFlightTimeS(l),
     launchRodLength: l.launchRodLengthM,
     ...(l.launchGuideAllowance === false ? { guideAllowance: false } : {}),
     launchRodAngle: (l.launchRodAngleDeg * Math.PI) / 180,
@@ -218,6 +221,17 @@ export function kernelSimOptions(l: LaunchConditions, model?: AtmosphereModel): 
  * another is exactly the drift a single definition rules out.
  */
 export { DEFAULT_TIME_STEP_S };
+
+export const DEFAULT_MAX_FLIGHT_TIME_S = 1200;
+export const MAX_FLIGHT_TIME_S_RANGE: readonly [number, number] = [1, 14400];
+
+/** One bounded limit for full flights, reports, saved designs and exports. */
+export function flownMaxFlightTimeS(l: Pick<LaunchConditions, 'maxFlightTimeS'>): number {
+  const v = l.maxFlightTimeS;
+  return v != null && Number.isFinite(v)
+    ? Math.min(MAX_FLIGHT_TIME_S_RANGE[1], Math.max(MAX_FLIGHT_TIME_S_RANGE[0], v))
+    : DEFAULT_MAX_FLIGHT_TIME_S;
+}
 
 /**
  * Where the Time step field bottoms out — its NumField `min` in LaunchPanel, matching

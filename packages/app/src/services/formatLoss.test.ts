@@ -8,6 +8,14 @@ import { exportRkt, rktComponentInfo } from './rocksimFile.js';
 import { exportCdx1 } from './rasaeroFile.js';
 
 describe('lossy fix regressions', () => {
+  it.each(['rkt', 'cdx1'] as const)('129 discloses a nondefault Maximum flight time lost by %s', format => {
+    const d = input();
+    expect(checkFormatLoss(format, d).losses.join(' ')).not.toContain('Maximum flight time');
+    d.launch = { ...d.launch, maxFlightTimeS: 3600 };
+    expect(checkFormatLoss(format, d).losses.join(' ')).toContain('Maximum flight time');
+    d.launch.maxFlightTimeS = 1200;
+    expect(checkFormatLoss(format, d).losses.join(' ')).not.toContain('Maximum flight time');
+  });
   it.each(['podset', 'innertube'] as const)('previews the real computed override counterpart for %s', type => {
     const d = input({ type, id: 'partial', name: 'Partial', overrideCGX: 0.02,
       ...(type === 'podset' ? { children: [{ type: 'bodytube', id: 'podTube', length: 0.1, outerRadius: 0.01 }] }

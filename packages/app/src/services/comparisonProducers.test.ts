@@ -1,4 +1,23 @@
 // @vitest-environment happy-dom
+// Row 129 round 2: MaximumFlightTimeField 7 -> 13 disambiguates near-bound
+// clamps and ignores residue. Its mounted test covers typing, blur/refocus,
+// arrow/spinner bounds and file replacement. importApply 16 -> 31 mirrors
+// time-step reset/receipt notes; maxFlightTime tests cover all three formats.
+// orkFile 538 -> 545 formats maxtime against its bound (C41, both endpoints).
+// simulateFile 3 -> 7 distinguishes API policy from a completed flight and
+// suppresses the UI clamp; API tests cover refusal, residue and both clamps.
+// NumField's new opt-in bounded commit adds no comparison-note producer;
+// all existing callers retain their parsing policy. No tolerance changed.
+// Row 129: MaximumFlightTimeField adds 7 label/format/caution producers;
+// its mounted test covers both clamps, decimal input and the 3600 s boundary.
+// formatLoss 7 -> 8 and noteExplanations 38 -> 39 name the setting, with
+// formatLoss/maxFlightTime and noteExplanations regressions. orkFile 535 -> 538
+// covers the selected simulation's maxtime label, seconds and XML export;
+// maxFlightTime tests bound and round-trip it. simReport 50 -> 52 formats
+// each run's own limit; stored/fresh incomplete-flight tests cover it.
+// simulateFile 1 -> 3 discloses the API policy with a seconds formatter;
+// API maxFlightTime tests cover shorter, longer, default and clamped uploads.
+// No published-data tolerance changed; the default remains 1200 seconds.
 // Misc round 2: ScaleDialog 36 -> 38 adds the hard motor-mount bore refusal
 // and its preferred-unit formatter. MAX_DIMENSION_M (1000 m radius), less
 // the scaled wall, supplies the bound; no flight tolerance changes. The
@@ -538,6 +557,8 @@ const cases: BoundaryCase[] = [
   { id:'C41',run:(u,d)=>[
     ...([['launchrodangle',30,'Rod angle'],['launchlatitude',90,'Latitude'],['launchlongitude',180,'Longitude']] as const).map(([tag,bound,field])=>
       importOrk(ork('<'+tag+'>'+(bound+d/100)+'</'+tag+'>'),{units:u}).notes.find(n=>n.includes(field+' field'))??''),
+    ...([14400+d,1-d/1000]).map(limit=>importOrk(ork('<maxtime>'+limit+'</maxtime>'),{units:u})
+      .notes.find(n=>n.includes('Maximum flight time field'))??''),
     importCdx1(cdx('<RodAngle>'+(30+d/100)+'</RodAngle>'),{units:u}).notes.find(n=>n.includes('Rod angle field'))??'',
   ].filter(Boolean).join(' || ')},
   { id:'C42',run:(_u,d)=>{const p=parseCoordinates(String(90+d)+' 0');return p&&!p.ok?p.error:'';}},
@@ -742,7 +763,7 @@ it.each(cases.flatMap(c=>[INITIAL_UNITS,IMPERIAL_UNITS,
   if(['C41','C42','C43','C44','C45','C46'].includes(c.id)) {
     const values=[...text.matchAll(/([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?) s/g)].map(m=>Number(m[1]));
     if(c.id==='C42'){expect(text).toContain('outside');return;}
-    if(c.id==='C41'){expect(text).toContain('maximum');return;}
+    if(c.id==='C41'){expect(text).toContain('maximum');expect(text).toContain('Maximum flight time field');return;}
     expect(values.length,text).toBeGreaterThan(1);
     expect(values[0],text).not.toBe(values[1]);
     return;

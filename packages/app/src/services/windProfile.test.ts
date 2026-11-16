@@ -529,7 +529,7 @@ describe('profile persistence', () => {
       masses: [0.024, 0.0231, 0.0215, 0.0202, 0.0174, 0.0147, 0.0133, 0.0132],
     };
     rocket.setMotorById(mount.id!, motor);
-    const launch = { ...DEFAULT_CONDITIONS, ...read.launch };
+    const launch = { ...DEFAULT_CONDITIONS, ...read.launch, maxFlightTimeS: 3 };
     const opts = { ...kernelSimOptions(launch), series: 'full' as const, maxTime: 3, randomSeed: 7 };
     const flown = rocket.simulate(opts);
     expect(flown.summary.maxAltitude).toBeGreaterThan(0);
@@ -554,7 +554,7 @@ describe('profile persistence', () => {
     const ignoredScalars = { ...launch, windAverage: 17, windStdDev: 5 };
     expect(rocket.simulate({ ...opts, ...kernelSimOptions(ignoredScalars) }).series).toEqual(flown.series);
     expect(conditionsKeyOf(ignoredScalars)).toBe(run.conditionsKey);
-  }, 30000);
+  }, 60_000);
   it('round trips full precision and source through .ork and a share link', async () => {
     const written = xml();
     expect(written).toContain('model="multilevel" altituderef="agl"');

@@ -8,7 +8,7 @@ import { isAeroModel, validHybridBand } from './aeroProvenance.js';
 import { sanitizeDesignProvenance } from './designProvenance.js';
 import { sanitizeDocumentMaterials } from './documentMaterials.js';
 import type { ComponentNode, MotorSpec } from '@online-openrocket/engine';
-import { DEFAULT_CONDITIONS, GEODETIC_METHODS, type LaunchConditions } from './launchConditions.js';
+import { DEFAULT_CONDITIONS, flownMaxFlightTimeS, GEODETIC_METHODS, type LaunchConditions } from './launchConditions.js';
 import type { FlightTree, FlightOverrides, MountMotor, SavedConfig } from '../model/design.js';
 import { savedConfigLabel } from '../model/design.js';
 import { shortHash, type MotorMeta } from './simReport.js';
@@ -360,7 +360,7 @@ function validFlownAutoDelays(v: unknown): Record<string, Record<string, number>
 /** The launch keys this build reads; any other is a newer build's, kept when it can be keyed. */
 const LAUNCH_KEYS: ReadonlySet<string> = new Set(['launchRodLengthM', 'launchGuideAllowance', 'launchRodAngleDeg',
   'launchRodAimDeg', 'windAverage', 'windStdDev', 'launchAltitudeM', 'temperatureC', 'pressureHPa', 'latitudeDeg',
-  'longitudeDeg', 'geodeticMethod', 'timeStepS', 'windLevels', 'windProfileSource']);
+  'longitudeDeg', 'geodeticMethod', 'timeStepS', 'maxFlightTimeS', 'windLevels', 'windProfileSource']);
 const REQUIRED_LAUNCH_NUMBERS = ['launchRodLengthM', 'launchRodAngleDeg', 'windAverage', 'windStdDev',
   'launchAltitudeM', 'latitudeDeg'] as const;
 const finiteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -386,6 +386,11 @@ function repairStoredLaunch(l: Record<string, unknown>): boolean {
     if (key in l && !ok(l[key])) { delete l[key]; repaired = true; }
   };
   drop('launchRodAimDeg', finiteNumber);
+  drop('maxFlightTimeS', finiteNumber);
+  if (finiteNumber(l['maxFlightTimeS'])) {
+    const bounded = flownMaxFlightTimeS({ maxFlightTimeS: l['maxFlightTimeS'] });
+    if (bounded !== l['maxFlightTimeS']) { l['maxFlightTimeS'] = bounded; repaired = true; }
+  }
   drop('launchGuideAllowance', v => typeof v === 'boolean');
   drop('geodeticMethod', v => GEODETIC_METHODS.some(m => m.value === v));
   // A newer build's key is hashed as stored; one String() cannot print is not.

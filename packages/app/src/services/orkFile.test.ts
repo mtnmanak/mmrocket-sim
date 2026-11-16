@@ -1019,12 +1019,13 @@ describe('.ork launch conditions (simulations block)', () => {
     }
     // A saved blank reopens as the design that was saved: the fingerprint the
     // unsaved-work guard compares differs only by the keys every file states
-    // outright (the time step, Rod aim and, since GS1, the Earth model) —
+    // outright (time step, Rod aim, Earth model and row 129's flight limit) —
     // longitude is not one of them.
     const saved = { ...DEFAULT_CONDITIONS, windAverage: 3, longitudeDeg: null };
     const reopened = { ...saved, ...importOrk(exportOrk({ name: 'Cond', tree: SIMPLE_TREE, launch: saved })).launch! };
     const statedByFile = { timeStepS: reopened.timeStepS, launchRodAimDeg: reopened.launchRodAimDeg,
-      launchGuideAllowance: reopened.launchGuideAllowance, geodeticMethod: reopened.geodeticMethod };
+      launchGuideAllowance: reopened.launchGuideAllowance, geodeticMethod: reopened.geodeticMethod,
+      maxFlightTimeS: reopened.maxFlightTimeS };
     expect(designFingerprint({ ...SNAPSHOT_BASE, launch: reopened }))
       .toBe(designFingerprint({ ...SNAPSHOT_BASE, launch: { ...saved, ...statedByFile } }));
   });

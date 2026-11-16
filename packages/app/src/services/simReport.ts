@@ -1,5 +1,5 @@
 import { noteField } from './noteField.js';
-import { noticeEqual, INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
+import { noticeEqual, INITIAL_UNITS, noticeNumber, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import { PREFERRED_OPENING_SPEED_MS, MAX_CAUTION_OPENING_SPEED_MS } from './recoveryLimits.js';
 import type { RecordedFlightOverride } from './flightOverrideSummary.js';
 import { shroudWarningFilter } from './shroudWarnings.js';
@@ -15,7 +15,7 @@ import { railProfileFromFlight, type RailProfile } from './railNeeded.js';
 import { profileSurface, type WindProfileConditions } from './windProfile.js';
 import type { ComponentNode, EngineWarning, FlightEvent, FlightResult, FlightSeries, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { boosterBranches, DEFAULT_TIME_STEP_S } from '@online-openrocket/engine';
-import { flownGeodeticMethod, flownRodAimDeg, type LaunchConditions } from './launchConditions.js';
+import { DEFAULT_MAX_FLIGHT_TIME_S, flownMaxFlightTimeS, flownGeodeticMethod, flownRodAimDeg, type LaunchConditions } from './launchConditions.js';
 import type { MountMotor } from '../model/design.js';
 import { runExportContext, type RunExportContext } from './runExportContext.js';
 import type { WeatherSnapshot } from './weatherSnapshot.js';
@@ -640,6 +640,8 @@ export interface SimRun extends WindProfileConditions, AeroProvenance {
    * of a different one. {@link storedSimCost} is that reader.
    */
   timeStepS?: number;
+  /** Full-flight stop limit in seconds; absent on legacy/imported summaries. */
+  maxFlightTimeS?: number;
   execMs: number;
   /**
    * Which aerodynamics model produced this run: 'classic' Extended Barrowman
@@ -771,7 +773,7 @@ const COMMENT_SEP = ' | ';
  * fields that code always writes are always there. Saying so here is what
  * keeps the optional-on-disk fields from forcing a `!` on every fresh run.
  */
-export type FreshSimRun = SimRun & { deployments: DeploymentReport[]; physicsRevision: string };
+export type FreshSimRun = SimRun & { deployments: DeploymentReport[]; physicsRevision: string; maxFlightTimeS: number };
 
 /**
  * The launch panel's time-step-caution cost reference when this session has
@@ -1501,6 +1503,10 @@ export function conditionsKeyOf(launch: LaunchConditions): string {
   const geodetic = flownGeodeticMethod(launch);
   if (geodetic === null) delete l['geodeticMethod'];
   else l['geodeticMethod'] = geodetic;
+  // The default folds to legacy absence so old runs keep matching.
+  const maxTime = flownMaxFlightTimeS(launch);
+  if (maxTime === DEFAULT_MAX_FLIGHT_TIME_S) delete l['maxFlightTimeS'];
+  else l['maxFlightTimeS'] = maxTime;
   // ABSENT AND CLEARED ARE THE SAME FLIGHT, so they must hash the same.
   //
   // This used to be `Object.keys(launch)` alone, which emitted no segment at
@@ -1829,7 +1835,7 @@ function extractDeployments(
  * The `cause` field arrives only from engines built after it was exported; an
  * older artifact falls back to the generic sentence with no reason attached.
  */
-function abortWarnings(result: FlightResult): EngineWarning[] {
+function abortWarnings(result: FlightResult, maxFlightTimeS: number): EngineWarning[] {
   // EVERY branch, not just branch 0. A staged rocket's booster flies its own
   // branch, and the kernel can abort that one alone — leaving the sustainer's
   // numbers perfectly good while the booster's truncated apogee is rendered
@@ -1857,7 +1863,7 @@ function abortWarnings(result: FlightResult): EngineWarning[] {
     landedAt.push(ground);
     const abort = b.events.find((e) => e.type === 'SIM_ABORT');
     if (!abort) {
-      if (ground === undefined) out.push(incompleteFlightWarning(b.name, b.series.time.at(-1), index > 0));
+      if (ground === undefined) out.push(incompleteFlightWarning(b.name, b.series.time.at(-1), index > 0, maxFlightTimeS));
       continue;
     }
     const when = Number.isFinite(abort.time) ? ` at T+${abort.time.toFixed(2)} s` : '';
@@ -1874,23 +1880,20 @@ function abortWarnings(result: FlightResult): EngineWarning[] {
 }
 
 /**
- * The kernel's flight-time limit (s). OrkEngine.simulateJson sets
- * `setMaxSimulationTime(JsonLite.dbl(o, "maxTime", 1200))`
- * (engine-java/src/api/java/api/OrkEngine.java, ~l. 1089), and the app passes
- * `maxTime` only for the Mach probe (flightRunner.ts). A flight still airborne
- * there ends with no ground contact, and its last time sample is its flight
- * time (FlightData.calculateInterestingValues).
+ * Legacy default (s). New runs carry their own maxFlightTimeS. Retained for
+ * historical consumers; launchConditions owns the default and bounds.
  */
-export const KERNEL_MAX_FLIGHT_TIME_S = 1200;
+export const KERNEL_MAX_FLIGHT_TIME_S = DEFAULT_MAX_FLIGHT_TIME_S;
 
 /**
  * The HIGH warning a flight or booster branch gets when it ended without ground
  * contact: ONE wording for a fresh flight (abortWarnings) and for a stored one
  * that predates the warning (simStore.loadRuns).
  */
-export function incompleteFlightWarning(stage: string | undefined, end: number | undefined, booster: boolean): EngineWarning {
+export function incompleteFlightWarning(stage: string | undefined, end: number | undefined, booster: boolean,
+  maxFlightTimeS = DEFAULT_MAX_FLIGHT_TIME_S): EngineWarning {
   return { key: 'INCOMPLETE_FLIGHT', priority: 'HIGH',
-    message: `${stage ? `The ${noteField(stage)} stage's flight` : 'The flight'} ended${Number.isFinite(end) ? ` at T+${end!.toFixed(2)} s` : ''} before ground contact was recorded. ${booster ? 'That stage\'s flight is incomplete; its landing rate is unavailable.' : 'The flight is incomplete; landing rate and landing drift are unavailable.'}`,
+    message: `${stage ? `The ${noteField(stage)} stage's flight` : 'The flight'} ended${Number.isFinite(end) ? ` at T+${end!.toFixed(2)} s` : ''} before ground contact was recorded. Maximum flight time (${noticeNumber(maxFlightTimeS, 6)} s, Launch conditions) stops the simulation even if the rocket is still in the air. ${booster ? 'That stage\'s flight is incomplete; its landing rate is unavailable.' : 'The flight is incomplete; landing rate and landing drift are unavailable.'}`,
   };
 }
 
@@ -2084,6 +2087,8 @@ export function buildSimRun(input: {
   motor: MotorSpec;
   meta?: MotorMeta;
   launch: LaunchConditions;
+  /** The limit handed to the flight, explicitly recorded by app runners. */
+  maxFlightTimeS?: number;
   rocketName: string;
   execMs: number;
   /** Per-stage motor info by STAGE NAME (staged rockets; booster-recovery checks). */
@@ -2567,12 +2572,14 @@ export function buildSimRun(input: {
     flushDevices();
   }
 
-  const stopWarnings = abortWarnings(result);
+  const maxFlightTimeS = flownMaxFlightTimeS({ maxFlightTimeS: input.maxFlightTimeS ?? launch.maxFlightTimeS });
+  const stopWarnings = abortWarnings(result, maxFlightTimeS);
   const thrustWarnings = input.advisoryTree ? asymmetricThrustWarnings(input.advisoryTree,
     (input.advisoryMotors ?? []).filter(([id]) => !input.refusedMountIds?.includes(id)), result) : [];
   return {
     id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     when: Date.now(),
+    maxFlightTimeS,
     rocket: rocketName,
     motor: displayDesignation(motor.designation, meta?.manufacturer),
     motorDesignation: motor.designation,

@@ -8,7 +8,7 @@ import { motorLengthLossNotes } from '../tree/motorLength.js';
 import { savedConfigLabel, type SavedConfig, type FlightOverrides } from '../model/design.js';
 import { overrideFor, resolveFlightState } from './flightState.js';
 import { exportIgnitions } from './foreignConfigLayers.js';
-import { DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, flownRodAimDeg, type LaunchConditions } from './launchConditions.js';
+import { DEFAULT_CONDITIONS, DEFAULT_MAX_FLIGHT_TIME_S, DEFAULT_TIME_STEP_S, flownRodAimDeg, type LaunchConditions } from './launchConditions.js';
 import type { MeasuredFigures, OrkExportFlightData, OrkExportMotor } from './orkFile.js';
 import { exportRkt, rktPackedChuteSize, rktRecoveryCount, type RktPartInfo } from './rocksimFile.js';
 import { cdx1RecoveryDelayNote, cdx1RodAimNote, cdx1WrittenParts, exportCdx1, rasaeroManufacturerAbbrev } from './rasaeroFile.js';
@@ -50,12 +50,14 @@ export const launchFieldLabels: Partial<Record<keyof LaunchConditions, string>> 
   launchGuideAllowance: 'Allow for lug and rail-button positions', windAverage: 'Wind avg', windStdDev: 'Wind gusts σ',
   launchAltitudeM: 'Site altitude', temperatureC: 'Temperature', pressureHPa: 'Station pressure',
   latitudeDeg: 'Latitude', longitudeDeg: 'Longitude', geodeticMethod: 'Geodetic calculations', timeStepS: 'Time step',
+  maxFlightTimeS: 'Maximum flight time',
 };
 function lostLaunchFields(format: LossyFormat, launch: LaunchConditions): string[] {
   const carried = new Set<keyof LaunchConditions>(format === 'cdx1'
     ? ['launchRodLengthM', 'launchRodAngleDeg', 'windAverage', 'launchAltitudeM', 'temperatureC', 'pressureHPa'] : []);
   const defaults: Partial<LaunchConditions> = { ...DEFAULT_CONDITIONS, launchRodAimDeg: 0,
-    launchGuideAllowance: true, longitudeDeg: null, geodeticMethod: 'spherical', timeStepS: DEFAULT_TIME_STEP_S };
+    launchGuideAllowance: true, longitudeDeg: null, geodeticMethod: 'spherical', timeStepS: DEFAULT_TIME_STEP_S,
+    maxFlightTimeS: DEFAULT_MAX_FLIGHT_TIME_S };
   return (Object.keys(launchFieldLabels) as (keyof LaunchConditions)[]).filter(key => {
     if (carried.has(key)) return false;
     // Rod aim flies nothing on a vertical rod (flownRodAimDeg), so only an

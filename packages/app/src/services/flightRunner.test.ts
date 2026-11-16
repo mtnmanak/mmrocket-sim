@@ -210,7 +210,8 @@ describe('Auto atmosphere upgrade (OR #2731)', () => {
     handle.simulate = (options) => {
       temperatures.push(options!.temperature!);
       const result = originalSimulate(options);
-      result.summary.maxMachNumber = when === 'probe' || !options?.maxTime ? 1.1 : 0.3;
+      // Row 129: full flights now carry maxTime too; delayProbe=false names the report flight.
+      result.summary.maxMachNumber = when === 'probe' || options?.delayProbe === false ? 1.1 : 0.3;
       return result;
     };
     const launch = { ...DEFAULT_CONDITIONS, launchAltitudeM: 10000, pressureHPa: 800 };
@@ -272,7 +273,7 @@ describe('complete per-mount Launch protocol', () => {
     const simulate = handle.simulate;
     handle.simulate = (o) => {
       const p = simulate(o);
-      if (!o?.delayProbe && !o?.maxTime) p.summary.maxMachNumber = 1.1;
+      if (o?.delayProbe === false) p.summary.maxMachNumber = 1.1;
       return p;
     };
     const f = await flyLaunch(handle, { ...input, aeroMode: 'auto' });

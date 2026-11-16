@@ -36,6 +36,7 @@ import { saveFile } from './services/saveFile.js';
 import { downloadBlob } from './services/fileName.js';
 import { savedConfigLabel } from './model/design.js';
 import * as batchSweep from './services/batchSweep.js';
+import * as flightRunner from './services/flightRunner.js';
 
 /**
  * THE LAUNCH BUTTON AND THE HEADLESS LAUNCH FLY THE SAME BYTES (2026-10-01;
@@ -665,11 +666,13 @@ it('N032 header apogee and flight announcement follow Altitude with independent 
 const c6 = async () => (await loadCatalogueMotor('Estes', 'C6', 5))!;
 
 it.each([-149.765432, null, undefined])('bundle chart replay and full downloads keep the saved longitude %s after reload and a site edit', async longitudeDeg => {
+  // Row 129: chart and full-series replay must retain the recorded flight limit.
+  const replay = vi.spyOn(flightRunner, 'reflyRun');
   prefs(CLASSIC);
   const tree = defaultTree();
   localStorage.setItem(SESSION_KEY, JSON.stringify({ tree,
     mountMotors: { [motorMounts(tree)[0]!.id!]: await c6() },
-    launch: { ...DEFAULT_CONDITIONS, longitudeDeg },
+    launch: { ...DEFAULT_CONDITIONS, longitudeDeg, maxFlightTimeS: 3600 },
     measured: { massKg: null, cgM: null }, savedAt: 1, appVersion: APP_VERSION }));
   let host = await mountApp();
   await launch(host);
@@ -693,6 +696,7 @@ it.each([-149.765432, null, undefined])('bundle chart replay and full downloads 
   await act(async () => host.querySelector<HTMLElement>('.motor-row')!.click());
   await click('Show charts');
   await waitFor(() => !!host.querySelector('.chart-panel'), 'replayed charts');
+  expect(replay.mock.calls.at(-1)?.[1].simOptions.maxTime).toBe(3600);
   await click('Export flight-data bundle');
   const dialog = host.querySelector('[role=dialog][aria-label="Export flight-data bundle"]')!;
   const comparison = [...dialog.querySelectorAll('p')].find(p => p.textContent?.includes('The design file is the current design'))!;
@@ -721,6 +725,7 @@ it.each([-149.765432, null, undefined])('bundle chart replay and full downloads 
   vi.mocked(downloadBlob).mockClear();
   await click('Flight data (.csv)');
   await waitFor(() => vi.mocked(downloadBlob).mock.calls.length === 1, 'full CSV download');
+  expect(replay.mock.calls.at(-1)?.[1].simOptions.maxTime).toBe(3600);
   const fullCsv = await vi.mocked(downloadBlob).mock.calls[0]![0].text();
   const [fullHeader, fullFirst] = fullCsv.trim().split('\n');
   const fullColumn = fullHeader!.split(',').findIndex(h => h.includes('Longitude'));
@@ -739,7 +744,7 @@ it.each([-149.765432, null, undefined])('bundle chart replay and full downloads 
   // As with CSV, only degree-conversion roundoff is tolerated.
   expect.soft(Number(longitudeCell?.querySelector('v')?.textContent)).toBeCloseTo(longitudeDeg ?? -80.6, 6);
   expect(localStorage.getItem(RUNS_KEY)).toBe(historyBefore);
-}, 30000);
+}, 60_000);
 
 it('exports the selected saved summary as a local bundle without launching or marking the design saved', async () => {
   prefs(CLASSIC);

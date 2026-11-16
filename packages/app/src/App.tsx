@@ -325,8 +325,8 @@ const afterPaint = (): Promise<void> =>
 // physics comparison key, but charts and downloads must share the recorded site.
 function replayLaunchFor(run: SimRun, launch: LaunchConditions): LaunchConditions {
   return run.exportContext
-    ? { ...launch, longitudeDeg: run.exportContext.launch.longitudeDeg }
-    : launch;
+    ? { ...launch, longitudeDeg: run.exportContext.launch.longitudeDeg, maxFlightTimeS: run.maxFlightTimeS }
+    : { ...launch, maxFlightTimeS: run.maxFlightTimeS };
 }
 
 export function App() {

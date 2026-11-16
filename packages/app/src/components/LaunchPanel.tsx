@@ -14,6 +14,7 @@ import { GustEstimate } from './GustEstimate.js';
 import { LongitudeCheck, type LongitudeReview } from './LongitudeCheck.js';
 import { Icon } from './Icon.js';
 import { NumField } from './NumField.js';
+import { MaximumFlightTimeField } from './MaximumFlightTimeField.js';
 import { UnitChip } from './UnitChip.js';
 import { WeatherButton } from './WeatherButton.js';
 import { provenanceText, WeatherStrip } from './WeatherStrip.js';
@@ -36,9 +37,9 @@ import { LaunchCompass } from './LaunchCompass.js';
 // and the corpus sweep loaded React and every weather component with them.
 // Re-exported for the components and tests that name the panel.
 export {
-  canonicalRodAimDeg, DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, flownGeodeticMethod, flownLongitudeDeg, flownRodAimDeg,
+  canonicalRodAimDeg, DEFAULT_CONDITIONS, DEFAULT_MAX_FLIGHT_TIME_S, DEFAULT_TIME_STEP_S, flownMaxFlightTimeS, flownGeodeticMethod, flownLongitudeDeg, flownRodAimDeg,
   GEODETIC_METHODS, importLaunchValue, KERNEL_DEFAULT_LONGITUDE_DEG, kernelSimOptions, LATITUDE_DEG_RANGE,
-  LONGITUDE_DEG_RANGE, normalizeRodAimDeg, PANEL_TIME_STEP_FLOOR_S, ROD_AIM_DEG_RANGE, ROD_ANGLE_DEG_RANGE,
+  LONGITUDE_DEG_RANGE, MAX_FLIGHT_TIME_S_RANGE, normalizeRodAimDeg, PANEL_TIME_STEP_FLOOR_S, ROD_AIM_DEG_RANGE, ROD_ANGLE_DEG_RANGE,
   ROD_LENGTH_M_RANGE, timeStepCostFactor, WIND_MS_RANGE,
 } from '../services/launchConditions.js';
 export type { LaunchConditions } from '../services/launchConditions.js';
@@ -651,6 +652,7 @@ export function LaunchPanel({
         {/* Under the coordinates its Coriolis term reads (GS1); desktop keeps it
             in its simulation options, beside the time step. */}
         <GeodeticField value={value} onChange={onChange} />
+        <MaximumFlightTimeField value={value} onChange={onChange} />
       </div>
       {/* Not a .field-caution: the tests (and a reader) take the FIRST caution
           as the one about what was typed. */}

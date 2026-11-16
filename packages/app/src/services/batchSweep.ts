@@ -26,7 +26,7 @@ import type { FlightTree, MountMotor } from '../model/design.js';
 import { overrideFor } from './flightState.js';
 import { flownDeployEvent } from '../tree/deployEvent.js';
 import { flyLaunch, writeMountMotor } from './flightRunner.js';
-import { kernelSimOptions, type LaunchConditions } from './launchConditions.js';
+import { flownMaxFlightTimeS, kernelSimOptions, type LaunchConditions } from './launchConditions.js';
 import { physicsKeyOf, provenanceKeyOf } from './designDerivation.js';
 import type { WeatherSnapshot } from './weatherSnapshot.js';
 import { batchMatchingMounts } from './batchMountDisclosure.js';
@@ -846,6 +846,7 @@ export async function runBatchSweep(
         aero,
       });
       const run = buildSimRun({
+        maxFlightTimeS: flownMaxFlightTimeS(launch),
         units,
         weatherSnapshot,
         advisoryLimits, advisoryTree: keyTree, advisoryMotors: f.assigned,
@@ -1025,6 +1026,7 @@ export async function runBatchSweep(
           aero,
         });
         const run = buildSimRun({
+          maxFlightTimeS: flownMaxFlightTimeS(launch),
           units, advisoryLimits,
           weatherSnapshot,
           advisoryTree: stageIdOfTarget !== '' && (exitM !== null || typedStageExitM !== null)

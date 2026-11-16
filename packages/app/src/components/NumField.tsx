@@ -16,6 +16,8 @@ const NO_TEXT: ReadonlySet<string> = new Set();
  *   a negative where negatives aren't allowed, out-of-range, a grouped
  *   "10,000") show an error border and commit nothing — except a draft over
  *   `max` with `clampToMax`, which keeps the error border and commits `max`.
+ *   `clampToBounds` also commits the minimum for a draft below it, reporting
+ *   the requested and bounded values through `onClamp`.
  *   A single comma is a decimal separator ("1,5" is 1.5) — see `readDecimal`
  *   in prefs/units. Text the field wrote itself is read as it was written
  *   (see `ownText`).
@@ -37,7 +39,7 @@ const NO_TEXT: ReadonlySet<string> = new Set();
 export function NumField({
   value, onCommit, nullable = false, min, max, allowNegative = false,
   integer = false, step = 1, placeholder, autoValue, ariaLabel, id, invalid = false, describedBy,
-  clampToMax = false, validate, onEditStart, onEditEnd, onEditCancel,
+  clampToMax = false, clampToBounds = false, onClamp, validate, onEditStart, onEditEnd, onEditCancel,
 }: {
   value: number | undefined;
   /** Called with each valid value; editing is false for an unfocused spinner. */
@@ -99,6 +101,9 @@ export function NumField({
    * audit 2026-09-22). Below `min`, fractions and junk are still refused.
    */
   clampToMax?: boolean;
+  /** Commit a bounded typed value; keep its invalid draft visible until blur. */
+  clampToBounds?: boolean;
+  onClamp?: (requested: number, bounded: number) => void;
   /** Extra draft/step check, e.g. a finite display value that overflows in SI. */
   validate?: (v: number) => boolean;
 }) {
@@ -144,14 +149,14 @@ export function NumField({
    */
   const inputMode = lowBound === undefined || lowBound < 0 ? 'text' : 'decimal';
 
-  /** `capped` false: every check but the `max` one (see clampToMax). */
+  /** `capped` false skips max, and also min for clampToBounds. */
   const parse = (s: string, capped = true): number | null => {
     // "1,5" is 1.5; "10,000" is refused rather than read as 10 (readDecimal) —
     // unless this field wrote the text itself, which reads as written (ownText).
     const t = s.trim();
     let v = ownText.has(t) ? readDecimal(t, false) : readDecimal(s);
     if (v === null) return null;
-    if (lowBound !== undefined && v < lowBound) return null;
+    if ((capped || !clampToBounds) && lowBound !== undefined && v < lowBound) return null;
     if (capped && max !== undefined) {
       // Typing the displayed ceiling must still reach the exact stored limit.
       if (v === Number(fmtFieldValue(max, prefs.fieldPrecision))) v = max;
@@ -214,6 +219,15 @@ export function NumField({
       // String() of the parsed number keeps every typed digit.
       lastTyped.current = { text: String(v), value: v };
       onCommit(v, focused);
+    }
+    else if (clampToBounds) {
+      const requested = parse(s, false);
+      if (requested !== null) {
+        const bounded = Math.min(max ?? Infinity, Math.max(lowBound ?? -Infinity, requested));
+        lastTyped.current = null;
+        onCommit(bounded, focused);
+        onClamp?.(requested, bounded);
+      }
     }
     else if (clampToMax && max !== undefined && parse(s, false) !== null) onCommit(max, focused);
   };

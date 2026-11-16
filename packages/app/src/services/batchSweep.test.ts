@@ -172,6 +172,28 @@ function input(tree: RocketTree, over: Partial<BatchSweepInput> = {}): BatchSwee
 const sweep = (inp: BatchSweepInput, deps: Partial<BatchSweepDeps>, signal = new AbortController().signal) =>
   runBatchSweep(inp, { signal }, { yieldToUi: noYield, ...deps });
 
+it('129 every batch candidate and split uses and records Maximum flight time', async () => {
+  const tree = clusterRocket('4-ring');
+  const split = splitClusterTree(tree, 'mount');
+  expect(split).not.toBeNull();
+  const spy = vi.spyOn(flightRunner, 'flyLaunch');
+  const candidates = [entry('limit-a', 'Home', 'E20', '5'), entry('limit-b', 'Home', 'E22', '5')];
+  const out = await sweep(input(tree, { candidates, splits: split ? [split] : [], autoDelay: false,
+    launch: { ...DEFAULT_CONDITIONS, maxFlightTimeS: 1 } }), {
+    fetchSpec: fetchFrom({ 'limit-a': curve('E20'), 'limit-b': curve('E22') }), nozzleFor: nozzles({}),
+  });
+  expect(out.rows.length).toBeGreaterThanOrEqual(2);
+  expect(out.rows.some(row => row.combo)).toBe(true);
+  for (const row of out.rows) {
+    expect(row.error).toBeUndefined();
+    expect(row.run?.maxFlightTimeS).toBe(1);
+    expect(row.run?.totalFlightTime).toBeLessThan(2);
+    expect(row.run?.simWarnings?.some(w => w.key === 'INCOMPLETE_FLIGHT')).toBe(true);
+  }
+  expect(spy).toHaveBeenCalled();
+  for (const [, launch] of spy.mock.calls) expect(launch.simOptions.maxTime).toBe(1);
+}, 60_000);
+
 it('Round 5 reserves split-group names against kept design mounts on every disclosure surface', async () => {
   const tree = clusterRocket('4-ring');
   const body = tree.components[0]!.children![1]!;

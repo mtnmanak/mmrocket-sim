@@ -202,6 +202,7 @@ export const worker = {
       const flight = kernelJob(() => simulateFile(data, filename, {
         network: 'forbid', reportSeries: 'summary', yieldToUi: () => Promise.resolve(),
         kernelDeadHolderMs: 10_000, minTimeStepS: MIN_API_TIME_STEP_S, maxInflatedBytes: MAX_API_INFLATED_BYTES,
+        maxFlightTimeS: 1200,
         // The design's name, as every response shows it: bounded and made safe like the filename echo.
         designName: displayEcho,
       }));

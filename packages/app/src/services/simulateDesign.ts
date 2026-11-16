@@ -17,7 +17,7 @@ import {
 } from './designDerivation.js';
 import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './flightPipeline.js';
 import { flyLaunch, type LaunchFlight } from './flightRunner.js';
-import { DEFAULT_TIME_STEP_S, kernelSimOptions, type LaunchConditions } from './launchConditions.js';
+import { DEFAULT_TIME_STEP_S, flownMaxFlightTimeS, kernelSimOptions, type LaunchConditions } from './launchConditions.js';
 import { applyLegacyPadMassStep } from './padMassReconcile.js';
 import type { HeldNote } from './notices.js';
 import { buildSimRun, type DesignMatchKey, type FreshSimRun } from './simReport.js';
@@ -174,6 +174,7 @@ export async function flyBuiltDesign<R extends BuildHandle>(
   const branchMotors = stageMotorInfo(tree, assigned, stageList);
   // The configuration identity and override tuples were captured before flight.
   const run = buildSimRun({
+    maxFlightTimeS: flownMaxFlightTimeS(launch),
     weatherSnapshot,
     ...(input.units ? { units } : {}),
     advisoryLimits,

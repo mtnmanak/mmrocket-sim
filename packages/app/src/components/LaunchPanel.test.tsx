@@ -677,15 +677,15 @@ describe('Launch is disabled until a motor is assigned', () => {
  * anything; any drift here re-flies every design in every user's history.
  */
 describe('kernelSimOptions is byte-identical for every existing design', () => {
-  it('matches the golden captured before the weather build', () => {
+  it('matches the golden, with row 129 explicitly sending the unchanged default limit', () => {
     expect(JSON.stringify(kernelSimOptions(DEFAULT_CONDITIONS))).toBe(
-      '{"launchRodLength":1,"launchRodAngle":0,"windAverage":0,"windStdDeviation":0,'
+      '{"maxTime":1200,"launchRodLength":1,"launchRodAngle":0,"windAverage":0,"windStdDeviation":0,'
       + '"launchAltitude":0,"launchLatitude":28.61}');
     expect(JSON.stringify(kernelSimOptions({
       ...DEFAULT_CONDITIONS, launchAltitudeM: 1219.2, temperatureC: 35, windAverage: 4, windStdDev: 1,
       launchRodAngleDeg: 5, latitudeDeg: 40.65, timeStepS: 0.02,
     }))).toBe(
-      '{"launchRodLength":1,"launchRodAngle":0.08726646259971647,"windAverage":4,"windStdDeviation":1,'
+      '{"maxTime":1200,"launchRodLength":1,"launchRodAngle":0.08726646259971647,"windAverage":4,"windStdDeviation":1,'
       + '"launchAltitude":1219.2,"temperature":308.15,"pressure":87510.54501623093,"launchLatitude":40.65,'
       + '"timeStep":0.02}');
   });
@@ -1385,7 +1385,7 @@ describe('the rod-aim field', () => {
     const cells = [...host.querySelectorAll<HTMLElement>('.field-grid > *')].filter(c => c.style.position !== 'absolute');
     const order = ['Rod angle', 'Rod aim', 'Wind avg', 'Wind gusts σ', 'Rod length', 'Site altitude',
       'Temperature', 'Station pressure', 'Density altitude', 'Time step', 'Latitude', 'Longitude',
-      'Geodetic calculations'];
+      'Geodetic calculations', 'Maximum flight time'];
     expect(cells.map((c) => {
       const text = c.querySelector('label')?.textContent ?? '';
       return order.find((o) => text.startsWith(o)) ?? text;

@@ -3,7 +3,8 @@ import { validRunExportContext } from './runExportContext.js';
 import type { DesignMatchKey } from './simReport.js';
 import { restoredWarnings, storedWarnings } from './storedWarnings.js';
 import { csvCell } from './csvUtil.js';
-import { deploymentVerdict, openingVerdict, descentVerdict, incompleteFlightWarning, KERNEL_MAX_FLIGHT_TIME_S, runStoppedEarly, SAFETY, type SimRun } from './simReport.js';
+import { deploymentVerdict, openingVerdict, descentVerdict, incompleteFlightWarning, runStoppedEarly, SAFETY, type SimRun } from './simReport.js';
+import { flownMaxFlightTimeS, MAX_FLIGHT_TIME_S_RANGE } from './launchConditions.js';
 import { isAeroModel } from './aeroProvenance.js';
 import { railNeeded, railNeededResultCell, railNeededHeader } from './railNeeded.js';
 import { createWarningMergeBudget, mergeImportedWarnings, mergeStoredWarnings, sameStoredFlight, verifiesStoredRow, type WarningMergeBudget } from './storedRunIdentity.js';
@@ -85,6 +86,8 @@ export function loadRuns(): SimRun[] {
         delete r.commentLevels;
       }
       if (r.timeStepS !== undefined && (!Number.isFinite(r.timeStepS) || !(r.timeStepS > 0))) delete r.timeStepS;
+      if (r.maxFlightTimeS !== undefined && (!Number.isFinite(r.maxFlightTimeS)
+        || r.maxFlightTimeS < MAX_FLIGHT_TIME_S_RANGE[0] || r.maxFlightTimeS > MAX_FLIGHT_TIME_S_RANGE[1])) delete r.maxFlightTimeS;
       if (r.exportContext !== undefined && !validRunExportContext(r.exportContext)) delete r.exportContext;
       if (r.batchMounts !== undefined && !validBatchMounts(r.batchMounts)) delete r.batchMounts;
       if (r.windSigma !== undefined && (!Number.isFinite(r.windSigma) || r.windSigma < 0)) delete r.windSigma;
@@ -158,8 +161,8 @@ export function loadRuns(): SimRun[] {
       // no ground contact or stop was recorded. Only the main flight's figures:
       // a stored booster branch keeps no end time to judge it by.
       if (!r.importedSummary && !Number.isFinite(r.groundHitVelocity) && typeof r.totalFlightTime === 'number'
-        && r.totalFlightTime >= KERNEL_MAX_FLIGHT_TIME_S - 1e-6 && !runStoppedEarly(r)) {
-        r.simWarnings = restoredWarnings([incompleteFlightWarning(undefined, r.totalFlightTime, false), ...(r.simWarnings ?? [])]);
+        && r.totalFlightTime >= flownMaxFlightTimeS(r) - 1e-6 && !runStoppedEarly(r)) {
+        r.simWarnings = restoredWarnings([incompleteFlightWarning(undefined, r.totalFlightTime, false, flownMaxFlightTimeS(r)), ...(r.simWarnings ?? [])]);
         Object.assign(r, { landingRate: null, safeLandingRate: null, landingDistanceM: null, landingBearingDeg: null });
         for (const d of r.deployments ?? []) {
           if (d.isLanding) Object.assign(d, { descentRate: null, groundSpeed: null });
