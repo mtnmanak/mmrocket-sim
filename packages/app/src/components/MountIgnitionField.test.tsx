@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it } from 'vitest';
 import type { IgnitionTuple } from '../model/design.js';
@@ -7,6 +10,8 @@ import { MountIgnitionField } from './MountIgnitionField.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const noop = () => {};
+const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../styles.css'), 'utf8')
+  .replace(/\/\*[\s\S]*?\*\//g, '');
 
 function render(own: IgnitionTuple, override: IgnitionTuple | undefined) {
   const host = document.createElement('div');
@@ -24,6 +29,33 @@ function render(own: IgnitionTuple, override: IgnitionTuple | undefined) {
  * differently from the mount's own setting, the Launch warning's comparison.
  */
 describe('the motor card’s ignition status', () => {
+  it('row 142: keeps status, scope, reset and controls in separate ordered rows', () => {
+    const { host, status, unmount } = render({ event: 'automatic', delay: 0 }, { event: 'launch', delay: 2 });
+    try {
+      const editor = host.querySelector('.mount-ignition-field')!;
+      expect(editor).not.toBeNull();
+      expect([...editor.children].map(child => child.tagName)).toEqual(['LABEL', 'P', 'FIELDSET', 'BUTTON', 'DIV']);
+      expect(status.parentElement).toBe(editor);
+      expect(status.nextElementSibling?.className).toBe('flight-scope');
+      const controls = editor.querySelector('.mount-ignition-controls')!;
+      expect(controls).toBe(editor.lastElementChild);
+      expect(editor.querySelector('label')?.htmlFor).toBe(controls.querySelector('select')?.id);
+      for (const label of editor.querySelectorAll('.flight-scope label')) {
+        expect([...label.children].map(child => child.tagName)).toEqual(['INPUT', 'SPAN']);
+        expect(label.querySelector('span')?.textContent).not.toBe('');
+      }
+    } finally { unmount(); }
+  });
+
+  it('row 142: shared scope CSS contains wrapping and beats full-width field inputs', () => {
+    expect(css).toMatch(/\.mount-ignition-field\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;[^}]*min-width:\s*0;[^}]*overflow-wrap:\s*anywhere;/);
+    expect(css).toMatch(/\.mount-ignition-controls\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 70px auto;/);
+    expect(css).toMatch(/\.flight-scope\s*\{[^}]*min-width:\s*0;[^}]*width:\s*fit-content;[^}]*max-width:\s*100%;[^}]*box-sizing:\s*border-box;[^}]*align-self:\s*flex-start;[^}]*overflow-wrap:\s*anywhere;/);
+    expect(css).toMatch(/\.flight-scope label\s*\{[^}]*grid-template-columns:\s*auto minmax\(0, 1fr\);/);
+    // The attribute raises specificity above the later .field input width:100%.
+    expect(css).toMatch(/\.flight-scope input\[type=['"]radio['"]\]\s*\{\s*width:\s*auto;/);
+  });
+
   it('is Caution for an override that flies differently from the own setting', () => {
     const { status, unmount } = render({ event: 'automatic', delay: 0 }, { event: 'launch', delay: 2 });
     try {

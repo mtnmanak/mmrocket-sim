@@ -1,4 +1,5 @@
 import { ignitionDefaultFor } from './services/ignitionDefault.js';
+import { WorkspaceBar } from './components/WorkspaceBar.js';
 import { noteField, noteText } from './services/noteField.js';
 import { motorLinkParams, type MotorLinkParams } from './services/motorLink.js';
 import { planMotorLink, motorLinkMayReplace, motorLinkLoadFailure, type LinkNote } from './services/motorLinkOpen.js';
@@ -4286,6 +4287,7 @@ export function App() {
       )}
       </DesignConfirms>
       <div className="workspace">
+        <WorkspaceBar>
         {/* Always-visible vitals, styled as an instrument readout: the
             tweak-and-refly loop never needs a tab switch to check stability/
             mass or start a flight. The Fly screen is the one exception — it
@@ -4469,6 +4471,7 @@ export function App() {
             <Icon name="chart" size={13} /> Results
           </button>
         </nav>
+        </WorkspaceBar>
 
         {sessionNote && (
           <p className={`session-note${sessionNoteFading ? ' fading' : ''}`}>{sessionNote}</p>

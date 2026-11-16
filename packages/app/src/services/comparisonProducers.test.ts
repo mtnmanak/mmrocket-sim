@@ -1,4 +1,8 @@
 // @vitest-environment happy-dom
+// Row 140: PreferencesDialog 13 -> 14 adds the 700 px viewport-height hint.
+// This is a layout breakpoint, not a design/flight measurement or tolerance.
+// WorkspaceBar.test covers short/tall viewport transitions and zero offset;
+// PreferencesDialog.test covers the labelled, persisted opt-in and its hint.
 // N052: DragPanel 42 -> 43 reuses chart-model-limit for the CNα chart;
 // FlightCharts 10 -> 11 explains the existing "over-perfect" disturbance.
 // These are static diagnostic copy/style, not new measurement decisions.

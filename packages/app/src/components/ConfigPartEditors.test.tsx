@@ -41,6 +41,23 @@ function setup(props: Partial<Parameters<typeof ConfigPartEditors>[0]> = {}) {
 }
 
 describe('CFG-2 Recovery and Stages rows', () => {
+  it('row 142: Recovery and Stages share separate radio and wrapping text cells', () => {
+    const { row, click, buttonIn, cleanup } = setup();
+    try {
+      for (const id of ['chute', 'lower']) {
+        click(buttonIn(row(id), 'Edit…')!);
+        const scope = row(id).querySelector('.flight-scope')!;
+        expect(scope).not.toBeNull();
+        expect(scope.querySelector('legend')?.textContent).toBe('Apply changes to');
+        for (const label of scope.querySelectorAll('label')) {
+          expect([...label.children].map(child => child.tagName)).toEqual(['INPUT', 'SPAN']);
+          expect(label.querySelector('input')?.type).toBe('radio');
+          expect(label.querySelector('span')?.textContent).not.toBe('');
+        }
+      }
+    } finally { cleanup(); }
+  });
+
   it('list every recovery device and every lower stage, never the top stage, with own and flown text', () => {
     const { host, row, cleanup } = setup();
     try {

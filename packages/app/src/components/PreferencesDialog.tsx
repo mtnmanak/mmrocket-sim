@@ -136,6 +136,18 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
         <h3 className="prefs-section">Display</h3>
         <div className="field-grid">
           <div className="field">
+            <label htmlFor={idFor('sticky-workspace-bar')}>Keep the rocket summary and tabs in view while scrolling</label>
+            <select id={idFor('sticky-workspace-bar')} value={prefs.stickyWorkspaceBar ? 'on' : 'off'}
+              aria-describedby={idFor('sticky-workspace-hint')}
+              onChange={(e) => setPrefs({ ...prefs, stickyWorkspaceBar: e.target.value === 'on' })}>
+              <option value="off">Off</option>
+              <option value="on">On</option>
+            </select>
+            <p className="prefs-hint" id={idFor('sticky-workspace-hint')}>
+              On windows shorter than 700 px, the summary scrolls as normal. Phone tabs always stay at the bottom.
+            </p>
+          </div>
+          <div className="field">
             <label htmlFor={idFor('field-precision')}>Displayed decimals</label>
             <select id={idFor('field-precision')} value={prefs.fieldPrecision ?? 'auto'}
               onChange={(e) => setPrefs({ ...prefs,
