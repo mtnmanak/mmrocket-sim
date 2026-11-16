@@ -7,9 +7,10 @@
     "tmt": 13,
     "nar": 19,
     "plugged": 5,
-    "none": 175,
+    "none": 159,
     "scan": 100,
-    "scan-reviewed": 0
+    "scan-reviewed": 0,
+    "text-average": 16
   },
   "scanReview": {
     "reviewed": 100,
@@ -17,6 +18,478 @@
     "unreadForMerge": 100,
     "averagesRead": 43,
     "source": "packages/app/scripts/aerotech-delay-transcriptions.json"
+  },
+  "textAverageReview": {
+    "documentsRead": 16,
+    "nominalsRead": 40,
+    "byReader": {
+      "NAR": {
+        "documents": 10,
+        "nominals": 24
+      },
+      "TRA": {
+        "documents": 6,
+        "nominals": 16
+      }
+    },
+    "documents": {
+      "NAR/18mm Model Rocket Single-Use/D10W.pdf": {
+        "averages": {
+          "3": 3.82,
+          "5": 5.9,
+          "7": 7.82
+        },
+        "positions": [
+          {
+            "nominalS": 3,
+            "row": 19,
+            "column": 2,
+            "xPt": 291.5757141113281,
+            "page": 1,
+            "reader": "nar"
+          },
+          {
+            "nominalS": 5,
+            "row": 20,
+            "column": 2,
+            "xPt": 291.5757141113281,
+            "page": 1,
+            "reader": "nar"
+          },
+          {
+            "nominalS": 7,
+            "row": 21,
+            "column": 2,
+            "xPt": 291.5757141113281,
+            "page": 1,
+            "reader": "nar"
+          }
+        ]
+      },
+      "NAR/24mm Model Rocket Single-Use/E30T (new thrust ring case).pdf": {
+        "averages": {
+          "4": 3.71,
+          "7": 7.17
+        },
+        "positions": [
+          {
+            "nominalS": 4,
+            "row": 19,
+            "column": 2,
+            "xPt": 291.875,
+            "page": 1,
+            "reader": "nar"
+          },
+          {
+            "nominalS": 7,
+            "row": 20,
+            "column": 2,
+            "xPt": 291.875,
+            "page": 1,
+            "reader": "nar"
+          }
+        ]
+      },
+      "NAR/29mm Model Rocket Single-Use/F23FJ.pdf": {
+        "averages": {
+          "4": 4.34,
+          "7": 7.16
+        },
+        "positions": [
+          {
+            "nominalS": 4,
+            "row": 17,
+            "column": 1,
+            "xPt": 230.00778198242188,
+            "page": 1,
+            "reader": "nar"
+          },
+          {
+            "nominalS": 7,
+            "row": 17,
+            "column": 2,
+            "xPt": 298.0074462890625,
+            "page": 1,
+            "reader": "nar"
+          }
+        ]
+      },
+      "NAR/29mm Model Rocket Single-Use/F27R.pdf": {
+        "averages": {
+          "4": 3.7,
+          "8": 7.47
+        },
+        "positions": [
+          {
+            "nominalS": 4,
+            "row": 17,
+            "column": 1,
+            "xPt": 378.78143310546875,
+            "page": 1,
+            "reader": "nar"
+          },
+          {
+            "nominalS": 8,
+            "row": 17,
+            "column": 2,
+            "xPt": 443.28118896484375,
+            "page": 1,
+            "reader": "nar"
+          }
+        ]
+      },
+      "NAR/29mm Model Rocket Single-Use/G38FJ.pdf": {
+        "averages": {
+          "4": 3.99,
+          "7": 6.17
+        },
+        "positions": [
+          {
+            "nominalS": 4,
+            "row": 17,
+            "column": 1,
+            "xPt": 230.00778198242188,
+            "page": 1,
+            "reader": "nar"
+          },
+          {
+            "nominalS": 7,
+            "row": 17,
+            "column": 2,
+            "xPt": 298.0074462890625,
+            "page": 1,
+            "reader": "nar"
+          }
+        ]
+      },
+      "NAR/29mm Model Rocket Single-Use/G77R.pdf": {
+        "averages": {
+          "4": 3.7,
+          "7": 7.43,
+          "10": 10.05
+        },
+        "positions": [
+          {
+            "nominalS": 4,
+            "row": 19,
+            "column": 1,
+            "xPt": 230.0362548828125,
+            "page": 1,
+            "reader": "nar"
+          },
+          {
+            "nominalS": 7,
+            "row": 19,
+            "column": 2,
+            "xPt": 307.0521240234375,
+            "page": 1,
+            "reader": "nar"
+          },
+          {
+            "nominalS": 10,
+            "row": 19,
+            "column": 3,
+            "xPt": 390.0692443847656,
+            "page": 1,
+            "reader": "nar"
+          }
+        ]
+      },
+      "NAR/29mm Model Rocket Single-Use/G79W.pdf": {
+        "averages": {
+          "4": 3.37,
+          "8": 6.1,
+          "10": 9.16
+        },
+        "positions": [
+          {
+            "nominalS": 4,
+            "row": 17,
+            "column": 1,
+            "xPt": 378.78143310546875,
+            "page": 1,
+            "reader": "nar"
+          },
+          {
+            "nominalS": 8,
+            "row": 17,
+            "column": 2,
+            "xPt": 443.28118896484375,
+            "page": 1,
+            "reader": "nar"
+          },
+          {
+            "nominalS": 10,
+            "row": 17,
+            "column": 3,
+            "xPt": 508.5013732910156,
+            "page": 1,
+            "reader": "nar"
+          }
+        ]
+      },
+      "NAR/RMS-18-20/D24T.pdf": {
+        "averages": {
+          "4": 4.17,
+          "7": 7.69
+        },
+        "positions": [
+          {
+            "nominalS": 4,
+            "row": 18,
+            "column": 2,
+            "xPt": 291.5760192871094,
+            "page": 1,
+            "reader": "nar"
+          },
+          {
+            "nominalS": 7,
+            "row": 19,
+            "column": 2,
+            "xPt": 291.5760192871094,
+            "page": 1,
+            "reader": "nar"
+          }
+        ]
+      },
+      "NAR/RMS-29-40-120/E23T.pdf": {
+        "averages": {
+          "5": 5.15,
+          "8": 8.81
+        },
+        "positions": [
+          {
+            "nominalS": 5,
+            "row": 20,
+            "column": 2,
+            "xPt": 291.5760192871094,
+            "page": 1,
+            "reader": "nar"
+          },
+          {
+            "nominalS": 8,
+            "row": 21,
+            "column": 2,
+            "xPt": 291.5760192871094,
+            "page": 1,
+            "reader": "nar"
+          }
+        ]
+      },
+      "NAR/RMS-29-40-120/G71R.pdf": {
+        "averages": {
+          "4": 3.99,
+          "7": 6.64,
+          "10": 10.45
+        },
+        "positions": [
+          {
+            "nominalS": 4,
+            "row": 17,
+            "column": 1,
+            "xPt": 378.78143310546875,
+            "page": 1,
+            "reader": "nar"
+          },
+          {
+            "nominalS": 7,
+            "row": 17,
+            "column": 2,
+            "xPt": 443.28118896484375,
+            "page": 1,
+            "reader": "nar"
+          },
+          {
+            "nominalS": 10,
+            "row": 17,
+            "column": 3,
+            "xPt": 508.5013732910156,
+            "page": 1,
+            "reader": "nar"
+          }
+        ]
+      },
+      "TRA/18mm Quest Single Use/Quest Q-Jet A3-4, 6FJ.pdf": {
+        "averages": {
+          "6": 6.2,
+          "4": 3.9
+        },
+        "positions": [
+          {
+            "nominalS": 6,
+            "row": 32,
+            "column": 1,
+            "xPt": 311.32037353515625,
+            "page": 1,
+            "reader": "tra"
+          },
+          {
+            "nominalS": 4,
+            "row": 32,
+            "column": 2,
+            "xPt": 377.83642578125,
+            "page": 1,
+            "reader": "tra"
+          }
+        ]
+      },
+      "TRA/18mm Quest Single Use/Quest Q-Jet B4-4, 6FJ.pdf": {
+        "averages": {
+          "6": 6.27,
+          "4": 3.78
+        },
+        "positions": [
+          {
+            "nominalS": 6,
+            "row": 32,
+            "column": 1,
+            "xPt": 311.32037353515625,
+            "page": 1,
+            "reader": "tra"
+          },
+          {
+            "nominalS": 4,
+            "row": 32,
+            "column": 2,
+            "xPt": 385.8955383300781,
+            "page": 1,
+            "reader": "tra"
+          }
+        ]
+      },
+      "TRA/18mm Quest Single Use/Quest Q-Jet C12-4, 6, 8FJ.pdf": {
+        "averages": {
+          "8": 8.7,
+          "6": 5.7,
+          "4": 4.8
+        },
+        "positions": [
+          {
+            "nominalS": 8,
+            "row": 32,
+            "column": 1,
+            "xPt": 251.08999633789062,
+            "page": 1,
+            "reader": "tra"
+          },
+          {
+            "nominalS": 6,
+            "row": 32,
+            "column": 2,
+            "xPt": 317.5899963378906,
+            "page": 1,
+            "reader": "tra"
+          },
+          {
+            "nominalS": 4,
+            "row": 32,
+            "column": 3,
+            "xPt": 381.6700134277344,
+            "page": 1,
+            "reader": "tra"
+          }
+        ]
+      },
+      "TRA/18mm Quest Single Use/Quest Q-Jet D16-4, 6, 8FJ.pdf": {
+        "averages": {
+          "8": 7.78,
+          "6": 6.28,
+          "4": 4.33
+        },
+        "positions": [
+          {
+            "nominalS": 8,
+            "row": 32,
+            "column": 1,
+            "xPt": 251.16000366210938,
+            "page": 1,
+            "reader": "tra"
+          },
+          {
+            "nominalS": 6,
+            "row": 32,
+            "column": 2,
+            "xPt": 323.2799987792969,
+            "page": 1,
+            "reader": "tra"
+          },
+          {
+            "nominalS": 4,
+            "row": 32,
+            "column": 3,
+            "xPt": 392.8800048828125,
+            "page": 1,
+            "reader": "tra"
+          }
+        ]
+      },
+      "TRA/38mm High Power Single-Use/J435WS-14A DMS.pdf": {
+        "averages": {
+          "6": 6.8,
+          "10": 10.5,
+          "14": 12.6
+        },
+        "positions": [
+          {
+            "nominalS": 6,
+            "row": 32,
+            "column": 1,
+            "xPt": 273.45458984375,
+            "page": 1,
+            "reader": "tra"
+          },
+          {
+            "nominalS": 10,
+            "row": 32,
+            "column": 2,
+            "xPt": 347.9854736328125,
+            "page": 1,
+            "reader": "tra"
+          },
+          {
+            "nominalS": 14,
+            "row": 32,
+            "column": 3,
+            "xPt": 425.53631591796875,
+            "page": 1,
+            "reader": "tra"
+          }
+        ]
+      },
+      "TRA/RMS-38-1080/J520-13A RMS-EZ.pdf": {
+        "averages": {
+          "5": 6.2,
+          "9": 9.8,
+          "13": 10.5
+        },
+        "positions": [
+          {
+            "nominalS": 5,
+            "row": 32,
+            "column": 1,
+            "xPt": 273.40179443359375,
+            "page": 1,
+            "reader": "tra"
+          },
+          {
+            "nominalS": 9,
+            "row": 32,
+            "column": 2,
+            "xPt": 317.5176696777344,
+            "page": 1,
+            "reader": "tra"
+          },
+          {
+            "nominalS": 13,
+            "row": 32,
+            "column": 3,
+            "xPt": 387.1690673828125,
+            "page": 1,
+            "reader": "tra"
+          }
+        ]
+      }
+    }
   },
   "notInCatalogue": [],
   "motorCount": 32,
@@ -1009,9 +1482,35 @@
       ]
     }
   },
-  "averageMotorCount": 25,
-  "averagePairCount": 64,
+  "averageMotorCount": 38,
+  "averagePairCount": 97,
   "averages": {
+    "5f4294d200023100000002e3": {
+      "designation": "D10W",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/18mm Model Rocket Single-Use/D10W.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/d10w_nar_cert_1642719737821.pdf",
+      "form": "text-average",
+      "delays": [
+        {
+          "nominalS": 3,
+          "averageS": 3.82
+        },
+        {
+          "nominalS": 5,
+          "averageS": 5.9
+        },
+        {
+          "nominalS": 7,
+          "averageS": 7.82
+        }
+      ],
+      "documentForms": {
+        "NAR/18mm Model Rocket Single-Use/D10W.pdf": "text-average"
+      }
+    },
     "5f4294d20002310000000021": {
       "designation": "D13W",
       "manufacturer": "AeroTech",
@@ -1033,7 +1532,10 @@
           "nominalS": 10,
           "averageS": 8.27
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/RMS-18-20/D13W.pdf": "scan-average"
+      }
     },
     "5f4294d20002310000000022": {
       "designation": "D15T",
@@ -1056,7 +1558,10 @@
           "nominalS": 8,
           "averageS": 8.22
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/RMS-24-40/D15T.pdf": "scan-average"
+      }
     },
     "5f4294d20002310000000023": {
       "designation": "D21T",
@@ -1075,7 +1580,32 @@
           "nominalS": 7,
           "averageS": 7.38
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/18mm Model Rocket Single-Use/D21T.pdf": "scan-average"
+      }
+    },
+    "5f4294d20002310000000024": {
+      "designation": "D24T",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/RMS-18-20/D24T.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/d24t_nar_cert_1642721014594.pdf",
+      "form": "text-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 4.17
+        },
+        {
+          "nominalS": 7,
+          "averageS": 7.69
+        }
+      ],
+      "documentForms": {
+        "NAR/RMS-18-20/D24T.pdf": "text-average"
+      }
     },
     "5f4294d2000231000000001d": {
       "designation": "D9W",
@@ -1094,7 +1624,10 @@
           "nominalS": 7,
           "averageS": 7.58
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/RMS-24-40/D9W.pdf": "scan-average"
+      }
     },
     "5f4294d200023100000001f9": {
       "designation": "E11J",
@@ -1109,7 +1642,10 @@
           "nominalS": 4,
           "averageS": 4.25
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/RMS-24-40/E11J.pdf": "scan-average"
+      }
     },
     "5f4294d2000231000000002d": {
       "designation": "E15W",
@@ -1128,7 +1664,10 @@
           "nominalS": 7,
           "averageS": 7.97
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/24mm Model Rocket Single-Use/E15W.pdf": "scan-average"
+      }
     },
     "5f4294d20002310000000030": {
       "designation": "E16W",
@@ -1151,7 +1690,10 @@
           "nominalS": 10,
           "averageS": 10.9
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/RMS-29-40-120/E16W.pdf": "scan-average"
+      }
     },
     "5f4294d20002310000000031": {
       "designation": "E18W",
@@ -1174,7 +1716,32 @@
           "nominalS": 10,
           "averageS": 10.79
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/RMS-24-40/E18W.pdf": "scan-average"
+      }
+    },
+    "5f4294d20002310000000032": {
+      "designation": "E23T",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/RMS-29-40-120/E23T.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/e23t_nar_cert_1642721643964.pdf",
+      "form": "text-average",
+      "delays": [
+        {
+          "nominalS": 5,
+          "averageS": 5.15
+        },
+        {
+          "nominalS": 8,
+          "averageS": 8.81
+        }
+      ],
+      "documentForms": {
+        "NAR/RMS-29-40-120/E23T.pdf": "text-average"
+      }
     },
     "5f4294d20002310000000033": {
       "designation": "E28T",
@@ -1197,7 +1764,10 @@
           "nominalS": 8,
           "averageS": 7.48
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/RMS-24-40/E28T.pdf": "scan-average"
+      }
     },
     "5f4294d20002310000000036": {
       "designation": "F12J",
@@ -1212,7 +1782,10 @@
           "nominalS": 2,
           "averageS": 1.33
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/RMS-24-40/F12J.pdf": "scan-average"
+      }
     },
     "5f4294d20002310000000039": {
       "designation": "F20W/L",
@@ -1231,7 +1804,10 @@
           "nominalS": 7,
           "averageS": 6.93
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/29mm Model Rocket Single-Use/F20W.pdf": "scan-average"
+      }
     },
     "5f4294d2000231000000003b": {
       "designation": "F22J",
@@ -1246,7 +1822,10 @@
           "nominalS": 4,
           "averageS": 3.59
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/RMS-29-40-120/F22J.pdf": "scan-average"
+      }
     },
     "5f4294d2000231000000003f": {
       "designation": "F24W",
@@ -1265,7 +1844,10 @@
           "nominalS": 7,
           "averageS": 6.6
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/RMS-24-40/F24W.pdf": "scan-average"
+      }
     },
     "5f4294d20002310000000040": {
       "designation": "F25W",
@@ -1288,7 +1870,32 @@
           "nominalS": 9,
           "averageS": 9.3
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/29mm Model Rocket Single-Use/F25W.pdf": "scan-average"
+      }
+    },
+    "5f4294d200023100000001d4": {
+      "designation": "F27R/L",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/29mm Model Rocket Single-Use/F27R.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/f27r_nar_cert_1642720628979.pdf",
+      "form": "text-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 3.7
+        },
+        {
+          "nominalS": 8,
+          "averageS": 7.47
+        }
+      ],
+      "documentForms": {
+        "NAR/29mm Model Rocket Single-Use/F27R.pdf": "text-average"
+      }
     },
     "5f4294d20002310000000042": {
       "designation": "F32W",
@@ -1311,7 +1918,10 @@
           "nominalS": 15,
           "averageS": 16.45
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/24mm Model Rocket Single-Use/F32W.pdf": "scan-average"
+      }
     },
     "5f4294d20002310000000045": {
       "designation": "F37W",
@@ -1335,7 +1945,11 @@
           "nominalS": 14,
           "averageS": 12.43
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/RMS-29-60/F37W.pdf": "scan-average",
+        "TRA/RMS-29-60/F37W.pdf": "scan-average"
+      }
     },
     "5f4294d20002310000000046": {
       "designation": "F39T",
@@ -1358,7 +1972,10 @@
           "nominalS": 9,
           "averageS": 9.56
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/RMS-24-40/F39T.pdf": "scan-average"
+      }
     },
     "5f4294d20002310000000047": {
       "designation": "F40W",
@@ -1381,7 +1998,10 @@
           "nominalS": 10,
           "averageS": 8.97
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/RMS-29-40-120/F40W.pdf": "scan-average"
+      }
     },
     "5f4294d20002310000000049": {
       "designation": "F50T",
@@ -1404,7 +2024,10 @@
           "nominalS": 9,
           "averageS": 9.2
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/29mm Model Rocket Single-Use/F50T.pdf": "scan-average"
+      }
     },
     "5f4294d2000231000000004b": {
       "designation": "F52T",
@@ -1427,7 +2050,32 @@
           "nominalS": 11,
           "averageS": 11.56
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/RMS-29-40-120/F52T.pdf": "scan-average"
+      }
+    },
+    "5f4294d20002310000000057": {
+      "designation": "G38FJ",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/29mm Model Rocket Single-Use/G38FJ.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/g38fj_nar_cert_1642720707841.pdf",
+      "form": "text-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 3.99
+        },
+        {
+          "nominalS": 7,
+          "averageS": 6.17
+        }
+      ],
+      "documentForms": {
+        "NAR/29mm Model Rocket Single-Use/G38FJ.pdf": "text-average"
+      }
     },
     "5f4294d20002310000000059": {
       "designation": "G40W",
@@ -1450,7 +2098,10 @@
           "nominalS": 10,
           "averageS": 11.15
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/29mm Model Rocket Single-Use/G40W.pdf": "scan-average"
+      }
     },
     "5f4294d2000231000000005a": {
       "designation": "G54W",
@@ -1474,7 +2125,11 @@
           "nominalS": 14,
           "averageS": 13.32
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/RMS-29-100/G54W.pdf": "scan-average",
+        "TRA/RMS-29-100/G54W.pdf": "scan-average"
+      }
     },
     "5f4294d20002310000000060": {
       "designation": "G64W",
@@ -1497,7 +2152,62 @@
           "nominalS": 10,
           "averageS": 11.08
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/RMS-29-40-120/G64W.pdf": "scan-average"
+      }
+    },
+    "5f4294d200023100000001d0": {
+      "designation": "G71R",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/RMS-29-40-120/G71R.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/g71r_nar_cert_1642721725848.pdf",
+      "form": "text-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 3.99
+        },
+        {
+          "nominalS": 7,
+          "averageS": 6.64
+        },
+        {
+          "nominalS": 10,
+          "averageS": 10.45
+        }
+      ],
+      "documentForms": {
+        "NAR/RMS-29-40-120/G71R.pdf": "text-average"
+      }
+    },
+    "5f4294d20002310000000246": {
+      "designation": "G77R/L",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/29mm Model Rocket Single-Use/G77R.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/g77r_nar_cert_1642720731018.pdf",
+      "form": "text-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 3.7
+        },
+        {
+          "nominalS": 7,
+          "averageS": 7.43
+        },
+        {
+          "nominalS": 10,
+          "averageS": 10.05
+        }
+      ],
+      "documentForms": {
+        "NAR/29mm Model Rocket Single-Use/G77R.pdf": "text-average"
+      }
     },
     "5f4294d2000231000000008e": {
       "designation": "H220T",
@@ -1520,7 +2230,10 @@
           "nominalS": 14,
           "averageS": 13.31
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/RMS-29-240/H220T.pdf": "scan-average"
+      }
     },
     "5f4294d200023100000000cb": {
       "designation": "I300T",
@@ -1543,7 +2256,158 @@
           "nominalS": 14,
           "averageS": 14.41
         }
-      ]
+      ],
+      "documentForms": {
+        "NAR/RMS-38-480/I300T.pdf": "scan-average"
+      }
+    },
+    "5f4294d20002310000000458": {
+      "designation": "J435WS",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "TRA/38mm High Power Single-Use/J435WS-14A DMS.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/aerotech%20j435%20tmt%20cert%20letter%205-19-18_1656530487528.pdf",
+      "form": "text-average",
+      "delays": [
+        {
+          "nominalS": 6,
+          "averageS": 6.8
+        },
+        {
+          "nominalS": 10,
+          "averageS": 10.5
+        },
+        {
+          "nominalS": 14,
+          "averageS": 12.6
+        }
+      ],
+      "documentForms": {
+        "TRA/38mm High Power Single-Use/J435WS-14A DMS.pdf": "text-average"
+      }
+    },
+    "5f4294d20002310000000459": {
+      "designation": "J520W",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "TRA/RMS-38-1080/J520-13A RMS-EZ.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/aerotech%20j520%20tmt%20cert%20letter%208-26-18_1656530244880.pdf",
+      "form": "text-average",
+      "delays": [
+        {
+          "nominalS": 5,
+          "averageS": 6.2
+        },
+        {
+          "nominalS": 9,
+          "averageS": 9.8
+        },
+        {
+          "nominalS": 13,
+          "averageS": 10.5
+        }
+      ],
+      "documentForms": {
+        "TRA/RMS-38-1080/J520-13A RMS-EZ.pdf": "text-average"
+      }
+    },
+    "5f4294d2000231000000045b": {
+      "designation": "A3",
+      "manufacturer": "Quest",
+      "documents": [
+        "TRA/18mm Quest Single Use/Quest Q-Jet A3-4, 6FJ.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/quest%20a3%20tmt%20cert%20letter%203-11-18_1656530414562.pdf",
+      "form": "text-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 3.9
+        },
+        {
+          "nominalS": 6,
+          "averageS": 6.2
+        }
+      ],
+      "documentForms": {
+        "TRA/18mm Quest Single Use/Quest Q-Jet A3-4, 6FJ.pdf": "text-average"
+      }
+    },
+    "5f4294d2000231000000045c": {
+      "designation": "B4",
+      "manufacturer": "Quest",
+      "documents": [
+        "TRA/18mm Quest Single Use/Quest Q-Jet B4-4, 6FJ.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/quest%20b4%20tmt%20cert%20letter%203-11-18_1656530438032.pdf",
+      "form": "text-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 3.78
+        },
+        {
+          "nominalS": 6,
+          "averageS": 6.27
+        }
+      ],
+      "documentForms": {
+        "TRA/18mm Quest Single Use/Quest Q-Jet B4-4, 6FJ.pdf": "text-average"
+      }
+    },
+    "5f4294d2000231000000045e": {
+      "designation": "C12",
+      "manufacturer": "Quest",
+      "documents": [
+        "TRA/18mm Quest Single Use/Quest Q-Jet C12-4, 6, 8FJ.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/quest%20c12%20tmt%20cert%20letter%207-21-18_1656530332583.pdf",
+      "form": "text-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 4.8
+        },
+        {
+          "nominalS": 6,
+          "averageS": 5.7
+        },
+        {
+          "nominalS": 8,
+          "averageS": 8.7
+        }
+      ],
+      "documentForms": {
+        "TRA/18mm Quest Single Use/Quest Q-Jet C12-4, 6, 8FJ.pdf": "text-average"
+      }
+    },
+    "5f4294d2000231000000045f": {
+      "designation": "D16",
+      "manufacturer": "Quest",
+      "documents": [
+        "TRA/18mm Quest Single Use/Quest Q-Jet D16-4, 6, 8FJ.pdf"
+      ],
+      "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/quest%20d16%20tmt%20cert%20letter%205-12-18_1656530370545.pdf",
+      "form": "text-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 4.33
+        },
+        {
+          "nominalS": 6,
+          "averageS": 6.28
+        },
+        {
+          "nominalS": 8,
+          "averageS": 7.78
+        }
+      ],
+      "documentForms": {
+        "TRA/18mm Quest Single Use/Quest Q-Jet D16-4, 6, 8FJ.pdf": "text-average"
+      }
     }
   }
 }

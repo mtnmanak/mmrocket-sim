@@ -25,8 +25,14 @@ measured samples come only from documents printing EACH motor's delay:
 
 The 43 reviewed average-only scans supply printed averages separately from
 individual measurements (Eric's 2026-11-15 ruling); they supply no spread.
-Text-layer average-only NAR summaries and TRA letters remain inventory only
-(row 133). The 100 scans with
+Text-layer average-only NAR summaries and TRA letters are read by word
+coordinates too, never as individual measurements. --text-average-inventory
+enumerates every eligible document and rejection reason, with NAR/TRA document
+and nominal counts (no heuristic inventory count is treated as evidence).
+Measured 2026-11-16 (row 133): 16 documents, 40 nominals (10 NAR summaries /
+24, 6 TRA "Delay Performance (labeled/tested)" letters / 16); AVERAGE_JOIN
+leaves 3 of them unjoined, so 13 motors / 33 nominals ship from text.
+The 100 scans with
 no text layer use the reviewed, source-positioned transcriptions beside this
 script. A scan needs an agreeing delay average or repeated summary; a count
 of motors tested alone does not verify a manually read value (b10 DELAY).
@@ -73,6 +79,9 @@ and delays whose `measurements` and `crossChecks` preserve printed strings and
 hold candidate values, which never enter the shipped bands. Reviewed
 `printedAverages` enter only `averages`, never `motors` or `measuredS`.
 --average-join replaces AVERAGE_JOIN for synthetic-document checks.
+--text-average-inventory prints the coordinate-read inventory without joining
+or writing data; every discovered document still needs a reviewed AVERAGE_JOIN
+before regeneration. textAverageReview records the exact counts and positions.
 --watch-out also writes (or, with --check, compares) the upstream-watch snapshot:
 all published PDF URLs from the downloader, plus hashes of shipped delay source
 documents and withheld individual-sample scans. Run it in the same regeneration.
@@ -144,7 +153,7 @@ JOIN = {
     'TRA/54mm High Power Single-Use/K455NW-17A DMS.pdf': ('AeroTech', 'K455NW-17'),
 }
 
-# Average-only scans: hand joins use the same designation/case/propellant
+# Average-only documents: hand joins use the same designation/case/propellant
 # rules as JOIN. None means the catalogue cannot identify this motor safely.
 AVERAGE_JOIN = {
     'NAR/18mm Model Rocket Single-Use/D21T.pdf': ('AeroTech', 'D21T'),
@@ -195,6 +204,34 @@ AVERAGE_JOIN = {
     'NAR/RMS-38-480/I300T.pdf': ('AeroTech', 'I300T'),
     'TRA/RMS-29-100/G54W.pdf': ('AeroTech', 'G54W'),
     'TRA/RMS-29-60/F37W.pdf': ('AeroTech', 'F37W'),
+    # Text-layer averages (row 133, reviewed 2026-11-16 against motors.json:
+    # every printed nominal is one of the joined row's catalogue delays).
+    'NAR/18mm Model Rocket Single-Use/D10W.pdf': ('AeroTech', 'D10W'),
+    # As the scanned E30T above: the catalogue cannot say which case it is.
+    'NAR/24mm Model Rocket Single-Use/E30T (new thrust ring case).pdf': None,
+    # Two catalogue rows (F23FJ and F23FJ/L); the sheet does not say which.
+    'NAR/29mm Model Rocket Single-Use/F23FJ.pdf': None,
+    # The catalogue's only F27R is the LMS /L row, as with F42 and F20.
+    'NAR/29mm Model Rocket Single-Use/F27R.pdf': ('AeroTech', 'F27R/L'),
+    'NAR/29mm Model Rocket Single-Use/G38FJ.pdf': ('AeroTech', 'G38FJ'),
+    # A single-use sheet: the catalogue's single-use G77R is the /L row.
+    'NAR/29mm Model Rocket Single-Use/G77R.pdf': ('AeroTech', 'G77R/L'),
+    # The sheet contradicts itself: "Delays: 4, 7, 10" in its header, but
+    # 4, 8, 10 over the averages it prints, so which nominal 6.10 s belongs
+    # to cannot be told from the document. Withheld whole.
+    'NAR/29mm Model Rocket Single-Use/G79W.pdf': None,
+    'NAR/RMS-18-20/D24T.pdf': ('AeroTech', 'D24T'),
+    'NAR/RMS-29-40-120/E23T.pdf': ('AeroTech', 'E23T'),
+    'NAR/RMS-29-40-120/G71R.pdf': ('AeroTech', 'G71R'),
+    # Quest Q-Jet letters filed with AeroTech's TRA documents; the catalogue
+    # lists them under Quest. A3 and B4 (4, 6 s) are the current rows, not
+    # the out-of-production A3T (2, 4 s) or B4-4 (4 s only).
+    'TRA/18mm Quest Single Use/Quest Q-Jet A3-4, 6FJ.pdf': ('Quest', 'A3'),
+    'TRA/18mm Quest Single Use/Quest Q-Jet B4-4, 6FJ.pdf': ('Quest', 'B4'),
+    'TRA/18mm Quest Single Use/Quest Q-Jet C12-4, 6, 8FJ.pdf': ('Quest', 'C12'),
+    'TRA/18mm Quest Single Use/Quest Q-Jet D16-4, 6, 8FJ.pdf': ('Quest', 'D16'),
+    'TRA/38mm High Power Single-Use/J435WS-14A DMS.pdf': ('AeroTech', 'J435WS'),
+    'TRA/RMS-38-1080/J520-13A RMS-EZ.pdf': ('AeroTech', 'J520W'),
 }
 
 # (manufacturer, designation) -> nominals whose independent printed averages
@@ -407,6 +444,252 @@ def nar_averages(rows):
     return out
 
 
+def column_bounds(heads):
+    """Coordinate bounds for each heading's column.
+
+    Bounds are halfway between heading centres. The outer columns extend by
+    half the nearest column spacing, or half a cell gap for a single heading.
+    """
+    centres = [(w[0] + w[1]) / 2 for w in heads]
+    bounds = []
+    for i, centre in enumerate(centres):
+        lo = (centres[i - 1] + centre) / 2 if i else centre - (
+            (centres[1] - centre) / 2 if len(centres) > 1 else CELL_GAP_PT / 2 + heads[i][1] - heads[i][0])
+        hi = (centre + centres[i + 1]) / 2 if i + 1 < len(centres) else centre + (
+            (centre - centres[i - 1]) / 2 if i else CELL_GAP_PT / 2 + heads[i][1] - heads[i][0])
+        bounds.append((lo, hi))
+    return bounds
+
+
+def aligned_numbers(heads, row, count=None):
+    """Read one number per column, optionally only the first count columns."""
+    out = []
+    for lo, hi in column_bounds(heads)[:count]:
+        words = [w for w in row if lo <= (w[0] + w[1]) / 2 < hi]
+        if len(words) != 1 or num(words[0][2]) is None:
+            return None
+        out.append(float(words[0][2]))
+    return out
+
+
+def nar_text_averages(rows, positions=None):
+    """NAR summary averages, requiring a complete, position-matched summary.
+
+    nar_averages recognises the existing summary layouts; this additional
+    coordinate check prevents equal cell counts from disguising a blank column.
+    """
+    out = {}
+    for i, row in enumerate(rows):
+        c = cells(row)
+        if re.match(r'^Delay Time ?\(sec\.?\)$', c[0]):
+            heads = [w for w in row if w[2].isdigit()]
+            if not heads:
+                return {}, 'NAR summary has no nominal columns'
+            candidates = [r for r in rows[i + 1:i + 4]
+                          if cells(r)[0] in ('Delay(sec.)', 'Avg. Measured Delay')]
+            if len(candidates) != 1:
+                return {}, 'NAR summary has no unique average row'
+            values = aligned_numbers(heads, candidates[0])
+            if values is None:
+                return {}, 'NAR summary has a blank or ambiguous average column'
+            if dict(zip((int(h[2]) for h in heads), values)) != nar_averages(rows[i:i + 4]):
+                return {}, 'NAR summary cells disagree with coordinate columns'
+            for column, (head, value) in enumerate(zip(heads, values), 1):
+                n = int(head[2])
+                if n in out:
+                    return {}, 'NAR summary repeats a nominal'
+                out[n] = value
+                if positions is not None:
+                    positions.append({'nominalS': n, 'row': i + 2 + rows[i + 1:i + 4].index(candidates[0]),
+                                      'column': column, 'xPt': head[0]})
+        elif c[:2] == ['Delay Time', 'Measured Delay']:
+            # Locate the two labelled column spans, not the second nonempty cell.
+            heads = []
+            for label in ('Delay Time', 'Measured Delay'):
+                words = label.split()
+                spans = [(row[k][0], row[k + 1][1], label) for k in range(len(row) - 1)
+                         if [w[2] for w in row[k:k + 2]] == words]
+                if len(spans) != 1:
+                    return {}, 'NAR summary has ambiguous headings'
+                heads.extend(spans)
+            # Preserve the next heading's span to bound Measured Delay, even
+            # though its column (often mass) is not a delay value to read.
+            following = [w for w in row if w[0] > heads[1][1]]
+            if following:
+                end = 1
+                while end < len(following) and following[end][0] - following[end - 1][1] <= CELL_GAP_PT:
+                    end += 1
+                heads.append((following[0][0], following[end - 1][1], 'next heading'))
+            lo, hi = column_bounds(heads)[0]
+            lo = max(lo, heads[0][0] - CELL_GAP_PT / 2)
+            m_lo, m_hi = column_bounds(heads)[1]
+            last_read = i
+            for row_idx, r in enumerate(rows[i + 1:], i + 1):
+                nominal_words = [w for w in r if lo <= (w[0] + w[1]) / 2 < hi]
+                # A row with no whole-number Delay Time cell, or nothing right
+                # of that column, ends the table: on the real sheets the thrust
+                # curve's axis labels (25, 20, 15, ...) sit under that column
+                # just below it. A row with a later column filled but no
+                # Measured Delay is a blank cell, and withholds the sheet below.
+                right = [w for w in r if (w[0] + w[1]) / 2 >= hi]
+                if not nominal_words or not nominal_words[0][2].isdigit() or not right:
+                    # Only a true end of table may stop here (closure reviews
+                    # r2/r3): if a later row on the page still reads as a table
+                    # row (one positive whole number under Delay Time and a
+                    # number as the first cell right of it; real rows go on with
+                    # mass columns and unit words, e.g. D10W's "7 7.82 25.9 g
+                    # 300 g"), the row that stopped the scan was
+                    # a broken table row, not a chart label, so withhold the
+                    # sheet rather than ship the rows above it. Limit: a broken
+                    # LAST row with nothing to its right looks exactly like an
+                    # axis label (rows carry no y-coordinate) and is not caught;
+                    # but the row straight after the last one read, with a value
+                    # under Measured Delay and no whole-number delay beside it,
+                    # is a broken row whatever follows (closure review r4).
+                    m_words = [w for w in r if m_lo <= (w[0] + w[1]) / 2 < m_hi]
+                    if (row_idx == last_read + 1 and (not nominal_words or not nominal_words[0][2].isdigit())
+                            and len(m_words) == 1 and num(m_words[0][2]) is not None):
+                        return {}, 'NAR summary has an incomplete row'
+                    for later in rows[row_idx + 1:]:
+                        n_words = [w for w in later if lo <= (w[0] + w[1]) / 2 < hi]
+                        r_words = [w for w in later if (w[0] + w[1]) / 2 >= hi]
+                        if (len(n_words) == 1 and n_words[0][2].isdigit() and int(n_words[0][2]) > 0
+                                and r_words and num(min(r_words)[2]) is not None):
+                            return {}, 'NAR summary has an incomplete row'
+                    break
+                values = aligned_numbers(heads, [w for w in r if (w[0] + w[1]) / 2 >= lo], count=2)
+                if values is None or not values[0].is_integer() or int(values[0]) in out:
+                    return {}, 'NAR summary has a blank, duplicate or ambiguous value'
+                out[int(values[0])] = values[1]
+                last_read = row_idx
+                if positions is not None:
+                    positions.append({'nominalS': int(values[0]), 'row': row_idx + 1,
+                                      'column': 2, 'xPt': heads[1][0]})
+    return out, None if out else 'no NAR average summary'
+
+
+TRA_DELAY_LINE = re.compile(r'delay\s+performance\s*\(\s*label{1,2}ed\s*/\s*tested(?:\s+average)?\s*\)', re.I)
+TRA_DELAY_PAIR = re.compile(r'\s*,?\s*(\d+)\s*sec\s*=\s*(\d+(?:\.\d+)?)(?:\s*sec)?', re.I)
+
+
+def tra_averages(rows, positions=None):
+    """({nominal: average}, reason) from a TRA letter's Delay Performance line.
+
+    Every TRA letter in the AeroTech folders that prints delays (six, counted
+    2026-11-16) prints them on ONE visual row, e.g.
+    "Delay Performance (labeled/tested) 8 sec=8.7 sec, 6 sec=5.7 sec, 4 sec=4.8 sec"
+    ("labeled/tested average" on some). Each value is paired with its nominal
+    in the text itself, so no table column can slide. The rest of that row
+    must be wholly such pairs; anything else, a second such line, a repeated
+    nominal or a value that cannot be placed withholds the letter.
+    """
+    out, found = {}, False
+    for row_index, row in enumerate(rows, 1):
+        text = ' '.join(w[2] for w in row)
+        label = TRA_DELAY_LINE.search(text)
+        if not label:
+            continue
+        if found:
+            return {}, 'TRA letter repeats its Delay Performance line'
+        found = True
+        rest, at, pairs = text[label.end():], 0, []
+        for pair in TRA_DELAY_PAIR.finditer(rest):
+            if pair.start() != at:
+                return {}, 'TRA Delay Performance line has text between its pairs'
+            pairs.append((pair.group(1), pair.group(2), label.end() + pair.start(2)))
+            at = pair.end()
+        if rest[at:].strip(' ,.;'):
+            return {}, 'TRA Delay Performance line has text after its pairs'
+        if not pairs:
+            return {}, 'TRA Delay Performance line has no nominal = average pairs'
+        # Skip every word in the label, then move only forward through values.
+        offset, after_label, word_offsets = 0, 0, []
+        for index, word in enumerate(row):
+            if offset < label.end():
+                after_label = index + 1
+            word_offsets.append((offset, offset + len(word[2])))
+            offset += len(word[2]) + 1
+        after_value = after_label
+        for column, (nominal, printed, value_offset) in enumerate(pairs, 1):
+            n = int(nominal)
+            if n <= 0 or n in out:
+                return {}, 'TRA delay row has a duplicate or invalid nominal'
+            place = next((i for i in range(after_value, len(row))
+                          if word_offsets[i][0] <= value_offset < word_offsets[i][1]
+                          and re.search(r'(?:^|=)' + re.escape(printed) + r'$', row[i][2].rstrip(',.;'))), None)
+            if place is None:
+                return {}, 'TRA delay value cannot be placed on its row'
+            after_value = place + 1
+            out[n] = float(printed)
+            if positions is not None:
+                positions.append({'nominalS': n, 'row': row_index, 'column': column, 'xPt': row[place][0]})
+    return out, None if out else 'no TRA labeled / tested average rows'
+
+
+def text_averages(path):
+    """Read only coordinate evidence, retaining source pages for the inventory."""
+    with pymupdf.open(path) as doc:
+        pages = [word_rows([page]) for page in doc]
+    found, positions = {}, []
+    reasons = []
+    for page, rows in enumerate(pages, 1):
+        source_positions = []
+        averages, reason = nar_text_averages(rows, source_positions)
+        reader = 'nar'
+        if not averages and reason == 'no NAR average summary':
+            averages, reason = tra_averages(rows, source_positions)
+            reader = 'tra'
+        if reason:
+            reasons.append(f'page {page}: {reason}')
+            if reason not in ('no NAR average summary', 'no TRA labeled / tested average rows'):
+                return {}, {'reason': '; '.join(reasons)}
+        if averages and found and (reader == 'tra' or any(p['reader'] == 'tra' for p in positions)):
+            return {}, {'reason': f'page {page}: TRA letter repeats its Delay Performance line or mixes readers'}
+        for nominal, value in averages.items():
+            if (type(nominal) is not int or nominal <= 0 or nominal in found
+                    or value <= 0 or abs(value - nominal) >= nominal / 2):
+                return {}, {'reason': f'page {page}: invalid, duplicate or outside half the nominal average'}
+            found[nominal] = value
+        positions.extend({**p, 'page': page, 'reader': reader} for p in source_positions)
+    return found, {'positions': positions} if found else {'reason': '; '.join(reasons)}
+
+
+def text_average_inventory(source):
+    """Enumerate ALL formerly 'none' documents, including rejection reasons."""
+    cert_docs = os.path.join(source, 'Cert Docs')
+    inventory = {}
+    for body in ('NAR', 'TRA'):
+        root = os.path.join(cert_docs, body)
+        for folder, _dirs, names in sorted(os.walk(root)):
+            for name in sorted(names):
+                if not name.lower().endswith('.pdf'):
+                    continue
+                path = os.path.join(folder, name)
+                rel = f'{body}/' + os.path.relpath(path, root).replace(os.sep, '/')
+                form, _delays, _facts = read_document(path, rel)
+                if form == 'none':
+                    averages, facts = text_averages(path)
+                    inventory[rel] = {'averages': averages, **facts}
+    return inventory
+
+
+def inventory_summary(inventory, eligible_only=False):
+    """Counts and documents; the shipped data keeps only the documents read
+    (--text-average-inventory prints every rejection reason too)."""
+    eligible = {rel: item for rel, item in inventory.items() if item['averages']}
+    return {
+        'documentsRead': len(eligible),
+        'nominalsRead': sum(len(item['averages']) for item in eligible.values()),
+        'byReader': {body: {
+            'documents': sum(any(p['reader'] == body.lower() for p in item['positions'])
+                             for item in eligible.values()),
+            'nominals': sum(len({p['nominalS'] for p in item['positions'] if p['reader'] == body.lower()})
+                            for item in eligible.values()),
+        } for body in ('NAR', 'TRA')},
+        'documents': eligible if eligible_only else inventory,
+    }
+
+
 def nar_repeats(rows):
     """{nominal: [numbers]} from the summary that prints each motor's delay again, under an "Actual" heading.
 
@@ -617,6 +900,9 @@ def read_all(source, motors_path, join=None, transcriptions=DEFAULT_TRANSCRIPTIO
     join = dict(JOIN if join is None else join)
     cert_docs = os.path.join(source, 'Cert Docs')
     reviewed, unread, printed_averages = checked_transcriptions(cert_docs, transcriptions)
+    scan_averages_read = len(printed_averages)
+    average_forms = {rel: 'scan-average' for rel in printed_averages}
+    text_inventory = {}
     unread_paths = {entry['document'] for entry in unread}
     for rel, (entry, _delays) in reviewed.items():
         target = (entry['manufacturer'], entry['designation'])
@@ -629,7 +915,7 @@ def read_all(source, motors_path, join=None, transcriptions=DEFAULT_TRANSCRIPTIO
     by_name = {}
     for m in catalogue['motors']:
         by_name.setdefault((m['manufacturerAbbrev'], m['designation']), []).append(m)
-    forms = {'tmt': 0, 'nar': 0, 'plugged': 0, 'none': 0, 'scan': 0, 'scan-reviewed': 0}
+    forms = {'tmt': 0, 'nar': 0, 'plugged': 0, 'none': 0, 'scan': 0, 'scan-reviewed': 0, 'text-average': 0}
     motors, unjoined, seen = {}, [], set()
     for body in ('NAR', 'TRA'):
         root = os.path.join(cert_docs, body)
@@ -643,6 +929,13 @@ def read_all(source, motors_path, join=None, transcriptions=DEFAULT_TRANSCRIPTIO
                     form, delays = 'scan-reviewed', reviewed[rel][1]
                 if form == 'scan' and rel not in unread_paths:
                     raise SystemExit(f'{rel}: scan has no unread review entry')
+                if form == 'none':
+                    averages, average_facts = text_averages(os.path.join(folder, name))
+                    text_inventory[rel] = {'averages': averages, **average_facts}
+                    if averages:
+                        printed_averages[rel] = averages
+                        average_forms[rel] = 'text-average'
+                        form = 'text-average'
                 forms[form] += 1
                 if delays is None:
                     continue
@@ -676,7 +969,8 @@ def read_all(source, motors_path, join=None, transcriptions=DEFAULT_TRANSCRIPTIO
         raise SystemExit(f'JOIN names documents with no measured delays read: {stale}')
     averages = join_averages(printed_averages, by_name, motors, urls,
                             AVERAGE_JOIN if average_join is None else average_join,
-                            AVERAGE_DISPUTED if average_disputed is None else average_disputed)
+                            AVERAGE_DISPUTED if average_disputed is None else average_disputed,
+                            average_forms)
     pairs = sum(len(m['delays']) for m in motors.values())
     return {
         'source': 'AeroTech (RCS Rocket Motor Components) NAR and TRA certification documents: individual measured delays and separately labelled printed averages',
@@ -688,9 +982,10 @@ def read_all(source, motors_path, join=None, transcriptions=DEFAULT_TRANSCRIPTIO
             'reviewed': len(reviewed) + len(unread),
             'accepted': len(reviewed),
             'unreadForMerge': len(unread),
-            'averagesRead': len(printed_averages),
+            'averagesRead': scan_averages_read,
             'source': 'packages/app/scripts/aerotech-delay-transcriptions.json',
         },
+        'textAverageReview': inventory_summary(text_inventory, eligible_only=True),
         'notInCatalogue': unjoined,
         'motorCount': len(motors),
         'pairCount': pairs,
@@ -711,9 +1006,10 @@ def check_hardware(rel, motor):
                          f'catalogue {motor["designation"]} type {motor.get("type")!r}')
 
 
-def join_averages(printed, by_name, measured, urls, joins, disputed):
+def join_averages(printed, by_name, measured, urls, joins, disputed, forms=None):
     """Join averages separately; every duplicate source must agree at a nominal."""
     grouped = {}
+    forms = forms or {}
     for rel, delays in printed.items():
         if rel not in joins:
             raise SystemExit(f'{rel}: printed averages and no AVERAGE_JOIN entry')
@@ -751,7 +1047,8 @@ def join_averages(printed, by_name, measured, urls, joins, disputed):
             out[motor['motorId']] = {
                 'designation': motor['designation'], 'manufacturer': motor['manufacturerAbbrev'],
                 'documents': sorted(r for r, _, _ in sources), 'url': urls[rel],
-                'form': 'scan-average', 'delays': delays,
+                'form': forms.get(rel, 'scan-average'), 'delays': delays,
+                'documentForms': {r: forms.get(r, 'scan-average') for r, _, _ in sources},
             }
     if found_disputes != disputed:
         raise SystemExit(f'AVERAGE_DISPUTED lists {disputed}, documents give {found_disputes}')
@@ -770,6 +1067,8 @@ def main(argv):
     # extract-aerotech-delays.test.mjs's synthetic documents are not the real ones.
     ap.add_argument('--join', help='a JSON file replacing JOIN: {document: [manufacturer, designation] or null}')
     ap.add_argument('--average-join', help='a JSON file replacing AVERAGE_JOIN, with the same format as --join')
+    ap.add_argument('--text-average-inventory', action='store_true',
+                    help='print every formerly none document and coordinate-read counts; no writes or joins')
     args = ap.parse_args(argv)
     join = None
     if args.join:
@@ -781,6 +1080,9 @@ def main(argv):
             average_join = json.load(fh)
     if not args.source:
         ap.error('No RCS document set found; pass --source or set RCS_SCHEMATICS or MMRSIM_REFERENCE_ROOT')
+    if args.text_average_inventory:
+        print(json.dumps(inventory_summary(text_average_inventory(args.source)), ensure_ascii=False, indent=2))
+        return 0
     data = read_all(args.source, args.motors, join, args.transcriptions, average_join)
     outputs = {args.out: json.dumps(data, ensure_ascii=False, indent=2) + '\n'}
     if args.watch_out:
@@ -792,6 +1094,7 @@ def main(argv):
         # Eric rules on the four count-only scans. Do not fetch 312 PDFs per run.
         paths = {m['document'] for m in data['motors'].values()}
         paths.update(rel for m in data['averages'].values() for rel in m['documents'])
+        paths.update(rel for rel, item in data['textAverageReview']['documents'].items() if item['averages'])
         paths.update(e['document'] for e in review['unread'] if e.get('candidateDelays'))
         snapshot = {
             'publishedOn': PUBLISHED_ON,

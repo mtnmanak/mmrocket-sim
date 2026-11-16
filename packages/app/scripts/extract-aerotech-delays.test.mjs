@@ -41,6 +41,10 @@ for path, lines in json.load(open(sys.argv[1], encoding='utf-8')).items():
     page = doc.new_page()
     y = 72
     for line in lines:
+        if line is None:
+            page = doc.new_page()
+            y = 72
+            continue
         for x, text in line:
             page.insert_text((x, y), text, fontname='helv', fontsize=10)
         y += 15
@@ -85,7 +89,7 @@ let dir;
 afterEach(() => { if (dir) rmSync(dir, { recursive: true, force: true }); dir = undefined; });
 
 /** A Cert Docs folder holding `docs`, a one-motor catalogue, and a JOIN naming text-layer docs. */
-function run(docs, transcriptions = { documents: [], unread: [] }, averageDisputed = [], hardwareType = 'SU') {
+function run(docs, transcriptions = { documents: [], unread: [] }, averageDisputed = [], hardwareType = 'SU', options = {}) {
   dir = mkdtempSync(join(tmpdir(), 'delay-docs-'));
   const certDocs = join(dir, 'Cert Docs');
   const spec = Object.fromEntries(Object.entries(docs).map(([p, lines]) => [join(certDocs, p), lines]));
@@ -106,10 +110,12 @@ function run(docs, transcriptions = { documents: [], unread: [] }, averageDisput
     motors: [{ motorId: 'id-e99w', manufacturerAbbrev: 'AeroTech', designation: 'E99W', type: hardwareType }],
   }));
   writeFileSync(join(dir, 'join.json'), JSON.stringify(Object.fromEntries(Object.entries(docs)
-    .filter(([_path, lines]) => !lines.scan).map(([p]) => [p, ['AeroTech', 'E99W']]))));
+    .filter(([path, lines]) => !lines.scan && !Object.hasOwn(options.averageJoin ?? {}, path)
+      && !(options.unmeasured ?? []).includes(path)).map(([p]) => [p, ['AeroTech', 'E99W']]))));
   const out = join(dir, 'out.json');
   const averageJoin = Object.fromEntries(transcriptions.unread.filter(e => e.printedAverages)
     .map(e => [e.document, ['AeroTech', 'E99W']]));
+  Object.assign(averageJoin, options.averageJoin);
   writeFileSync(join(dir, 'average-join.json'), JSON.stringify(averageJoin));
   // Test-only injection keeps the production dispute table hand-reviewed.
   const bootstrap = `import sys, importlib.util, json
@@ -121,11 +127,230 @@ m.AVERAGE_DISPUTED = {tuple(e[:2]): set(e[2]) for e in json.loads(sys.argv.pop(1
 sys.exit(m.main(sys.argv[1:]))`;
   const res = spawnSync(python, ['-c', bootstrap, JSON.stringify(averageDisputed), '--source', dir, '--motors', join(dir, 'motors.json'),
     '--join', join(dir, 'join.json'), '--average-join', join(dir, 'average-join.json'),
-    '--transcriptions', join(dir, 'transcriptions.json'), '--out', out],
+    '--transcriptions', join(dir, 'transcriptions.json'), '--out', out,
+    '--watch-out', join(dir, 'watch.json'), ...(options.inventory ? ['--text-average-inventory'] : [])],
     // Synthetic sources replace both hand-join tables.
   { encoding: 'utf8', env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
-  return { ...res, json: existsSync(out) ? JSON.parse(readFileSync(out, 'utf8')) : null };
+  return { ...res, json: existsSync(out) ? JSON.parse(readFileSync(out, 'utf8')) : null,
+    watch: existsSync(join(dir, 'watch.json')) ? JSON.parse(readFileSync(join(dir, 'watch.json'), 'utf8')) : null };
 }
+
+const textPath = 'NAR/Test Single-Use/Summary.pdf';
+const letterPath = 'TRA/Test Single-Use/Letter.pdf';
+const textJoin = { [textPath]: ['AeroTech', 'E99W'], [letterPath]: ['AeroTech', 'E99W'] };
+const narSummary = () => report({ header: [], motors: [], end: [], summary: [] });
+const narColumnSummary = () => [
+  [[72, 'Delay Time'], [220, 'Measured Delay'], [320, 'Prop. Mass']],
+  [[90, '4'], [240, '4.50'], [320, '12.4']],
+  [[90, '7'], [240, '7.00'], [320, '12.4']],
+];
+// The real TRA letters (six, 2026-11-16) print ONE line of explicit pairs.
+const delayLine = (pairs, label = '(labeled/tested average)') => [[72, 'Delay Performance ' + label + ' ' + pairs]];
+const traLetter = (pairs = '4 sec= 4.50 sec, 7 sec=7.00 sec') => [
+  [[72, 'Number of Motors tested 8']],
+  delayLine(pairs),
+  [[72, 'Sincerely,']],
+];
+
+describe.skipIf(!hasPyMuPDF)('text-layer printed averages', { timeout: 30_000 }, () => {
+  it.each([[textPath, narSummary], [letterPath, traLetter]])('reads %s by coordinates, separately from samples', (path, make) => {
+    const result = run({ [path]: make() }, undefined, [], 'SU', { averageJoin: { [path]: textJoin[path] } });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.motors).toEqual({});
+    expect(result.json.averages['id-e99w']).toMatchObject({ form: 'text-average', documents: [path],
+      documentForms: { [path]: 'text-average' }, delays: [{ nominalS: 4, averageS: 4.5 }, { nominalS: 7, averageS: 7 }] });
+    expect(result.json.textAverageReview).toMatchObject({ documentsRead: 1, nominalsRead: 2,
+      documents: { [path]: { positions: [
+        { nominalS: 4, page: 1, column: expect.any(Number), row: expect.any(Number), xPt: expect.any(Number) },
+        { nominalS: 7, page: 1, column: expect.any(Number), row: expect.any(Number), xPt: expect.any(Number) },
+      ] } } });
+    expect(result.watch.documents.map(d => d.document)).toContain(path);
+    expect(JSON.stringify(result.json.averages)).not.toContain('measuredS');
+  });
+
+  it('reads a Delay Performance line without "average", spaced pairs and a missing last unit', () => {
+    const lines = [delayLine('4 sec = 4.5 sec , 7 sec=7.0', '(labeled/tested)')];
+    const result = run({ [letterPath]: lines }, undefined, [], 'SU', { averageJoin: { [letterPath]: textJoin[letterPath] } });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.averages['id-e99w'].delays).toEqual([{ nominalS: 4, averageS: 4.5 }, { nominalS: 7, averageS: 7 }]);
+  });
+
+  it('reads NAR delay columns beside a third column and stops at a number outside the nominal cell', () => {
+    const lines = [...narColumnSummary(), [[36, '30']]];
+    const result = run({ [textPath]: lines }, undefined, [], 'SU', { averageJoin: { [textPath]: textJoin[textPath] } });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.averages['id-e99w'].delays).toEqual([{ nominalS: 4, averageS: 4.5 }, { nominalS: 7, averageS: 7 }]);
+  });
+
+  // The real D10W/E30T/D24T/E23T sheets: the thrust curve's y-axis labels sit
+  // under the Delay Time column just below the table (round r2 withheld all
+  // four until this; Claude, 2026-11-16).
+  it('ends the NAR delay table at a chart axis label under the Delay Time column', () => {
+    const lines = [...narColumnSummary(), [[90, '25']], [[90, '20']], [[90, '0'], [240, '0.25'], [320, '0.5']]];
+    const result = run({ [textPath]: lines }, undefined, [], 'SU', { averageJoin: { [textPath]: textJoin[textPath] } });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.averages['id-e99w'].delays).toEqual([{ nominalS: 4, averageS: 4.5 }, { nominalS: 7, averageS: 7 }]);
+  });
+
+  // Closure reviews r2/r3: a broken row between valid ones must not ship the rows above it.
+  it.each([
+    ['a blank Measured Delay', [[90, '7']], [[90, '10'], [240, '10.50'], [320, '12.4']]],
+    ['a blank Delay Time cell', [[240, '7.00'], [320, '12.4']], [[90, '10'], [240, '10.50'], [320, '12.4']]],
+    ['a non-numeric Delay Time cell', [[90, '7s'], [240, '7.00'], [320, '12.4']], [[90, '10'], [240, '10.50'], [320, '12.4']]],
+    ['a later value more than half off', [[90, '7']], [[90, '10'], [240, '16.00'], [320, '12.4']]],
+    ['a later blank Measured Delay', [[90, '7']], [[90, '10'], [320, '12.4']]],
+    // D10W's real rows carry mass columns with unit words (closure review r4).
+    ['a missing nominal before a row with unit words', [[240, '5.90'], [320, '25.9'], [345, 'g'], [380, '300'], [405, 'g']],
+      [[90, '7'], [240, '7.82'], [320, '25.9'], [345, 'g'], [380, '300'], [405, 'g']]],
+  ])('withholds a NAR table with %s between two rows', (_label, broken, later) => {
+    const [head, four] = narColumnSummary();
+    const lines = [head, four, broken, later];
+    const result = run({ [textPath]: lines }, undefined, [], 'SU', { averageJoin: { [textPath]: textJoin[textPath] } });
+    // A joined sheet that is withheld fails the build rather than shipping nothing quietly.
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('AVERAGE_JOIN names documents with no averages');
+    const inventory = run({ [textPath]: lines }, undefined, [], 'SU', { inventory: true });
+    expect(inventory.status, inventory.stderr).toBe(0);
+    expect(JSON.parse(inventory.stdout).documents[textPath].reason).toContain('NAR summary has an incomplete row');
+  });
+
+  it.each([
+    ['a blank', [[240, '7.00'], [320, '12.4']]],
+    ['a suffixed', [[90, '7s'], [240, '7.00'], [320, '12.4']]],
+  ])('withholds a NAR table whose last row has %s Delay Time cell beside a value', (_label, broken) => {
+    // Closure review r4: no later table row exists, so only adjacency can tell.
+    const [head, four] = narColumnSummary();
+    const lines = [head, four, broken, [[90, '25']], [[90, '20']]];
+    const inventory = run({ [textPath]: lines }, undefined, [], 'SU', { inventory: true });
+    expect(inventory.status, inventory.stderr).toBe(0);
+    expect(JSON.parse(inventory.stdout).documents[textPath].reason).toContain('NAR summary has an incomplete row');
+  });
+
+  it('reads a NAR table when a row above its heading matches a chart label below it', () => {
+    // Closure review r3: the scan used rows.index(r), which found the earlier copy.
+    const lines = [[[90, '25']], ...narColumnSummary(), [[90, '25']], [[90, '20']], [[90, '0'], [240, '0.25'], [320, '0.5']]];
+    const result = run({ [textPath]: lines }, undefined, [], 'SU', { averageJoin: { [textPath]: textJoin[textPath] } });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.averages['id-e99w'].delays).toEqual([{ nominalS: 4, averageS: 4.5 }, { nominalS: 7, averageS: 7 }]);
+  });
+
+  it('uses the NAR nominal cell when a row starts with a word in another column', () => {
+    const lines = [narColumnSummary()[0], [[20, '*'], [90, '4'], [240, '4.50']], narColumnSummary()[2]];
+    const result = run({ [textPath]: lines }, undefined, [], 'SU', { averageJoin: { [textPath]: textJoin[textPath] } });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.averages['id-e99w'].delays).toEqual([{ nominalS: 4, averageS: 4.5 }, { nominalS: 7, averageS: 7 }]);
+  });
+
+  it('places punctuated TRA values after the label in increasing word order', () => {
+    const result = run({ [letterPath]: traLetter('4 sec= 4.5, 7 sec= 7.0.') }, undefined, [], 'SU',
+      { averageJoin: { [letterPath]: textJoin[letterPath] } });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.averages['id-e99w'].delays).toEqual([{ nominalS: 4, averageS: 4.5 }, { nominalS: 7, averageS: 7 }]);
+    const positions = result.json.textAverageReview.documents[letterPath].positions;
+    expect(positions.every(p => Number.isFinite(p.xPt) && p.xPt > 72)).toBe(true);
+    expect(positions[1].xPt).toBeGreaterThan(positions[0].xPt);
+  });
+
+  it('does not place a later TRA value at an earlier matching nominal', () => {
+    const result = run({ [letterPath]: traLetter('6 sec= 6.8 sec, 8 sec= 6 sec') }, undefined, [], 'SU',
+      { averageJoin: { [letterPath]: textJoin[letterPath] } });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.averages['id-e99w'].delays).toEqual([{ nominalS: 6, averageS: 6.8 }, { nominalS: 8, averageS: 6 }]);
+    const positions = result.json.textAverageReview.documents[letterPath].positions;
+    expect(positions.every(p => Number.isFinite(p.xPt))).toBe(true);
+    expect(positions[1].xPt).toBeGreaterThan(positions[0].xPt);
+  });
+
+  it('places a TRA value equal to its own nominal at the value word', () => {
+    const lines = [[[72, 'Delay Performance (labeled/tested)'], [300, '4'], [320, 'sec='], [350, '4'],
+      [370, 'sec,'], [410, '7'], [430, 'sec='], [460, '7'], [480, 'sec']]];
+    const result = run({ [letterPath]: lines }, undefined, [], 'SU', { averageJoin: { [letterPath]: textJoin[letterPath] } });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.textAverageReview.documents[letterPath].positions.map(p => p.xPt)).toEqual([350, 460]);
+  });
+
+  it.each([
+    ['blank TRA average', letterPath, () => traLetter('4 sec= sec, 7 sec=7.00 sec')],
+    ['two TRA averages', letterPath, () => traLetter('4 sec= 4.50 4.60 sec, 7 sec=7.00 sec')],
+    ['unassigned TRA number', letterPath, () => traLetter('4 sec= 4.50 sec, 7 sec=7.00 sec 9')],
+    ['repeated TRA Delay Performance line', letterPath, () => [...traLetter(), delayLine('4 sec= 4.60 sec')]],
+    ['TRA Delay Performance line on another page', letterPath, () => [delayLine('4 sec= 4.5 sec'), null, delayLine('7 sec= 7.0 sec')]],
+    ['NAR summary after a TRA page', letterPath, () => [delayLine('4 sec= 4.5 sec'), null,
+      [[72, 'Delay Time(sec.)'], [200, '7']], [[72, 'Delay(sec.)'], [200, '7.00']]]],
+    ['duplicate TRA nominal', letterPath, () => traLetter('4 sec= 4.50 sec, 4 sec=7.00 sec')],
+    ['missing TRA nominal', letterPath, () => traLetter('sec= 4.50 sec, 7 sec=7.00 sec')],
+    ['shifted NAR average column', textPath, () => [narSummary()[0], [[72, 'Delay(sec.)'], [250, '4.50'], [300, '7.00']]]],
+    ['out of range NAR average', textPath, () => [narSummary()[0], [[72, 'Delay(sec.)'], [200, '6.00'], [250, '7.00']]]],
+    ['blank NAR delay beside a filled third column', textPath, () => [narColumnSummary()[0], [[90, '10'], [320, '12.4']]]],
+  ])('withholds the whole document for %s and records why', (_name, path, make) => {
+    const result = run({ [path]: make() }, undefined, [], 'SU', { unmeasured: [path] });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.averages).toEqual({});
+    // The shipped data keeps only documents read; the inventory keeps every reason.
+    expect(result.json.textAverageReview.documents[path]).toBeUndefined();
+    const inventory = run({ [path]: make() }, undefined, [], 'SU', { unmeasured: [path], inventory: true });
+    expect(inventory.status, inventory.stderr).toBe(0);
+    const doc = JSON.parse(inventory.stdout).documents[path];
+    expect(doc).toMatchObject({ averages: {}, reason: expect.any(String) });
+    expect(doc.reason).not.toMatch(/^page 1: no /);
+  });
+
+  it('enumerates every none document without joins or output writes', () => {
+    const other = 'TRA/Test Single-Use/NoDelay.pdf';
+    const result = run({ [textPath]: narSummary(), [letterPath]: traLetter(), [other]: [[[72, 'No delays recorded']]] },
+      undefined, [], 'SU', { inventory: true });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json).toBeNull();
+    expect(result.watch).toBeNull();
+    const inventory = JSON.parse(result.stdout);
+    expect(inventory).toMatchObject({ documentsRead: 2, nominalsRead: 4,
+      byReader: { NAR: { documents: 1, nominals: 2 }, TRA: { documents: 1, nominals: 2 } } });
+    expect(Object.keys(inventory.documents)).toEqual([textPath, letterPath, other]);
+    expect(inventory.documents[other].reason).toContain('no TRA labeled / tested average rows');
+  });
+
+  it('counts inventory readers from positions when folder names disagree', () => {
+    const result = run({ [letterPath]: narSummary(), [textPath]: traLetter('4 sec= 4.5 sec') },
+      undefined, [], 'SU', { inventory: true });
+    expect(result.status, result.stderr).toBe(0);
+    const inventory = JSON.parse(result.stdout);
+    expect(inventory.byReader).toEqual({ NAR: { documents: 1, nominals: 2 }, TRA: { documents: 1, nominals: 1 } });
+    expect(inventory.documents[letterPath].positions.every(p => p.reader === 'nar')).toBe(true);
+    expect(inventory.documents[textPath].positions.every(p => p.reader === 'tra')).toBe(true);
+  });
+
+  it('requires a reviewed hand join for a newly enumerated document', () => {
+    const result = run({ [textPath]: narSummary() }, undefined, [], 'SU', { unmeasured: [textPath] });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('printed averages and no AVERAGE_JOIN entry');
+    expect(result.json).toBeNull();
+  });
+
+  it('watches an explicitly unjoined text document too', () => {
+    const result = run({ [textPath]: narSummary() }, undefined, [], 'SU', { averageJoin: { [textPath]: null } });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.averages).toEqual({});
+    expect(result.json.textAverageReview.documentsRead).toBe(1);
+    expect(result.watch.documents.map(d => d.document)).toContain(textPath);
+  });
+
+  it.each([false, true])('withholds disagreeing duplicate-motor nominals (reviewed=%s)', reviewed => {
+    const lines = traLetter('4 sec= 4.60 sec, 7 sec=7.00 sec');
+    const result = run({ [textPath]: narSummary(), [letterPath]: lines }, undefined,
+      reviewed ? [['AeroTech', 'E99W', [4]]] : [], 'SU', { averageJoin: textJoin });
+    expect(result.status, result.stderr).toBe(reviewed ? 0 : 1);
+    if (reviewed) expect(result.json.averages['id-e99w'].delays).toEqual([{ nominalS: 7, averageS: 7 }]);
+    else expect(result.stderr).toContain('AVERAGE_DISPUTED');
+  });
+
+  it('refuses a text average joined to a motor with measured samples', () => {
+    const result = run({ [textPath]: narSummary(), 'NAR/Test/Measured.pdf': report() }, undefined, [], 'SU',
+      { averageJoin: { [textPath]: textJoin[textPath] } });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('measured data wins');
+    expect(result.json).toBeNull();
+  });
+});
 
 function averageTranscription(document = scanPath, printed = '4.34') {
   return { document, category: 'average-only', reason: 'Average only, no individual measurements or spread.',
