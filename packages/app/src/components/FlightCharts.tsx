@@ -505,8 +505,8 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
           random disturbance the simulation adds to prevent an over-perfect flight.
           <GlossaryHelp term={stabilityTerms.moment} label="Pitch moment coefficient" /> Pitch damping coefficient is
           the simulation&apos;s damping term: it uses the square of the ratio of pitch rate to airspeed, multiplied by three
-          and capped by the aerodynamic pitch moment about the nose tip, with the sign of pitch rate. This is desktop OR 24.12&apos;s model,
-          not the linear damping ratio in some textbooks or newer desktop OR versions.
+          and capped by the aerodynamic pitch moment about the nose tip, with the sign of pitch rate. This is desktop OR 24.12&apos;s model;
+          it is not a damping ratio.
           <GlossaryHelp term={stabilityTerms.damping} label="Pitch damping coefficient" /></p>
       </Note>}
       <div className="comparison-controls">

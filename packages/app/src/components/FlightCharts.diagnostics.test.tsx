@@ -198,7 +198,8 @@ it.each(['Pitch natural frequency', 'Pitch rate', 'Normal force coefficient', 'P
     expect(explanation.textContent).toContain('CP is ahead of CG');
     expect(explanation.textContent).toContain('random disturbance');
     expect(explanation.textContent).toContain('multiplied by three');
-    expect(explanation.textContent).toContain('not the linear damping ratio');
+    expect(explanation.textContent).toContain('it is not a damping ratio');
+    expect(explanation.textContent).not.toContain('newer desktop OR');
     expect(explanation.textContent).toContain('aerodynamic pitch moment about the nose tip');
     expect(explanation.textContent).toContain("desktop OR 24.12's model");
     expect(explanation.textContent).not.toContain('OpenRocket');
