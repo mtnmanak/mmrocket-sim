@@ -40,6 +40,27 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.207",
+    "date": "2026-11-16",
+    "title": "Stability diagnostics: normal force slope (CNα) and corrective moment coefficient (Ccm) through the flight",
+    "summary": [
+      "Stability diagnostics in Flight plots now shows nine charts. The two new ones are Corrective moment coefficient (Ccm) and Normal force slope (CNα), recorded through the flight.",
+      "Ccm is the signed restoring stiffness: positive when the CP is behind the CG, negative when it is ahead, where Pitch natural frequency is blank. CNα is how strongly the normal force grows with angle of attack, at each instant’s Mach, angle of attack and roll.",
+      "These are diagnostics only: the app gives no pass/fail on dynamic stability. The note above the charts and the guide explain each figure.",
+      "Both are new columns in the flight-data downloads (.csv and .xlsx).",
+      "No flight number moves."
+    ],
+    "items": [
+      "TWO NEW FLIGHT SERIES. The simulation now records two more figures on every flight: Normal force slope (CNα, per radian) and Corrective moment coefficient (Ccm, N·m per radian). Both are chart series of their own and columns in the flight-data downloads (.csv and .xlsx).",
+      "NINE DIAGNOSTIC CHARTS. Stability diagnostics now selects nine charts: Stability margin, Pitch natural frequency, Corrective moment coefficient, Angle of attack, Pitch rate, Normal force coefficient, Normal force slope (CNα), Pitch moment coefficient (about CG) and Pitch damping coefficient. A saved plot layout can include the new ones.",
+      "WHAT Ccm IS. Ccm is the signed corrective stiffness: the restoring moment per radian of angle of attack at small angles, computed as dynamic pressure × reference area × CNα × (CP − CG distance). Positive means the CP is behind the CG and the moment turns the nose back toward the airflow; negative means the CP is ahead of the CG and the moment turns it further away. Pitch natural frequency is blank on exactly those rows, and where it is positive, its square equals Ccm divided by the pitch moment of inertia. Near apogee, where the rocket is barely moving, Ccm is close to zero and can briefly turn negative. At large angles of attack it is a stiffness estimate, not the moment the rocket actually feels.",
+      "WHAT CNα IS. CNα is how strongly the normal force coefficient grows with angle of attack, per radian. The flight chart records it at each instant’s Mach, angle of attack and roll orientation; the Normal force slope (CNα) vs Mach chart in Drag analysis is the zero-angle value against Mach.",
+      "NO VERDICTS. As with the other diagnostics, the app gives no pass/fail on dynamic stability; the note above the charts and new glossary entries in the guide explain both figures.",
+      "WHAT THE CHARTS LEAVE OUT. Like the other diagnostic charts, both are blank on the launch guide and from recovery deployment or tumble onward. In the downloads, Ccm reads 0 on the launch guide (as Pitch natural frequency does) and CNα is blank there; after deployment or tumble CNα reads 0 and Ccm is blank.",
+      "WHAT MOVES. No flight number: the two figures are new recordings of quantities the simulation already computed for Pitch natural frequency, and nothing it flies has changed (measured on 36 tester designs: every other recorded value identical)."
+    ]
+  },
+  {
     "version": "0.206",
     "date": "2026-11-16",
     "title": "Batch simulate for clusters: mixed-only sweeps, class chips and My motors; batch rows open in Results",

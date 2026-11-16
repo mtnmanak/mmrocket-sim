@@ -1,5 +1,5 @@
 {
-  "version": "0.206",
+  "version": "0.207",
   "released": "2026-11-16",
-  "note": "Batch simulate for clusters: fly only the mixed combinations, Class chips, and a saved My motors list; closing a finished batch opens Results, and saved batch rows open in the report (and can be exported); new batch runs record the motors they flew. An optional sticky rocket summary and tabs; tidier scope boxes on Motors & Configuration. No flight number moves."
+  "note": "Stability diagnostics gain two flight series: Corrective moment coefficient (Ccm, the signed restoring stiffness) and Normal force slope (CNα), as charts in a nine-chart Stability diagnostics set and as download columns. Diagnostics only, no pass/fail. No flight number moves."
 }
