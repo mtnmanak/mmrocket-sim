@@ -21,7 +21,7 @@ import {
 } from '../tree/treeModel.js';
 import { sheetsToXlsx, type Sheet } from '../services/xlsx.js';
 import {
-  classLabel, classesFittingMount, fitsMount, manufacturersForMount,
+  classLabel, classesFittingMount, fitsMount, manufacturersForMount, impulseClassesForMount, impulseLetter, filterMotors,
 } from '../services/motorDb.js';
 import { exToDbEntry, loadExMotors } from '../services/exMotors.js';
 import { SAFETY, type DesignMatchKey, type SimRun } from '../services/simReport.js';
@@ -32,7 +32,7 @@ import {
 import { XLSX_MIME } from '../services/xlsx.js';
 import { TimeStepCaution, type LaunchConditions } from './LaunchPanel.js';
 import {
-  batchSolverFlights, batchSplitCombination, deploysOnEjectionCharge, isWeighedCandidate, mixedComboCount, runBatchSweep,
+  batchMotorNames, batchSolverFlights, batchSplitCombination, deploysOnEjectionCharge, isWeighedCandidate, mixedComboCount, runBatchSweep,
   type BatchModel, type BatchMountOption, type BatchRow, type BatchSplit, type BatchWeighed,
 } from '../services/batchSweep.js';
 import { useCatalogue } from './useCatalogue.js';
@@ -48,6 +48,8 @@ import { batchMatchingMounts, batchMountDisclosure, batchTargetsDefault } from '
 import { batchRingSplits } from '../services/batchRing.js';
 import { batchLoadoutText } from '../services/batchLoadout.js';
 import { noteText } from '../services/noteField.js';
+import { batchMyCandidates, loadBatchMyMotors, saveBatchMyMotors } from '../services/batchMyMotors.js';
+import { ImpulseBadge } from './MotorBrowser.js';
 
 /**
  * Batch simulation: fly EVERY motor that fits the mount (after filters)
@@ -62,7 +64,7 @@ const CRITERIA_KEY = 'online-openrocket.batch-criteria.v1';
 
 const DEFAULT_CRITERIA: Criteria = {
   minRodExit: null, minThrustToWeight: null, minApogee: null, maxApogee: null,
-  autoDelay: true, includeOOP: false, manufacturers: [], classes: [],
+  autoDelay: true, includeOOP: false, manufacturers: [], classes: [], impulse: [],
 };
 
 function loadCriteria(): Criteria {
@@ -87,6 +89,7 @@ function loadCriteria(): Criteria {
       includeOOP: typeof stored['includeOOP'] === 'boolean' ? stored['includeOOP'] : DEFAULT_CRITERIA.includeOOP,
       manufacturers: strings(stored['manufacturers'], DEFAULT_CRITERIA.manufacturers),
       classes: numbers(stored['classes'], DEFAULT_CRITERIA.classes),
+      impulse: strings(stored['impulse'], []).map(s => s.toUpperCase()).filter(s => /^[A-Z]$/.test(s)),
     } satisfies Required<Criteria>;
   } catch {
     return DEFAULT_CRITERIA;
@@ -111,7 +114,7 @@ export function batchDelayCell(run: Pick<SimRun, 'delayS'> | undefined, optimumF
   </>;
 }
 
-export function BatchSimulate({ configurationForMount, overrideSummaryForMount, onShowOverride, provenance = null, info, tree, mounts, initialMountId, assignedMountMotors, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed, retainedHardware, launch, weatherSnapshot, rocketName, onRunsChange, onClose }: {
+export function BatchSimulate({ configurationForMount, overrideSummaryForMount, onShowOverride, provenance = null, info, tree, mounts, initialMountId, assignedMountMotors, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed, retainedHardware, launch, weatherSnapshot, rocketName, onRunsChange, onOpenRun, onClose }: {
   /** The editing tree — the batch builds its OWN engine handles from it, so
    *  the design's shared handle is never touched (no restore, no stale
    *  motors left on unassigned mounts). */
@@ -169,6 +172,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   rocketName: string;
   onRunsChange: (runs: SimRun[]) => void;
   onClose: () => void;
+  onOpenRun?: (run: SimRun) => void;
 }) {
   const { prefs } = usePrefs();
   const alt = prefs.units.altitude;
@@ -176,6 +180,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   const len = prefs.units.length;
 
   const [criteria, setCriteriaRaw] = useState<Criteria>(loadCriteria);
+  const [savedRuns, setSavedRuns] = useState<Map<string, SimRun>>(new Map());
   const railThreshold = criteria.minRodExit ?? SAFETY.minRodExitVelocity;
   // Batch-local aero model. Auto is the sensible default: a candidate list
   // routinely spans subsonic to supersonic flights, and one fixed model
@@ -194,12 +199,9 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   const motorSettings = useMemo(() => JSON.stringify([assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays]),
     [assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays]);
   const [targetChoice, setTargetChoice] = useState<{ tree: RocketTree; id: string; settings: string; on: boolean } | null>(null);
-  if (targetChoice && (targetChoice.tree !== tree || targetChoice.id !== sel.id || targetChoice.settings !== motorSettings)) {
-    setTargetChoice(null);
-  }
   const allMatching = matchingMounts.length > 1 && (targetChoice?.tree === tree && targetChoice.id === sel.id && targetChoice.settings === motorSettings
     ? targetChoice.on : batchTargetsDefault(matchingMounts, assignedMotors, assignedMountMotors, assignedMotorIds));
-  const targets = allMatching ? matchingMounts : [sel];
+  const targets = useMemo(() => allMatching ? matchingMounts : [sel], [allMatching, matchingMounts, sel]);
   const targetIds = targets.map(m => m.id);
   // One-mount sweeps use automatic ignition; matching sets keep every mount's own ignition.
   const overrideSummary = overrideSummaryForMount?.(allMatching ? undefined : sel.id, allMatching ? targetIds : undefined);
@@ -219,6 +221,18 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   // Separate ring tubes use these same groups but fly every ordered arrangement.
   const [comboMode, setComboMode] = useState(false);
   const [pairMode, setPairMode] = useState(false);
+  const [includeSingles, setIncludeSingles] = useState(true);
+  if (targetChoice && (targetChoice.tree !== tree || targetChoice.id !== sel.id || targetChoice.settings !== motorSettings)) {
+    setTargetChoice(null);
+    setComboMode(false);
+    setPairMode(false);
+    setIncludeSingles(true);
+  }
+  const [myMotors, setMyMotors] = useState(loadBatchMyMotors);
+  const [onlyMyMotors, setOnlyMyMotors] = useState(false);
+  const [editMyMotors, setEditMyMotors] = useState(false);
+  const [mySearch, setMySearch] = useState('');
+  const setOwned = (ids: string[]) => { setMyMotors(ids); saveBatchMyMotors(ids); };
   // Which stages carry a nozzle exit diameter — what the sweep strips, and
   // what the note under the candidates row names. Empty under Classic EB on
   // purpose: neither half of the nozzle (thrust or base drag) is live in the
@@ -243,6 +257,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   const ringSplits = useMemo(() => allMatching ? batchRingSplits(tree, matchingMounts) : null, [tree, allMatching, matchingMounts]);
   const clusterSplit = useMemo(() => allMatching ? ringSplits?.halves ?? null : splitClusterTree(tree, sel.id), [tree, sel.id, allMatching, ringSplits]);
   const pairSplit = useMemo(() => allMatching ? ringSplits?.pairs ?? null : splitClusterPairsTree(tree, sel.id), [tree, sel.id, allMatching, ringSplits]);
+  const effectiveIncludeSingles = includeSingles || (!clusterSplit && !pairSplit);
   const disclosure = batchMountDisclosure(tree, mounts, sel, assignedMotors, assignedMountMotors, assignedMotorIds, assignedIgnitions, targetIds);
   /** The halves box's words — on the box, and in the refusal that tells you to untick it. */
   const halvesName = clusterSplit ? `mixed ${clusterSplit.groupSize}+${clusterSplit.groupSize}` : '';
@@ -257,7 +272,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
    * keeps describing that run while the filters above it change.
    */
   const [finished, setFinished] = useState<{
-    total: number; candidates: number; planned: number; stopped: boolean; evicted: number; unsaved: number;
+    total: number; candidates: number; planned: number; stopped: boolean; evicted: number; unsaved: number; includeSingles: boolean;
   } | null>(null);
   /** Why a sweep ended without finishing — something threw outside any one flight. */
   const [failure, setFailure] = useState<string | null>(null);
@@ -287,23 +302,31 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   const allMotors = useMemo(() => [...catalogue, ...loadExMotors().map(exToDbEntry)], [catalogue]);
 
   const fittingClasses = useMemo(
-    () => classesFittingMount(mountDiameterMm, allMotors), [mountDiameterMm, allMotors]);
+    () => classesFittingMount(targetDiameterMm, allMotors), [targetDiameterMm, allMotors]);
   const manufacturers = useMemo(
-    () => manufacturersForMount(mountDiameterMm, criteria.includeOOP, allMotors),
-    [mountDiameterMm, criteria.includeOOP, allMotors],
+    () => manufacturersForMount(targetDiameterMm, criteria.includeOOP, allMotors),
+    [targetDiameterMm, criteria.includeOOP, allMotors],
   );
+  const impulseClasses = useMemo(() => impulseClassesForMount(targetDiameterMm, criteria.includeOOP, allMotors),
+    [targetDiameterMm, criteria.includeOOP, allMotors]);
+  const owned = useMemo(() => batchMyCandidates(myMotors, allMotors, targets, prefs.units), [myMotors, allMotors, targets, prefs.units]);
+  const motorNames = useMemo(() => batchMotorNames(allMotors), [allMotors]);
+  const editableMotors = filterMotors({ boreMm: targetDiameterMm, manufacturers: new Set(), classes: new Set(),
+    includeOOP: true, text: mySearch }, allMotors);
   // The candidates, through the maker chips that apply here (batchCandidates).
-  const { candidates, tooLongCount, tooWideCount, appliedMakers } = useMemo(() => {
-    const selected = batchCandidates(criteria, { diameterMm: mountDiameterMm, maxMotorLengthM }, allMotors);
+  const { candidates: normalCandidates, tooLongCount, tooWideCount, appliedMakers } = useMemo(() => {
+    const selected = batchCandidates(criteria, { diameterMm: targetDiameterMm, maxMotorLengthM }, allMotors);
     const candidates = selected.candidates.filter(m => fitsMount(targetDiameterMm, m));
-    return { ...selected, candidates, tooWideCount: selected.candidates.length - candidates.length };
+    const broad = batchCandidates(criteria, { diameterMm: mountDiameterMm, maxMotorLengthM }, allMotors);
+    return { ...selected, candidates, tooWideCount: broad.candidates.filter(m => !fitsMount(targetDiameterMm, m)).length };
   }, [criteria, mountDiameterMm, targetDiameterMm, maxMotorLengthM, allMotors]);
+  const candidates = onlyMyMotors ? owned.candidates : normalCandidates;
   // What unticking "include OOP" would leave — the same filters, run again —
   // so the refusal offers it only when it is enough.
-  const withoutOOP = useMemo(() => (criteria.includeOOP
-    ? batchCandidates({ ...criteria, includeOOP: false }, { diameterMm: mountDiameterMm, maxMotorLengthM }, allMotors)
+  const withoutOOP = useMemo(() => (criteria.includeOOP && !onlyMyMotors
+    ? batchCandidates({ ...criteria, includeOOP: false }, { diameterMm: targetDiameterMm, maxMotorLengthM }, allMotors)
       .candidates.filter(m => fitsMount(targetDiameterMm, m)).length
-    : null), [criteria, mountDiameterMm, targetDiameterMm, maxMotorLengthM, allMotors]);
+    : null), [criteria, onlyMyMotors, targetDiameterMm, maxMotorLengthM, allMotors]);
 
   /**
    * Separate from the abort signal, which the Stop BUTTON also fires. Both stop
@@ -337,6 +360,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
     setFinished(null);
     setFailure(null);
     setRows([]);
+    setSavedRuns(new Map());
     setSweepMountId(mountId);
     setSweepTargetIds(targetIds);
     const ctrl = new AbortController();
@@ -354,7 +378,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
       const { rows: out, stopped } = await runBatchSweep({
         units: prefs.units,
         advisoryLimits: prefs.flightAdvisories,
-        tree, info, mounts, target: sel, candidates, splits,
+        tree, info, mounts, target: sel, candidates, splits, includeSingles: effectiveIncludeSingles,
         ...(allMatching ? { targetMountIds: targetIds } : {}),
         configuration: configurationForMount?.(allMatching ? undefined : sel.id, allMatching ? targetIds : undefined),
         assignedMountMotors, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed, retainedHardware,
@@ -377,7 +401,9 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
       // used to happen in silence (audit 2026-09-22) — and a sweep that accepts
       // more than 500 does not fit at all. The line below says both, apart.
       const stored = accepted.length > 0 ? addRuns(accepted) : null;
-      setFinished({ total: out.length, candidates: candidates.length, planned: totalFlights, stopped,
+      const acceptedIds = new Set(accepted.map(run => run.id));
+      setSavedRuns(new Map((stored ?? []).filter(run => acceptedIds.has(run.id)).map(run => [run.id, run])));
+      setFinished({ total: out.length, candidates: candidates.length, planned: totalFlights, stopped, includeSingles: effectiveIncludeSingles,
         evicted: stored ? runsEvictedByLastWrite() : 0, unsaved: stored ? runsUnsavedByLastWrite() : 0 });
       if (stored) onRunsChange(stored);
     } catch (e) {
@@ -405,6 +431,12 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
     }), [rows, criteria]);
   /** The rows the table draws — every FLOWN row still reaches the CSV and XLSX. */
   const table = useMemo(() => batchTableRows(sorted), [sorted]);
+  const openRun = (run: SimRun) => { onOpenRun?.(run); onClose(); };
+  const close = () => {
+    const top = finished && !finished.stopped ? sorted.find(row => row.run && savedRuns.has(row.run.id))?.run : undefined;
+    if (top) openRun(savedRuns.get(top.id)!);
+    else onClose();
+  };
   const capNote = batchCapNote(table);
   // D7 G12: Caution only where the cap changes what is KEPT. Rows the table
   // leaves out but both exports carry lose nothing (Information); failed rows
@@ -440,7 +472,8 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
       ? [{ name: 'Batch', ...runsToTable(all, prefs.units, railThreshold, provenance) }]
       : [
         { name: 'All results', ...runsToTable(all, prefs.units, railThreshold, provenance) },
-        { name: 'Single motor', ...runsToTable(all.filter((r) => !r.motorConfig?.startsWith('mixed')), prefs.units, railThreshold, provenance) },
+        ...(all.some(r => !r.motorConfig?.startsWith('mixed'))
+          ? [{ name: 'Single motor', ...runsToTable(all.filter((r) => !r.motorConfig?.startsWith('mixed')), prefs.units, railThreshold, provenance) }] : []),
         ...configs.map((c) => ({
           name: `Mixed ${c.replace('mixed ', '')}`,
           ...runsToTable(all.filter((r) => r.motorConfig === c), prefs.units, railThreshold, provenance),
@@ -468,11 +501,11 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   // an implementation detail of that hook rather than a contract.
   const runningRef = useRef(running);
   runningRef.current = running;
-  const dialogRef = useDialog(() => { if (!runningRef.current) onClose(); });
+  const dialogRef = useDialog(() => { if (!runningRef.current) close(); });
   // A press AND a release on the backdrop itself (useBackdropClose): a name
   // drag-selected in a finished results table and released past the card's
   // edge closed the dialog and threw the batch away (audit 2026-09-22).
-  const backdrop = useBackdropClose(() => { if (!runningRef.current) onClose(); });
+  const backdrop = useBackdropClose(() => { if (!runningRef.current) close(); });
 
   // What the batch will actually fly — the same counts the meta line quotes.
   // The time-step caution multiplies by this: a fine step's cost is per
@@ -481,18 +514,18 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   const halvesCombination = clusterSplit ? batchSplitCombination(clusterSplit) : null;
   const pairsCombination = pairSplit ? batchSplitCombination(pairSplit) : null;
   const mixedTitle = (combination: NonNullable<typeof halvesCombination>, groups: string) =>
-    `Also fly ${groups}. ${combination.ordered ? 'Fly every arrangement across the separate tubes.' : 'Fly each mix once because the groups share one cluster mount.'} With ${candidates.length} candidates, adds ${mixedComboCount(candidates.length, combination)} extra flights. Off = one motor type in every target tube. Each group balances around its own centre; an off-centre cluster or ring can still push the rocket unevenly, so check the thrust balance warnings.`;
+    `Fly ${groups}. ${combination.ordered ? 'Fly every arrangement across the separate tubes.' : 'Fly each mix once because the groups share one cluster mount.'} With ${candidates.length} candidates, adds ${mixedComboCount(candidates.length, combination)} mixed flights. All-same loadouts use the separate single-pass box. Each group balances around its own centre; an off-centre cluster or ring can still push the rocket unevenly, so check the thrust balance warnings.`;
   const ticked = [
     ...(comboMode && halvesCombination ? [{ name: halvesName, ...halvesCombination }] : []),
     ...(pairMode && pairsCombination ? [{ name: PAIRS_NAME, ...pairsCombination }] : []),
   ];
-  const totalFlights = batchFlightCount(candidates.length, ticked);
+  const totalFlights = batchFlightCount(candidates.length, ticked, effectiveIncludeSingles);
   // How many of them search for their delay, by the sweep's own rule — with
   // the box unticked, still those of plugged-only motors on a design whose
   // recovery waits for the charge, and every flight while another mount's
   // motor is on Auto. The estimate prices them apart from the rest.
   const solverFlights = batchSolverFlights({
-    candidates, groups: ticked, autoDelay: criteria.autoDelay, deploysOnCharge,
+    candidates, groups: ticked, autoDelay: criteria.autoDelay, deploysOnCharge, includeSingles: effectiveIncludeSingles,
     othersAuto: Object.keys(assignedMotors).some((id) => !targetIds.includes(id) && assignedAutoDelays?.[id] === true),
   });
   // How long that takes, and whether it is more than one sweep will fly. Past
@@ -501,7 +534,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   const pace: BatchPace = { flights: totalFlights, solverFlights, timeStepS: launch.timeStepS };
   const estimate = batchEstimate(pace);
   const refusal = batchRefusal({
-    candidates: candidates.length, withoutOOP, modes: ticked, solverFlights, timeStepS: launch.timeStepS,
+    candidates: candidates.length, withoutOOP, modes: ticked, solverFlights, timeStepS: launch.timeStepS, includeSingles: effectiveIncludeSingles, myMotors: onlyMyMotors,
   });
 
   // Disarm when the proposed sweep changes, even at the same flight count.
@@ -509,11 +542,11 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   // invalidate confirmation during render, before any layout or passive effect.
   // A memo eviction can only disarm; returning to old settings cannot re-arm.
   const sweepIdentity = useMemo(() => ({
-    totalFlights, candidates, criteria, mountId, allMatching, comboMode, pairMode, clusterSplit, pairSplit,
+    totalFlights, candidates, criteria, mountId, allMatching, comboMode, pairMode, clusterSplit, pairSplit, includeSingles: effectiveIncludeSingles, onlyMyMotors,
     tree, info, mounts, sel, assignedMountMotors, assignedMotors, assignedMotorIds,
     assignedIgnitions, assignedAutoDelays, weighed, retainedHardware, batchModel, launch, rocketName,
   }), [
-    totalFlights, candidates, criteria, mountId, allMatching, comboMode, pairMode, clusterSplit, pairSplit,
+    totalFlights, candidates, criteria, mountId, allMatching, comboMode, pairMode, clusterSplit, pairSplit, effectiveIncludeSingles, onlyMyMotors,
     tree, info, mounts, sel, assignedMountMotors, assignedMotors, assignedMotorIds,
     assignedIgnitions, assignedAutoDelays, weighed, retainedHardware, batchModel, launch, rocketName,
   ]);
@@ -534,10 +567,35 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
             Batch simulate — every motor that fits
             {motorCount > 1 && <span className="motor-db-meta"> each candidate fires ×{motorCount} on this mount</span>}
           </h2>
-          <button className="file-btn" onClick={onClose} disabled={running}>✕ Close</button>
+          <button className="file-btn" onClick={close} disabled={running}>✕ Close</button>
         </div>
 
         <div className="motor-filter-block">
+          <div className="motor-filter-row">
+            <label className="motor-inline-label">
+              <input type="checkbox" checked={onlyMyMotors} disabled={running} style={{ width: 'auto' }}
+                onChange={e => setOnlyMyMotors(e.target.checked)} /> Fly only my motors
+            </label>
+            <button className="file-btn" aria-expanded={editMyMotors} onClick={() => setEditMyMotors(!editMyMotors)}>Edit my motors</button>
+            {!editMyMotors && <span className="motor-db-meta">{myMotors.length} {myMotors.length === 1 ? 'motor' : 'motors'}: {myMotors.slice(0, 5).map(id => {
+              const m = allMotors.find(m => m.motorId === id);
+              return m ? noteText(motorNames.get(m.motorId)!) : `${noteText(id)} (unavailable)`;
+            }).join(', ') || 'none selected'}{myMotors.length > 5 && `, … +${myMotors.length - 5} more`}</span>}
+          </div>
+          {editMyMotors && <div aria-label="My motors" role="group">
+            <label>Search my motors <input type="search" value={mySearch} onChange={e => setMySearch(e.target.value)} /></label>
+            <button className="file-btn" disabled={running} onClick={() => setOwned([])}>Clear list</button>
+            <div style={{ maxHeight: 240, overflowY: 'auto' }}>
+              {editableMotors.map(m => <label key={m.motorId} style={{ display: 'block' }}>
+                <input type="checkbox" checked={myMotors.includes(m.motorId)} disabled={running} style={{ width: 'auto' }}
+                  onChange={() => setOwned(toggle(myMotors, m.motorId))} />
+                {noteText(motorNames.get(m.motorId)!)} · Class {impulseLetter(m)} · {noticeQuantity('motorDimensions', m.diameter / 1000, prefs.units)} × {noticeQuantity('motorDimensions', m.length / 1000, prefs.units)}
+              </label>)}
+            </div>
+          </div>}
+          {onlyMyMotors && <Note as="p" tier="information">My motors supplies the candidates, including owned OOP motors. Maker, diameter, class and include OOP filters are disabled; your choices are kept.</Note>}
+          {onlyMyMotors && owned.excluded.length > 0 && <Note as="p" tier="information">{owned.excluded.join('; ')}.</Note>}
+          <fieldset disabled={onlyMyMotors} style={{ minWidth: 0, border: 0, padding: 0, margin: 0 }}>
           {/* The chips are TOGGLES, so they say so: aria-pressed for a screen
               reader, and a ✓ for anyone who cannot tell the on-state's border
               and text shade from the off one's — outside Daylight that shade is
@@ -577,6 +635,17 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
               );
             })}
           </div>
+          <div className="motor-chip-row" role="group" aria-label="Impulse classes">
+            <span className="motor-chip-caption">Class</span>
+            {impulseClasses.map(({ letter, count }) => {
+              const on = criteria.impulse.includes(letter);
+              return <button key={letter} className={`series-chip ${on ? 'series-chip-on' : ''}`} aria-pressed={on}
+                onClick={() => setCriteria({ ...criteria, impulse: toggle(criteria.impulse, letter) })}>
+                {on && <span aria-hidden="true">✓</span>}<ImpulseBadge letter={letter} /> <span className="motor-chip-count">{count}</span>
+              </button>;
+            })}
+          </div>
+          </fieldset>
           {/* Explicit label targets keep clicks on the number, not its unit picker
               (audit 2026-10-11, S3a-g3). Each criteria box names ITSELF. A <label> with no `for` labels its
               first labelable descendant, and in the three with a unit that is
@@ -626,7 +695,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
                 title="Choose the candidate mount. Tick the matching-mounts box to sweep the other matching mounts too; mounts outside the target set keep their loaded motors.">
                 mount
                 <select value={mountId} disabled={running}
-                  onChange={(e) => { setMountId(e.target.value); setTargetChoice(null); setComboMode(false); setPairMode(false); }}>
+                  onChange={(e) => { setMountId(e.target.value); setTargetChoice(null); setComboMode(false); setPairMode(false); setIncludeSingles(true); }}>
                   {mounts.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
                 </select>
               </label>
@@ -634,7 +703,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
             {matchingMounts.length > 1 && (
               <label className="motor-inline-label">
                 <input type="checkbox" checked={allMatching} disabled={running} style={{ width: 'auto' }}
-                  onChange={e => { setTargetChoice({ tree, id: sel.id, settings: motorSettings, on: e.target.checked }); setComboMode(false); setPairMode(false); }} />
+                  onChange={e => { setTargetChoice({ tree, id: sel.id, settings: motorSettings, on: e.target.checked }); setComboMode(false); setPairMode(false); setIncludeSingles(true); }} />
                 {disclosure.matchingLabel}
               </label>
             )}
@@ -654,13 +723,19 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
                 {PAIRS_NAME}
               </label>
             )}
+            {(clusterSplit || pairSplit) && <label className="motor-inline-label"
+              title="Fly each candidate as the same motor in every target position. Off excludes all-same loadouts: the same motor in every tube is not flown. Select a mixed configuration to fly with this off.">
+              <input type="checkbox" checked={includeSingles} disabled={running} style={{ width: 'auto' }}
+                onChange={e => setIncludeSingles(e.target.checked)} />
+              Also fly each motor in every position
+            </label>}
             <label className="motor-inline-label">
               <input type="checkbox" checked={criteria.autoDelay} style={{ width: 'auto' }}
                 onChange={(e) => setCriteria({ ...criteria, autoDelay: e.target.checked })} />
               optimal delay per motor
             </label>
             <label className="motor-inline-label">
-              <input type="checkbox" checked={criteria.includeOOP} style={{ width: 'auto' }}
+              <input type="checkbox" checked={criteria.includeOOP} disabled={onlyMyMotors} style={{ width: 'auto' }}
                 onChange={(e) => setCriteria({ ...criteria, includeOOP: e.target.checked })} />
               include OOP
             </label>
@@ -671,7 +746,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
         {!clusterSplit && !pairSplit && disclosure.mixedUnavailable
           && <Note as="p" tier="information">{disclosure.mixedUnavailable}</Note>}
 
-        <TimeStepCaution dt={candidates.length > 0 ? launch.timeStepS : undefined} flights={totalFlights} />
+        <TimeStepCaution dt={totalFlights > 0 ? launch.timeStepS : undefined} flights={totalFlights} />
 
         {/* The two alerts below are ALWAYS MOUNTED (audit 2026-09-22): an
             alert inserted with its text already in place is announced
@@ -701,8 +776,8 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
               && ` · +${mixedComboCount(candidates.length, halvesCombination!)} ${halvesName} combinations`}
             {pairMode && pairSplit
               && ` · +${mixedComboCount(candidates.length, pairsCombination!)} ${PAIRS_NAME} combinations`}
-            {tooLongCount > 0 && ` · ${tooLongCount} excluded — over ${allMatching ? noteText(limitingMount.label) : 'this mount'}’s max motor length`}
-            {tooWideCount > 0 && ` · ${tooWideCount} excluded — too wide for ${noteText(diameterMount.label)}`}
+            {!onlyMyMotors && tooLongCount > 0 && ` · ${tooLongCount} excluded — over ${allMatching ? noteText(limitingMount.label) : 'this mount'}’s max motor length`}
+            {!onlyMyMotors && tooWideCount > 0 && ` · ${tooWideCount} excluded — too wide for ${noteText(diameterMount.label)}`}
             {criteria.autoDelay ? ' · 2 sims each (delay probe + final)' : ''}
             {progress && ` — simulating ${progress.done + 1}/${progress.total}: ${progress.current}`}
           </span>
@@ -734,7 +809,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
               }}
               disabled={candidates.length === 0 || refusal !== null}>
               <Icon name="rocket" /> {batchButtonLabel({
-                candidates: candidates.length, totalFlights, confirming: armed && !runAnyway, estimate,
+                candidates: candidates.length, totalFlights, confirming: armed && !runAnyway, estimate, includeSingles: effectiveIncludeSingles,
               })}
             </button>
             <LaunchOverrideWarning id="launch-override-batch" summary={overrideSummary} onShow={onShowOverride} />
@@ -823,6 +898,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
                 total: finished.total,
                 candidates: finished.candidates,
                 planned: finished.planned,
+                includeSingles: finished.includeSingles,
                 stopped: finished.stopped,
                 accepted: sorted.filter((r) => r.run && r.failed.length === 0).length,
                 errors: sorted.filter((r) => r.error).length,
@@ -919,6 +995,9 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
                       {run && !(run.aeroModel === 'classic' && !run.rogersKbf) && (run.nozzleStages?.length ?? 0) > 0
                         && <span className="motor-db-meta"> · nozzle</span>}
                       {combo && run && batchLoadoutText(run) && <div className="motor-db-meta">{batchLoadoutText(run)}</div>}
+                      {!running && run && savedRuns.has(run.id) && <button className="file-btn"
+                        aria-label={`Open ${noteText(label)}${batchLoadoutText(run) && batchLoadoutText(run) !== label ? ` · ${batchLoadoutText(run) ?? ''}` : ''} in Results`}
+                        onClick={() => openRun(savedRuns.get(run.id)!)}>Open</button>}
                     </td>
                     <td>{batchDelayCell(run, optimumForPlugged)}</td>
                     <td>{run ? fmtSi('altitude', alt, run.maxAltitude) : '—'}</td>
@@ -936,6 +1015,9 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
               </tbody>
             </table>
           </div>
+        )}
+        {sorted.some(row => !row.run || !savedRuns.has(row.run.id)) && !running && (
+          <p className="comp-stats">Open is available only for rows saved in Saved simulations; rejected, errored or unsaved rows cannot be opened.</p>
         )}
       </div>
     </div>

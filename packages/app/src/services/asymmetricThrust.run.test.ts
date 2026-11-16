@@ -27,7 +27,7 @@ const result: FlightResult = {
     cpLocation: [0.7, 0.7, 0.7, 0.7, 0.7], cgLocation: [0.5, 0.5, 0.5, 0.5, 0.5], aoa: [0, 0, 0, 0, 0] },
 };
 const criteria: Criteria = { minRodExit: null, minThrustToWeight: null, minApogee: null, maxApogee: null,
-  autoDelay: false, includeOOP: false, manufacturers: [], classes: [] };
+  autoDelay: false, includeOOP: false, manufacturers: [], classes: [], impulse: [] };
 
 it('row 127 attaches the flown warning, stores it, renders its tier, exports its key and prints its consequence', () => {
   const tree = balanceTree(2), motor = balanceMotor();

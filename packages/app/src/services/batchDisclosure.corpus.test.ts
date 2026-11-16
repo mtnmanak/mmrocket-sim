@@ -164,7 +164,7 @@ it.skipIf(!designFile)(`124/125 owner Goblin ${format} all-mount batch matches o
   expect(batchTargetsDefault(matching, Object.fromEntries(matching.map(m => [m.id, assignedMotors[target.id]!])),
     assignedMountMotors, assignedMotorIds)).toBe(true);
   expect(batchMountDisclosure(tree, mounts, target, assignedMotors, assignedMountMotors, assignedMotorIds, assignedIgnitions)
-    .matchingLabel).toContain('Fly each candidate in all 4 matching mounts');
+    .matchingLabel).toContain('Use all 4 matching mounts');
   expect(batchRingSplits(tree, matching).halves?.mountGroups?.every(g => g.length === 2)).toBe(true);
   const candidate = MOTOR_DB.find(m => m.designation === 'M1780NT')!;
   const baseline = MOTOR_DB.find(m => m.motorId === assignedMotorIds[target.id])!;

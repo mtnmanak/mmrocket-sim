@@ -15,6 +15,15 @@ const predictions: DesktopStoredPrediction[] = [
 ];
 
 describe('desktop prediction comparison', () => {
+  it('143 never compares a legacy batch row stamped with the design configuration id', () => {
+    const host = document.createElement('div'), root = createRoot(host);
+    try {
+      act(() => root.render(<PrefsProvider><DesktopPredictions configId="a" predictions={predictions}
+        run={{ batch: true, flightConfigId: 'a', maxAltitude: 999 } as SimRun} /></PrefsProvider>));
+      expect(host.textContent).toContain('The app (no run shown)');
+      expect(host.textContent).not.toContain('999');
+    } finally { act(() => root.unmount()); }
+  });
   it('N032 imported and app apogee comparisons follow Altitude', () => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { altitude: 'ft', distance: 'km' } }));
     const host = document.createElement('div'), root = createRoot(host);

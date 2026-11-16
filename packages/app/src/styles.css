@@ -3139,7 +3139,12 @@ html {
    was the browser's own momentary grey — which reads as "the button did
    nothing" once the press ends. Unselected only: a selected chip already
    carries its own fill and must not lose it under the pointer. */
-.series-chip:not(.series-chip-on):hover {
+.series-chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.series-chip:not(.series-chip-on):hover:not(:disabled) {
   background: var(--hover);
 }
 
@@ -5541,6 +5546,7 @@ select.unit-chip:hover {
 .viz-root[data-contrast='high'] .line-sample,
 .viz-root[data-contrast='high'] .fin-row-del:disabled,
 .viz-root[data-contrast='high'] .file-btn:is(:disabled, [aria-disabled='true']),
+.viz-root[data-contrast='high'] .series-chip:disabled,
 .viz-root[data-contrast='high'] .schematic-controls .file-btn:disabled,
 .viz-root[data-contrast='high'] .chart-btn:disabled,
 .viz-root[data-contrast='high'] .launch-btn:disabled,
@@ -5581,6 +5587,7 @@ select.unit-chip:hover {
    reads through ink instead — muted text on a gray border vs. black-on-black
    for a live button. File buttons the same (issues-2026-10-13a.md). */
 .viz-root[data-contrast='high'] .file-btn:is(:disabled, [aria-disabled='true']),
+.viz-root[data-contrast='high'] .series-chip:disabled,
 .viz-root[data-contrast='high'] .chart-btn:disabled {
   color: var(--text-muted);
   border-color: var(--chart-grid);
@@ -5601,10 +5608,19 @@ select.unit-chip:hover {
    picking motor diameters could not tell which were chosen. Fill it instead.
    --selected (#ffd18a) against black text is 14:1; the lowest Daylight line
    sample on it, Mach #008276 (the Daylight --chart-mach), is 3.31:1. */
-.viz-root[data-contrast='high'] .series-chip-on {
+.viz-root[data-contrast='high'] .series-chip-on:not(:disabled) {
   background: var(--selected);
   color: var(--text-primary);
   font-weight: 600;
+}
+
+.viz-root[data-contrast='high'] .series-chip-on:disabled {
+  background: var(--surface-3);
+}
+
+.viz-root[data-contrast='high'] .series-chip:disabled .impulse-badge {
+  box-shadow: none;
+  border-color: var(--chart-grid);
 }
 
 /* Keyboard focus, visible in glare: the checklist's Daylight focus, link blue

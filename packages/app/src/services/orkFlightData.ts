@@ -282,6 +282,9 @@ interface DescribedMotors {
  * null); `flightDataForExport` writes no such run, `flownAutoDelays` reads one.
  */
 function describedMotors(r: SimRun, input: FlightDataForExportInput, includeModelRevisions = false): DescribedMotors | null {
+  // Batch loadouts are independent flights, including legacy rows stamped
+  // with the design configuration's id. Never reuse them as that flight.
+  if (r.batch === true) return null;
   const {
     savedConfigs, activeConfigId, assigned, mountIds, designKey, conditionsKey, model, hasNozzle,
     motorSetKeyOf, hardwareDeltaKg,

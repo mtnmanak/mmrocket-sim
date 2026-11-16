@@ -1092,7 +1092,7 @@ describe('stored runs: aero model fields', () => {
 
 describe('stored runs: a flight the time limit cut off (audit S6-1)', () => {
   const NO_CRITERIA = { minRodExit: null, minThrustToWeight: null, minApogee: null, maxApogee: null,
-    autoDelay: true, includeOOP: false, manufacturers: [], classes: [] };
+    autoDelay: true, includeOOP: false, manufacturers: [], classes: [], impulse: [] };
   /** Stored before v0.193 marked an airborne ending: still descending at the kernel's limit, graded as landed. */
   const airborne = (over: Partial<SimRun> = {}) => mkRun('airborne', {
     comments: '',

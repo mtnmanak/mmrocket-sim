@@ -158,6 +158,58 @@ const nozzles = (exits: Record<string, number>): BatchSweepDeps['nozzleFor'] =>
   async (id) => (id !== undefined && exits[id] !== undefined ? ({ exitDiameterM: exits[id] } as NozzleEntry) : null);
 const noYield = async () => {};
 
+it.each([false, true])('136 mixed-only sweeps fetch specs and solve charge delays without single rows (auto=%s)', async autoDelay => {
+  const tree = clusterRocket('4-ring');
+  const split = splitClusterTree(tree, 'mount')!;
+  const candidates = [entry('a', 'Acme', 'E20', 'P'), entry('b', 'Acme', 'E22', 'P')];
+  const fetchSpec = vi.fn(fetchFrom({ a: curve('E20'), b: curve('E22', 1.1) }));
+  const progress = vi.fn();
+  const result = await runBatchSweep(input(tree, { candidates, splits: [split], includeSingles: false, autoDelay }),
+    { signal: new AbortController().signal, onProgress: progress }, { fetchSpec, nozzleFor: nozzles({}), yieldToUi: noYield });
+  expect(result.rows).toHaveLength(1);
+  expect(result.rows[0]!.combo).toBe(true);
+  expect(result.rows[0]!.error).toBeUndefined();
+  expect(result.rows[0]!.run!.motorConfig).toBe('mixed 2+2');
+  expect(result.rows[0]!.run!.delayResolution!.mounts.every(m => m.status === 'resolved')).toBe(true);
+  expect(result.rows[0]!.optimumForPlugged).toBe(!autoDelay || undefined);
+  expect(fetchSpec).toHaveBeenCalledTimes(2);
+  expect(progress.mock.calls[0]![0]).toMatchObject({ done: 0, total: 1 });
+  expect(batchSolverFlights({ candidates, groups: [2], includeSingles: false, autoDelay, deploysOnCharge: true, othersAuto: false })).toBe(1);
+  const control = await sweep(input(tree, { candidates, splits: [split], autoDelay }),
+    { fetchSpec, nozzleFor: nozzles({}) });
+  const mixed = control.rows.find(r => r.combo)!.run!;
+  // Removing an unrelated pass must not change an existing combination's flight.
+  expect(result.rows[0]!.run!.maxAltitude).toBeCloseTo(mixed.maxAltitude, 6);
+  expect(result.rows[0]!.run!.maxVelocity).toBeCloseTo(mixed.maxVelocity, 6);
+  expect(result.rows[0]!.run!.delayResolution!.mounts).toEqual(mixed.delayResolution!.mounts);
+}, 60_000);
+
+it('136 mixed-only three-pair splits fetch each shared motor only once', async () => {
+  const tree = clusterRocket('6-ring', 'apogee');
+  const candidates = [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')];
+  const fetchSpec = vi.fn(fetchFrom({ a: curve('E20'), b: curve('E22', 1.1) }));
+  const result = await sweep(input(tree, { candidates, includeSingles: false, autoDelay: false,
+    splits: [splitClusterPairsTree(tree, 'mount')!] }), { fetchSpec, nozzleFor: nozzles({}) });
+  expect(result.rows).toHaveLength(2);
+  expect(result.rows.every(r => r.combo && r.run?.motorConfig === 'mixed 4+2' && !r.error)).toBe(true);
+  expect(fetchSpec).toHaveBeenCalledTimes(2);
+}, 60_000);
+
+it('136 a mixed-only spec failure is a row error and later combinations still fly', async () => {
+  const tree = clusterRocket('4-ring', 'apogee');
+  const candidates = [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5'), entry('c', 'Acme', 'E24', '5')];
+  const fetchSpec = vi.fn(async (m, delay) => {
+    if (m.motorId === 'a') throw new Error('No owned curve');
+    return { ...curve(m.designation), ejectionDelay: delay };
+  }) as ReturnType<typeof vi.fn<BatchSweepDeps['fetchSpec']>>;
+  const result = await sweep(input(tree, { candidates, splits: [splitClusterTree(tree, 'mount')!], includeSingles: false, autoDelay: false }),
+    { fetchSpec, nozzleFor: nozzles({}) });
+  expect(result.rows).toHaveLength(3);
+  expect(result.rows.filter(r => r.error === 'No owned curve')).toHaveLength(2);
+  expect(result.rows.filter(r => r.run)).toHaveLength(1);
+  expect(fetchSpec.mock.calls.filter(([m]) => m.motorId === 'a')).toHaveLength(1);
+}, 60_000);
+
 function input(tree: RocketTree, over: Partial<BatchSweepInput> = {}): BatchSweepInput {
   return {
     tree,
@@ -171,6 +223,37 @@ function input(tree: RocketTree, over: Partial<BatchSweepInput> = {}): BatchSwee
 
 const sweep = (inp: BatchSweepInput, deps: Partial<BatchSweepDeps>, signal = new AbortController().signal) =>
   runBatchSweep(inp, { signal }, { yieldToUi: noYield, ...deps });
+
+it('143 records flown loadouts for single and combination rows without claiming the design configuration', async () => {
+  const tree = clusterRocket('4-ring', 'apogee');
+  const candidates = [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')];
+  const configuration = { flightConfig: 'Design motors', flightConfigId: 'design-config', flightOverrides: [] };
+  const result = await sweep(input(tree, { candidates, configuration, autoDelay: false,
+    splits: [splitClusterTree(tree, 'mount')!] }),
+  { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22', 1.1) }), nozzleFor: nozzles({}) });
+  expect(result.rows).toHaveLength(3);
+  for (const row of result.rows) {
+    expect(row.error).toBeUndefined();
+    expect(row.run!.flightConfigId).toBeUndefined();
+    expect(row.run!.flightOverrides).toEqual([]);
+    expect(row.run!.flightConfig).toContain('E2');
+    expect(row.run!.flightConfig).not.toContain('Design motors');
+    const csv = runsToCsv([row.run!]);
+    expect(csv).not.toContain('Design motors');
+    expect(runsToTable([row.run!]).rows[0]).not.toContain('Design motors');
+  }
+  const mixed = result.rows.find(row => row.combo)!.run!;
+  expect(mixed.flightConfig).toContain('E20');
+  expect(mixed.flightConfig).toContain('E22');
+}, 60_000);
+
+it('r3-2 raw EX collisions receive stable id suffixes regardless of ordering', () => {
+  const motors = ['ex:one', 'ex:two'].map(id => ({ ...entry(id, 'EX', 'E20', '5'), realManufacturer: 'Maker' }));
+  const names = batchMotorNames(motors);
+  expect(new Set(names.values()).size).toBe(2);
+  expect(names.get('ex:one')).toBe('Maker (EX) E20 [ex:one]');
+  expect(batchMotorNames([...motors].reverse())).toEqual(names);
+});
 
 it('129 every batch candidate and split uses and records Maximum flight time', async () => {
   const tree = clusterRocket('4-ring');
@@ -387,7 +470,7 @@ it('row 127 warns from each candidate loadout without changing Batch acceptance'
   expect(matched.simWarnings?.some(w => w.key.startsWith('ASYMMETRIC_THRUST_')) ?? false).toBe(false);
   expect(strong.simWarnings?.map(w => w.key)).toContain('ASYMMETRIC_THRUST_DANGER');
   const criteria = { minRodExit: null, minThrustToWeight: null, minApogee: null, maxApogee: null,
-    autoDelay: false, includeOOP: false, manufacturers: [], classes: [] };
+    autoDelay: false, includeOOP: false, manufacturers: [], classes: [], impulse: [] };
   expect(gradeBatchRun(strong, criteria)).toEqual(gradeBatchRun({ ...strong, simWarnings: [] }, criteria));
 }, 60_000);
 it.each(['toString', 'constructor', '__proto__'])('flies a loaded legacy sibling without inherited motor metadata: %s', async id => {
@@ -539,7 +622,7 @@ it('W2-WARN freezes advisory limits on single and mixed rows without changing th
   }
 }, 30_000);
 
-it('RES-1 freezes base configuration and overrides on single and mixed batch rows', async () => {
+it('RES-1 freezes overrides while recording flown loadouts on single and mixed batch rows', async () => {
   const tree = clusterRocket('4-ring');
   const split = splitClusterTree(tree, 'mount')!;
   const configuration: NonNullable<BatchSweepInput['configuration']> = {
@@ -557,7 +640,12 @@ it('RES-1 freezes base configuration and overrides on single and mixed batch row
   }, nozzleFor: nozzles({}) });
   expect(rows).toHaveLength(3);
   expect(rows.some(r => r.combo)).toBe(true);
-  for (const row of rows) expect(row.run).toMatchObject({ ...expected, batch: true });
+  for (const row of rows) {
+    expect(row.run).toMatchObject({ flightOverrides: expected.flightOverrides, batch: true });
+    expect(row.run!.flightConfigId).toBeUndefined();
+    expect(row.run!.flightConfig).not.toContain('Club base');
+    expect(row.run!.flightConfig).not.toContain('Renamed');
+  }
 }, 30_000);
 
 it('S7a-5: the live combo probe uses split mounts and drops the replaced motor', async () => {
@@ -1406,7 +1494,9 @@ it.each([false, true])('R7 ID-less Estes C6 Batch target stays current with Auto
   expect(key.delayMounts![0]!.motorIdentity).toBe('Estes/C6');
   expect(run.motorSetKey).toBe(key.motorSetKey);
   expect(run.motorDataKey).toBe(key.motorDataKey);
-  const exportInput = { runs: [run], savedConfigs: [{ id: 'c1', name: 'C6', isDefault: true, motors }], activeConfigId: 'c1',
+  // 143: Batch is never a design configuration's flight. Retain the policy
+  // controls below using an otherwise identical non-batch run.
+  const exportInput = { runs: [{ ...run, batch: undefined }], savedConfigs: [{ id: 'c1', name: 'C6', isDefault: true, motors }], activeConfigId: 'c1',
     assigned, mountIds: [mountId], designKey: key.designKey, conditionsKey: key.conditionsKey,
     model: provenanceAero, hasNozzle: false, motorSetKeyOf, hardwareDeltaKg: 0, primaryMountOf: () => mountId };
   const before = JSON.stringify(run);
@@ -1414,6 +1504,8 @@ it.each([false, true])('R7 ID-less Estes C6 Batch target stays current with Auto
   expect(runMatchesDesign(run, key)).toBe(true);
   expect(matchingRecoveryEvents([run], key, () => undefined)).toEqual(run.recoveryEvents);
   expect(canReplayDelays(run.delayResolution, assigned, mountId, run.delayS, true)).toBe(true);
+  expect(flightDataForExport({ ...exportInput, runs: [run] })).toEqual({});
+  expect(flownAutoDelays({ ...exportInput, runs: [run] })).toEqual({});
   expect(Object.keys(flightDataForExport(exportInput))).toEqual(['c1']);
   expect(flownAutoDelays(exportInput)).toEqual(autoDelay ? { c1: { [mountId]: run.delayS } } : {});
   motor.meta.autoDelay = !autoDelay;
@@ -1459,7 +1551,7 @@ it.each([
   expect(run.recoveryEvents).toBeDefined();
   expect(matchingRecoveryEvents([run], current, () => undefined)).toEqual(run.recoveryEvents);
   const assigned = Object.entries(mountMotors);
-  const exportInput = () => ({ runs: [{ ...run, flightConfigId: 'c1' }],
+  const exportInput = () => ({ runs: [{ ...run, batch: undefined, flightConfigId: 'c1' }],
     savedConfigs: [{ id: 'c1', name: 'Batch', isDefault: true, motors: mountMotors }], activeConfigId: 'c1',
     assigned, mountIds: ['mount', 'side'], designKey: current.designKey, conditionsKey: current.conditionsKey,
     model: provenanceAero, hasNozzle: false, motorSetKeyOf, hardwareDeltaKg: 0,
@@ -1467,6 +1559,8 @@ it.each([
   });
   const expectedAuto = autoDelay ? { c1: Object.fromEntries(run.delayResolution!.mounts.map(m => [m.mountId, m.flownDelay])) } : {};
   expect(canReplayDelays(run.delayResolution, assigned, 'mount', run.delayS, true)).toBe(true);
+  expect(flightDataForExport({ ...exportInput(), runs: [{ ...run, flightConfigId: 'c1' }] })).toEqual({});
+  expect(flownAutoDelays({ ...exportInput(), runs: [{ ...run, flightConfigId: 'c1' }] })).toEqual({});
   expect(Object.keys(flightDataForExport(exportInput()))).toEqual(['c1']);
   expect(flownAutoDelays(exportInput())).toEqual(expectedAuto);
   for (const mm of Object.values(mountMotors)) {

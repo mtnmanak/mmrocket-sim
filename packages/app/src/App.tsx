@@ -4161,8 +4161,6 @@ export function App() {
       {showBatch && built && mounts.length > 0 && !isStaged && (
         <BatchSimulate
           configurationForMount={(targetId, targetIds) => ({
-            flightConfig: overrideConfigLabel ?? (flightWorking ? 'working settings' : 'none'),
-            ...(activeConfigId !== null ? { flightConfigId: activeConfigId } : {}),
             flightOverrides: recordFlightOverrides(tree, activeOverrides, mountMotors, targetId, targetIds),
           })}
           overrideSummaryForMount={(targetId, targetIds) => describeFlightOverrides(tree, activeOverrides,
@@ -4223,6 +4221,12 @@ export function App() {
           weatherSnapshot={weather}
           rocketName={tree.name ?? 'Rocket'}
           onRunsChange={recordRuns}
+          onOpenRun={(r) => {
+            setInspectedSummary(r.importedSummary ? r : null);
+            if (!r.importedSummary && r.id !== lastRun?.id) setLastRun(r);
+            setTab('results');
+            void afterPaint().then(() => { resultsMainRef.current?.focus(); });
+          }}
           onClose={() => setShowBatch(false)}
         />
       )}
@@ -5357,7 +5361,7 @@ export function App() {
           <PanelBoundary what="The desktop stored predictions" resetKey={importedDocument}>
             <DesignPrintReport prepare={preparePrintReport} />
             <DesktopPredictions predictions={importedDocument?.desktopPredictions}
-              configId={reportRun?.flightConfigId ?? activeConfigId} run={reportRun} />
+              configId={(reportRun?.batch !== true ? reportRun?.flightConfigId : undefined) ?? activeConfigId} run={reportRun} />
           </PanelBoundary>
           {reportRun && <div className="panel">
             <button className="file-btn" onClick={() => {

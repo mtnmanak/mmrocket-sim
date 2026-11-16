@@ -32,6 +32,19 @@ const input = { tree, info, units: IMPERIAL_UNITS, radiusMode: 'diameter' as con
   stabilityUnit: 'both' as const, withMotors: true, appVersion: 'test', run, changedSince: ['the design'], };
 function doc(html: string) { return new DOMParser().parseFromString(html, 'text/html').body; }
 
+it.each(['G80T in Inner Tube', 'E30T in Tube 1, Tube 3; E20 in Tube 2, Tube 4', 'Batch loadout not recorded'])(
+  'r4-1 prints the batch loadout once without a quoted configuration: %s', flightConfig => {
+    const body = doc(designPrintHtml({ ...input, run: { ...run, batch: true, flightConfig } }));
+    const heading = flightConfig === 'Batch loadout not recorded' ? 'Batch · loadout not recorded' : `Batch · Flew: ${flightConfig}`;
+    expect([...body.querySelectorAll('p')].some(p => p.textContent?.startsWith(`${heading} · overrides: `))).toBe(true);
+    expect(body.textContent).not.toContain(`Batch from “${flightConfig}”`);
+    // Closure review r4: once, not also as a raw Configuration line, and never the fallback's raw label.
+    const text = body.textContent ?? '';
+    if (flightConfig !== 'Batch loadout not recorded') expect(text.split(flightConfig).length - 1).toBe(1);
+    expect(text).not.toContain('Batch loadout not recorded');
+    expect(text).not.toContain('Configuration: ');
+  });
+
 it('prints the measured band column that was previously missing from the range card', () => {
   const resolution = testResolution([['band', testMotor(false, 5)]], [5]);
   resolution.mounts[0]!.motorIdentity = '5f5e57811e865c0004c955d8';

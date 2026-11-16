@@ -18,7 +18,20 @@ export function recordedConfiguration(run: ConfigurationRecord): string | undefi
 const unsaved = (run: ConfigurationRecord, label: 'none' | 'working settings') =>
   !run.flightConfigId && run.flightConfig === label;
 
+// Old unsaved rows used these two special labels. New sweeps record a loadout
+// without a design configuration id, including on a single mount.
+// A row stored with no configuration record at all (older than the field) is not one of them.
+export const loadoutBatch = (run: ConfigurationRecord) => run.batch === true && !run.flightConfigId
+  && !unsaved(run, 'none') && !unsaved(run, 'working settings')
+  && (recordedConfiguration(run) !== undefined || batchLoadoutText(run) !== null);
+
+function recordedBatchLoadout(run: ConfigurationRecord): string | undefined {
+  const loadout = batchLoadoutText(run) ?? recordedConfiguration(run);
+  return loadout === 'Batch loadout not recorded' ? undefined : loadout;
+}
+
 export function runConfigurationLabel(run: ConfigurationRecord): string {
+  if (loadoutBatch(run)) return `Batch · ${recordedBatchLoadout(run) ?? 'loadout not recorded'}`;
   const loadout = batchLoadoutText(run);
   if (loadout) return `Batch · ${loadout}`;
   const configuration = recordedConfiguration(run);
@@ -34,6 +47,12 @@ export function runOverrideText(run: ConfigurationRecord, unit: string): string 
 }
 
 export function runConfigurationHeading(run: ConfigurationRecord, unit: string): string {
+  if (loadoutBatch(run)) {
+    const loadout = recordedBatchLoadout(run);
+    // The overrides it flew are said here as on every other heading: no other part of the
+    // launch or print report shows them (closure review r4).
+    return `${loadout ? `Batch · Flew: ${loadout}` : 'Batch · loadout not recorded'} · ${overrideSummary(run, unit)}`;
+  }
   const heading = configurationHeading(run, unit);
   const loadout = batchLoadoutText(run);
   return loadout ? `${heading} · Flew: ${loadout}.` : heading;
@@ -45,7 +64,11 @@ function configurationHeading(run: ConfigurationRecord, unit: string): string {
   if (unsaved(run, 'none')) return run.batch === true ? 'Batch with no configuration' : 'Flown with no configuration';
   const flown = unsaved(run, 'working settings') ? `${run.batch === true ? 'Batch' : 'Flown'} with working settings`
     : run.batch === true ? `Batch from “${configuration}”` : `Flown in “${configuration}”`;
-  if (!run.flightOverrides?.length) return `${flown} · overrides: ${run.flightOverrides ? 'none' : 'not recorded'}`;
+  return `${flown} · ${overrideSummary(run, unit)}`;
+}
+
+function overrideSummary(run: ConfigurationRecord, unit: string): string {
+  if (!run.flightOverrides?.length) return `overrides: ${run.flightOverrides ? 'none' : 'not recorded'}`;
   const groups = new Map<string, { count: number; kind: string; value: string }>();
   for (const record of run.flightOverrides) {
     const value = describeRecordedOverride(record, 'flies', unit);
@@ -54,7 +77,7 @@ function configurationHeading(run: ConfigurationRecord, unit: string): string {
     group.count++;
     groups.set(key, group);
   }
-  return `${flown} · overrides: ${[...groups.values()].map(g => `${g.count} ${g.kind}${g.count === 1 ? '' : 's'} at ${g.value}`).join('; ')}`;
+  return `overrides: ${[...groups.values()].map(g => `${g.count} ${g.kind}${g.count === 1 ? '' : 's'} at ${g.value}`).join('; ')}`;
 }
 
 /** Use the same provenance comparison as the selected report and replay guard. */

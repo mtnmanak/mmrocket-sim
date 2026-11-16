@@ -37,6 +37,9 @@ import { downloadBlob } from './services/fileName.js';
 import { savedConfigLabel } from './model/design.js';
 import * as batchSweep from './services/batchSweep.js';
 import * as flightRunner from './services/flightRunner.js';
+import { flightDataBundleContents } from './services/flightDataBundle.js';
+import type { FlightDataBundleInput } from './services/flightDataBundle.js';
+import { bundledSimFiles } from './services/thrustcurve.js';
 
 /**
  * THE LAUNCH BUTTON AND THE HEADLESS LAUNCH FLY THE SAME BYTES (2026-10-01;
@@ -270,7 +273,7 @@ it.each(['Fly', 'Batch'])('RES-1b %s counts override entries rather than empty c
       await waitFor(() => !button.disabled, 'Batch candidates');
       await act(async () => button.click());
       expect(sweep).toHaveBeenCalledOnce();
-      expect(sweep.mock.calls[0]![0].configuration).toEqual({ flightConfig: 'none', flightOverrides: [] });
+      expect(sweep.mock.calls[0]![0].configuration).toEqual({ flightOverrides: [] });
     } finally {
       sweep.mockRestore();
     }
@@ -805,6 +808,132 @@ it('bundle metadata retains the applied weather receipt from Launch in the saved
   expect(saved.exportContext?.launch.latitudeDeg).toBe(61.234567);
   expect(saved.exportContext?.appVersion).toBe(APP_VERSION);
 }, 30000);
+
+it.each([
+  { batch: true, action: 'Open' }, { batch: true, action: 'Close' }, { batch: false, action: 'Open' },
+])('r4-3/r4-4 $action focuses Results and selects desktop predictions for batch=$batch', async ({ batch, action }) => {
+  prefs(CLASSIC);
+  const tree = defaultTree();
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: {}, launch: DEFAULT_CONDITIONS,
+    measured: { massKg: null, cgM: null }, savedAt: 1, appVersion: APP_VERSION,
+    activeConfigId: 'current', emptyConfigVersion: 1, configLayers: 1,
+    savedConfigs: ['current', 'legacy'].map(id => ({ id, name: id, isDefault: id === 'current', motors: {} })),
+    importedDocument: { name: 'Desktop file', storedSimulations: [], desktopPredictions: [
+      { name: 'Current config predictions', configId: 'current', data: { maxAltitude: 123 } },
+      { name: 'Legacy config predictions', configId: 'legacy', data: { maxAltitude: 987 } },
+    ] } }));
+  localStorage.setItem('online-openrocket.batch-criteria.v1', JSON.stringify({
+    minRodExit: null, minThrustToWeight: null, minApogee: null, maxApogee: null,
+  }));
+  const run = { id: 'legacy', when: 0, rocket: tree.name, motor: 'E20', manufacturer: 'Acme', motorDiameterMm: 18,
+    delayS: 5, maxAltitude: 300, maxVelocity: 60, maxMach: 0.2, maxAcceleration: 120, timeToApogee: 8,
+    timeToBurnout: 1.2, timeToRodDeparture: 0.3, rodExitVelocity: 15, thrustToWeightAtRod: 8, launchMass: 0.5,
+    rodExitAoa: null, launchCG: null, launchCP: null, launchStaticMarginCal: null, altitudeAtDeployment: null,
+    velocityAtDeployment: null, optimumDelayS: 5, batch, flightConfigId: 'legacy', flightConfig: 'legacy',
+  } as unknown as FreshSimRun;
+  const sweep = vi.spyOn(batchSweep, 'runBatchSweep').mockResolvedValue({ stopped: false, rows: [{
+    key: run.id, label: 'E20', combo: false, run,
+    entry: { motorId: run.id, manufacturerAbbrev: 'Acme', designation: 'E20' } as never,
+  }] });
+  try {
+    const host = await mountApp();
+    await waitFor(() => shownName(host) === tree.name, 'desktop prediction design');
+    await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Motors & Configuration')!.click());
+    const opener = [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Batch simulate motors'))!;
+    await act(async () => { opener.focus(); opener.click(); });
+    const dialog = host.querySelector<HTMLElement>('[aria-label="Batch simulate motors"]')!;
+    const simulate = dialog.querySelector<HTMLButtonElement>('.launch-btn')!;
+    await waitFor(() => !simulate.disabled, 'batch candidates');
+    await act(async () => simulate.click());
+    await waitFor(() => !!dialog.querySelector('.batch-finished'), 'batch finished');
+    await act(async () => {
+      const button = [...dialog.querySelectorAll('button')].find(b => action === 'Close' ? b.textContent?.includes('Close') : b.textContent === action)!;
+      button.focus(); button.click();
+    });
+    await waitFor(() => document.activeElement === host.querySelector('.results-column'), 'focus in Results');
+    expect(document.activeElement).toBe(host.querySelector('[data-tour="results-panel"]'));
+    expect(host.querySelector('[aria-label="Batch simulate motors"]')).toBeNull();
+    const panel = host.querySelector('.desktop-predictions')!;
+    expect(panel.textContent).toContain(batch ? 'Current config predictions' : 'Legacy config predictions');
+    expect(panel.textContent).not.toContain(batch ? 'Legacy config predictions' : 'Current config predictions');
+    expect(panel.textContent).toContain(batch ? 'The app (no run shown)' : 'The app (shown run)');
+  } finally { sweep.mockRestore(); }
+}, 60_000);
+
+it('141/143 opens a saved mixed row in Results and bundles that exact flown loadout', async () => {
+  prefs(CLASSIC);
+  const tree: RocketTree = { name: 'Bundle cluster', components: [{ type: 'stage', id: 's', children: [
+    { type: 'nosecone', id: 'n', length: 0.3, aftRadius: 0.04, thickness: 0.002, shape: 'ogive' },
+    { type: 'bodytube', id: 'b', length: 0.9, outerRadius: 0.04, thickness: 0.001, children: [
+      { type: 'trapezoidfinset', id: 'f', finCount: 3, rootChord: 0.1, tipChord: 0.05,
+        sweep: 0.05, height: 0.06, thickness: 0.003, crossSection: 'rounded' },
+      { type: 'innertube', id: 'm', length: 0.35, outerRadius: 0.0095, thickness: 0.0005, motorMount: true, cluster: '4-ring' },
+      { type: 'parachute', id: 'p', name: 'Main', diameter: 0.5, deployEvent: 'apogee' },
+    ] },
+  ] }] };
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: {}, launch: DEFAULT_CONDITIONS,
+    measured: { massKg: null, cgM: null }, savedAt: 1, appVersion: APP_VERSION }));
+  localStorage.setItem('online-openrocket.batch-criteria.v1', JSON.stringify({
+    minRodExit: null, minThrustToWeight: null, minApogee: null, maxApogee: null, autoDelay: false,
+  }));
+  const realSweep = batchSweep.runBatchSweep;
+  const sweep = vi.spyOn(batchSweep, 'runBatchSweep').mockImplementation(async (input, hooks) => {
+    const available = await Promise.all(input.candidates.map(async entry => (await bundledSimFiles(entry.motorId)).length > 0));
+    return realSweep({ ...input, candidates: input.candidates.filter((_entry, i) => available[i]).slice(0, 2) }, hooks,
+      { nozzleFor: async () => null });
+  });
+  try {
+    const host = await mountApp();
+    await waitFor(() => shownName(host) === tree.name, 'mixed batch design');
+    const click = async (text: string) => act(async () => {
+      [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === text)!.click();
+    });
+    await click('Motors & Configuration');
+    await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Batch simulate motors'))!.click());
+    const dialog = host.querySelector<HTMLElement>('[aria-label="Batch simulate motors"]')!;
+    const mixed = [...dialog.querySelectorAll('label')].find(l => l.textContent?.trim() === 'mixed 2+2')!.querySelector('input')!;
+    await act(async () => mixed.click());
+    const simulate = dialog.querySelector<HTMLButtonElement>('.launch-btn')!;
+    await waitFor(() => !simulate.disabled, 'mixed candidates');
+    await act(async () => simulate.click());
+    await waitFor(() => !!dialog.querySelector('.batch-finished'), 'mixed batch finished');
+    const saved = (JSON.parse(localStorage.getItem(RUNS_KEY) ?? '[]') as FreshSimRun[]).find(run => run.motorConfig === 'mixed 2+2');
+    expect(saved, dialog.textContent!).toBeDefined();
+    const open = [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(b =>
+      b.textContent === 'Open' && b.closest('tr')!.textContent!.includes(' + '))!;
+    expect(open).toBeDefined();
+    const label = open.getAttribute('aria-label')!.slice('Open '.length, -' in Results'.length);
+    await act(async () => open.click());
+    expect(host.querySelector('[aria-label="Batch simulate motors"]')).toBeNull();
+    expect(host.querySelector('.workspace-tabs button.active')!.textContent!.trim()).toBe('Results');
+    const history = [...host.querySelectorAll('.panel')].find(p => p.querySelector('h2')?.textContent?.startsWith('Saved simulations'))!;
+    await act(async () => [...history.querySelectorAll('button')].find(b => b.textContent === 'Show')!.click());
+    expect(host.querySelector('.motor-row-picked')!.textContent).toContain(saved!.motor);
+    await click('Export flight-data bundle');
+    vi.mocked(saveFile).mockClear();
+    await click('Download ZIP');
+    const zip = unzipSync(new Uint8Array(await (vi.mocked(saveFile).mock.calls[0]![0] as Blob).arrayBuffer()));
+    const reportRun = JSON.parse(strFromU8(zip['run.json']!)) as FreshSimRun;
+    // Invoke the contents writer for the run App actually handed the bundle dialog.
+    const { files } = flightDataBundleContents({ design: { name: tree.name!, tree }, run: reportRun,
+      changedSince: null, includeCoordinates: false,
+      measurements: { altimeterType: '', apogeeM: null, maxVelocityMs: null, liftoffMassKg: null, notes: '' },
+    } as FlightDataBundleInput);
+    const bundled = JSON.parse(strFromU8(files['run.json']!)) as FreshSimRun;
+    expect(bundled.id).toBe(saved!.id);
+    expect(bundled.motorConfig).toBe('mixed 2+2');
+    const identities = new Set(bundled.delayResolution!.mounts.map(m => m.motorIdentity));
+    expect(identities.size).toBe(2);
+    for (const identity of identities) {
+      const motor = MOTOR_DB.find(m => m.motorId === identity)!;
+      expect(bundled.motorSetKey).toContain(`${motor.manufacturerAbbrev}/${motor.designation}`);
+    }
+    expect(bundled.flightConfigId).toBeUndefined();
+    expect(bundled.flightConfig).not.toBe('none');
+    expect(strFromU8(files['run.csv']!)).toContain(label);
+    expect(bundled.motor).toBe(label);
+  } finally { sweep.mockRestore(); }
+}, 60_000);
 
 it('bundle metadata retains scalar applied weather through Batch simulate and saved-run export', async () => {
   prefs(CLASSIC);

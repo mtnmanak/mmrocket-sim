@@ -221,7 +221,7 @@ describe('the batch dialog', () => {
 
   it('prices a flight that still searches for its delay, "optimal delay per motor" unticked, at the solver’s pace', () => {
     mount(CHUTE_TREE, CHUTE_MOUNTS);
-    expect(host.textContent).not.toContain('Fly each candidate in all');
+    expect(host.textContent).not.toContain('Use all');
     act(() => { box('optimal delay per motor').click(); });
     const candidates = at38();
     const searching = batchSolverFlights({
@@ -446,7 +446,7 @@ describe('the running-sweep guards are actually wired up', () => {
     join(dirname(fileURLToPath(import.meta.url)), './BatchSimulate.tsx'), 'utf8');
 
   it('Escape is routed through the running check, not straight to onClose', () => {
-    expect(src).toContain('useDialog(() => { if (!runningRef.current) onClose(); })');
+    expect(src).toContain('useDialog(() => { if (!runningRef.current) close(); })');
     expect(src).not.toContain('useDialog(onClose)');
   });
 

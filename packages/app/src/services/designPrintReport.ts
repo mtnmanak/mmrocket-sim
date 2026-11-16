@@ -10,7 +10,7 @@ import { finOutline } from './finTemplate.js';
 import { paperRingDimensions, paperRingOuterRadius } from './paperTemplates.js';
 import { validDelayResolution } from './autoDelaySolver.js';
 import { formatWarning } from './simWarnings.js';
-import { recordedConfiguration, runConfigurationHeading } from './runConfiguration.js';
+import { loadoutBatch, recordedConfiguration, runConfigurationHeading } from './runConfiguration.js';
 import { dataHeaderLines, EXPORT_VARS } from './schematicExport.js';
 import { aeroModelLabel, commentsOf, formatRunStability, formatRunWhenProse, formatStability, hasAerodynamicForce, describeRunChanges,
   runLabelText, type DeploymentReport, type SimRun, type StabilityUnit } from './simReport.js';
@@ -126,8 +126,10 @@ export function designPrintHtml(input: DesignPrintInput): string {
       ? run.batchMounts.filter(m => m.role !== 'empty') : null;
     const unlit = installed?.filter(m => m.ignition === 'never').reduce((sum, m) => sum + m.count, 0) ?? 0;
     body.push(p(flightCardHeader(run)), p(`Run ID: ${run.id}`),
-      p(`Configuration: ${recordedConfiguration(run) ?? 'Unknown'}${run.motorConfig ? ` (${run.motorConfig})` : ''}`),
-      p(runConfigurationHeading(run, u.altitude)),
+      // A batch row that records its flown loadout says it once, in the heading (closure review r4).
+      ...(loadoutBatch(run) ? [p(`${runConfigurationHeading(run, u.altitude)}${run.motorConfig ? ` (${run.motorConfig})` : ''}`)]
+        : [p(`Configuration: ${recordedConfiguration(run) ?? 'Unknown'}${run.motorConfig ? ` (${run.motorConfig})` : ''}`),
+          p(runConfigurationHeading(run, u.altitude))]),
       p(`Motor count (${motorCountScope}): ${run.motorCount ?? 'Unknown'}`),
       p(installed ? `Complete flight motor count: ${installed.reduce((sum, m) => sum + m.count, 0)} (installed, including ${unlit} that never ignite).`
         : 'Complete flight motor count: Unknown (not recorded).'),

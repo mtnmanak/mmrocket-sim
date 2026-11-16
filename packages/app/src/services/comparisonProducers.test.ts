@@ -1,4 +1,15 @@
 // @vitest-environment happy-dom
+// Rows 136/138 r2: batchCriteria 3 -> 4 adds the selected-mixed refusal:
+// at least two candidates are needed for a mixed flight. The shared count,
+// fit slack and flight cap are unchanged. batchCriteria.test's r2-1 case
+// covers zero/one/two candidates, selected/unselected mixes and singles on/off;
+// batchMyMotors.test's r2-5 cases cover both compared dimensions and units.
+// Rows 136-138: BatchSimulate 17 -> 19 covers My motors' two dimension
+// formatters. batchMyMotors adds 3 producers: the too-long maximum wording
+// and the preferred-unit bore/length formatters. The
+// existing fitsMount class/bore rule and 1e-9 m length slack are unchanged;
+// batchMyMotors.test covers width, length, unavailable ids, units and the fit
+// boundary. BatchSimulate.sweep tests visible refusals and filter precedence.
 // N052: DragPanel 42 -> 43 reuses chart-model-limit for the CNα chart;
 // FlightCharts 10 -> 11 explains the existing "over-perfect" disturbance.
 // These are static diagnostic copy/style, not new measurement decisions.

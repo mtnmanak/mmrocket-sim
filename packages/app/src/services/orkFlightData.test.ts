@@ -79,6 +79,17 @@ const base = (over: Partial<FlightDataForExportInput> = {}): FlightDataForExport
 const ids = (over: Partial<FlightDataForExportInput> = {}) =>
   Object.keys(flightDataForExport(base(over)));
 
+it('143 excludes legacy batch configuration IDs from ork flight data and Auto-delay reuse', () => {
+  expect(ids()).toEqual(['c1']);
+  expect(ids({ runs: [{ ...RUN, batch: true }] })).toEqual([]);
+  const auto = { ...MOTOR, meta: { ...MOTOR.meta, autoDelay: true } };
+  const assigned: [string, MountMotor][] = [['m1', auto]];
+  const run = { ...RUN, delayResolution: testResolution(assigned, [7]) };
+  const input = base({ assigned, runs: [run], savedConfigs: [{ ...CONFIG, motors: { m1: auto } }] });
+  expect(flownAutoDelays(input)).toEqual({ c1: { m1: 7 } });
+  expect(flownAutoDelays({ ...input, runs: [{ ...run, batch: true }] })).toEqual({});
+});
+
 it.each(['constructor', 'toString', '__proto__'])('ignores inherited Auto delays for mount %s', id => {
   const motor = { ...MOTOR, meta: { ...MOTOR.meta, autoDelay: true } };
   const assigned: [string, MountMotor][] = [[id, motor]];

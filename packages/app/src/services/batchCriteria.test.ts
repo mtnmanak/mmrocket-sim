@@ -5,8 +5,50 @@ import { MOTOR_DB } from './motorDb.js';
 import {
   BATCH_ESTIMATE_ABOVE_FLIGHTS, BATCH_FLIGHT_S, BATCH_MAX_FLIGHTS, batchButtonLabel, batchCandidates,
   batchConfirmWarning, batchDurationText, batchEstimate, batchFlightCount, batchMaxCandidates,
-  batchProgressAnnouncement, batchRefusal, batchSweepSeconds,
+  batchProgressAnnouncement, batchRefusal, batchSummary, batchSweepSeconds,
 } from './batchCriteria.js';
+
+it('r2-1 distinguishes empty candidates, unticked modes and too few mixed candidates', () => {
+  const base = { withoutOOP: null, solverFlights: 0, includeSingles: false };
+  for (const modes of [[], [{ name: 'mixed 2+2', groups: 2 }]]) {
+    expect(batchRefusal({ ...base, candidates: 0, modes })).toBeNull();
+    expect(batchRefusal({ ...base, candidates: 0, modes, myMotors: true })).toContain('No fitting motors in My motors');
+  }
+  expect(batchRefusal({ ...base, candidates: 1, modes: [] })).toContain('Select a mixed configuration');
+  const selected = { ...base, candidates: 1, modes: [{ name: 'mixed 2+2', groups: 2 }] };
+  expect(batchRefusal(selected)).toContain('at least two candidate motors');
+  expect(batchRefusal(selected)).not.toContain('Select a mixed configuration');
+  expect(batchRefusal({ ...selected, includeSingles: true })).toBeNull();
+  expect(batchRefusal({ ...selected, candidates: 2 })).toBeNull();
+});
+
+it('r2-7 batchSummary counts mixed-only rows as flights even when flights equal candidates', () => {
+  expect(batchSummary({ total: 3, candidates: 3, planned: 3, includeSingles: false,
+    stopped: false, accepted: 3, errors: 0, downloadable: true })).toContain('simulated 3 flights;');
+});
+
+it('136 counts mixed-only halves, pairs and ordered rings, including the cap and nothing-to-fly refusal', () => {
+  for (const groups of [[2], [3], [{ groups: 2, ordered: true }], [{ groups: 3, ordered: true }]]) {
+    expect(batchFlightCount(3, groups, false)).toBe(groups.reduce<number>((sum, g) => sum + mixedComboCount(3, g), 0));
+    expect(batchFlightCount(3, groups, true) - batchFlightCount(3, groups, false)).toBe(3);
+    const max = batchMaxCandidates(groups, false);
+    expect(batchFlightCount(max, groups, false)).toBeLessThanOrEqual(BATCH_MAX_FLIGHTS);
+    expect(batchFlightCount(max + 1, groups, false)).toBeGreaterThan(BATCH_MAX_FLIGHTS);
+  }
+  expect(batchRefusal({ candidates: 3, withoutOOP: null, modes: [], solverFlights: 0, includeSingles: false })).toContain('Nothing to fly');
+  expect(batchRefusal({ candidates: 1, withoutOOP: null, modes: [{ name: 'mixed 2+2', groups: 2 }], solverFlights: 0, includeSingles: false })).toContain('Nothing to fly');
+  expect(batchButtonLabel({ candidates: 2, totalFlights: 2, confirming: false, includeSingles: false })).toBe('Simulate 2 flights');
+});
+
+it('137 applies only offered impulse classes; a stored invisible class cannot filter candidates', () => {
+  const pool = MOTOR_DB.filter(m => m.diameter <= 24);
+  const offered = pool[0]!.impulseClass[0]!.toUpperCase();
+  const base = { manufacturers: [], classes: [], includeOOP: true };
+  const mount = { diameterMm: 24, maxMotorLengthM: null };
+  expect(batchCandidates({ ...base, impulse: [offered] }, mount, pool).candidates.every(m => m.impulseClass.startsWith(offered))).toBe(true);
+  expect(batchCandidates({ ...base, impulse: ['Z'] }, mount, pool).candidates).toEqual(batchCandidates(base, mount, pool).candidates);
+  expect(batchCandidates({ ...base, impulse: [offered] }, mount, pool).candidates.length).toBeLessThan(pool.length);
+});
 
 it('round 3 batch length fit uses the same tolerance as the motor browser', () => {
   const motor = MOTOR_DB.find(m => m.length > 0)!;
@@ -152,7 +194,7 @@ describe('the cap', () => {
     expect(refuse(atCap + 1, [HALVES_3])).not.toBeNull();
     expect(refuse(226, [PAIRS])).toBe('1,949,476 flights is more than one batch will fly: the most is 50,000, '
       + 'about 28 h at the measured pace. The app keeps every result in memory for export. Untick mixed 4+2 / 2+2+2, or bring the candidates down to 65 or fewer '
-      + 'with the maker and diameter chips.');
+      + 'with the maker, diameter and class chips.');
     // The time at the cap is this sweep's own pace: unticked, with no flight
     // searching, 50,000 flights is 30,000 s, said to the quarter hour.
     expect(batchRefusal({ candidates: 226, withoutOOP: null, modes: [PAIRS], solverFlights: 0 }))
@@ -172,9 +214,9 @@ describe('the cap', () => {
     expect(refuse(340, 330, [HALVES_2]))
       .toBe('57,970 flights is more than one batch will fly: the most is 50,000, about 28 h at the measured pace. '
         + 'The app keeps every result in memory for export. Untick mixed 2+2, or bring the candidates down to '
-        + '315 or fewer with the maker and diameter chips.');
+        + '315 or fewer with the maker, diameter and class chips.');
     expect(refuse(320, 315, [HALVES_2]))
-      .toContain('Untick mixed 2+2, or bring the candidates down to 315 or fewer with the maker and diameter '
+      .toContain('Untick mixed 2+2, or bring the candidates down to 315 or fewer with the maker, diameter and class '
         + 'chips, or by unticking include OOP.');
     expect(refuse(113, null, [HALVES_3, PAIRS]))
       .toContain('Untick mixed 4+2 / 2+2+2, or bring the candidates down to 65 or fewer');

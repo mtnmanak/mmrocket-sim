@@ -84,7 +84,7 @@ describe('batch loadout evidence', () => {
     expect(batchLoadoutText({ batch: true, delayResolution })).toBeNull();
   });
   it('groups four separate mounts and supplies every configuration surface', () => {
-    const run = { batch: true, batchMounts: four, flightConfig: 'Club', flightOverrides: [] };
+    const run = { batch: true, batchMounts: four, flightConfig: 'Club', flightConfigId: 'club', flightOverrides: [] };
     const text = 'M1780NT in 75mm MMT 1; K1499N in 75mm MMT 2, 75mm MMT 3, 75mm MMT 4';
     expect(batchLoadoutText(run)).toBe(text);
     expect(batchOtherMountsText(run)).toBe('K1499N in 75mm MMT 2, 75mm MMT 3, 75mm MMT 4');

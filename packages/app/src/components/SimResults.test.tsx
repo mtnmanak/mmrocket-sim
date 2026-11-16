@@ -41,6 +41,20 @@ const info: StaticInfo = {
   warnings: 0, warningTexts: [],
 };
 
+it.each(['G80T in Inner Tube', 'E30T in Tube 1, Tube 3; E20 in Tube 2, Tube 4', 'Batch loadout not recorded'])(
+  'r4-1 uses the same batch loadout wording in history and the report: %s', flightConfig => {
+    const saved = { ...run(), batch: true, flightConfig };
+    const expected = flightConfig === 'Batch loadout not recorded' ? 'loadout not recorded' : flightConfig;
+    render(<SimHistory runs={[saved]} onRunsChange={() => {}} />);
+    act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Show')!.click());
+    expect(host.querySelector('tbody tr')!.querySelectorAll('td')[2]!.textContent).toBe(`Batch · ${expected}`);
+    render(<SimRunDetails run={saved} />);
+    const heading = flightConfig === 'Batch loadout not recorded' ? `Batch · ${expected}` : `Batch · Flew: ${expected}`;
+    // The heading goes on with the overrides it flew (closure review r4).
+    expect([...host.querySelectorAll('.comp-stats')].some(p => p.textContent?.startsWith(`${heading} · overrides: `))).toBe(true);
+    expect(host.textContent).not.toContain(`Batch from “${flightConfig}”`);
+  });
+
 it('row 127 renders the stored thrust warning as Danger in the launch report', () => {
   const saved = run();
   saved.simWarnings = asymmetricThrustWarnings(balanceTree(2), [['m0', balanceMotor()]]);
@@ -377,7 +391,7 @@ it('shows frozen batch loadout without an unrecorded-configuration tooltip', () 
   expect(cell.textContent).toBe('Batch · M1780NT in MMT 1; K1499N in MMT 2');
   expect(cell.title).toBe('');
   render(<SimRunDetails run={saved} />);
-  expect(host.textContent).toContain('· Flew: M1780NT in MMT 1; K1499N in MMT 2.');
+  expect(host.textContent).toContain('Batch · Flew: M1780NT in MMT 1; K1499N in MMT 2');
 });
 
 it('RES-1 shows configuration and provenance status separately from Safe, lazily', () => {
@@ -1185,7 +1199,7 @@ describe('SimHistory — a flight the kernel stopped early', () => {
   /** The batch's grade with no criteria set: only an abort can fail it. */
   const NO_CRITERIA: Criteria = {
     minRodExit: null, minThrustToWeight: null, minApogee: null, maxApogee: null,
-    autoDelay: true, includeOOP: false, manufacturers: [], classes: [],
+    autoDelay: true, includeOOP: false, manufacturers: [], classes: [], impulse: [],
   };
   const flown = (result: FlightResult, id: string): SimRun => ({ ...buildSimRun({
     result, info,

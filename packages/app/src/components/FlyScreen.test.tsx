@@ -78,6 +78,13 @@ describe('FlyScreen', () => {
     expect(run).toEqual(before);
   });
 
+  it.each(['G80T in Inner Tube', 'E30T in Tube 1, Tube 3; E20 in Tube 2, Tube 4', 'Batch loadout not recorded'])(
+    'r4-1 shows the recorded batch loadout on Fly: %s', flightConfig => {
+      mount({ run: { ...RUN, batch: true, flightConfig } });
+      const expected = flightConfig === 'Batch loadout not recorded' ? 'loadout not recorded' : flightConfig;
+      expect(host.textContent).toContain(`Flight: Batch · ${expected} ·`);
+    });
+
   it('shows recorded batch loadout even when the base configuration was not recorded', () => {
     mount({ run: { ...RUN, batch: true, batchMounts: [
       { mountId: 'a', mountName: 'MMT 1', role: 'candidate', motor: 'M1780NT', count: 1 },
