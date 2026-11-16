@@ -1,5 +1,5 @@
 {
-  "version": "0.205",
+  "version": "0.206",
   "released": "2026-11-16",
-  "note": "Stability diagnostics charts in Flight plots (natural frequency, normal force, pitch moment, pitch damping, pitch rate), with explanations and no pass/fail; Stability margin and CP charts stop at deployment or tumble; a CNα vs Mach chart in Drag analysis. No flight number moves."
+  "note": "Batch simulate for clusters: fly only the mixed combinations, Class chips, and a saved My motors list; a finished batch opens Results and any saved row can be opened (and exported); batch runs record the motors they flew. An optional sticky rocket summary and tabs; tidier ignition boxes on Motors & Configuration. No flight number moves."
 }
