@@ -1,5 +1,5 @@
 {
   "version": "0.204",
   "released": "2026-11-16",
-  "note": "The launch report shows printed average ejection delays for 13 more AeroTech and Quest motors; opening a RockSim file adds a Caution when a multi-device recovery mass is pinned far too light; RASAero saves write Aircraft sheet-metal as Polished. No flight number moves."
+  "note": "The launch report shows printed average ejection delays for 13 more AeroTech and Quest motors; opening a RockSim file adds a Caution when a multi-device recovery mass is pinned far too light; RASAero saves write Aircraft sheet-metal as Polished. No flight number moves for a design already open; a RASAero file saved with Aircraft sheet-metal now reopens as Polished."
 }
