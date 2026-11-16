@@ -40,6 +40,25 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.205",
+    "date": "2026-11-16",
+    "title": "Stability diagnostics charts, with no verdicts",
+    "summary": [
+      "Flight plots have a Stability diagnostics button: one click shows seven charts of a flight's dynamic behaviour — Stability margin, Pitch natural frequency, Angle of attack, Pitch rate, Normal force coefficient, Pitch moment coefficient and Pitch damping coefficient. Restore previous plots puts back what you had.",
+      "These are diagnostics only: the app gives no pass/fail on dynamic stability. A note above the charts explains what each figure means and where it comes from, with links to the guide.",
+      "Stability margin and CP location now stop at recovery deployment or tumble on every flight chart, instead of drawing the simulation's meaningless values for a rocket under a parachute. CG location continues. Downloads keep every recorded value.",
+      "Drag analysis has a new chart: Normal force slope (CNα) vs Mach.",
+      "No flight number moves."
+    ],
+    "items": [
+      "STABILITY DIAGNOSTICS. Five figures the simulation already recorded on every flight are now chart series of their own: Pitch natural frequency (ωn, rad/s: how quickly the rocket swings back toward the wind after a disturbance), Normal force coefficient, Pitch moment coefficient (about CG), Pitch damping coefficient and Pitch rate. Until now they were only in the flight-data downloads and the custom plot. A Stability diagnostics button in Flight plots selects them, with Stability margin and Angle of attack, as seven charts in one click; Restore previous plots returns the charts and comparison you had just before. A saved plot layout can include them.",
+      "NO VERDICTS. A note above the charts says these are diagnostics and that the app gives no pass/fail on dynamic stability, then explains each figure: they come from this flight's own simulated aerodynamics; ωn is blank where there is no restoring moment (CP ahead of CG) or an input is missing; the pitch moment includes damping and a tiny deliberate random disturbance the simulation adds; and the damping figure is desktop OR 24.12's model, which grows with the square of the pitch rate, multiplied by three and capped by the aerodynamic pitch moment about the nose tip, not the linear damping ratio some textbooks and newer desktop OR versions report. Each figure has a glossary entry in the guide.",
+      "WHAT THE CHARTS LEAVE OUT. The five new charts are blank on the launch guide, where the simulation records no aerodynamics (it records ωn as 0 there), and after recovery deployment or tumble. Stability margin and CP location now also stop at deployment or tumble on every flight chart, the comparison charts and custom plots included: after that point the simulation reports a CP of 0 and a negative margin that mean nothing for a rocket under a parachute. CG location continues. The flight-data downloads (.csv and .xlsx) still hold every recorded value unchanged; two column titles are clearer: ωn is now Pitch natural frequency, and Cθ is Pitch moment coefficient (about CG).",
+      "CNα CHART. Drag analysis has a Normal force slope (CNα) vs Mach chart, per radian, from the same Mach sweep as the other charts (no extra calculation). Under the Barrowman models its heading notes that the body's normal-force slope does not change with Mach while the fins' does. It is a diagnostic, with no pass/fail.",
+      "WHAT MOVES. No flight number: the charts show figures the simulation already recorded, and nothing it computes has changed."
+    ]
+  },
+  {
     "version": "0.204",
     "date": "2026-11-16",
     "title": "More published delay averages, a RockSim recovery-mass caution, and RASAero's Polished finish",
