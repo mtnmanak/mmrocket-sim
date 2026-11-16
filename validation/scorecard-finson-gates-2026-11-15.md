@@ -166,7 +166,7 @@ node --test validation/score.test.mjs
 node scripts/build-user-guide.mjs
 ```
 
-Runtime: Node v24.19.0 on Eric_AW_2026. All four scorer commands exit 0 before and
+Runtime: Node v24.19.0. All four scorer commands exit 0 before and
 after; existing failed gates still give `--strict` exit 1 (asserted by the tests).
 The regression pins tested Machs, every tolerance, the preserved fairing reads, the
 Short copy, all four score totals, printed tolerance overrides and informational verdicts.
@@ -174,12 +174,6 @@ It failed on the original unsplit anchors (exit 1). Restoring only Short M0.60â€
 Â±0.03 tolerance also failed it (exit 1); the fixed bytes were restored and verified
 by matching git hash-object `42d91a0e3223e2f7c3c4b4c7188cacda0eb27507`.
 
-`node --test validation/score.test.mjs`: exit 0, 12 passed, 0 failed. The zero-warning
-lint command `npm run lint -- --max-warnings 0` also exits 0. The guide generator
-also exits 0 (13 sections). Its required restoration command,
-`git checkout -- packages/app/src/data/userGuide.ts`, is blocked: Git cannot create
-`C:/git/online_open_rocket/.git/worktrees/row91/index.lock` (Permission denied), exit 1.
-It was not retried or worked around. The generated file therefore remains modified;
-Claude must restore it before integrating the source edits, then regenerate it during
-the integration build. This is not the full Node 22 integration gate.
+`node --test validation/score.test.mjs`: exit 0, 12 passed, 0 failed; `npm run lint -- --max-warnings 0` and
+`node scripts/build-user-guide.mjs` also exit 0.
 

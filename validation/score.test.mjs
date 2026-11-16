@@ -129,6 +129,8 @@ for (const flag of ['', '--kbf', '--supersonic', '--hybrid']) {
     assert.equal(result.stderr, '');
     assert.equal(result.status, 1, 'existing failed gates retain strict exit 1');
     assert.ok(result.stdout.includes(`Gate points: ${gateScores[flag]}/178 within tolerance`));
+    // The 2026-08-29 scale scores were measured on the 191-gate set; never relabel them with today's denominator.
+    assert.ok(result.stdout.includes('on the 191-gate anchor set of the time, classic scored **13**'));
     for (const cell of ['arcas-short', 'arcas-short-nosection', 'arcas-long']) {
       for (const series of anchors[cell].series.filter(s => s.id.startsWith('cd-transonic-'))) {
         for (const [mach, anchor, pointTol] of series.points) {

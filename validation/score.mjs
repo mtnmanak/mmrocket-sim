@@ -107,7 +107,7 @@ out.push('> argument, not a measurement: engine-java/scripts/difftest.mjs');
 out.push('> compares THIS kernel on the JVM against the same kernel compiled to');
 out.push('> JavaScript, to a stated tolerance, so what it proves is the TeaVM');
 out.push('> compile - not desktop equivalence.');
-out.push(`> For scale, on the ${gateTotalExpected}-gate anchor set classic scored **13**, the app`);
+out.push('> For scale, on the 191-gate anchor set of the time, classic scored **13**, the app');
 out.push('> default (Rogers Kbf) **21** and the supersonic model **77** when');
 out.push('> scorecard-nosection-2026-08-29.md was written; the table below is the');
 out.push('> live count. Improving it is the point of the harness.');

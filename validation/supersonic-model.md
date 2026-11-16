@@ -1003,14 +1003,15 @@ The latest recorded fins-on re-read has **191 gated coefficient points**, not
 191 rockets or flights: Supersonic **80/191**, Hybrid **80/191**, Kbf **38/191**,
 Classic **11/191**, on the stated v0.179 kernel and re-read anchors
 ([2026-10-11 scorecard](scorecard-finson-reread-2026-10-11.md)). These are
-historical recorded scores, not a fresh score run for this document. The current
-anchors still give 191 using the scorer's gate flags and Mach bounds; counting
-all points in gate-marked series without those bounds would give a different
-denominator. Anchor changes make percentages across revisions incomparable.
+historical recorded scores, not a fresh score run for this document. Since
+2026-11-15 the anchors give **178** gates: the untested TN D-4013 fins-on fairing
+Machs no longer gate and the tested ones carry report-derived budgets (Classic 8,
+Kbf 30, Supersonic 68, Hybrid 69 of 178;
+[2026-11-15 scorecard](scorecard-finson-gates-2026-11-15.md)). Anchor changes make percentages across revisions incomparable.
 
 | Evidence | What it tests and what remains limited |
 |---|---|
-| ARCAS Short/Long, NASA TN D-4013/D-4014 | Sharp-section fins-on drag and supersonic CP; transonic drag underprediction and body/fin compensation remain. [Fins-on re-read](scorecard-finson-reread-2026-10-11.md) includes the tested-Mach versus fairing distinction and the unresolved fins-on tolerance provenance. |
+| ARCAS Short/Long, NASA TN D-4013/D-4014 | Sharp-section fins-on drag and supersonic CP; transonic drag underprediction and body/fin compensation remain. [Fins-on re-read](scorecard-finson-reread-2026-10-11.md) includes the tested-Mach versus fairing distinction; the [2026-11-15 scorecard](scorecard-finson-gates-2026-11-15.md) un-gated the fairing points and derived the tested points' tolerances from the report. |
 | ARCAS fins-off | Body drag independently of fin drag. [Direct-report digitization](scorecard-finsoff-figs-2026-08-25.md) and [independent re-read](scorecard-finsoff-reread-2026-08-29.md) constrain subsonic body error; sting-dominated base pressure must not be treated as free-flight base drag. |
 | Subsonic ARCAS CP | [Informational reads](scorecard-subsonic-cp-2026-10-11.md) disagree and do not gate. At M.60 Supersonic lies aft of the reads, displaying more margin than measured; its NACA carryover does not establish conservative stability. |
 | Basic Finner | Free-flight drag, CNa and CP at the Machs in anchors.json, roughly M1.056–4.473 for drag and to 4.127 for CNa/CP. The additional [tunnel series](scorecard-coverage-2026-10-11.md) is informational and disagrees with free-flight near the peak. |
