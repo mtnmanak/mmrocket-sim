@@ -140,7 +140,7 @@ describe('unit-preference export', () => {
     for (const units of [undefined, IMPERIAL_UNITS]) {
       const csv = flightDataCsv(result, units).split('\n');
       // Symbol extras retain the exporter's existing symbol-prefixed header convention.
-      const header = '\u03c9n — Natural frequency (rad/s)';
+      const header = '\u03c9n — Pitch natural frequency (rad/s)';
       const index = csv[0]!.split(',').indexOf(header);
       expect(index).toBeGreaterThanOrEqual(0);
       expect(csv[1]!.split(',')[index]).toBe('0');

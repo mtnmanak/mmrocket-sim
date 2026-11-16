@@ -1,4 +1,9 @@
 // @vitest-environment happy-dom
+// N052: DragPanel 42 -> 43 reuses chart-model-limit for the CNα chart;
+// FlightCharts 10 -> 11 explains the existing "over-perfect" disturbance.
+// These are static diagnostic copy/style, not new measurement decisions.
+// DragPanel.cp and FlightCharts.diagnostics cover the captions/explanations;
+// stabilityDiagnostics covers phase gates. No threshold or tolerance changed.
 // Row 129 round 2: MaximumFlightTimeField 7 -> 13 disambiguates near-bound
 // clamps and ignores residue. Its mounted test covers typing, blur/refocus,
 // arrow/spinner bounds and file replacement. importApply 16 -> 31 mirrors

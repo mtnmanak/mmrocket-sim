@@ -480,10 +480,12 @@ describe('DragPanel — sweep conditions', () => {
     expect(titles().filter((t) => /Barrowman|Hybrid/.test(t))).toEqual([]);
     render({ supersonicModel: false });
     expect(titles()[0]).toContain('Drag coefficient vs Mach — Barrowman estimate above Mach 1.5, approximate');
-    expect(titles()[1]).toContain('— Barrowman: body CP frozen above Mach 1');
+    expect(titles()[1]).toContain('Normal force slope (CNα) vs Mach — Barrowman: body normal-force slope is Mach-independent; fins vary with Mach');
+    expect(titles()[2]).toContain('— Barrowman: body CP frozen above Mach 1');
     render({ supersonicModel: true, hybridModel: true });
     expect(titles()[0]).toContain('— Hybrid (experimental): flight accuracy not established');
     expect(titles()[1]).toContain('— Hybrid (experimental): flight accuracy not established');
+    expect(titles()[2]).toContain('— Hybrid (experimental): flight accuracy not established');
   });
 
   /**
@@ -730,6 +732,7 @@ describe('DragPanel — charts a screen reader can tell apart', () => {
     const names = [...host.querySelectorAll('.chart-head-btns button')].map((b) => b.getAttribute('aria-label'));
     expect(names).toEqual([
       'Reset the drag coefficient chart view', 'Expand the drag coefficient chart',
+      'Reset the normal force slope chart view', 'Expand the normal force slope chart',
       'Reset the center of pressure chart view', 'Expand the center of pressure chart',
       'Reset the drag breakdown chart view', 'Expand the drag breakdown chart',
     ]);
@@ -737,12 +740,14 @@ describe('DragPanel — charts a screen reader can tell apart', () => {
 
   it('names each chart canvas with its curves and the CSV that holds them', () => {
     const named = [...host.querySelectorAll('canvas[role="img"]')].map((c) => c.getAttribute('aria-label') ?? '');
-    expect(named).toHaveLength(3);
+    expect(named).toHaveLength(4);
     expect(named[0]).toMatch(/^Drag coefficient vs Mach, Mach 0\.5 to Mach 3\. /);
     expect(named[0]).toContain('0.4 at Mach 0.5');
-    expect(named[1]).toMatch(/^Center of pressure vs Mach/);
-    expect(named[2]).toMatch(/^Drag breakdown \(power-off\) vs Mach/);
-    expect(named[2]).toContain('Nose cone');
+    expect(named[1]).toMatch(/^Normal force slope \(CNα\) vs Mach/);
+    expect(named[1]).toContain('CNα (per radian)');
+    expect(named[2]).toMatch(/^Center of pressure vs Mach/);
+    expect(named[3]).toMatch(/^Drag breakdown \(power-off\) vs Mach/);
+    expect(named[3]).toContain('Nose cone');
     for (const n of named) expect(n).toContain('The Drag table (.csv) download above holds the same numbers.');
   });
 });

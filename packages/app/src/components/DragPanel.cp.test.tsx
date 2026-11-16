@@ -74,6 +74,34 @@ const open = (rocket: OrkRocket) => {
   act(() => { (host.querySelector('button[aria-expanded]') as HTMLButtonElement).click(); });
 };
 
+it('N052 charts the existing normal-force sweep, preserving zeros and gaps without another solve', () => {
+  const sweep = sweepOf(flat(0.6), [0, 12, NaN, 8]);
+  const rocket = rocketOf(sweep, { length: 1.2, cp: 0.6, cna: 12 });
+  rocket.dragSweep = vi.fn(() => sweep);
+  open(rocket);
+  const cna = plots.find(p => p.series.some(s => s.label === 'CNα (per radian)'))!;
+  expect(cna).toBeTruthy();
+  expect(cna.data).toEqual([machs, [0, 12, null, 8]]);
+  expect(rocket.dragSweep).toHaveBeenCalledTimes(1);
+  expect(host.textContent).toContain('Normal force slope (CNα) vs Mach');
+  expect(host.textContent).toContain('diagnostic, with no pass/fail');
+  expect(host.querySelector('[aria-label="Definition: CNα (normal-force slope)"]')).not.toBeNull();
+});
+
+it.each([
+  ['Barrowman', false, false, 'Barrowman: body normal-force slope is Mach-independent; fins vary with Mach'],
+  ['Rogers Kbf', false, false, 'Barrowman: body normal-force slope is Mach-independent; fins vary with Mach'],
+  ['Supersonic', true, false, null],
+  ['Hybrid', true, true, 'Hybrid (experimental): flight accuracy not established'],
+] as const)('N052 shows a CNα-specific limitation for %s', (model, supersonicModel, hybridModel, limit) => {
+  const rocket = rocketOf(sweepOf(flat(0.6), flat(12)), { length: 1.2, cp: 0.6 });
+  act(() => root.render(<PrefsProvider><DragPanel rocket={rocket} designName="T" open
+    supersonicModel={supersonicModel} hybridModel={hybridModel} aeroLabel={model} effectiveKbf={model !== 'Barrowman'} /></PrefsProvider>));
+  const heading = [...host.querySelectorAll('h3')].find(h => h.textContent?.startsWith('Normal force slope (CNα) vs Mach'))!;
+  expect(heading.querySelector('.chart-model-limit')?.textContent ?? null).toBe(limit ? ` — ${limit}` : null);
+  expect(heading.textContent).not.toContain('body CP frozen');
+});
+
 it('labels the degree-grid CP selector, heading, caption and legend in radians', () => {
   localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { angle: 'rad' } }));
   const rocket = rocketOf(sweepOf(flat(0.6), flat(1)), { length: 1.2, cp: 0.6, cna: 1 });
@@ -360,7 +388,7 @@ describe('CP vs Mach at an angle of attack', () => {
     dragSweep: (opts: { aoaDeg?: number }) => {
       calls.push(opts);
       const a = opts.aoaDeg ?? 0;
-      return sweepOf(flat(0.6 - a * 0.01), flat(12));
+      return sweepOf(flat(0.6 - a * 0.01), flat(12 + a));
     },
     staticInfo: () => ({ length: 1.2, cp: 0.6, cpWorst: 0.6 }),
   } as unknown as OrkRocket);
@@ -402,6 +430,8 @@ describe('CP vs Mach at an angle of attack', () => {
     expect(p.data[2]![0]).toBeCloseTo(50, 9);
     expect(host.textContent).toContain('Center of pressure vs Mach (% of length) at 10° angle of attack');
     expect(texts().some((t) => t.includes('this changes no flight'))).toBe(true);
+    const cna = [...plots].reverse().find(x => x.series.some(s => s.label === 'CNα (per radian)'))!;
+    expect(cna.data).toEqual([machs, flat(12)]);
     // Back to 0: the one line it always drew, and no further kernel call.
     pick(0);
     expect(cpSeries()).toEqual(flat(50));

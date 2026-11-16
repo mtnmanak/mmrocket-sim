@@ -161,6 +161,9 @@ function colIndex(headers: string[], key: string): number {
 
 /** The unit a header carries, or '' — the text inside its final parentheses. */
 function unitOf(header: string): string {
+  // Dimensionless titles can have descriptive parentheses, e.g. (about CG).
+  const symbol = header.split(' — ')[0]!;
+  if (exportColumnCatalog().some(c => c.key === symbol && c.si === '')) return '';
   const open = header.lastIndexOf(' (');
   return open > 0 && header.endsWith(')') ? header.slice(open + 2, -1) : '';
 }
@@ -170,7 +173,7 @@ function quantityName(header: string): string {
   const dash = header.indexOf(' — ');
   const body = dash >= 0 ? header.slice(dash + 3) : header;
   const open = body.lastIndexOf(' (');
-  return (open > 0 && body.endsWith(')') ? body.slice(0, open) : body).trim();
+  return (open > 0 && unitOf(header) ? body.slice(0, open) : body).trim();
 }
 
 /**

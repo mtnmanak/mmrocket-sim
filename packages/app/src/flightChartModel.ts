@@ -122,6 +122,11 @@ export function seriesCatalog(prefs: Pick<Preferences, 'units'>, C: readonly str
     { key: 'aoa', title: 'Angle of attack', unit: u.angle, quantity: 'angle', token: null, f: (v) => siToUi('angle', u.angle, v) },
     { key: 'dynamicPressure', title: 'Dynamic pressure', unit: u.pressure, quantity: 'pressure', token: 'pressure', f: (v) => siToUi('pressure', u.pressure, v) },
     { key: 'qAlpha', title: 'q·α', unit: `${u.pressure}·rad`, token: null, f: (v) => siToUi('pressure', u.pressure, v), toSI: (v) => uiToSi('pressure', u.pressure, v) },
+    { key: 'ωn', title: 'Pitch natural frequency', unit: 'rad/s', token: null },
+    { key: 'Cn', title: 'Normal force coefficient', unit: '', token: null },
+    { key: 'Cθ', title: 'Pitch moment coefficient (about CG)', unit: '', token: null },
+    { key: 'Cζθ', title: 'Pitch damping coefficient', unit: '', token: null },
+    { key: 'dθ', title: 'Pitch rate', unit: 'rad/s', token: null },
   ];
   return styleCatalog(defs, styles).map(d => ({ ...d, toSI: d.quantity ? v => uiToSi(d.quantity!, u[d.quantity!], v) : d.toSI }));
 }
@@ -231,14 +236,41 @@ export function arbitraryCatalog(series: FlightSeries, prefs: Pick<Preferences, 
   return known.filter(d => d.key !== 'tc' && usableSeries(series, [String(d.key)]));
 }
 
+export const STABILITY_DIAGNOSTIC_KEYS = ['ωn', 'Cn', 'Cθ', 'Cζθ', 'dθ'] as const;
+export const STABILITY_DIAGNOSTIC_PANELS = ['stability', 'ωn', 'aoa', 'dθ', 'Cn', 'Cθ', 'Cζθ'];
+
+/** The branch's own transition out of 6DOF, shared by the display gates. */
+function beforeRecovery(events: FlightEvent[]): (time: unknown) => boolean {
+  const stop = Math.min(Infinity, ...events.filter(e =>
+    ['RECOVERY_DEVICE_DEPLOYMENT', 'TUMBLE'].includes(e.type) && finiteSample(e.time)).map(e => e.time));
+  return time => finiteSample(time) && time < stop;
+}
+
+/** Display only: stability and CP stop at recovery/tumble; CG continues.
+ * Cn starts recording at guide exit; ωn's guide zero is not data.
+ * Preserve absent full-only series so summary recordings never gain empty chips. */
+export function withStabilityDiagnostics(series: FlightSeries, events: FlightEvent[] = []): FlightSeries {
+  const airborne = beforeRecovery(events);
+  const gated = { ...series };
+  for (const key of ['stability', 'cpLocation']) {
+    if (series[key]) gated[key] = series.time.map((t, i) => airborne(t) && finiteSample(series[key]?.[i])
+      ? series[key]![i]! : null);
+  }
+  for (const key of STABILITY_DIAGNOSTIC_KEYS) {
+    if (!series[key]) continue;
+    gated[key] = series.time.map((t, i) => airborne(t) && finiteSample(series['Cn']?.[i])
+      && finiteSample(series[key]?.[i]) ? series[key]![i]! : null);
+  }
+  return gated;
+}
+
 /** N042: the branch's recorded geometry, never the edited design's length.
  * Recovery/tumble CP no longer describes aerodynamic stability. */
 export function withStabilityPercent(series: FlightSeries, events: FlightEvent[] = []): FlightSeries {
-  const stop = Math.min(Infinity, ...events.filter(e =>
-    ['RECOVERY_DEVICE_DEPLOYMENT', 'TUMBLE'].includes(e.type) && finiteSample(e.time)).map(e => e.time));
+  const airborne = beforeRecovery(events);
   return { ...series, stabilityPercent: series.time.map((t, i) => {
     const length = series.activeLength?.[i], cp = series.cpLocation?.[i], cg = series.cgLocation?.[i];
-    if (!finiteSample(t) || t >= stop || !finiteSample(length) || length <= 0
+    if (!airborne(t) || !finiteSample(length) || length <= 0
       || !finiteSample(cp) || !finiteSample(cg)) return null;
     const value = (cp - cg) / length * 100;
     return finiteSample(value) ? value : null;
