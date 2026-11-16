@@ -15,7 +15,7 @@ import { noteText } from './noteField.js';
 import { nozzleForMotorId } from './nozzleDb.js';
 import { displayDesignation, displayMotorManufacturer, fitsMount, motorLabel, isHighPower, type MotorDbEntry } from './motorDb.js';
 import { boundedLoadoutMotorNames, loadoutMotorNames, motorLabelEntry } from './motorLabels.js';
-import { namedBatchMounts } from './batchLoadout.js';
+import { mountLoadoutText, namedBatchMounts } from './batchLoadout.js';
 import { defaultDelay, delayOptions, fetchMotorSpec, requireCurveBundle, type TcMotor } from './thrustcurve.js';
 import { motorIdentity, shiftMotorMass } from './hardwareMass.js';
 import { buildSimRun, type BatchMountRecord, type MotorMeta, type SimRun } from './simReport.js';
@@ -88,6 +88,11 @@ export function mixedComboCount(n: number, combination: BatchCombination): numbe
   const { groups, ordered } = typeof combination === 'number' ? { groups: combination, ordered: false } : combination;
   if (ordered) return n ** groups - n;
   return groups === 2 ? (n * (n - 1)) / 2 : (n * (n + 1) * (n + 2)) / 6 - n;
+}
+
+/** One count for progress, limits, estimates and the dialog's proposed sweep. */
+export function batchFlightCount(n: number, groups: readonly BatchCombination[], includeSingles = true): number {
+  return (includeSingles ? n : 0) + groups.reduce<number>((sum, g) => sum + mixedComboCount(n, g), 0);
 }
 
 /** Empty targets have ignition settings too; App supplies configuration overrides. */
@@ -250,9 +255,8 @@ export function batchFlownSpec(
  * "H550ST". For exactly those — a name more than one candidate would share —
  * the RAW designation is used instead, which is the catalogue's own identity:
  * no two of the shipped file's 1,156 motors share a name this way (also
- * measured for this fix). Two imported EX files with the same designation
- * still can, and that costs only the label — rows are keyed on motor ids
- * (batchRowKey).
+ * measured for this fix). Imported EX files can share even the raw name;
+ * those names also carry their stable, complete motor id.
  */
 export function batchMotorNames(
   candidates: readonly Pick<MotorDbEntry, 'motorId' | 'manufacturerAbbrev' | 'designation' | 'realManufacturer'>[],
@@ -264,10 +268,12 @@ export function batchMotorNames(
     `${maker(e)} ${displayDesignation(e.designation, e.manufacturerAbbrev)}`;
   const uses = new Map<string, number>();
   for (const e of candidates) uses.set(shown(e), (uses.get(shown(e)) ?? 0) + 1);
-  return new Map(candidates.map((e) => [
-    e.motorId,
-    (uses.get(shown(e)) ?? 0) > 1 ? `${maker(e)} ${e.designation}` : shown(e),
-  ]));
+  const raw = (e: (typeof candidates)[number]) =>
+    (uses.get(shown(e)) ?? 0) > 1 ? `${maker(e)} ${e.designation}` : shown(e);
+  const rawUses = new Map<string, number>();
+  for (const e of candidates) rawUses.set(raw(e), (rawUses.get(raw(e)) ?? 0) + 1);
+  return new Map(candidates.map(e => [e.motorId,
+    (rawUses.get(raw(e)) ?? 0) > 1 ? `${raw(e)} [${e.motorId}]` : raw(e)]));
 }
 
 /**
@@ -347,7 +353,7 @@ export function listsNoDelay(entry: TcMotor): boolean {
  * plugged-only ones on such a design, and each count is the sweep's own: every
  * candidate alone, then each split's combinations (mixedComboCount).
  */
-export function batchSolverFlights({ candidates, groups, autoDelay, deploysOnCharge, othersAuto }: {
+export function batchSolverFlights({ candidates, groups, autoDelay, deploysOnCharge, othersAuto, includeSingles = true }: {
   candidates: readonly TcMotor[];
   /** Each ticked split's group count (split.mountIds.length), as mixedComboCount takes it. */
   groups: readonly BatchCombination[];
@@ -356,9 +362,10 @@ export function batchSolverFlights({ candidates, groups, autoDelay, deploysOnCha
   deploysOnCharge: boolean;
   /** A motor on a mount other than the swept one is on Auto delay. */
   othersAuto: boolean;
+  includeSingles?: boolean;
 }): number {
   /** The flights drawn entirely from `n` of the candidates. */
-  const flightsFrom = (n: number) => n + groups.reduce<number>((sum, g) => sum + mixedComboCount(n, g), 0);
+  const flightsFrom = (n: number) => batchFlightCount(n, groups, includeSingles);
   const all = flightsFrom(candidates.length);
   if (autoDelay || othersAuto) return all;
   const listed = candidates.filter((e) => !listsNoDelay(e));
@@ -444,6 +451,8 @@ export interface BatchSweepInput {
   candidates: readonly MotorDbEntry[];
   /** The combination splits to fly after the single-motor pass; empty for none. */
   splits: readonly BatchSplit[];
+  /** Default on; off excludes every all-same loadout, even with no mixed split selected. */
+  includeSingles?: boolean;
   /** Current flown specs by mount id; only motors outside the target set are retained. */
   assignedMotors: Record<string, MotorSpec>;
   /** Catalogue specs and identities, before weighed hardware is applied. */
@@ -784,16 +793,25 @@ export async function runBatchSweep(
   };
 
   const n = candidates.length;
-  const total = n + splits.reduce((sum, s) => sum + mixedComboCount(n, batchSplitCombination(s)), 0);
+  const includeSingles = input.includeSingles ?? true;
+  const total = batchFlightCount(n, splits.map(batchSplitCombination), includeSingles);
   const comboActive = splits.length > 0;
   const out: BatchRow[] = [];
-  // Motor specs fetched in the single pass, reused by the combination pass.
-  const specCache = new Map<string, MotorSpec>();
-  const specFailures = new Map<string, unknown>();
+  // Cache the request too: mixed-only pair splits may need the same motor on
+  // several legs at once. A failed request becomes a row error wherever used.
+  const specCache = new Map<string, Promise<MotorSpec>>();
+  const specFor = (entry: MotorDbEntry): Promise<MotorSpec> => {
+    let spec = specCache.get(entry.motorId);
+    if (!spec) {
+      spec = fetchSpec(entry, provisionalDelay(entry, autoDelay), signal);
+      specCache.set(entry.motorId, spec);
+    }
+    return spec;
+  };
 
   const aero = { aeroMode, effectiveKbf: kbf, autoSupersonic: model === 'auto' };
 
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; includeSingles && i < n; i++) {
     if (signal.aborted) break;
     const entry = candidates[i]!;
     const label = names.get(entry.motorId)!;
@@ -803,11 +821,7 @@ export async function runBatchSweep(
     try {
       const tooShort = multiple ? targets.find(m => m.maxMotorLengthM !== null && entry.length / 1000 > m.maxMotorLengthM + 1e-9) : undefined;
       if (tooShort) throw new Error(`Motor exceeds max motor length in ${noteText(designMountNames.get(tooShort.id) ?? tooShort.label)}.`);
-      const spec = await fetchSpec(entry, provisionalDelay(entry, autoDelay), signal).catch((error: unknown) => {
-        specFailures.set(entry.motorId, error);
-        throw error;
-      });
-      specCache.set(entry.motorId, spec);
+      const spec = await specFor(entry);
       // What this candidate FLIES: the catalogue spec, or — for the one
       // motor the pad mass was weighed with, on the mount it was weighed
       // on — that spec with the hardware on it, exactly as the design page
@@ -845,13 +859,15 @@ export async function runBatchSweep(
         launch,
         aero,
       });
+      const batchMounts = batchMountsFor(tree, new Map(targetIds.map(id => [id, entry])), f.delayResolution.mounts.map(m => m.mountId));
       const run = buildSimRun({
         maxFlightTimeS: flownMaxFlightTimeS(launch),
         units,
         weatherSnapshot,
         advisoryLimits, advisoryTree: keyTree, advisoryMotors: f.assigned,
-        ...configuration, batch: true,
-        batchMounts: batchMountsFor(tree, new Map(targetIds.map(id => [id, entry])), f.delayResolution.mounts.map(m => m.mountId)),
+        flightOverrides: configuration?.flightOverrides, batch: true,
+        flightConfig: batchMounts ? mountLoadoutText(batchMounts) : 'Batch loadout not recorded',
+        batchMounts,
         result: f.res,
         delayResolution: f.delayResolution, primaryMountId: f.primaryMountId,
         info,
@@ -905,7 +921,7 @@ export async function runBatchSweep(
   // 3 opposite-tube pairs. Separate tubes fly every ordered arrangement;
   // split clusters fly every MULTISET except all-same (covers 4+2 and 2+2+2 —
   // the owner's real-world configs, 2026-08-05d).
-  let done = n;
+  let done = includeSingles ? n : 0;
   for (const split of splits) {
     if (signal.aborted) break;
     const groups = split.mountGroups ?? split.mountIds.map(id => [id]);
@@ -963,16 +979,7 @@ export async function runBatchSweep(
         const tooShort = split.mountGroups ? targets.find(m => m.maxMotorLengthM !== null
           && entries.some(e => e.length / 1000 > m.maxMotorLengthM! + 1e-9)) : undefined;
         if (tooShort) throw new Error(`Motor exceeds max motor length in ${noteText(designMountNames.get(tooShort.id) ?? tooShort.label)}.`);
-        const specs = await Promise.all(entries.map(async (e) => {
-          const hit = specCache.get(e.motorId);
-          if (hit) return hit;
-          if (specFailures.has(e.motorId)) throw specFailures.get(e.motorId);
-          // Only a candidate whose single-motor flight failed gets here; it
-          // flies the same provisional delay that flight would have.
-          const spec = await fetchSpec(e, provisionalDelay(e, autoDelay), signal);
-          specCache.set(e.motorId, spec);
-          return spec;
-        }));
+        const specs = await Promise.all(entries.map(specFor));
         /*
          * The multiset's own equivalent nozzle. split.tree has already broken
          * the cluster into one mount per group, so each entry contributes its
@@ -1025,6 +1032,8 @@ export async function runBatchSweep(
           launch,
           aero,
         });
+        const batchMounts = batchMountsFor(split.tree, new Map(groups.flatMap((ids, k) => ids.map(id => [id, entries[k]!] as const))),
+          f.delayResolution.mounts.map(m => m.mountId), splitMountNames);
         const run = buildSimRun({
           maxFlightTimeS: flownMaxFlightTimeS(launch),
           units, advisoryLimits,
@@ -1032,9 +1041,9 @@ export async function runBatchSweep(
           advisoryTree: stageIdOfTarget !== '' && (exitM !== null || typedStageExitM !== null)
             ? applyStageNozzles(split.tree, { [stageIdOfTarget]: exitM }) : split.tree,
           advisoryMotors: f.assigned,
-          ...configuration, batch: true,
-          batchMounts: batchMountsFor(split.tree, new Map(groups.flatMap((ids, k) => ids.map(id => [id, entries[k]!] as const))),
-            f.delayResolution.mounts.map(m => m.mountId), splitMountNames),
+          flightOverrides: configuration?.flightOverrides, batch: true,
+          flightConfig: batchMounts ? mountLoadoutText(batchMounts) : 'Batch loadout not recorded',
+          batchMounts,
           result: f.res,
           delayResolution: f.delayResolution, primaryMountId: f.primaryMountId,
           info,

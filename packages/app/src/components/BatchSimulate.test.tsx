@@ -284,7 +284,7 @@ describe('the batch dialog', () => {
       ?.querySelector('input');
     expect(oop).toBeTruthy();
     act(() => { oop!.click(); });
-    expect(JSON.parse(localStorage.getItem(key)!)).toEqual({ ...criteria, includeOOP: true });
+    expect(JSON.parse(localStorage.getItem(key)!)).toEqual({ ...criteria, includeOOP: true, impulse: [] });
   });
 
   it('storage hardening: opens with defaults for malformed criteria and keeps valid fields', () => {
@@ -300,7 +300,7 @@ describe('the batch dialog', () => {
     act(() => { oop!.click(); });
     expect(JSON.parse(localStorage.getItem(key)!)).toEqual({
       manufacturers: [], classes: [], minRodExit: null, minThrustToWeight: null,
-      minApogee: 100, maxApogee: null, autoDelay: true, includeOOP: true,
+      minApogee: 100, maxApogee: null, autoDelay: true, includeOOP: true, impulse: [],
     });
   });
 

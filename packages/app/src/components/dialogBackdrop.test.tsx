@@ -129,6 +129,6 @@ describe.each(DIALOGS)('the backdrop of %s', (_name, dialog) => {
  */
 it('the batch dialog routes its backdrop through the running check', () => {
   const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), './BatchSimulate.tsx'), 'utf8');
-  expect(src).toContain('useBackdropClose(() => { if (!runningRef.current) onClose(); })');
+  expect(src).toContain('useBackdropClose(() => { if (!runningRef.current) close(); })');
   expect(src).not.toContain('useBackdropClose(onClose)');
 });

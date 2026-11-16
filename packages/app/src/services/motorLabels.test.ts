@@ -124,7 +124,9 @@ describe('EX maker labels — @atestani, TRF #162, 2026-10-06', () => {
     const db = exToDbEntry(ex);
     const other = exToDbEntry({ ...ex, motorId: 'ex:other-f67', realManufacturer: 'Other' });
     expect([...batchMotorNames([db, other]).values()]).toEqual(['Enerjet (EX) F67', 'Other (EX) F67']);
-    expect([...batchMotorNames([db, other], false).values()]).toEqual(['EX F67', 'EX F67']);
+    expect([...batchMotorNames([db, other], false).values()]).toEqual([
+      `EX F67 [${db.motorId}]`, `EX F67 [${other.motorId}]`,
+    ]);
     expect(candidateIdentity(db)).toBe(ex.motorId);
     expect(db.manufacturerAbbrev).toBe('EX');
   });

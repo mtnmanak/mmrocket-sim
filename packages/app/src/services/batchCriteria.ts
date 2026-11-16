@@ -1,6 +1,7 @@
 import { runStoppedEarly, type SimRun } from './simReport.js';
-import { classesFittingMount, filterMotors, manufacturersForMount, sortMotors, type MotorDbEntry } from './motorDb.js';
-import { mixedComboCount, type BatchCombination } from './batchSweep.js';
+import { classesFittingMount, filterMotors, impulseClassesForMount, manufacturersForMount, sortMotors, type MotorDbEntry } from './motorDb.js';
+import { batchFlightCount, type BatchCombination } from './batchSweep.js';
+export { batchFlightCount } from './batchSweep.js';
 import { DEFAULT_TIME_STEP_S, timeStepCostFactor } from './launchConditions.js';
 
 // Pure sweep rules stay independent of the dialog (audit 2026-10-11, S3a-7).
@@ -15,6 +16,7 @@ export interface Criteria {
   includeOOP: boolean;
   manufacturers: string[];
   classes: number[];
+  impulse: string[];
 }
 
 /**
@@ -141,13 +143,14 @@ export function batchUnavailableReason(
  * beside a meta line that said 20 (audit 2026-09-30).
  */
 export function batchSummary(
-  { total, candidates, planned, stopped, accepted, errors, downloadable }: {
+  { total, candidates, planned, stopped, accepted, errors, downloadable, includeSingles = true }: {
     total: number; candidates: number; planned: number;
     stopped: boolean; accepted: number; errors: number; downloadable: boolean;
+    includeSingles?: boolean;
   },
 ): string {
   const head = stopped ? 'Stopped early' : 'Finished';
-  const noun = planned === candidates ? 'motor' : 'flight';
+  const noun = includeSingles && planned === candidates ? 'motor' : 'flight';
   const flown = `${group(total)} ${noun}${total === 1 ? '' : 's'}`;
   const errs = errors > 0 ? `, ${group(errors)} could not be flown` : '';
   const tail = downloadable ? '. Download the results as CSV or XLSX above.' : '.';
@@ -239,8 +242,8 @@ export const BATCH_MAX_FLIGHTS = 50_000;
  * filter differently.
  *
  * The maker chips that APPLY are the stored selection intersected with the
- * makers this mount offers as chips — the rule the diameter classes always
- * followed, and the motor browser's. The criteria persist across sessions and
+ * makers this mount offers as chips — the same rule as the impulse and diameter
+ * chips and the motor browser. The criteria persist across sessions and
  * mounts, so Loki chosen on a 54 mm mount (it makes nothing under 38 mm), or an
  * out-of-production-only maker once "include OOP" was unticked, went on
  * filtering with no chip on screen: "0 candidate motors", Simulate disabled,
@@ -248,16 +251,18 @@ export const BATCH_MAX_FLIGHTS = 50_000;
  * the choice comes back on a mount that offers it.
  */
 export function batchCandidates(
-  criteria: Pick<Criteria, 'manufacturers' | 'classes' | 'includeOOP'>,
+  criteria: Pick<Criteria, 'manufacturers' | 'classes' | 'includeOOP'> & Partial<Pick<Criteria, 'impulse'>>,
   mount: { diameterMm: number; maxMotorLengthM: number | null },
   motors: MotorDbEntry[],
 ): { candidates: MotorDbEntry[]; tooLongCount: number; appliedMakers: string[] } {
   const offered = new Set(manufacturersForMount(mount.diameterMm, criteria.includeOOP, motors).map((m) => m.abbrev));
   const appliedMakers = criteria.manufacturers.filter((m) => offered.has(m));
   const fittingClasses = classesFittingMount(mount.diameterMm, motors);
+  const offeredImpulse = new Set(impulseClassesForMount(mount.diameterMm, criteria.includeOOP, motors).map(c => c.letter));
   const filtered = filterMotors({
     manufacturers: new Set(appliedMakers),
     classes: new Set(criteria.classes.filter((c) => fittingClasses.includes(c))),
+    impulse: new Set((criteria.impulse ?? []).filter(c => offeredImpulse.has(c))),
     boreMm: mount.diameterMm,
     includeOOP: criteria.includeOOP,
     text: '',
@@ -271,19 +276,11 @@ export function batchCandidates(
   };
 }
 
-/**
- * How many flights a sweep of `n` candidates flies with these combination
- * splits ticked (each split's group count): every candidate alone, plus each
- * split's mixed combinations — the total runBatchSweep counts its progress to.
- */
-export function batchFlightCount(n: number, groups: readonly BatchCombination[]): number {
-  return n + groups.reduce<number>((sum, g) => sum + mixedComboCount(n, g), 0);
-}
-
 /** The most candidates whose sweep stays within BATCH_MAX_FLIGHTS with these splits still ticked. */
-export function batchMaxCandidates(groups: readonly BatchCombination[]): number {
+export function batchMaxCandidates(groups: readonly BatchCombination[], includeSingles = true): number {
+  if (!includeSingles && groups.length === 0) return 0;
   let n = 0;
-  while (batchFlightCount(n + 1, groups) <= BATCH_MAX_FLIGHTS) n++;
+  while (batchFlightCount(n + 1, groups, includeSingles) <= BATCH_MAX_FLIGHTS) n++;
   return n;
 }
 
@@ -337,7 +334,7 @@ export function batchEstimate(pace: BatchPace): string | null {
  * OOP when that alone gets there. The time it quotes for the cap is at this
  * sweep's own mix of searching and fixed flights. Null when the sweep fits.
  */
-export function batchRefusal({ candidates, withoutOOP, modes, solverFlights, timeStepS }: {
+export function batchRefusal({ candidates, withoutOOP, modes, solverFlights, timeStepS, includeSingles = true, myMotors = false }: {
   /** How many candidates the filters leave. */
   candidates: number;
   /** How many unticking "include OOP" would leave (batchCandidates); null while it is unticked. */
@@ -347,10 +344,20 @@ export function batchRefusal({ candidates, withoutOOP, modes, solverFlights, tim
   /** How many of this sweep's flights search for their delay (BatchPace). */
   solverFlights: number;
   timeStepS?: number | null;
+  includeSingles?: boolean;
+  myMotors?: boolean;
 }): string | null {
   const groupsOf = (ms: readonly { groups: number; ordered?: boolean }[]) => ms;
-  const fits = (n: number, ms: readonly { groups: number; ordered?: boolean }[]) => batchFlightCount(n, groupsOf(ms)) <= BATCH_MAX_FLIGHTS;
-  const flights = batchFlightCount(candidates, groupsOf(modes));
+  const fits = (n: number, ms: readonly { groups: number; ordered?: boolean }[]) => {
+    const count = batchFlightCount(n, groupsOf(ms), includeSingles);
+    return count > 0 && count <= BATCH_MAX_FLIGHTS;
+  };
+  const flights = batchFlightCount(candidates, groupsOf(modes), includeSingles);
+  if (candidates === 0) return myMotors
+    ? 'No fitting motors in My motors. Edit my motors to select motors that fit every target.' : null;
+  if (flights === 0 && !includeSingles) return modes.length === 0
+    ? 'Nothing to fly. Select a mixed configuration or also fly each motor in every position.'
+    : 'Nothing to fly. Mixed configurations need at least two candidate motors, or also fly each motor in every position.';
   if (flights <= BATCH_MAX_FLIGHTS) return null;
   const atCap = batchDurationText(batchSweepSeconds({
     flights: BATCH_MAX_FLIGHTS, solverFlights: BATCH_MAX_FLIGHTS * (solverFlights / flights), timeStepS,
@@ -361,8 +368,8 @@ export function batchRefusal({ candidates, withoutOOP, modes, solverFlights, tim
       ? `Untick ${modes.length === 2 ? 'both ' : ''}${modes.map((m) => m.name).join(' and ')}`
       : null;
   const oop = withoutOOP !== null && fits(withoutOOP, modes) ? ', or by unticking include OOP' : '';
-  const narrow = `bring the candidates down to ${group(batchMaxCandidates(groupsOf(modes)))} or fewer with the `
-    + `maker and diameter chips${oop}`;
+  const narrow = `bring the candidates down to ${group(batchMaxCandidates(groupsOf(modes), includeSingles))} or fewer with `
+    + (myMotors ? 'Edit my motors' : `the maker, diameter and class chips${oop}`);
   const how = untick ? `${untick}, or ${narrow}` : narrow[0]!.toUpperCase() + narrow.slice(1);
   return `${group(flights)} flights is more than one batch will fly: the most is ${group(BATCH_MAX_FLIGHTS)}, `
     + `${atCap} at the measured pace. The app keeps every result in memory for export. ${how}.`;
@@ -380,12 +387,12 @@ export function batchRefusal({ candidates, withoutOOP, modes, solverFlights, tim
  * it says how long they will take as well (batchEstimate).
  */
 export function batchButtonLabel(
-  { candidates, totalFlights, confirming, estimate = null }:
-  { candidates: number; totalFlights: number; confirming: boolean; estimate?: string | null },
+  { candidates, totalFlights, confirming, estimate = null, includeSingles = true }:
+  { candidates: number; totalFlights: number; confirming: boolean; estimate?: string | null; includeSingles?: boolean },
 ): string {
   const time = estimate ? ` · ${estimate}` : '';
   if (confirming) return `Yes — fly ${group(totalFlights)} flights${time}`;
-  if (totalFlights === candidates) {
+  if (includeSingles && totalFlights === candidates) {
     return `Simulate ${group(candidates)} ${candidates === 1 ? 'motor' : 'motors'}${time}`;
   }
   return `Simulate ${group(totalFlights)} flights${time}`;

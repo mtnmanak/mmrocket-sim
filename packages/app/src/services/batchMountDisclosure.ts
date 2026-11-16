@@ -100,5 +100,5 @@ export function batchMountDisclosure(tree: RocketTree, mounts: readonly BatchMou
   }
   return { text: (others.length || targetIds.length > 1) && motorNames ? sentences.join(' ') : null,
     matching, mixedUnavailable, matchingMounts,
-    matchingLabel: `Fly each candidate in all ${matchingMounts.length} matching mounts (${matchingMounts.map(m => nameOf(m.id)).join(', ')})` };
+    matchingLabel: `Use all ${matchingMounts.length} matching mounts (${matchingMounts.map(m => nameOf(m.id)).join(', ')})` };
 }

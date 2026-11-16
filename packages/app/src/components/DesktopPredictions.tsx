@@ -38,7 +38,7 @@ export function DesktopPredictions({ predictions, configId, run }: {
       {' '}Optimal delay from last burnout compares the time from the last motor burnout to apogee with recovery disabled. It can differ from the primary mount's Auto delay, which starts at that mount's burnout. Older app runs without the separately recorded value show —.
     </Note>
     {matching.map((prediction, index) => {
-      const app = prediction.configId !== null && run && !run.importedSummary && run.flightConfigId === prediction.configId ? run : null;
+      const app = prediction.configId !== null && run && !run.importedSummary && run.batch !== true && run.flightConfigId === prediction.configId ? run : null;
       return <details key={index}>
         <summary>{prediction.name || `Simulation ${index + 1}`} · Desktop OpenRocket{prediction.sourceVersion ? ` ${prediction.sourceVersion}` : ' (version not recorded)'}</summary>
         <Note as="p" tier="information" className="download-caption">

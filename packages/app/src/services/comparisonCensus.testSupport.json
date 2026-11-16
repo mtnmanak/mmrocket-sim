@@ -1,7 +1,7 @@
 {
   "app": {
     "App.tsx": 34,
-    "components/BatchSimulate.tsx": 17,
+    "components/BatchSimulate.tsx": 19,
     "components/ComparisonChart.tsx": 4,
     "components/ComponentTree.tsx": 1,
     "components/ConfigPanel.tsx": 2,
@@ -66,7 +66,8 @@
     "prefs/units.ts": 19,
     "services/asymmetricThrust.ts": 2,
     "services/baseDragImportNotes.ts": 1,
-    "services/batchCriteria.ts": 3,
+    "services/batchCriteria.ts": 4,
+    "services/batchMyMotors.ts": 3,
     "services/batchSweep.ts": 4,
     "services/catalogueClient.ts": 2,
     "services/catalogueOverlay.ts": 17,

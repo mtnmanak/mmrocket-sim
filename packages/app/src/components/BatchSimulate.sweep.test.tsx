@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IgnitionEvent, RocketTree } from '@online-openrocket/engine';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import type { DesignMatchKey, SimRun } from '../services/simReport.js';
-import { MOTOR_DB, MOTOR_DB_DATE, fitsMount, isAvailable, setCatalogueOverlay } from '../services/motorDb.js';
+import { MOTOR_DB, MOTOR_DB_DATE, fitsMount, impulseClassesForMount, isAvailable, setCatalogueOverlay } from '../services/motorDb.js';
 import { batchLoadoutText } from '../services/batchLoadout.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
 import { BatchSimulate } from './BatchSimulate.js';
@@ -76,11 +76,13 @@ let host: HTMLDivElement;
 let root: Root;
 let saved: SimRun[][];
 let closes: number;
+let opened: SimRun[];
 
 beforeEach(() => {
   localStorage.clear();
   saved = [];
   closes = 0;
+  opened = [];
   sweep.mockReset();
   vi.mocked(downloadBlob).mockReset();
   host = document.createElement('div');
@@ -93,6 +95,7 @@ afterEach(() => {
   localStorage.clear();
   setCatalogueOverlay(null);
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 /** A 4-ring cluster on the same mount — the shape that offers "mixed 2+2". */
@@ -123,6 +126,7 @@ function mount({ strict = false, launch = DEFAULT_CONDITIONS, tree = TREE, mount
         {...(provenance !== undefined ? { provenance } : {})}
         onRunsChange={(runs) => { saved.push(runs); }}
         onClose={() => { closes++; }}
+        onOpenRun={run => { opened.push(run); }}
       />
     </PrefsProvider>
   );
@@ -147,6 +151,291 @@ const type = (input: HTMLInputElement, text: string) => act(() => {
 const start = () => act(async () => { primary().click(); });
 const candidateCount = () => Number(/(\d+) candidate motors/.exec(host.textContent ?? '')![1]);
 
+const checkbox = (text: string) => [...host.querySelectorAll('label')].find(l => l.textContent?.trim().endsWith(text))!.querySelector<HTMLInputElement>('input')!;
+
+it('141 opens the saved combination object and closes on the top saved row in table order', async () => {
+  const low = row('low', 'Low', 200), top = { ...row('top', '2× A + 2× B', 400), combo: true };
+  const rejected = row('rejected', 'Too low', 1);
+  sweep.mockResolvedValue({ rows: [low, rejected, top, failedRow('error', 'Error')], stopped: false });
+  mount();
+  type(field('Minimum apogee'), '100');
+  await start();
+  const opens = buttons().filter(b => b.textContent === 'Open');
+  expect(opens).toHaveLength(2);
+  expect(opens[0]!.getAttribute('aria-label')).toBe('Open 2× A + 2× B in Results');
+  expect(opens[0]!.tabIndex).toBe(0);
+  expect(host.textContent).toContain('rejected, errored or unsaved rows cannot be opened');
+  act(() => opens[0]!.click());
+  expect(opened[0]).toBe(saved[0]!.find(run => run.id === 'top'));
+  expect(closes).toBe(1);
+  opened = [];
+  act(() => closeBtn().click());
+  expect(opened[0]).toBe(saved[0]!.find(run => run.id === 'top'));
+});
+
+it.each(['before', 'stopped', 'empty', 'quota', 'overflow', 'running', 'escape', 'backdrop'] as const)(
+  '141 close/open handles %s without selecting an unsaved or unfinished run', async mode => {
+    const rows = mode === 'overflow' ? Array.from({ length: 501 }, (_, i) => row(`r${i}`, `Motor ${i}`, i + 100))
+      : mode === 'empty' ? [] : [row('saved', 'Saved', 200)];
+    if (mode === 'quota') {
+      const original = localStorage;
+      vi.stubGlobal('localStorage', {
+        getItem: original.getItem.bind(original), removeItem: original.removeItem.bind(original), clear: original.clear.bind(original),
+        setItem: (key: string, value: string) => {
+          if (key === 'online-openrocket.sim-runs.v1') throw new Error('quota');
+          original.setItem(key, value);
+        },
+      });
+    }
+    if (mode === 'running') sweep.mockImplementation((_input, hooks) => new Promise(resolve => {
+      hooks.onRows?.(rows);
+      hooks.signal.addEventListener('abort', () => resolve({ rows, stopped: true }));
+    }));
+    else sweep.mockResolvedValue({ rows, stopped: mode === 'stopped' });
+    mount();
+    if (mode !== 'before') await start();
+    if (mode === 'running') {
+      expect(buttons().some(b => b.textContent === 'Open')).toBe(false);
+      expect(closeBtn().disabled).toBe(true);
+      await act(async () => stopBtn()!.click());
+    }
+    if (mode === 'overflow') {
+      expect(buttons().filter(b => b.textContent === 'Open')).toHaveLength(BATCH_TABLE_ROWS - 1);
+      expect(bodyRows()[0]!.textContent).toContain('Motor 500');
+      expect(bodyRows()[0]!.querySelector('button')).toBeNull();
+    }
+    if (mode === 'escape') act(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    else if (mode === 'backdrop') {
+      const backdrop = host.querySelector('.prefs-overlay')!;
+      act(() => {
+        backdrop.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+        backdrop.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+        backdrop.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+    } else act(() => closeBtn().click());
+    if (['overflow', 'escape', 'backdrop'].includes(mode)) {
+      expect(opened).toHaveLength(1);
+      expect(opened[0]).toBe(saved[0]!.find(run => run.id === (mode === 'overflow' ? 'r499' : 'saved')));
+    } else expect(opened).toEqual([]);
+    expect(closes).toBe(1);
+  });
+
+it('r3-2 identical imported motor names remain distinct in the editor, summary and exclusions', () => {
+  const base = MOTOR_DB.find(m => fitsMount(24, m))!;
+  const added = ['ex:first', 'ex:second'].map(motorId => ({ ...base, motorId,
+    manufacturerAbbrev: 'EX', realManufacturer: 'Maker', designation: 'E999', length: 1000 }));
+  setCatalogueOverlay({ baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date(0).toISOString(), liveCount: 0,
+    added, changed: [], removed: [], rejected: [] });
+  localStorage.setItem('online-openrocket.batch-my-motors.v1', JSON.stringify(added.map(m => m.motorId)));
+  mount({ mounts: [{ ...MOUNTS[0]!, maxMotorLengthM: 0.2 }] });
+  for (const m of added) expect(host.textContent).toContain(`Maker (EX) E999 [${m.motorId}]`);
+  act(() => buttons().find(b => b.textContent === 'Edit my motors')!.click());
+  const panel = host.querySelector('[aria-label="My motors"]')!;
+  for (const m of added) expect(panel.textContent).toContain(`Maker (EX) E999 [${m.motorId}]`);
+  act(() => host.querySelector<HTMLButtonElement>('fieldset .series-chip')!.click());
+  act(() => checkbox('Fly only my motors').click());
+  for (const m of added) expect(host.textContent).toContain(`Maker (EX) E999 [${m.motorId}]: too long`);
+  const selected = host.querySelector<HTMLButtonElement>('fieldset .series-chip-on')!;
+  expect(selected.closest('fieldset')!.disabled).toBe(true);
+  expect(selected.getAttribute('aria-pressed')).toBe('true');
+  expect(selected.textContent).toContain('✓');
+});
+
+it('r2-2 makes singles effective when a target change removes all combinations', async () => {
+  const motor = MOTOR_DB.find(m => fitsMount(24, m))!;
+  localStorage.setItem('online-openrocket.batch-my-motors.v1', JSON.stringify([motor.motorId]));
+  sweep.mockResolvedValue({ rows: [row('one', 'One motor', 300)], stopped: false });
+  mount({ tree: CLUSTER_TREE, mounts: CLUSTER_MOUNTS });
+  act(() => checkbox('Fly only my motors').click());
+  act(() => checkbox('Also fly each motor in every position').click());
+  expect(primary().disabled).toBe(true);
+  mount(); // Same dialog, now targeting a design with no mixed option.
+  expect(host.textContent).not.toContain('Nothing to fly');
+  expect(primary().disabled).toBe(false);
+  expect(primary().textContent).toContain('Simulate 1 motor');
+  await start();
+  expect(sweep.mock.calls[0]![0].includeSingles).toBe(true);
+  expect(host.querySelector('.batch-finished')!.textContent).toContain('simulated 1 motor;');
+});
+
+it('r2-2 resets singles and combinations when a saved target choice becomes stale', () => {
+  const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [{ type: 'bodytube', id: 'b', children:
+    [0, 90, 180, 270].map((deg, i) => ({ type: 'innertube', id: i ? `m${i}` : 'mount', motorMount: true,
+      outerRadius: 0.0125, thickness: 0.0005, radialPosition: 0.025, radialDirection: deg * Math.PI / 180 })) }] }] };
+  const mounts = ['mount', 'm1', 'm2', 'm3'].map(id => ({ ...MOUNTS[0]!, id, label: id }));
+  mount({ tree, mounts });
+  const all = () => [...host.querySelectorAll('label')].find(l => l.textContent?.includes('Use all'))!.querySelector('input')!;
+  act(() => all().click());
+  act(() => all().click()); // Keep an explicit target choice with all tubes on.
+  act(() => checkbox('mixed 2+2').click());
+  act(() => checkbox('Also fly each motor in every position').click());
+  mount({ tree: structuredClone(tree), mounts });
+  expect(checkbox('Also fly each motor in every position').checked).toBe(true);
+  expect(checkbox('mixed 2+2').checked).toBe(false);
+});
+
+it('r2-3 lets disabled filter chips shrink inside their fieldset', () => {
+  mount();
+  const fieldset = host.querySelector('fieldset')!;
+  expect(fieldset.style.minWidth).toMatch(/^0(px)?$/);
+  expect(fieldset.style.borderWidth).toMatch(/^0(px)?$/);
+});
+
+it('r2-4 uses collision-aware names in the owned list and singular/plural summary', () => {
+  const base = MOTOR_DB.find(m => fitsMount(24, m))!;
+  const added = ['123E999-9A', '234E999-9A'].map((designation, i) => ({ ...base,
+    motorId: `collision-${i}`, manufacturerAbbrev: 'Cesaroni', designation }));
+  setCatalogueOverlay({ baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date(0).toISOString(), liveCount: 0,
+    added, changed: [], removed: [], rejected: [] });
+  localStorage.setItem('online-openrocket.batch-my-motors.v1', JSON.stringify(added.map(m => m.motorId)));
+  mount();
+  expect(host.textContent).toContain(`2 motors: Cesaroni ${added[0]!.designation}, Cesaroni ${added[1]!.designation}`);
+  act(() => buttons().find(b => b.textContent === 'Edit my motors')!.click());
+  const panel = host.querySelector('[aria-label="My motors"]')!;
+  const selected = [...panel.querySelectorAll<HTMLInputElement>('input:checked')];
+  added.forEach(m => expect(selected.some(input => input.closest('label')!.textContent?.includes(`Cesaroni ${m.designation}`))).toBe(true));
+  act(() => selected[1]!.click());
+  act(() => buttons().find(b => b.textContent === 'Edit my motors')!.click());
+  expect(host.textContent).toContain('1 motor: Cesaroni ');
+});
+
+it('r2-6 shows the fine-step caution only when there are flights to run', () => {
+  mount({ tree: CLUSTER_TREE, mounts: CLUSTER_MOUNTS, launch: { ...DEFAULT_CONDITIONS, timeStepS: 0.01 } });
+  expect(host.textContent).toContain('is finer than');
+  act(() => checkbox('Also fly each motor in every position').click());
+  expect(candidateCount()).toBeGreaterThan(0);
+  expect(host.textContent).not.toContain('is finer than');
+  act(() => checkbox('mixed 2+2').click());
+  expect(host.textContent).toContain('is finer than');
+});
+
+it('r2-7 typing in Search my motors filters the tick-list and clearing restores it', () => {
+  mount();
+  act(() => buttons().find(b => b.textContent === 'Edit my motors')!.click());
+  const panel = host.querySelector('[aria-label="My motors"]')!;
+  const search = panel.querySelector<HTMLInputElement>('input[type="search"]')!;
+  const count = () => panel.querySelectorAll('input[type="checkbox"]').length;
+  const before = count();
+  type(search, 'no-such-motor-r2');
+  expect(search.value).toBe('no-such-motor-r2');
+  expect(count()).toBe(0);
+  type(search, '');
+  expect(count()).toBe(before);
+  const motor = MOTOR_DB.find(m => fitsMount(24, m))!;
+  type(search, motor.designation);
+  expect(count()).toBeGreaterThan(0);
+  expect(count()).toBeLessThan(before);
+});
+
+it('r2-7 a three-candidate mixed-only 2+2 finishes as three flights', async () => {
+  const motors = MOTOR_DB.filter(m => fitsMount(24, m)).slice(0, 3);
+  localStorage.setItem('online-openrocket.batch-my-motors.v1', JSON.stringify(motors.map(m => m.motorId)));
+  const rows = motors.map((_, i) => ({ ...row(`mix-${i}`, `Mix ${i}`, 300), combo: true }));
+  sweep.mockResolvedValue({ rows, stopped: false });
+  mount({ tree: CLUSTER_TREE, mounts: CLUSTER_MOUNTS });
+  act(() => checkbox('Fly only my motors').click());
+  act(() => checkbox('mixed 2+2').click());
+  act(() => checkbox('Also fly each motor in every position').click());
+  expect(primary().textContent).toContain('Simulate 3 flights');
+  await start();
+  expect(sweep.mock.calls[0]![0].includeSingles).toBe(false);
+  expect(sweep.mock.calls[0]![0].candidates).toHaveLength(3);
+  expect(host.querySelector('.batch-finished')!.textContent).toContain('simulated 3 flights;');
+});
+
+it('136 mixed-only rows reach exports without an empty Single motor tab, and no selected pass is refused', async () => {
+  const r = { ...row('mixed', 'two motors', 300), combo: true };
+  r.run!.motorConfig = 'mixed 2+2';
+  sweep.mockResolvedValue({ rows: [r], stopped: false });
+  const fitting = MOTOR_DB.filter(m => fitsMount(24, m) && isAvailable(m));
+  const maker = fitting.find(m => {
+    const n = fitting.filter(other => other.manufacturerAbbrev === m.manufacturerAbbrev).length;
+    return n >= 2 && n < 10;
+  })!.manufacturerAbbrev;
+  localStorage.setItem('online-openrocket.batch-criteria.v1', JSON.stringify({ manufacturers: [maker] }));
+  mount({ tree: CLUSTER_TREE, mounts: CLUSTER_MOUNTS });
+  expect(checkbox('Also fly each motor in every position').checked).toBe(true);
+  act(() => checkbox('Also fly each motor in every position').click());
+  expect(primary().disabled).toBe(true);
+  expect(host.textContent).toContain('Nothing to fly');
+  act(() => checkbox('mixed 2+2').click());
+  await start();
+  expect(sweep.mock.calls[0]![0].includeSingles).toBe(false);
+  act(() => buttons().find(b => b.textContent?.includes('XLSX'))!.click());
+  const bytes = new Uint8Array(await vi.mocked(downloadBlob).mock.calls[0]![0].arrayBuffer());
+  const workbook = strFromU8(unzipSync(bytes)['xl/workbook.xml']!);
+  expect(workbook).toContain('All results');
+  expect(workbook).toContain('Mixed 2+2');
+  expect(workbook).not.toContain('Single motor');
+});
+
+it('137 renders the current bore impulse chips, loads legacy criteria, and persists a class toggle', () => {
+  localStorage.setItem('online-openrocket.batch-criteria.v1', JSON.stringify({ manufacturers: [], classes: [] }));
+  mount();
+  const group = host.querySelector('[aria-label="Impulse classes"]')!;
+  expect(group).not.toBeNull();
+  expect(group.textContent).toContain('Class');
+  const chips = [...group.querySelectorAll('button')];
+  const offered = impulseClassesForMount(24, false, MOTOR_DB);
+  expect(chips).toHaveLength(offered.length);
+  offered.forEach((c, i) => {
+    expect(chips[i]!.textContent?.trim()).toBe(`${c.letter} ${c.count}`);
+  });
+  expect(chips.every(b => b.getAttribute('aria-pressed') === 'false')).toBe(true);
+  act(() => chips[0]!.click());
+  expect(chips[0]!.getAttribute('aria-pressed')).toBe('true');
+  expect(chips[0]!.textContent).toContain('✓');
+  const selected = JSON.parse(localStorage.getItem('online-openrocket.batch-criteria.v1')!).impulse;
+  expect(selected).toHaveLength(1);
+  expect(MOTOR_DB.filter(m => fitsMount(24, m)).some(m => m.impulseClass.startsWith(selected[0]))).toBe(true);
+});
+
+it('138 My motors overrides OOP and chips, feeds combinations, persists editing, and refuses an empty list', async () => {
+  const fitting = MOTOR_DB.filter(m => fitsMount(24, m));
+  const oop = fitting.find(m => !isAvailable(m))!;
+  const other = fitting.find(m => m.motorId !== oop.motorId)!;
+  localStorage.setItem('online-openrocket.batch-my-motors.v1', JSON.stringify([oop.motorId, other.motorId]));
+  localStorage.setItem('online-openrocket.batch-criteria.v1', JSON.stringify({ manufacturers: ['Invisible'], classes: [1], impulse: ['Z'] }));
+  sweep.mockResolvedValue({ rows: [], stopped: false });
+  mount({ tree: CLUSTER_TREE, mounts: CLUSTER_MOUNTS });
+  act(() => checkbox('Fly only my motors').click());
+  act(() => checkbox('mixed 2+2').click());
+  expect(candidateCount()).toBe(2);
+  expect(checkbox('include OOP').disabled).toBe(true);
+  expect(host.querySelector('fieldset')!.disabled).toBe(true);
+  expect(host.textContent).toContain('your choices are kept');
+  await start();
+  expect(sweep.mock.calls[0]![0].candidates.map(m => m.motorId).sort()).toEqual([oop.motorId, other.motorId].sort());
+  expect(sweep.mock.calls[0]![0].splits).toHaveLength(1);
+  act(() => buttons().find(b => b.textContent === 'Edit my motors')!.click());
+  const panel = host.querySelector('[aria-label="My motors"]')!;
+  expect(panel.querySelectorAll('input[type="checkbox"]:checked')).toHaveLength(2);
+  act(() => buttons().find(b => b.textContent === 'Clear list')!.click());
+  expect(JSON.parse(localStorage.getItem('online-openrocket.batch-my-motors.v1')!)).toEqual([]);
+  expect(primary().disabled).toBe(true);
+  expect(host.textContent).toContain('No fitting motors in My motors');
+  act(() => panel.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+  expect(JSON.parse(localStorage.getItem('online-openrocket.batch-my-motors.v1')!)).toHaveLength(1);
+  expect(candidateCount()).toBe(1);
+  act(() => checkbox('Fly only my motors').click());
+  expect(host.querySelector('fieldset')!.disabled).toBe(false);
+  expect(JSON.parse(localStorage.getItem('online-openrocket.batch-criteria.v1')!).impulse).toEqual(['Z']);
+});
+
+it('138 displays named fit, length and unavailable exclusions as Information', () => {
+  const wide = MOTOR_DB.find(m => !fitsMount(24, m))!;
+  const long = MOTOR_DB.find(m => fitsMount(24, m) && m.length > 50)!;
+  localStorage.setItem('online-openrocket.batch-my-motors.v1', JSON.stringify([wide.motorId, long.motorId, 'ex:missing']));
+  mount({ mounts: [{ ...MOUNTS[0]!, label: 'Target\u202eMMT', maxMotorLengthM: 0.05 }] });
+  act(() => checkbox('Fly only my motors').click());
+  expect(host.textContent).toContain('too wide for Target[U+202E]MMT');
+  expect(host.textContent).toContain('too long for Target[U+202E]MMT (max');
+  expect(host.textContent).toContain('ex:missing: unavailable');
+  const information = [...host.querySelectorAll('p')].find(p => p.textContent?.includes('ex:missing: unavailable'))!;
+  expect(information).toBeDefined();
+  expect(information.classList.contains('message-tier')).toBe(false);
+});
+
 it('Round 5 filters every target bore and names the limiting mount, preserving box-OFF candidates', async () => {
   const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [{ type: 'bodytube', id: 'b', children:
     [16.90, 16.49].map((bore, i) => ({ type: 'innertube', id: i ? 'narrow' : 'mount', name: i ? 'Narrow MMT' : 'Wide MMT',
@@ -161,7 +450,7 @@ it('Round 5 filters every target bore and names the limiting mount, preserving b
   await start();
   expect(sweep.mock.calls[0]![0].candidates).toEqual(expect.arrayContaining(expected));
   expect(sweep.mock.calls[0]![0].candidates).toHaveLength(expected.length);
-  const allBox = [...host.querySelectorAll('label')].find(l => l.textContent?.includes('Fly each candidate in all'))!.querySelector('input')!;
+  const allBox = [...host.querySelectorAll('label')].find(l => l.textContent?.includes('Use all'))!.querySelector('input')!;
   act(() => allBox.click());
   const selectedOnly = MOTOR_DB.filter(m => isAvailable(m) && fitsMount(17, m));
   expect(selectedOnly.some(m => m.diameter === 18)).toBe(true);
@@ -172,7 +461,7 @@ it('Round 5 filters every target bore and names the limiting mount, preserving b
   expect(sweep.mock.calls[1]![0].candidates).toHaveLength(selectedOnly.length);
 });
 
-it('Round 5 distinguishes six-ring arrangements with identical motor totals using frozen loadouts', async () => {
+it('r4-5 distinguishes six-ring arrangements with identical motor totals in Open accessible names', async () => {
   const mixed = (key: string, pairs: string[]): BatchRow => {
     const result = { ...row(key, '4× Acme E22 + 2× Acme E20', 300), combo: true };
     result.run = { ...result.run!, batch: true, motorConfig: 'mixed 4+2', batchMounts:
@@ -187,6 +476,12 @@ it('Round 5 distinguishes six-ring arrangements with identical motor totals usin
   const cells = bodyRows().map(tr => tr.querySelector('td')!.textContent!);
   for (const r of rows) expect(cells.find(text => text.includes(batchLoadoutText(r.run!)!))).toBeDefined();
   expect(cells[0]).not.toBe(cells[1]);
+  const opens = buttons().filter(b => b.textContent === 'Open');
+  const names = opens.map(b => b.getAttribute('aria-label'));
+  expect(new Set(names).size).toBe(2);
+  for (const r of rows) expect(names).toContain(`Open ${r.label} · ${batchLoadoutText(r.run!)} in Results`);
+  act(() => opens[1]!.click());
+  expect(opened[0]).toBe(saved[0]!.find(run => run.id === 'b'));
   // Editing the current picker/tree cannot replace a completed row's evidence.
   mount({ tree: structuredClone(TREE), mounts: [{ ...MOUNTS[0]!, label: 'Renamed today' }] });
   expect(bodyRows().map(tr => tr.querySelector('td')!.textContent!)).toEqual(cells);
@@ -200,7 +495,7 @@ it('124/125 offers all matching empty tubes by default, restores defaults on pic
   const mounts = ['mount', 'm1', 'm2', 'm3'].map(id => ({ ...MOUNTS[0]!, id, label: id }));
   sweep.mockResolvedValue({ rows: [], stopped: false });
   mount({ tree, mounts });
-  const allBox = () => [...host.querySelectorAll('label')].find(l => l.textContent?.includes('Fly each candidate in all'))!.querySelector('input')!;
+  const allBox = () => [...host.querySelectorAll('label')].find(l => l.textContent?.includes('Use all'))!.querySelector('input')!;
   expect(allBox().checked).toBe(true);
   expect(host.textContent).toContain('Candidates fly in MMT 1, MMT 2, MMT 3 and MMT 4.');
   const mixed = [...host.querySelectorAll('label')].find(l => l.textContent?.trim() === 'mixed 2+2')!.querySelector('input')!;
@@ -211,7 +506,7 @@ it('124/125 offers all matching empty tubes by default, restores defaults on pic
   mount({ tree, mounts, assignedIgnitions: { m1: { event: 'launch', delay: 1 }, m3: { event: 'launch', delay: 1 } } });
   const count = candidateCount();
   expect(host.textContent).toContain(`+${count * (count - 1)} mixed 2+2 combinations`);
-  expect(mixed.closest('label')!.title).toContain(`${count * (count - 1)} extra flights`);
+  expect(mixed.closest('label')!.title).toContain(`${count * (count - 1)} mixed flights`);
   expect(mixed.closest('label')!.title).toContain('every arrangement');
   expect(primary().textContent).toContain(`Simulate ${new Intl.NumberFormat('en-US').format(count ** 2)} flights`);
   mount({ tree, mounts });
@@ -271,7 +566,7 @@ describe('the candidates', () => {
     const n = candidateCount();
     for (const [name, extra] of [['mixed 3+3', n ** 2 - n], ['mixed 4+2 / 2+2+2', n ** 3 - n]] as const) {
       const label = [...host.querySelectorAll('label')].find(l => l.textContent?.trim() === name)!;
-      expect(label.title).toContain(`${extra} extra flights`);
+      expect(label.title).toContain(`${extra} mixed flights`);
       expect(label.title).toContain('every arrangement');
       act(() => label.querySelector('input')!.click());
       expect(host.textContent).toContain(`+${extra} ${name} combinations`);
