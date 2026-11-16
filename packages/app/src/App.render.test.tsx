@@ -173,9 +173,14 @@ async function settle(ms = 0): Promise<void> {
 }
 
 async function waitFor(pred: () => boolean, what: string, timeoutMs = 8000): Promise<void> {
+  // Under fake timers Date.now() is the fake clock, which settle() advances by
+  // 250 ms per poll; real async work (catalogue fetch, digests) can then lose
+  // the race on a loaded CI runner (deploy run 43812272864). Give up only when
+  // BOTH clocks have run out; performance is not in vite.config.ts's toFake.
   const t0 = Date.now();
+  const r0 = performance.now();
   while (!pred()) {
-    if (Date.now() - t0 > timeoutMs) throw new Error(`timed out waiting for ${what}`);
+    if (Date.now() - t0 > timeoutMs && performance.now() - r0 > timeoutMs) throw new Error(`timed out waiting for ${what}`);
     await settle(50);
   }
 }
