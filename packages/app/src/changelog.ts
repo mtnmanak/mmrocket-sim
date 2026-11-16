@@ -40,6 +40,24 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.203",
+    "date": "2026-11-16",
+    "title": "A Maximum flight time setting, read from and saved to .ork files",
+    "summary": [
+      "Launch conditions has a new Maximum flight time (s): the simulation stops there even if the rocket is still in the air, and the flight is reported as incomplete. It defaults to 1,200 s, the fixed limit full flights have used until now, and accepts 1 to 14,400 s; above 3,600 s the panel cautions that long flights take longer to simulate and use more memory.",
+      "A long descent that used to stop at 1,200 s can now be flown to the ground by raising the limit. The incomplete-flight warning names the limit the run flew with.",
+      "Opening a .ork now reads the Maximum flight time desktop OR saved with it, and saving writes yours; until now the app ignored it and always wrote 1,200 s. Opening a file that carries none sets it back to 1,200 s, with a caution when that replaces a different limit.",
+      "No flight number moves from v0.202 unless you change the setting or open a .ork that saved a different limit."
+    ],
+    "items": [
+      "MAXIMUM FLIGHT TIME. A new Maximum flight time (s) field under Launch conditions, beside Geodetic calculations, sets when the simulation stops even if the rocket is still in the air; the flight is then reported as incomplete, with no landing rate or drift. It defaults to 1,200 s (the fixed limit Launch and Batch simulate flights used until now, and desktop OR’s default), accepts 1 to 14,400 s, and a value outside that range is brought inside with a message. Above 3,600 s the panel cautions: “Long flights take longer to simulate and use more memory.” Launch and Batch simulate both use it.",
+      "SAVED RUNS. Each new run records the limit it flew with, and replaying a flight from Saved simulations uses that limit. Runs saved before this release are judged against 1,200 s, as before. The incomplete-flight warning now names the run’s own limit and where to change it.",
+      "DESKTOP .ORK FILES. Opening a .ork reads its selected simulation’s <maxtime>, and saving writes the design’s value; until now the app ignored an imported <maxtime> and always wrote 1,200 s, so a limit set in desktop OR was lost on the round trip. A <maxtime> outside 1–14,400 s is brought inside with an import note. Opening any file that carries no limit (a .ork without one, a .rkt or a .CDX1) sets it back to 1,200 s, with a caution when that replaces a different limit, the same rule the Time step follows. Saving a .rkt or .CDX1 lists a non-default limit among what that format cannot keep.",
+      "WHAT MOVES. Nothing from v0.202, unless you change the setting or open a .ork that saved a different limit. Measured on the tester files: the 37 .ork files that carry no limit other than 1,200 s fly byte-identical summaries and time series before and after; the one that saved 3,600 s also flies identically, because it lands at 1,042 s, before either limit. A tester design the app flies to about 40 km, which stopped at 1,200 s still in the air, lands at about 2,182 s with the limit raised to 3,600 s.",
+      "VALIDATION HARNESS. Thirteen scored transonic fins-on drag points (nine curve readings; one model is scored twice) that were read between the Mach numbers NASA tested in TN D-4013 no longer count as gates, and that series’ tested points now carry per-point tolerances instead of a flat ±0.03, built the same way as the fins-off points: the report’s stated accuracies plus allowances for reading the curves and for Mach. The harness has 178 gated coefficient checks, down from 191; the guide’s scores are updated (Hybrid 69/178, Supersonic 68/178, Kbf 30/178). No model or flight number changed; these are coefficient checks, not flight-accuracy percentages."
+    ]
+  },
+  {
     "version": "0.202",
     "date": "2026-11-15",
     "title": "RockSim staging timed from separation, printed average delays, and safer file imports",

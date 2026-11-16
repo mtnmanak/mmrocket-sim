@@ -6,7 +6,7 @@
  * rise and fall at a peak. Round RSS upward to the next 0.001 in CD.
  */
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { isMain } from '../../scripts/is-main.mjs';
 
 export function finsOnBudgets(points) {
   return points.map(([mach, value], i) => {
@@ -22,7 +22,7 @@ export function finsOnBudgets(points) {
   });
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   const anchors = JSON.parse(readFileSync(new URL('../anchors.json', import.meta.url), 'utf8'));
   for (const cell of ['arcas-short', 'arcas-short-nosection', 'arcas-long']) {
     const series = anchors[cell].series.filter(s => ['cd-transonic-tunnel', 'cd-transonic-fairing'].includes(s.id));
