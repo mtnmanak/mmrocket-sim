@@ -1,5 +1,5 @@
 {
   "version": "0.203",
   "released": "2026-11-16",
-  "note": "A Maximum flight time setting under Launch conditions (default 1,200 s, 1–14,400 s), read from and saved to .ork files; the TN D-4013 fins-on transonic series now gates only the Mach numbers NASA tested (178 gates in all). No flight number moves unless the setting changes."
+  "note": "A Maximum flight time setting under Launch conditions (default 1,200 s, 1–14,400 s), read from and saved to .ork files; the TN D-4013 fins-on transonic series now gates only the Mach numbers NASA tested (178 gates in all). No flight number moves unless you change the setting or open a .ork that saved a different limit."
 }
