@@ -6,7 +6,7 @@ import { kernelRecoveryCd } from '../tree/kernelDefaults.js';
 import { exportRkt, importRkt, rktComponentInfo } from './rocksimFile.js';
 import { checkFormatLoss } from './formatLoss.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
-import { IMPERIAL_UNITS } from '../prefs/units.js';
+import { IMPERIAL_UNITS, INITIAL_UNITS, noticeEqual, noticeQuantity } from '../prefs/units.js';
 
 const xml = (part: string) => `<RockSimDocument><DesignInformation><RocketDesign><Name>Counts</Name>
   <StageCount>1</StageCount><Stage3Parts><NoseCone><Name>Nose</Name><Len>100</Len><BaseDia>50</BaseDia>
@@ -21,6 +21,115 @@ const chute = (count: string, known = '') => `<Parachute><Name>Recovery</Name><D
   <ChuteCount>${count}</ChuteCount><SideCount>0</SideCount><SpillHoleDia>30</SpillHoleDia><DragCoefficient>1.1</DragCoefficient>
   <DensityType>1</DensityType><Density>0.0067</Density><ShroudLineCount>6</ShroudLineCount>
   <ShroudLineLen>300</ShroudLineLen><ShroudLineMassPerMM>0.0018</ShroudLineMassPerMM>${known}</Parachute>`;
+
+describe('row 132 recovery CalcMass plausibility', () => {
+  const part = (type: 'parachute' | 'streamer', count: number, fields = '') => type === 'parachute'
+    ? chute(String(count), fields).replace('<DensityType>1', '<DensityType>0')
+      .replace('<Density>0.0067</Density>', '<Density>67</Density><Thickness>1</Thickness>')
+    : `<Streamer><Name>Recovery</Name><Len>500</Len><Width>50</Width><StreamerCount>${count}</StreamerCount>
+      <DensityType>0</DensityType><Density>67</Density><Thickness>1</Thickness>${fields}</Streamer>`;
+  const cautions = (r: ReturnType<typeof importRkt>) => r.noteTiers?.filter(n => n.kind === 'I18.recovery-mass-pinned') ?? [];
+
+  it.each(['parachute', 'streamer'] as const)('warns for a %s below one tenth, while retaining the flown mass', type => {
+    const estimate = mass(importRkt(xml(part(type, 2))));
+    const boundary = 0.1 * estimate;
+    const tie = boundary - 0.5e-12;
+    expect(tie).toBeLessThan(boundary);
+    expect(noticeEqual(tie, boundary)).toBe(true);
+    const cases = [
+      [estimate / 20, 1], [boundary - 2e-12, 1], [tie, 0], [boundary, 0],
+      [boundary + 2e-12, 0], [estimate / 2, 0], [estimate, 0], [estimate * 2, 0],
+    ] as const;
+    for (const [pinned, warningCount] of cases) {
+      const r = importRkt(xml(part(type, 2, `<CalcMass>${pinned * 1000}</CalcMass>`)));
+      expect(cautions(r), `pin ${pinned}, boundary ${boundary}`).toHaveLength(warningCount);
+      if (pinned === boundary - 2e-12) expect(cautions(r)[0]!.text).toContain('is just below');
+      expect(device(r)['overrideMass']).toBeCloseTo(pinned, 12);
+      // Absolute tolerance 1e-12 kg accommodates kernel last-bit differences.
+      expect(mass(r)).toBeCloseTo(pinned, 12);
+    }
+  }, 60_000);
+
+  it.each([INITIAL_UNITS, IMPERIAL_UNITS])('names every affected device in one Caution using the selected mass unit (%j)', units => {
+    const estimate = mass(importRkt(xml(part('parachute', 2))));
+    const pinned = estimate / 20;
+    const first = part('parachute', 2, `<CalcMass>${pinned * 1000}</CalcMass>`).replace('Recovery', 'First&#10;canopies');
+    const second = first.replace('First&#10;canopies', 'Second canopies');
+    const r = importRkt(xml(first + second), { units });
+    const notes = cautions(r);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.tier).toBe('caution');
+    const text = notes[0]!.text;
+    expect(text).toContain('Firstcanopies'); // noteField removes the file's newline.
+    expect(text).toContain('Second canopies');
+    expect(text).not.toContain('\n');
+    expect(text).toContain(noticeQuantity('mass', pinned, units, { against: 0.1 * estimate }));
+    expect(text).toContain(noticeQuantity('mass', estimate, units));
+    expect(text).toContain("mass pinned from RockSim's CalcMass for 2 canopies");
+    expect(text).toContain('clear Mass under Overrides');
+    expect(text).not.toContain('**');
+  }, 60_000);
+
+  it.each(['parachute', 'streamer'] as const)('does not warn for count-1 or measured %s masses', type => {
+    const control = importRkt(xml(part(type, 2, '<CalcMass>0.001</CalcMass>')));
+    expect(cautions(control)).toHaveLength(1);
+    const single = importRkt(xml(part(type, 1, '<CalcMass>0.001</CalcMass>')));
+    expect(device(single)['overrideMass']).toBeUndefined();
+    expect(cautions(single)).toHaveLength(0);
+    const measured = importRkt(xml(part(type, 2, '<CalcMass>0.001</CalcMass><KnownMass>0.001</KnownMass><UseKnownMass>1</UseKnownMass>')));
+    expect(device(measured)['overrideMass']).toBeCloseTo(0.000001, 12);
+    expect(cautions(measured)).toHaveLength(0);
+  }, 60_000);
+
+  it('compares the corrected surface-density total with all canopies, rather than the source CalcMass alone', () => {
+    const r = importRkt(xml(chute('2', '<CalcMass>0.001</CalcMass>')));
+    expect(device(r)['overrideMass']).toBeGreaterThan(0.001);
+    expect(cautions(r)).toHaveLength(0);
+    // A line-heavy surface-density device can still have a too-light total.
+    const surface = (fields = '') => chute('2', fields).replace('<Density>0.0067</Density>', '<Density>0.000001</Density>');
+    const estimate = mass(importRkt(xml(surface())));
+    const addedFabric = Math.PI * (0.15 ** 2 - 0.015 ** 2) * 0.00001;
+    const pinned = estimate / 20;
+    const calc = pinned - addedFabric;
+    expect(calc).toBeGreaterThan(0);
+    const light = importRkt(xml(surface(`<CalcMass>${calc * 1000}</CalcMass>`)));
+    expect(device(light)['overrideMass']).toBeCloseTo(pinned, 12);
+    expect(mass(light)).toBeCloseTo(pinned, 12);
+    expect(cautions(light)).toHaveLength(1);
+    const text = cautions(light)[0]!.text;
+    expect(text).toContain(`mass pinned from RockSim's CalcMass for 2 canopies is ${noticeQuantity('mass', pinned, INITIAL_UNITS, { against: 0.1 * estimate })}`);
+    expect(text).not.toContain('RockSim recorded');
+  }, 60_000);
+
+  const located = (atMm: number, fields: string) => `<RockSimDocument><DesignInformation><RocketDesign><Name>Placement</Name>
+    <StageCount>1</StageCount><Stage3Parts><BodyTube><Name>Body</Name><Len>1000</Len><OD>50</OD><ID>48</ID>
+    <DensityType>0</DensityType><Density>680</Density><AttachedParts>
+    ${part('parachute', 2, `<Xb>${atMm}</Xb><LocationMode>0</LocationMode>${fields}`)}
+    </AttachedParts></BodyTube></Stage3Parts></RocketDesign></DesignInformation></RockSimDocument>`;
+
+  it.each([25, 900])('states both CG cases for a device at %i mm, because the motor is not known at import', atMm => {
+    // Closure review r2: the direction against an unloaded CG can be the
+    // reverse of the loaded one, so the Caution names no single direction.
+    const estimate = mass(importRkt(located(atMm, '')));
+    const r = importRkt(located(atMm, `<CalcMass>${estimate / 20 * 1000}</CalcMass>`));
+    expect(cautions(r)).toHaveLength(1);
+    const text = cautions(r)[0]!.text;
+    expect(text).toContain('for a device ahead of the CG with the motor loaded, the CG sits too far aft and the shown stability margin is smaller than the rocket really has');
+    expect(text).toContain('for a device behind it, the CG sits too far forward and the margin shown is larger than the rocket really has');
+    expect(text).not.toContain('CG sits further');
+    expect(text).not.toContain('may be wrong');
+  }, 60_000);
+
+  it('keeps an existing engine handle usable while calculating the diagnostic mass', () => {
+    const r = importRkt(xml(part('parachute', 2)));
+    resetEngine();
+    const rocket = OrkRocket.buildTree(engineTree(r.tree));
+    const before = rocket.componentInfo(device(r).id!).mass;
+    const imported = importRkt(xml(part('parachute', 2, `<CalcMass>${before / 20 * 1000}</CalcMass>`)));
+    expect(cautions(imported)).toHaveLength(1);
+    expect(rocket.componentInfo(device(r).id!).mass).toBeCloseTo(before, 12);
+  }, 60_000);
+});
 
 describe('RockSim recovery counts', () => {
   it.each([2, 3])('C-F3-3 imports %i canopies at equal area and computes all fabric and lines', count => {

@@ -3,6 +3,19 @@ import { expect, it } from 'vitest';
 import { explanationFor, importNoteCode, NOTE_EXPLANATIONS, staticWarningCode } from './noteExplanations.js';
 import { WARNING_LABEL } from './simWarnings.js';
 
+it('explains the retained recovery mass pin and how to correct it', () => {
+  const explanation = explanationFor('I18.recovery-mass-pinned');
+  expect(explanation.meaning).toContain('one tenth');
+  expect(explanation.meaning).toContain('still used');
+  expect(explanation.meaning).toContain('the CG and the shown stability margin may be wrong');
+  expect(explanation.meaning).toContain('ahead of the CG with the motor loaded');
+  expect(explanation.meaning).toContain('understates the margin');
+  expect(explanation.meaning).toContain('behind the CG');
+  expect(explanation.meaning).toContain('overstates the margin');
+  expect(explanation.remedy).toContain('clear Mass under Overrides');
+  expect(explanation.remedy).toContain('CG');
+});
+
 it('HF4 r5 explains supported apogee devices and omitted unknown devices', () => {
   const meaning = explanationFor('I04.recovery-event').meaning;
   expect(meaning).toContain('supported devices at apogee');
