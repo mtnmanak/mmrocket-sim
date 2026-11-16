@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeFlightPlots } from './flightPlots.js';
+import { STABILITY_DIAGNOSTIC_PANELS } from '../flightChartModel.js';
 
 const plot = { id: 'one', name: 'Coast', panels: ['altitude', 'stabilityPercent'], comparison: 'stability' };
 
 describe('stored flight plots', () => {
+  it('reloads a saved diagnostic layout with every new panel intact', () => {
+    const saved = { ...plot, panels: [...STABILITY_DIAGNOSTIC_PANELS], comparison: '' };
+    expect(normalizeFlightPlots(JSON.parse(JSON.stringify([saved])))).toEqual([saved]);
+  });
   it('validates custom axes and event selection while accepting older layouts', () => {
     const custom = { ...plot, comparison: 'custom', custom: { x: 'Px', y: 'Py' }, events: ['BURNOUT'] };
     expect(normalizeFlightPlots([custom])).toEqual([custom]);

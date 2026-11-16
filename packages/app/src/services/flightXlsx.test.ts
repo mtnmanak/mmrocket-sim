@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { LIGHT_PALETTE, lineStyle, slotOf, type ChartToken } from '../chartTheme.js';
 import { strFromU8, unzipSync } from 'fflate';
 import type { FlightResult, FlightSeries, FlightSummary } from '@online-openrocket/engine';
-import { IMPERIAL_UNITS } from '../prefs/units.js';
+import { IMPERIAL_UNITS, METRIC_UNITS } from '../prefs/units.js';
+import { arbitraryCatalog } from '../flightChartModel.js';
 import { flightXlsx } from './flightXlsx.js';
 import type { FlightExportLayout } from './flightExportLayouts.js';
 
@@ -54,6 +55,19 @@ function richSeries(): FlightSeries {
 function singleFlight(): FlightResult {
   return { summary, events: [], series: fakeSeries() };
 }
+
+it('N052 keeps descriptive CG parentheses out of dimensionless workbook units', () => {
+  const flight = singleFlight();
+  flight.series['Cθ'] = [0, 0.1, -0.1];
+  flight.series['ωn'] = [0, 2, 3];
+  const files = unzipSync(flightXlsx(flight));
+  const charts = Object.entries(files).filter(([path]) => path.startsWith('xl/charts/chart'))
+    .map(([, bytes]) => strFromU8(bytes));
+  const moments = charts.find(c => c.includes('Force &amp; moment coeffs'))!;
+  expect(moments).toContain('Pitch moment coefficient (about CG)');
+  expect(moments).not.toContain('Coefficient (about CG)');
+  expect(charts.some(c => c.includes('Pitch natural frequency (rad/s)'))).toBe(true);
+});
 
 it('N032 keeps altitude and horizontal position on separate unit-labelled Excel axes', () => {
   const result = singleFlight();
@@ -290,20 +304,27 @@ describe('flightXlsx', () => {
     const want = (token: ChartToken, tier = 0) => ({
       color: LIGHT_PALETTE[slotOf(token)]!.slice(1).toUpperCase(), dash: (lineStyle(slotOf(token), tier) ?? []).join(','),
     });
+    // N052 reserves five more first-class looks. Extras must still match the
+    // screen catalog, but no longer occupy its former tier-2 slots.
+    const catalog = arbitraryCatalog(series, { units: METRIC_UNITS }, LIGHT_PALETTE);
+    const extra = (key: string) => {
+      const def = catalog.find(d => d.key === key)!;
+      return { color: def.color.slice(1).toUpperCase(), dash: (def.dash ?? []).join(',') };
+    };
     expect(looks.get('Altitude (m)')).toEqual(want('altitude'));
     expect(looks.get('Velocity (m/s)')).toEqual(want('velocity'));
     expect(looks.get('Vertical velocity')).toEqual(want('velocity', 1));
     expect(looks.get('Acceleration (m/s²)')).toEqual(want('acceleration'));
-    expect(looks.get('Vertical acceleration')).toEqual(want('acceleration', 2));
+    expect(looks.get('Vertical acceleration')).toEqual(extra('Az'));
     expect(looks.get('Thrust (N)')).toEqual(want('thrust'));
     expect(looks.get('Drag force (N)')).toEqual(want('drag'));
     expect(looks.get('Mach number')).toEqual(want('mach'));
     expect(looks.get('Stability margin (cal)')).toEqual(want('reference'));
     expect(looks.get('Stability margin (cal)')!.dash).toBe('6,4');
     expect(looks.get('Dynamic pressure (Pa)')).toEqual(want('pressure'));
-    expect(looks.get('P — Air pressure (Pa)')).toEqual(want('pressure', 2));
+    expect(looks.get('P — Air pressure (Pa)')).toEqual(extra('P'));
     // The non-quantities take the catalog's next free pairs (tier 1), as on
-    // screen; so the re-flown Az and P, allocated after them, are tier 2.
+    // screen; the re-flown Az and P are allocated after the diagnostics.
     expect(looks.get('Mass (kg)')).toEqual(want('altitude', 1));
     expect(looks.get('CP location (m)')).toEqual(want('acceleration', 1));
     expect(looks.get('CG location (m)')).toEqual(want('pressure', 1));

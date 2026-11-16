@@ -5,7 +5,9 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { boosterBranches, type FlightResult, type FlightSeries } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { arbitraryCatalog, seriesCatalog, PRESETS, usableSeries, withStabilityPercent, type ComparisonPreset, type SeriesDef } from '../flightChartModel.js';
+import { arbitraryCatalog, seriesCatalog, PRESETS, STABILITY_DIAGNOSTIC_KEYS, STABILITY_DIAGNOSTIC_PANELS, usableSeries, withStabilityDiagnostics, withStabilityPercent, type ComparisonPreset, type SeriesDef } from '../flightChartModel.js';
+import { GlossaryHelp } from './GlossaryHelp.js';
+import { stabilityTerms } from '../tree/glossaryTerms.js';
 import { ComparisonChart } from './ComparisonChart.js';
 import { chartInk } from '../chartTheme.js';
 import { useChartPalette } from '../useChartPalette.js';
@@ -283,7 +285,7 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
   const branchName = branch ? `Booster ${branchIndex}: ${branch.name}` : 'Sustainer stack';
   const plotIdentity = boosters.length > 0 ? `${flightName} · ${branchName}` : flightName;
   const shown = useMemo(() => ({ ...recording, events: branch?.events ?? recording.events,
-    series: withStabilityPercent(branch?.series ?? recording.series, branch?.events ?? recording.events),
+    series: withStabilityDiagnostics(withStabilityPercent(branch?.series ?? recording.series, branch?.events ?? recording.events), branch?.events ?? recording.events),
   }), [recording, branch]);
   const axesCatalog = useMemo(() => arbitraryCatalog(shown.series, { units: prefs.units }, palette),
     [shown.series, prefs.units, palette]);
@@ -294,6 +296,10 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
     : comparison === 'ground-track' ? { id: 'ground-track', title: 'Ground track', x: 'Px', left: ['Py'], right: [] }
       : PRESETS.find(p => p.id === comparison), [comparison, custom]);
   const [selected, setSelected] = useState<Set<keyof FlightSeries>>(new Set(DEFAULT_SELECTED));
+  const [previousPlots, setPreviousPlots] = useState<{ selected: Set<keyof FlightSeries>; comparison: string } | null>(null);
+  const diagnosticsButton = useRef<HTMLButtonElement>(null);
+  const diagnosticsSelected = comparison === '' && selected.size === STABILITY_DIAGNOSTIC_PANELS.length
+    && STABILITY_DIAGNOSTIC_PANELS.every(key => selected.has(key));
   const [hovered, setHovered] = useState<keyof FlightSeries | null>(null);
   const [focused, setFocused] = useState<keyof FlightSeries | null>(null);
   const [pinned, setPinned] = useState<keyof FlightSeries | null>(null);
@@ -313,6 +319,7 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
   const plotsRef = useRef<Set<uPlot>>(new Set());
 
   const toggle = (key: keyof FlightSeries) => {
+    setPreviousPlots(null);
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -330,9 +337,13 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
     });
   };
 
-  const visible = catalog.filter((d) => selected.has(d.key) && usableSeries(shown.series, [String(d.key)]));
+  const panelCatalog = diagnosticsSelected
+    ? STABILITY_DIAGNOSTIC_PANELS.map(key => catalog.find(d => d.key === key)!) : catalog;
+  const visible = panelCatalog.filter((d) => selected.has(d.key) && usableSeries(shown.series, [String(d.key)]));
   const legend = plotCatalog.filter((d) => (visible.some((v) => v.key === d.key)
     || preset?.left.includes(String(d.key)) || preset?.right.includes(String(d.key))) && usableSeries(shown.series, [String(d.key)]));
+  const showDiagnostics = STABILITY_DIAGNOSTIC_KEYS.some(key => legend.some(d => d.key === key)
+    || (preset?.x === key && usableSeries(shown.series, [key])));
   const requested = hovered ?? focused ?? pinned;
   const emphasis = legend.some((d) => d.key === requested) ? requested : null;
 
@@ -449,6 +460,18 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
         )}
       </div>
       <div className="series-picker flight-series-picker" role="group" aria-label="Plot series">
+        {STABILITY_DIAGNOSTIC_KEYS.some(key => usableSeries(shown.series, [key])) && <button className="chart-btn" ref={diagnosticsButton}
+          onClick={() => {
+            if (!diagnosticsSelected) setPreviousPlots({ selected: new Set(selected), comparison });
+            setSelected(new Set(STABILITY_DIAGNOSTIC_PANELS)); setComparison('');
+          }}>Stability diagnostics</button>}
+        {previousPlots && <button className="chart-btn" onClick={(e) => {
+          // The set's button is absent on a branch with no usable diagnostics;
+          // fall back to the first series chip so focus stays in the group.
+          const fallback = e.currentTarget.parentElement?.querySelector<HTMLButtonElement>('.series-chip');
+          setSelected(previousPlots.selected); setComparison(previousPlots.comparison); setPreviousPlots(null);
+          (diagnosticsButton.current ?? fallback)?.focus();
+        }}>Restore previous plots</button>}
         {catalog.map((d) => {
           const available = usableSeries(shown.series, [String(d.key)]);
           if (!available) return null;
@@ -464,9 +487,31 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
           );
         })}
       </div>
+      {showDiagnostics && <Note as="div" tier="information" className="chart-comparison-note">
+        <p>These are diagnostics; the app gives no pass/fail on dynamic stability. They come from this flight&apos;s own
+          simulated aerodynamics, the same model that flew it. The five diagnostic figures are blank on the launch guide
+          and after recovery deployment or tumble. Stability margin and CP location also stop at deployment or tumble;
+          CG location continues.</p>
+        <p>Pitch natural frequency (ωn) describes how fast the rocket swings back toward the wind after a disturbance;
+          higher means stiffer at that instant. It is in rad/s (divide by 2π for Hz). It is blank where CP is ahead of CG:
+          there is no restoring moment there. Missing inputs can also leave gaps. At large angles of attack it is a
+          stiffness estimate, not a full dynamic-stability measure.
+          <GlossaryHelp term={stabilityTerms.frequency} label="Pitch natural frequency (ωn)" /></p>
+        <p>Pitch rate is how fast the rocket turns in pitch, in rad/s.
+          <GlossaryHelp term={stabilityTerms.rate} label="Pitch rate" /> Normal force coefficient describes the force across
+          the rocket&apos;s axis, scaled by dynamic pressure and reference area.
+          <GlossaryHelp term={stabilityTerms.normalForce} label="Normal-force coefficient" /></p>
+        <p>Pitch moment coefficient is the net pitching moment about the CG, including damping and a tiny deliberate
+          random disturbance the simulation adds to prevent an over-perfect flight.
+          <GlossaryHelp term={stabilityTerms.moment} label="Pitch moment coefficient" /> Pitch damping coefficient is
+          the simulation&apos;s damping term: it uses the square of the ratio of pitch rate to airspeed, multiplied by three
+          and capped by the aerodynamic pitch moment about the nose tip, with the sign of pitch rate. This is desktop OR 24.12&apos;s model,
+          not the linear damping ratio in some textbooks or newer desktop OR versions.
+          <GlossaryHelp term={stabilityTerms.damping} label="Pitch damping coefficient" /></p>
+      </Note>}
       <div className="comparison-controls">
         <label>Comparison chart
-          <select value={comparison} onChange={(e) => setComparison(e.target.value)}>
+          <select value={comparison} onChange={(e) => { setPreviousPlots(null); setComparison(e.target.value); }}>
             <option value="">None</option>
             {PRESETS.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
             <option value="custom">Custom plot</option>
@@ -487,7 +532,7 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
       {comparison === 'custom' && <div className="comparison-controls">
         {(['x', 'y'] as const).map(axis => <label key={axis}>Custom {axis.toUpperCase()} axis
           <select aria-label={`Custom ${axis.toUpperCase()} axis`} value={custom[axis]}
-            onChange={e => setCustom({ ...custom, [axis]: e.target.value })}>
+            onChange={e => { setPreviousPlots(null); setCustom({ ...custom, [axis]: e.target.value }); }}>
             {!axesCatalog.some(d => d.key === custom[axis]) && <option value={custom[axis]}>{custom[axis]} (no recorded data)</option>}
             {axesCatalog.map(d => <option key={String(d.key)} value={String(d.key)}>{d.title}{d.unit ? ` (${d.unit})` : ''}</option>)}
           </select>
@@ -530,6 +575,7 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
         ? `Downloads use layout “${exportLayout.name}” for all flight branches. Missing series stay blank; a missing selected event leaves that branch without samples.`
         : 'Downloads include every recorded series and all flight branches.'} The comparison choice and zoom do not change the files.</p>}
       <SavedFlightPlots current={{ panels: [...selected].map(String), comparison, custom, events: selectedEvents }} onApply={layout => {
+        setPreviousPlots(null);
         setSelected(new Set(layout.panels)); setComparison(layout.comparison); setCustom(layout.custom ?? { x: 'time', y: 'altitude' });
         setSelectedEvents(layout.events ?? DEFAULT_PLOT_EVENTS);
       }} />

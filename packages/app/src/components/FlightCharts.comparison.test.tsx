@@ -7,7 +7,8 @@ import type { FlightResult, FlightSeries } from '@online-openrocket/engine';
 import { FlightCharts } from './FlightCharts.js';
 import { PrefsProvider, usePrefs } from '../prefs/PrefsContext.js';
 import { METRIC_UNITS } from '../prefs/units.js';
-import { lineStyle, slotOf } from '../chartTheme.js';
+import { LIGHT_PALETTE, lineStyle, slotOf } from '../chartTheme.js';
+import { directionDash, seriesCatalog } from '../flightChartModel.js';
 import { strFromU8, unzipSync } from 'fflate';
 import { flightXlsx } from '../services/flightXlsx.js';
 import * as fileName from '../services/fileName.js';
@@ -424,13 +425,15 @@ describe('flight comparisons wiring', () => {
     expect(timePlots()[0]!.scales['x']!.max).toBeLessThan(4);
     select('Comparison chart', 'phase'); const phase = overlay();
     expect(phase.opts.cursor?.sync).toBeUndefined(); expect(phase.series.slice(1).every((s) => typeof s.paths === 'function')).toBe(true);
-    // Re-pinned for brand v1 (fix pass): rising is velocity's own long dash,
-    // falling a second velocity-coloured style — never the reference 6 4 —
-    // and not vertical velocity's dots (velocity's tier 1), so it is velocity's
-    // tier 2, solid. It was solid rising and the reference 6 4 falling.
+    // N052 reserves more catalog looks. The falling segment must still use
+    // the allocator's second velocity style, avoiding every catalog pair.
+    const defs = seriesCatalog({ units: METRIC_UNITS }, LIGHT_PALETTE);
+    const velocity = defs.find(d => d.key === 'velocity')!;
     expect(phase.series[1]!.dash).toEqual(lineStyle(slotOf('velocity')));
-    expect(phase.series[2]!.dash).toEqual(lineStyle(slotOf('velocity'), 2));
-    expect(phase.series[2]!.dash).toBeUndefined();
+    expect(phase.series[2]!.dash).toEqual(directionDash(velocity, defs).falling);
+    expect(phase.series[2]!.dash).not.toEqual(phase.series[1]!.dash);
+    expect(defs.some(d => d.color === velocity.color
+      && String(d.dash) === String(phase.series[2]!.dash))).toBe(false);
     expect(phase.series.slice(1).map((s) => String(s.dash))).not.toContain('6,4');
     const before = JSON.stringify(timePlots().map((p) => p.scales['x'])); wheel(phase);
     expect(JSON.stringify(timePlots().map((p) => p.scales['x']))).toBe(before);

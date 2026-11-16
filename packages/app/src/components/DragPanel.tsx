@@ -21,6 +21,8 @@ import { aeroModelLabel, hasAerodynamicForce, shownCp } from '../services/simRep
 import { CP_AOA_DEGREES, dragTableCsv, sweepCp, type DragTableMeta } from '../services/dragTable.js';
 import { GestureHints } from './FlightCharts.js';
 import { rollPlaneAnalysis } from '../services/rollPlaneAnalysis.js';
+import { GlossaryHelp } from './GlossaryHelp.js';
+import { stabilityTerms } from '../tree/glossaryTerms.js';
 
 /**
  * Drag analysis (RASAero-style Aero Plots): CD vs Mach with power-off/power-on
@@ -421,7 +423,7 @@ function exportCsv(sweep: DragSweep, meta: DragTableMeta) {
     stampedName(meta.design, 'drag-table', 'csv'));
 }
 
-type DragChartId = 'cd' | 'cp' | 'breakdown';
+type DragChartId = 'cd' | 'cp' | 'cna' | 'breakdown';
 
 type SweepResult = DragSweep | { error: string };
 
@@ -589,6 +591,7 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, effectiveKbf, 
    */
   const [cpAoa, setCpAoa] = useState<number>(0);
   const cdPlot = useRef<uPlot | null>(null);
+  const cnaPlot = useRef<uPlot | null>(null);
   const cpPlot = useRef<uPlot | null>(null);
   const bdPlot = useRef<uPlot | null>(null);
   const toggleBig = (id: DragChartId) => {
@@ -628,6 +631,8 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, effectiveKbf, 
   const cdLimit = hybridModel ? hybridLimit
     : !supersonicModel && machTop > 1.5 ? 'Barrowman estimate above Mach 1.5, approximate' : null;
   const cpLimit = hybridModel ? hybridLimit : !supersonicModel ? 'Barrowman: body CP frozen above Mach 1' : null;
+  const cnaLimit = hybridModel ? hybridLimit
+    : !supersonicModel ? 'Barrowman: body normal-force slope is Mach-independent; fins vary with Mach' : null;
   // Apply both fallbacks in one write so they cannot overwrite each other.
   // Neither imported tables nor computed sweeps are saved in preferences.
   useEffect(() => {
@@ -776,6 +781,12 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, effectiveKbf, 
     return lines;
   }, [sweep, C]);
 
+  const cnaLines = useMemo<Line[]>(() => {
+    if (!sweep || 'error' in sweep) return [];
+    return [{ label: 'CNα (per radian)', ...lineOf(0, C),
+      values: sweep.machs.map((_m, i) => Number.isFinite(sweep.cna[i]) ? sweep.cna[i]! : null) }];
+  }, [sweep, C]);
+
   const breakdownLines = useMemo<Line[]>(() => {
     if (!sweep || 'error' in sweep) return [];
     if (mode === 'type') {
@@ -881,7 +892,7 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, effectiveKbf, 
               expanded={bigCharts.has('cd')} plotRef={cdPlot} onZoomChange={noteZoom('cd')} />
             {/* The caption rides INSIDE the chart panel so a screenshot of the
                 chart carries its conditions with it — the same reason the CSV
-                stamps them. It applies to all three charts. */}
+                stamps them. It applies to all Mach charts. */}
             <p className="motor-db-meta" style={{ marginTop: 4 }}>
               <strong>Conditions:</strong> {condText}
               {machAlt
@@ -898,6 +909,20 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, effectiveKbf, 
                 (motor exhaust lowers base drag during boost).
               </p>
             )}
+          </div>
+
+          <div className="chart-panel">
+            <div className="chart-panel-head">
+              <h3>Normal force slope (CNα) vs Mach{cnaLimit && <span className="chart-model-limit"> — {cnaLimit}</span>}</h3>
+              <ChartHeadButtons chart="normal force slope" zoomed={zoomedCharts.has('cna')} expanded={bigCharts.has('cna')}
+                plot={cnaPlot} onToggleExpand={() => toggleBig('cna')} />
+            </div>
+            <LineChart x={sweep.machs} lines={cnaLines} title="Normal force slope (CNα) vs Mach"
+              xLabel="Mach" yLabel="CNα (per radian)" lockLegend height={160}
+              expanded={bigCharts.has('cna')} plotRef={cnaPlot} onZoomChange={noteZoom('cna')} />
+            <p className="motor-db-meta">CNα is the change in normal force coefficient per radian of angle of attack,
+              in the sweep&apos;s roll plane at zero angle of attack; this is a diagnostic, with no pass/fail.
+              <GlossaryHelp term={stabilityTerms.slope} label="CNα (normal-force slope)" /></p>
           </div>
 
           {cpLines.length > 0 && (

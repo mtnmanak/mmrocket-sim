@@ -1,5 +1,13 @@
 /** N020: references into the shipped guide glossary, never a second set of definitions. */
 const slug = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+export const stabilityTerms = {
+  frequency: slug('Pitch natural frequency (ωn)'),
+  moment: slug('Pitch moment coefficient'),
+  damping: slug('Pitch damping coefficient'),
+  rate: slug('Pitch rate'),
+  normalForce: slug('Normal-force coefficient, CN / Cn'),
+  slope: slug('CNα (normal-force slope)'),
+};
 const components: Record<string, string> = {
   stage: 'Stage / serial staging', nosecone: 'Nose cone / nose profile', bodytube: 'Body tube',
   transition: 'Transition', trapezoidfinset: 'Trapezoidal fin', ellipticalfinset: 'Elliptical fin',
