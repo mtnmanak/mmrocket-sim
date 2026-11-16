@@ -1,5 +1,5 @@
 {
   "version": "0.206",
   "released": "2026-11-16",
-  "note": "Batch simulate for clusters: fly only the mixed combinations, Class chips, and a saved My motors list; a finished batch opens Results and any saved row can be opened (and exported); batch runs record the motors they flew. An optional sticky rocket summary and tabs; tidier ignition boxes on Motors & Configuration. No flight number moves."
+  "note": "Batch simulate for clusters: fly only the mixed combinations, Class chips, and a saved My motors list; closing a finished batch opens Results, and saved batch rows open in the report (and can be exported); new batch runs record the motors they flew. An optional sticky rocket summary and tabs; tidier scope boxes on Motors & Configuration. No flight number moves."
 }
