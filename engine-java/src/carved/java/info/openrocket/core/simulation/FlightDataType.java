@@ -177,6 +177,20 @@ public class FlightDataType implements Comparable<FlightDataType>, Groupable<Fli
 	public static final FlightDataType TYPE_NATURAL_FREQUENCY = newType(
 			trans.get("FlightDataType.TYPE_NATURAL_FREQUENCY"), "\u03c9n",
 			UnitGroup.UNITS_ROLL, FlightDataTypeGroup.STABILITY, 4);
+	//// PATCH (N052 part 2, see patches/LEDGER.md): normal-force slope CNa, per radian
+	//// (the reported CP's weight, the same CNa the natural frequency uses). Recorded
+	//// only after the launch guide is cleared, as the normal force coefficient is.
+	//// Upstream has no such series (#3002 reads the CP weight inline).
+	public static final FlightDataType TYPE_NORMAL_FORCE_SLOPE = newType(
+			trans.get("FlightDataType.TYPE_NORMAL_FORCE_SLOPE"), "CN\u03b1",
+			UnitGroup.UNITS_COEFFICIENT, FlightDataTypeGroup.STABILITY, 5);
+	//// PATCH (N052 part 2, OR #3002's TYPE_CORRECTIVE_MOMENT_COEFF, see patches/LEDGER.md):
+	//// SIGNED corrective moment coefficient Ccm = q A_ref CNa (xCP - xCG), q = rho v^2 / 2,
+	//// a moment per radian of angle of attack (N m / rad). Upstream files it under
+	//// UNITS_MOMENT, a unit group the carve does not hold; the series is SI either way.
+	public static final FlightDataType TYPE_CORRECTIVE_MOMENT_COEFF = newType(
+			trans.get("FlightDataType.TYPE_CORRECTIVE_MOMENT_COEFF"), "Ccm",
+			UnitGroup.UNITS_NONE, FlightDataTypeGroup.STABILITY, 6);
 
 	// Characteristic numbers
 	//// Mach number
@@ -340,6 +354,8 @@ public class FlightDataType implements Comparable<FlightDataType>, Groupable<Fli
 			TYPE_CG_LOCATION,
 			TYPE_STABILITY,
 			TYPE_NATURAL_FREQUENCY,
+			TYPE_NORMAL_FORCE_SLOPE,
+			TYPE_CORRECTIVE_MOMENT_COEFF,
 			TYPE_MACH_NUMBER,
 			TYPE_REYNOLDS_NUMBER,
 			TYPE_THRUST_FORCE,

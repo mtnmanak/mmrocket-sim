@@ -3135,6 +3135,45 @@ aerodynamic model.
   labels it "Natural frequency (rad/s)".
 - **Evidence:** see the #3183 entry below (shared test run and mutations).
 
+### simulation/FlightDataType.java + AbstractSimulationStepper.java - recorded normal-force slope CNα and SIGNED corrective moment coefficient Ccm (N052 part 2, Tier 0 row 97, OR #3002's TYPE_CORRECTIVE_MOMENT_COEFF, 2026-11-16)
+
+- **Why:** board row 97 (Eric, 2026-11-15: diagnostics only, no verdicts; 2026-11-16 *"go"*):
+  N052 part 2 charts CNα and the signed corrective moment beside part 1's ωn. Both were
+  computed inside `computeNaturalFrequency` and thrown away; ωn alone hides the sign
+  (NaN when the moment is negative).
+- **Change:** two new types in the replacement `FlightDataType.java`, group STABILITY,
+  in `ALL_TYPES` right after TYPE_NATURAL_FREQUENCY:
+  `TYPE_NORMAL_FORCE_SLOPE`, symbol `"CNα"` (Java source `"CNα"` - ASCII escape,
+  the javac here is cp1252), UNITS_COEFFICIENT, priority 5; `TYPE_CORRECTIVE_MOMENT_COEFF`,
+  symbol `"Ccm"` (upstream's symbol), UNITS_NONE (upstream uses UNITS_MOMENT, a group the
+  carve does not hold; series values are SI either way), priority 6.
+  `DataStore.storeData` records CNα = the reported CP's weight (per rad; the same CNa ωn
+  uses) inside the existing launch-rod-cleared + CP-present block, beside CP location, so it
+  is absent on the guide exactly as Cn/Cp are; and records Ccm on every row through a new
+  private `computeCorrectiveMomentCoefficient` = `0.5 rho v^2 A_ref CNa (xCP - xCG)` (N m per
+  rad of AOA): 0 on the launch guide (upstream's convention, as for ωn), NaN for any
+  missing/non-finite input (the same guards as ωn minus the inertia ones; upstream checks
+  nulls and AOA only), otherwise the SIGNED value - negative when the reported CP is ahead
+  of the CG, where ωn is NaN. A separate copy, NOT a refactor of `computeNaturalFrequency`,
+  so ωn's arithmetic is untouched.
+- **Deliberately NOT ported (still):** damping moment coefficient (total/aero/propulsive),
+  damping ratio, UNITS_MOMENT / UNITS_ANGULAR_MOMENTUM, localisation resources (ruled
+  "ζ/C2 not now", register 16 Nov (c)).
+- **No flight number moves (measured, not argued):** goldenJvm output byte-identical before
+  and after (39,847 bytes, `cmp`); difftest `differential ok: 464 lines`; 40 corpus .ork files
+  sampled across `User files` (36 flown with their own matched motors, 4 had no matchable
+  motor) flown with `series: 'full'` through the built artifact before and after: every
+  pre-existing series key byte-identical in all 36, and each gains exactly the two new keys.
+  The one events difference (`8 in Goblin 4 x 75mm v2.ork`, four motors lit at t=0) is the
+  KNOWN same-time event order, which differs between two runs of the SAME patched kernel too.
+  Consistency: on every row where ωn > 0, `Ccm / Il == ωn^2` to <= 2.22e-16 relative
+  (36 files, 16,295 rows). Ccm < 0 on 24 rows in 16 of the 36 flights, every one at
+  Mach < 0.02 within 0.6 s of apogee (before deployment): the low-speed, high-AOA arc
+  over the top, never in powered or coasting ascent in this sample.
+- **Bridge/app:** no new friendly field or API method; full-series payloads carry `CNα` and
+  `Ccm` (summary mode does not); the app's labels, charts and display gate are the app
+  lane's (`flightChartModel.ts`, `flightDataCsv.ts`).
+
 ### simulation/SimulationStatus.java + BasicEventSimulationEngine.java + logging/Warning.java - tumbling is decided by a SUSTAINED-AOA detector; the instantaneous cg > cp comparator is removed (OR #3183 / PR #3190, tumble release T4, 2026-10-08)
 
 - **Defect (upstream 24.12, and our T2/T3 interim):** after every accepted step the engine

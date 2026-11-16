@@ -447,6 +447,10 @@ public abstract class AbstractSimulationStepper implements SimulationStepper {
 			// and forces (the same row as the recorded AOA, CP and density).
 			dataBranch.setValue(FlightDataType.TYPE_NATURAL_FREQUENCY,
 					computeNaturalFrequency(status));
+			// PATCH (N052 part 2, OR #3002, see patches/LEDGER.md): the SIGNED
+			// corrective moment coefficient from the same row's inputs.
+			dataBranch.setValue(FlightDataType.TYPE_CORRECTIVE_MOMENT_COEFF,
+					computeCorrectiveMomentCoefficient(status));
 
 			if (null != forces) {
 				dataBranch.setValue(FlightDataType.TYPE_DRAG_COEFF, forces.getCD());
@@ -459,6 +463,9 @@ public abstract class AbstractSimulationStepper implements SimulationStepper {
 			if (status.isLaunchRodCleared() && null != forces) {
 				if (null != forces.getCP()) {
 					dataBranch.setValue(FlightDataType.TYPE_CP_LOCATION, forces.getCP().x);
+					// PATCH (N052 part 2, see patches/LEDGER.md): the normal-force
+					// slope CNa (per rad) is the reported CP's weight.
+					dataBranch.setValue(FlightDataType.TYPE_NORMAL_FORCE_SLOPE, forces.getCP().weight);
 				}
 				dataBranch.setValue(FlightDataType.TYPE_NORMAL_FORCE_COEFF, forces.getCN());
 				dataBranch.setValue(FlightDataType.TYPE_SIDE_FORCE_COEFF, forces.getCside());
@@ -514,6 +521,40 @@ public abstract class AbstractSimulationStepper implements SimulationStepper {
 			double stiffness = 0.5 * rho * MathUtil.pow2(v) * area * cp.weight * (cp.x - cg);
 			double ratio = stiffness / inertia;
 			return (Double.isFinite(ratio) && ratio >= 0) ? Math.sqrt(ratio) : Double.NaN;
+		}
+
+		/**
+		 * PATCH (N052 part 2, OR #3002's computeCorrectiveMomentCoefficient, see
+		 * patches/LEDGER.md). The SIGNED corrective moment coefficient, a moment per
+		 * radian of angle of attack (N m / rad):
+		 * Ccm = q * A_ref * CNa * (xCP - xCG), q = rho v^2 / 2 - the same stiffness,
+		 * from the same inputs and guards, that computeNaturalFrequency divides by the
+		 * longitudinal inertia. Positive when the reported CP is aft of the CG.
+		 * Deliberately a separate copy so the recorded natural frequency's arithmetic
+		 * is untouched.
+		 *
+		 * @return 0 on the launch guide (upstream's convention, as for the natural
+		 *         frequency); NaN for missing data or any non-finite input; otherwise
+		 *         the signed value, negative when the CP is ahead of the CG.
+		 */
+		private double computeCorrectiveMomentCoefficient(SimulationStatus status) {
+			if (!status.isLaunchRodCleared())
+				return 0.0;
+			if (flightConditions == null || rocketMass == null || forces == null)
+				return Double.NaN;
+			Coordinate cp = forces.getCP();
+			if (cp == null || !Double.isFinite(flightConditions.getAOA()))
+				return Double.NaN;
+			double rho = flightConditions.getAtmosphericConditions().getDensity();
+			double v = flightConditions.getVelocity();
+			double area = flightConditions.getRefArea();
+			double cg = rocketMass.getCM().x;
+			if (!Double.isFinite(rho) || rho < 0 || !Double.isFinite(v) || v < 0
+					|| !Double.isFinite(area) || area <= 0 || !Double.isFinite(cg)
+					|| !Double.isFinite(cp.x) || !Double.isFinite(cp.weight))
+				return Double.NaN;
+			double moment = 0.5 * rho * MathUtil.pow2(v) * area * cp.weight * (cp.x - cg);
+			return Double.isFinite(moment) ? moment : Double.NaN;
 		}
 
 		/**
