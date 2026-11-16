@@ -11,6 +11,7 @@
    would silently always be zero. */
 :root {
   --notice-h: 0px;
+  --workspace-bar-h: 0px;
 }
 
 /* A stable scrollbar gutter: the hero canvas now sizes from its container
@@ -18,6 +19,7 @@
    page height would wobble the width it measures. */
 html {
   scrollbar-gutter: stable;
+  scroll-padding-top: var(--workspace-bar-h);
 }
 
 /* Palette roles. Since brand v1 (mmr-brand 1.0.2, approved table in
@@ -263,6 +265,40 @@ html {
    viewport, charts) absorbs whatever the monitor offers. */
 .workspace {
   padding: 12px clamp(16px, 2vw, 40px) 16px;
+}
+
+/* Keep the original content gap outside the measured band; the desktop tabs
+   provide its single bottom border, including when Fly has no vitals strip. */
+.workspace-bar {
+  margin-bottom: 12px;
+}
+
+/* Desktop band / phone vitals: above drawing controls/drawers (2/3), below
+   chart popovers (5), export menus (30), root-layer phone tabs (50), notices
+   (60), file menus (61/62), dialogs (100) and the tour (119/120).
+   The phone band has no box, so it cannot trap the tabs in layer 4.
+   The page is the scrolling ancestor. */
+@media screen and (min-height: 700px) {
+  .workspace-bar-sticky {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    background: var(--surface-0);
+  }
+  @media (max-width: 767px) {
+    .workspace-bar-sticky { display: contents; }
+    .workspace-bar-sticky > .vitals-strip {
+      position: sticky;
+      top: 0;
+      z-index: 4;
+      background: var(--surface-0);
+    }
+  }
+}
+
+@media print {
+  html { scroll-padding-top: 0; }
+  .workspace-bar-sticky { position: static; }
 }
 
 /* The signature element: a telemetry bar. Each reading is a labeled
@@ -535,7 +571,6 @@ html {
   flex-wrap: wrap;
   gap: 6px 4px;
   border-bottom: 2px solid var(--border);
-  margin-bottom: 12px;
 }
 
 .workspace-tabs button {
@@ -630,9 +665,13 @@ html {
 .config-part-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .config-part-actions .file-btn, .config-part-section > .file-btn { max-width: 100%; white-space: normal; }
 .config-part-editor { margin-top: 8px; }
-.flight-scope { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; margin: 6px 0; min-width: 0; }
-.flight-scope label { display: flex; gap: 6px; align-items: baseline; font-weight: normal; }
-.flight-scope input { width: auto; flex: none; }
+.flight-scope { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; margin: 6px 0; min-width: 0; width: fit-content; max-width: 100%; box-sizing: border-box; align-self: flex-start; overflow-wrap: anywhere; }
+.flight-scope label { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px; align-items: baseline; font-weight: normal; }
+/* Outrank the later .field input width:100% on motor cards as well as part editors. */
+.flight-scope input[type='radio'] { width: auto; }
+.mount-ignition-field { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.mount-ignition-field > .file-btn { align-self: flex-start; max-width: 100%; white-space: normal; }
+.mount-ignition-controls { display: grid; grid-template-columns: minmax(0, 1fr) 70px auto; gap: 8px; align-items: center; }
 .config-overview summary { cursor: pointer; }
 /* CFG-SPEC B1/A4: Design shows flight settings read-only, linking to their editor. */
 .design-flight-setting { grid-column: 1 / -1; overflow-wrap: anywhere; min-width: 0; }
@@ -1681,6 +1720,15 @@ html {
   color: var(--text-muted);
 }
 
+/* A field's explanatory sentence under its input (Maximum flight time); it had no rule and
+   rendered at body size beside 11 px hints. Same scale as .comp-stats. */
+.field-help {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin: 2px 0 0;
+  line-height: 1.5;
+}
+
 /* The phone Fly screen's ☁ button and, once weather is applied, its credit. */
 .fly-weather {
   display: flex;
@@ -2601,6 +2649,12 @@ html {
     display: none;
   }
 
+  /* Tabs stay fixed at the bottom; only the vitals occupy the top band.
+     On Fly the band is empty and must add no gap or scroll offset. */
+  .workspace-bar {
+    margin-bottom: 0;
+  }
+
   .workspace {
     /* Matches .mmr-band-footer's reserve exactly (see its rule): the tab bar
        plus whatever the notice bar is currently tall. --notice-h defaults to
@@ -3383,6 +3437,8 @@ html {
 .launch-compass { grid-column: 1 / -1; min-width: 0; }
 .launch-compass-frames { display: flex; gap: 12px; align-items: center; }
 .launch-compass figure { margin: 0; flex: 1; min-width: 0; text-align: center; font-size: 12px; }
+/* The no-bearing message stands in for the weather frame: the frames' own size, not body text. */
+.launch-compass-frames > p { margin: 0; flex: 1; min-width: 0; text-align: center; font-size: 12px; color: var(--text-secondary); }
 .launch-compass svg { width: 100px; max-width: 100%; color: var(--text-primary); }
 .launch-compass svg circle, .launch-compass svg path { fill: none; stroke: currentColor; stroke-width: 2; }
 .launch-compass svg text { fill: currentColor; text-anchor: middle; font-size: 10px; }

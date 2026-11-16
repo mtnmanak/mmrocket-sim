@@ -255,6 +255,21 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 
+it.each([false, true])('row 140: the summary and unchanged Workspace nav share one band (sticky %s), with tabs alone on Fly', async enabled => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, stickyWorkspaceBar: enabled }));
+  const host = await mountApp();
+  const band = host.querySelector('.workspace-bar')!;
+  expect(band).not.toBeNull();
+  expect(band.classList.contains('workspace-bar-sticky')).toBe(enabled);
+  expect(band.querySelector('.vitals-strip')).not.toBeNull();
+  const nav = band.querySelector('nav[aria-label="Workspace"]')!;
+  expect(band.querySelector('.vitals-strip')!.nextElementSibling).toBe(nav);
+  await act(async () => { button(host, 'Fly').click(); });
+  expect(band.querySelector('.vitals-strip')).toBeNull();
+  expect(band.children).toHaveLength(1);
+  expect(band.firstElementChild).toBe(nav);
+}, 60_000);
+
 /**
  * THE HEADER LOCKUP (brand v1, CHECKLIST step 5). The file follows the theme
  * attribute .viz-root carries, so Daylight on top of a stored DARK theme must
@@ -1258,6 +1273,36 @@ async function openTab(host: HTMLElement, name: 'Fly' | 'Design' | 'Motors & Con
  * is for. statsDrawerDefault.test.ts held both as regexes over App.tsx.
  */
 describe('FC-5 configuration editors', () => {
+  it.each([1440, 390])('row 142: clustered mount ignition rows stay inside the Motors panel at %i px', async width => {
+    viewport(width);
+    const tree = structuredClone(defaultTree());
+    const original = motorMounts(tree)[0]!;
+    const parent = tree.components[0]!.children!.find(node => node.children?.some(child => child.id === original.id))!;
+    parent.children!.push({ ...original, id: 'row142-other', name: 'Cluster mount', cluster: '3-ring' });
+    const { c6 } = await seedStarterSession({ edit: () => tree });
+    const motors = { [original.id!]: c6, 'row142-other': c6 };
+    await seedStarterSession({ edit: () => tree, over: {
+      mountMotors: motors, configLayers: 1, activeConfigId: 'row142',
+      savedConfigs: [{ id: 'row142', name: 'Cluster flight', isDefault: true, motors,
+        ignitions: { 'row142-other': { event: 'launch', delay: 2 } } }],
+    } });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Configuration');
+    const card = host.querySelector('#cfg-mount-row142-other')!;
+    const editor = card.querySelector('.mount-ignition-field')!;
+    expect(editor).not.toBeNull();
+    expect([...editor.children].map(child => child.tagName)).toEqual(['LABEL', 'P', 'FIELDSET', 'BUTTON', 'DIV']);
+    expect(editor.querySelector('p')?.textContent).toContain('Ignition: overridden here');
+    expect(editor.querySelector('legend')?.textContent).toBe('Ignition changes apply to');
+    expect(editor.querySelector<HTMLInputElement>('input[type="radio"]:checked')?.parentElement?.textContent)
+      .toContain('Override for “Cluster flight” only');
+    const panel = card.closest('.panel')!;
+    expect(panel.querySelector('h2')?.textContent).toBe('Motors');
+    expect([...host.querySelectorAll('.motors-layout > .panel')].some(candidate =>
+      candidate !== panel && candidate.textContent?.includes('Launch conditions'))).toBe(true);
+    expect(host.querySelectorAll('.mount-card .mount-ignition-field')).toHaveLength(2);
+  }, 60_000);
+
   // CFG-3 (ruling D2a): deployment and separation overrides are edited on
   // Motors & Configuration's part rows; these tests drove the retired Design
   // banner and now drive the row that replaced it.

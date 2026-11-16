@@ -45,7 +45,7 @@ export function MountIgnitionField({ mountId, mountName, ownerKey, own, override
   // flies differently is Caution, as on the Recovery and Stages rows (D7 I10);
   // one that flies the same is said quietly (review of b9-int, finding 12).
   const differs = !!override && sparsify(flownIgnition(own), flownIgnition(override)) !== undefined;
-  return <>
+  return <div className="mount-ignition-field">
     <label htmlFor={`ignition-${mountId}`}>Ignition</label>
     {override
       ? <Note as="p" tier={differs ? 'caution' : 'information'} className="comp-stats">
@@ -60,11 +60,10 @@ export function MountIgnitionField({ mountId, mountName, ownerKey, own, override
       // The button goes with the override; keyboard focus moves to the ignition control.
       select.current?.focus();
     }}>Reset to own setting</button>}
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+    <div className="mount-ignition-controls">
       <select
         ref={select}
         id={`ignition-${mountId}`}
-        style={{ flex: 1 }}
         value={shown.event}
         onChange={(e) => edit({ ...shown, event: e.target.value as IgnitionEvent })}
       >
@@ -78,7 +77,7 @@ export function MountIgnitionField({ mountId, mountName, ownerKey, own, override
           <option value="ejectioncharge">{IGNITION_EVENT_LABELS.ejectioncharge}</option>)}
         <option value="never">{IGNITION_EVENT_LABELS.never}</option>
       </select>
-      <div style={{ width: 70 }}>
+      <div>
         <NumField
           value={shown.delay}
           onEditStart={onEditStart}
@@ -95,5 +94,5 @@ export function MountIgnitionField({ mountId, mountName, ownerKey, own, override
       </div>
       <span className="motor-db-meta">s</span>
     </div>
-  </>;
+  </div>;
 }

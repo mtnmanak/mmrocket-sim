@@ -47,7 +47,7 @@ function load(): Preferences {
     const rawParsed: unknown = JSON.parse(raw);
     if (!rawParsed || typeof rawParsed !== 'object' || Array.isArray(rawParsed)) return DEFAULT_PREFS;
     const parsed = rawParsed as Partial<Preferences>;
-    for (const key of ['walls2d', 'grid2d', 'rulerReversed2d', 'rogersKbf', 'daylight', 'tourOff', 'rulers2d', 'themeExplicit', 'supersonicAero'] as const) {
+    for (const key of ['stickyWorkspaceBar', 'walls2d', 'grid2d', 'rulerReversed2d', 'rogersKbf', 'daylight', 'tourOff', 'rulers2d', 'themeExplicit', 'supersonicAero'] as const) {
       if (typeof parsed[key] !== 'boolean') delete parsed[key];
     }
     if (!parsed.themeExplicit) delete parsed.theme;

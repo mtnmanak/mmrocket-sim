@@ -38,8 +38,8 @@ export function FlightScopeChoice({ scope, overrideLabel, onChange, legend = 'Ap
   const name = useId();
   return <fieldset className="flight-scope">
     <legend>{legend}</legend>
-    <label><input type="radio" name={name} checked={scope === 'own'} onChange={() => onChange('own')} />{' '}{OWN_SCOPE_TEXT}</label>
-    <label><input type="radio" name={name} checked={scope === 'override'} onChange={() => onChange('override')} />{' '}{overrideLabel}</label>
+    <label><input type="radio" name={name} checked={scope === 'own'} onChange={() => onChange('own')} /><span>{OWN_SCOPE_TEXT}</span></label>
+    <label><input type="radio" name={name} checked={scope === 'override'} onChange={() => onChange('override')} /><span>{overrideLabel}</span></label>
   </fieldset>;
 }
 

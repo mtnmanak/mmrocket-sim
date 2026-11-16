@@ -58,6 +58,8 @@ export interface Preferences {
    * users a black screen. Turning it off restores the chosen theme.
    */
   daylight?: boolean;
+  /** Viewer-only opt-in; short windows keep the normal scrolling layout. */
+  stickyWorkspaceBar?: boolean;
   /**
    * Which metrics show as the highlighted tiles on the Results tab, by
    * catalog id (RESULT_TILE_METRICS in StatTiles.tsx), in catalog order.
@@ -136,5 +138,6 @@ export const DEFAULT_PREFS: Preferences = {
   units: INITIAL_UNITS,
   radiusMode: 'diameter',
   theme: 'dark',
+  stickyWorkspaceBar: false,
   rogersKbf: true,
 };

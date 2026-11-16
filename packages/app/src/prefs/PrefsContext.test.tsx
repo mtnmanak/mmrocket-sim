@@ -31,6 +31,24 @@ function Probe() {
 
 const mount = () => act(() => root.render(<PrefsProvider><Probe /></PrefsProvider>));
 
+describe('row 140 sticky workspace preference', () => {
+  it.each([undefined, {}, { stickyWorkspaceBar: 'true' }, { stickyWorkspaceBar: 1 }])('defaults off for a missing or invalid stored choice: %j', stored => {
+    if (stored) localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+    mount();
+    expect(seen.prefs.stickyWorkspaceBar).toBe(false);
+  });
+  it.each([true, false])('persists %s across remounts', value => {
+    mount();
+    expect(seen.prefs.stickyWorkspaceBar).toBe(false);
+    act(() => seen.setPrefs({ ...seen.prefs, stickyWorkspaceBar: value }));
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).stickyWorkspaceBar).toBe(value);
+    act(() => root.unmount());
+    root = createRoot(host);
+    mount();
+    expect(seen.prefs.stickyWorkspaceBar).toBe(value);
+  });
+});
+
 describe('N032 altitude preference migration', () => {
   it.each(['m', 'km', 'ft', 'yd', 'mi'])('inherits legacy distance %s and persists the split on the next write', distance => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ units: { distance } }));

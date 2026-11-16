@@ -67,6 +67,20 @@ const mount = () => act(() => root.render(
   <PrefsProvider><PreferencesDialog onClose={() => {}} /></PrefsProvider>,
 ));
 
+it('row 140 offers an off-by-default layout choice with the short-window hint', () => {
+  mount();
+  const select = byLabel('Keep the rocket summary and tabs in view while scrolling') as HTMLSelectElement;
+  expect(select).not.toBeNull();
+  expect(select.value).toBe('off');
+  expect(document.getElementById(select.getAttribute('aria-describedby')!)?.textContent).toContain('shorter than 700 px');
+  expect(document.getElementById(select.getAttribute('aria-describedby')!)?.textContent).toContain('Phone tabs always stay at the bottom.');
+  pick(select, 'on');
+  expect(stored().stickyWorkspaceBar).toBe(true);
+  expect(select.value).toBe('on');
+  pick(select, 'off');
+  expect(stored().stickyWorkspaceBar).toBe(false);
+});
+
 it('N005 offers displayed decimals as a persisted, labelled preference', () => {
   mount();
   const precision = byLabel('Displayed decimals') as HTMLSelectElement;
@@ -307,6 +321,7 @@ describe('Preferences → every label names its own control', () => {
     ['CG / CP markers in 3D', 'callout', (p) => p.markers3d],
     ['Theme', 'light', (p) => p.theme],
     ['Daylight mode', 'on', (p) => (p.daylight ? 'on' : 'off')],
+    ['Keep the rocket summary and tabs in view while scrolling', 'on', (p) => (p.stickyWorkspaceBar ? 'on' : 'off')],
     ['First-run tour', 'off', (p) => (p.tourOff ? 'off' : 'on')],
     ['Aerodynamics model', 'supersonic', (p) => aeroChoiceOf(p)],
     ['Printer', 'bambu-h2d', (p) => p.printer?.preset],
