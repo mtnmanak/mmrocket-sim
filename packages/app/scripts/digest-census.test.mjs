@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -17,10 +17,38 @@ vi.stubGlobal('fetch', async () => { throw new Error('global fetch called'); });
 
 const DEFAULT_OUT = join(tmpdir(), 'mmrsim-digest-census');
 const hadDefaultOut = existsSync(DEFAULT_OUT);
-const { cachedRawFiles } = await import('./digest-census.mjs');
+const { cachedRawFiles, localDesignPaths, uniqueByPath } = await import('./digest-census.mjs');
 
 const dirs = [];
-afterEach(() => dirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true })));
+afterEach(() => {
+  vi.unstubAllEnvs();
+  dirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true }));
+});
+
+it('finds relocated static designs and living docs, counting overlapping paths once', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'digest-references-')); dirs.push(dir);
+  const repo = join(dir, 'repo');
+  const referenceRoot = join(dir, 'references');
+  vi.stubEnv('MMRSIM_REFERENCE_ROOT', referenceRoot);
+  vi.stubEnv('MACHINE_PROFILE', join(dir, 'absent.json'));
+  const files = [join(repo, 'docs', 'testing', 'living.ork'),
+    join(repo, 'docs', 'Flight Data', 'old.ork'),
+    join(referenceRoot, 'User files', 'moved.ork'),
+    join(referenceRoot, 'research', 'Boat-tails', 'anchor.ork')];
+  for (const path of files) { mkdirSync(join(path, '..'), { recursive: true }); writeFileSync(path, 'fixture'); }
+  expect(localDesignPaths(repo).sort()).toEqual(files.sort());
+});
+
+it.skipIf(process.platform !== 'win32')('counts local overlaps once when the reference root differs in case', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'digest-case-')); dirs.push(dir);
+  const repo = join(dir, 'repo');
+  const file = join(repo, 'docs', 'User files', 'case.ork');
+  mkdirSync(join(file, '..'), { recursive: true });
+  writeFileSync(file, 'fixture');
+  vi.stubEnv('MMRSIM_REFERENCE_ROOT', join(repo, 'docs').toUpperCase());
+  vi.stubEnv('MACHINE_PROFILE', join(dir, 'absent.json'));
+  expect(localDesignPaths(repo)).toEqual([file]);
+});
 
 const bundle = { generated: '2026-09-21', curves: { a: [{ samples: [[0, 0]] }], b: [{ samples: [[0, 0]] }] } };
 const raw = (motorId) => ({ motorId, simfileId: `f-${motorId}`, format: 'RASP', data: 'cmF3' });
@@ -36,6 +64,15 @@ function stand(pick) {
 }
 const cacheFiles = (dir) => readdirSync(dir).filter((name) => /^raw-.*\.json$/.test(name));
 const cachePath = (dir, value) => join(dir, `raw-${value.generated}-${createHash('sha256').update(JSON.stringify(value)).digest('hex')}.json`);
+
+it('keeps a relocated file once when the Dropbox walk finds it again, the docs entry first', () => {
+  const docs = { path: 'C:/Dropbox/ref/docs/User files/a.ork', corpus: 'docs' };
+  const again = { path: 'c:/dropbox/REF/docs/User files/a.ork', corpus: 'dropbox' };
+  const other = { path: 'C:/Dropbox/Rocksim Designs/b.ork', corpus: 'dropbox' };
+  expect(uniqueByPath([docs, again, other], 'win32')).toEqual([docs, other]);
+  expect(uniqueByPath([docs, { ...docs, corpus: 'dropbox' }], 'linux')).toEqual([docs]);
+  expect(uniqueByPath([{ path: '/x/A.ork' }, { path: '/x/a.ork' }], 'linux')).toHaveLength(2);
+});
 
 it('imports without creating its output folder or downloading', () => {
   if (!hadDefaultOut) expect(existsSync(DEFAULT_OUT)).toBe(false);

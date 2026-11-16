@@ -31,6 +31,7 @@ import { existsSync, readFileSync, writeFileSync, mkdtempSync, readdirSync, rmSy
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { referenceFile } from '../../../scripts/reference-docs.mjs';
 import { describe, expect, it, vi } from 'vitest';
 
 // Model a writable device with no writable sibling namespace on every OS.
@@ -942,17 +943,7 @@ describe('importing this module', () => {
  * than the working directory, because a script test has no happy-dom `/@fs/`
  * problem to work around and the file's location is the more stable anchor.
  */
-function repoRoot() {
-  let dir = here;
-  for (let i = 0; i < 6; i++) {
-    if (existsSync(join(dir, 'version.json'))) return dir;
-    const up = dirname(dir);
-    if (up === dir) break;
-    dir = up;
-  }
-  return here;
-}
-const local = (rel) => join(repoRoot(), 'docs', 'User files', 'TRF RASAero Files', rel);
+const local = (rel) => referenceFile('User files', 'TRF RASAero Files', rel);
 
 /** Adrian Adamson's F10 flight, 15 October 2023 — the G-record attempt. */
 const F10_HIGH = local('high_rate_10-16-2023_08_13_F_Record.csv');
@@ -986,8 +977,8 @@ const G12 = {
   accelScale: 'pad',
 };
 
-const HAVE_F10 = existsSync(F10_HIGH) && existsSync(F10_LOW);
-const HAVE_G12 = existsSync(G12_HIGH) && existsSync(G12_LOW);
+const HAVE_F10 = F10_HIGH && F10_LOW && existsSync(F10_HIGH) && existsSync(F10_LOW);
+const HAVE_G12 = G12_HIGH && G12_LOW && existsSync(G12_HIGH) && existsSync(G12_LOW);
 
 // Parsed at most once each, and only inside a test body — `describe.skipIf`
 // still evaluates the describe callback, so nothing heavy may live in it.
@@ -1196,8 +1187,9 @@ describe.skipIf(!HAVE_G12)('Adamson G12, 2024 — measured, local-only', () => {
  */
 const GPS_TRACK = local('2023-10-15-(Grecord)-15-13-13.csv');
 const RASAERO_EXPORT = local('Flight Test.CSV');
-const MMR_EXPORT = join(repoRoot(), 'docs', 'User files', 'testa-flight-data.csv');
-const HAVE_WRONG_KINDS = existsSync(GPS_TRACK) && existsSync(RASAERO_EXPORT) && existsSync(MMR_EXPORT);
+const MMR_EXPORT = referenceFile('User files', 'testa-flight-data.csv');
+const HAVE_WRONG_KINDS = GPS_TRACK && RASAERO_EXPORT && MMR_EXPORT
+  && existsSync(GPS_TRACK) && existsSync(RASAERO_EXPORT) && existsSync(MMR_EXPORT);
 
 describe.skipIf(!HAVE_WRONG_KINDS)(
   'the refusals, proven on the real artefacts and not only on pasted headers', () => {

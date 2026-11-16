@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { rocksimCorpusPath } from './rocksimCorpusPath.testSupport.mjs';
+import { referenceFile } from '../../../../scripts/reference-docs.mjs';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { exportRkt, importRkt, rktComponentInfo, rktEveryDelay, rktPackedChuteSize } from './rocksimFile.js';
 import { exportOrk, importOrk, type OrkExportMotor } from './orkFile.js';
@@ -2382,9 +2383,9 @@ describe('RockSim <SimulationEventList> — dual deploy actually deploys dually 
   // and skips on CI, the same pattern lemivSweep.test.ts uses for the same
   // reason. (It skipped straight past me once: an absolute path to it failed the
   // deploy, which is the gate working.)
-  const WM = join(here, '../../../../docs/User files/4in WM Extreme.rkt');
-  it.skipIf(!existsSync(WM))("his own Wildman file: main at 152.4 m, drogue at apogee", () => {
-    const r = importRkt(readFileSync(WM, 'utf8'));
+  const WM = referenceFile('User files', '4in WM Extreme.rkt');
+  it.skipIf(!WM || !existsSync(WM))("his own Wildman file: main at 152.4 m, drogue at apogee", () => {
+    const r = importRkt(readFileSync(WM!, 'utf8'));
     const all = flatten(r.tree.components).filter((c) => c.type === 'parachute');
     const main = all.find((c) => c.name === 'Main Parachute')!;
     const drogue = all.find((c) => /Drouge/i.test(String(c.name)))!;
@@ -3209,7 +3210,8 @@ describe('RockSim airfoil fin sets take the file’s own computed mass and CG', 
   for (const [relative, warned] of [['Wildman/Darkstar_Mini.rkt', true],
     ['TRF RASAero Files/2,4-D.rkt', false], ['TRF RASAero Files/Mach2.rkt', false]] as const) {
     const root = rocksimCorpusPath();
-    const path = [join(here, '../../../../docs/User files', relative), ...(root ? [join(root, relative)] : [])].find(existsSync);
+    const path = [referenceFile('User files', relative), ...(root ? [join(root, relative)] : [])]
+      .find((p): p is string => p !== null && existsSync(p));
     it.skipIf(!path)(`corpus airfoil caution: ${relative}`, () => {
       expect(implausible(readFileSync(path!, 'utf8')).length > 0).toBe(warned);
     });

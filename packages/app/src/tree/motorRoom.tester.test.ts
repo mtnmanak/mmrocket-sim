@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { referenceDir } from '../../../../scripts/reference-docs.mjs';
 import { expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { importOrk } from '../services/orkFile.js';
@@ -15,7 +15,7 @@ import { findNode } from './treeModel.js';
  * elsewhere; the synthetic boat-tail cases in motorRoom.test.ts cover the same rule everywhere.
  * CT's mount extends 50.8 mm past its host tube: the open flare it passes through is not a wall.
  */
-const CORPUS = join(dirname(fileURLToPath(import.meta.url)), '../../../../docs/User files');
+const CORPUS = referenceDir('User files');
 const mountIn = (nodes: ComponentNode[]): string | undefined => {
   for (const n of nodes) {
     if (n['motorMount'] === true && typeof n.id === 'string') return n.id;
@@ -29,8 +29,8 @@ for (const { file, expected } of [
   { file: 'Buckeye Files/pringles 2 - baseconehack.ork', expected: 0.26035 },
   { file: 'CT-Concep98-External-Fincan.ork', expected: 1.222045 },
 ]) {
-  it.skipIf(!existsSync(join(CORPUS, file)))(`estimates motor room for the tester file ${file}`, () => {
-    const bytes = readFileSync(join(CORPUS, file));
+  it.skipIf(!CORPUS || !existsSync(join(CORPUS, file)))(`estimates motor room for the tester file ${file}`, () => {
+    const bytes = readFileSync(join(CORPUS!, file));
     const tree = importOrk(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer).tree;
     const mountId = mountIn(tree.components)!;
     const mount = findNode(tree, mountId)!;

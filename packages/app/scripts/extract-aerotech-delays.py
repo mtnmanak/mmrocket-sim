@@ -84,6 +84,7 @@ import os
 import re
 import sys
 from atomic_write import atomic_write
+from reference_docs import reference_dir
 from urllib.parse import quote
 
 # `import pymupdf`, not `import fitz` (extract-nozzle-pdfs.py: the old name's
@@ -93,7 +94,6 @@ import pymupdf
 pymupdf.set_messages(stream=sys.stderr)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_SOURCE = os.path.join(HERE, '..', '..', '..', 'docs', 'RCS Schematics')
 DEFAULT_MOTORS = os.path.join(HERE, '..', 'src', 'data', 'motors.json')
 DEFAULT_OUT = os.path.join(HERE, '..', 'src', 'data', 'aerotechDelays.json')
 DEFAULT_TRANSCRIPTIONS = os.path.join(HERE, 'aerotech-delay-transcriptions.json')
@@ -760,7 +760,8 @@ def join_averages(printed, by_name, measured, urls, joins, disputed):
 
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
-    ap.add_argument('--source', default=os.environ.get('RCS_SCHEMATICS', DEFAULT_SOURCE))
+    ap.add_argument('--source', default=os.environ.get('RCS_SCHEMATICS') or
+                    reference_dir('RCS Schematics', os.path.join(HERE, '..', '..', '..')))
     ap.add_argument('--motors', default=DEFAULT_MOTORS)
     ap.add_argument('--out', default=DEFAULT_OUT)
     ap.add_argument('--check', action='store_true')
@@ -778,6 +779,8 @@ def main(argv):
     if args.average_join:
         with open(args.average_join, encoding='utf-8') as fh:
             average_join = json.load(fh)
+    if not args.source:
+        ap.error('No RCS document set found; pass --source or set RCS_SCHEMATICS or MMRSIM_REFERENCE_ROOT')
     data = read_all(args.source, args.motors, join, args.transcriptions, average_join)
     outputs = {args.out: json.dumps(data, ensure_ascii=False, indent=2) + '\n'}
     if args.watch_out:

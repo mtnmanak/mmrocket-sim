@@ -2,6 +2,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { referenceFile } from '../../../../scripts/reference-docs.mjs';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { addExMotors, exToDbEntry, parseEng } from './exMotors.js';
@@ -25,18 +26,8 @@ const fixture = (name: string) => readFileSync(join(here, '__fixtures__', name),
  * happy-dom this module's URL is a served `/@fs/` path and a URL-relative walk
  * silently resolves to nothing. Same helper as lemivSweep.test.ts.
  */
-function repoRoot(): string {
-  let dir = process.cwd();
-  for (let i = 0; i < 6; i++) {
-    if (existsSync(join(dir, 'version.json'))) return dir;
-    const up = dirname(dir);
-    if (up === dir) break;
-    dir = up;
-  }
-  return process.cwd();
-}
 const localEng = (name: string) =>
-  join(repoRoot(), 'docs', 'User files', 'TRF RASAero Files', name);
+  referenceFile('User files', 'TRF RASAero Files', name);
 
 const LB = 2.2046226218487757;
 const lb = (kg: number) => kg * LB;
@@ -601,12 +592,12 @@ describe('the mark survives Save .ork — the motor may only turn up next sessio
  * honest.
  */
 const ENGS = ['M787_Expanded_Nozzle_Sea_Level.eng', 'O4374_Sea_Level.eng'].map(localEng);
-const HAVE_ENGS = ENGS.every((p) => existsSync(p));
+const HAVE_ENGS = ENGS.every((p) => p !== null && existsSync(p));
 
 describe.skipIf(!HAVE_ENGS)('against the author’s own .eng files', () => {
   it('matches the inline headers, and lands on the file’s own 87.05 lb', async () => {
     const specs = [];
-    for (const path of ENGS) specs.push(await exSpec(readFileSync(path, 'utf8')));
+    for (const path of ENGS) specs.push(await exSpec(readFileSync(path!, 'utf8')));
     expect(specs[0]!.masses[0]).toBeCloseTo(6.97171, 5);
     expect(specs[1]!.masses[0]).toBeCloseTo(24.3942, 4);
     expect(specs[0]!.length).toBeCloseTo(0.954, 6);
@@ -648,9 +639,9 @@ describe.skipIf(!HAVE_ENGS)('against the author’s own .eng files', () => {
  */
 const PEPE2 = localEng('PePe2.CDX1');
 
-describe.skipIf(!existsSync(PEPE2))('PePe2: another simulation’s motor on a marked stage', () => {
+describe.skipIf(!PEPE2 || !existsSync(PEPE2))('PePe2: another simulation’s motor on a marked stage', () => {
   it('imports simulation 1 with its N5800 backed out, now that the matcher finds it', () => {
-    const r = importCdx1(readFileSync(PEPE2, 'utf8'));
+    const r = importCdx1(readFileSync(PEPE2!, 'utf8'));
     const st = stagesOf(r.tree)[0]!;
     const n5800 = MOTOR_DB.find((m) => m.designation === '20146N5800-P')!;
     expect(lb(n5800.totalWeightG / 1000)).toBeCloseTo(32.686, 3);
@@ -659,7 +650,7 @@ describe.skipIf(!existsSync(PEPE2))('PePe2: another simulation’s motor on a ma
   });
 
   it('clears the stated weight rather than subtracting a motor it never held', () => {
-    const imported = importCdx1(readFileSync(PEPE2, 'utf8'));
+    const imported = importCdx1(readFileSync(PEPE2!, 'utf8'));
     // The file's simulation 1 as an import before audit 2026-09-23 left it:
     // applied whole, and marked as still holding N5800-CS.
     const tree: RocketTree = {
@@ -710,7 +701,7 @@ describe.skipIf(!existsSync(PEPE2))('PePe2: another simulation’s motor on a ma
    * note no longer says the motor "is not in the motor database" — it is.
    */
   it('a saved mark whose motor the matcher finds now: cleared, and the note stays true', () => {
-    const imported = importCdx1(readFileSync(PEPE2, 'utf8'));
+    const imported = importCdx1(readFileSync(PEPE2!, 'utf8'));
     const tree: RocketTree = {
       ...imported.tree,
       components: imported.tree.components.map((n) => (n === stagesOf(imported.tree)[0]

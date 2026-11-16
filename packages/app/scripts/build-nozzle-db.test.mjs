@@ -931,6 +931,7 @@ describe('main', () => {
   });
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     rmSync(dir, { recursive: true, force: true });
     io.block = true;
   });
@@ -947,6 +948,42 @@ describe('main', () => {
     expect(extract).not.toHaveBeenCalled();
     expect(existsSync(outPath)).toBe(false);
     expect(errors[0]).toBe(`No RCS document set at ${join(dir, 'no-such-folder')}.`);
+  });
+
+  it('keeps source flags and legacy environment overrides ahead of the reference resolver', async () => {
+    const { main } = await builder();
+    const roots = { flag: join(dir, 'flag'), legacy: join(dir, 'legacy'), reference: join(dir, 'references') };
+    for (const root of [roots.flag, roots.legacy, join(roots.reference, 'RCS Schematics')]) mkdirSync(root, { recursive: true });
+    vi.stubEnv('MMRSIM_REFERENCE_ROOT', roots.reference);
+    vi.stubEnv('MACHINE_PROFILE', join(dir, 'absent.json'));
+    vi.stubEnv('RCS_SCHEMATICS', roots.legacy);
+    vi.stubEnv('LOKI_DATA', roots.legacy);
+    const stop = new Error('stop after discovering the source');
+    const extract = vi.fn(() => { throw stop; });
+    const check = (argv, expected) => {
+      expect(() => main({ argv, extract })).toThrow(stop);
+      expect(extract.mock.lastCall[0]).toBe(expected);
+    };
+    check(['--source', roots.flag], roots.flag);
+    check([], roots.legacy);
+    vi.stubEnv('RCS_SCHEMATICS', undefined);
+    check([], join(roots.reference, 'RCS Schematics'));
+    vi.stubEnv('RCS_SCHEMATICS', '');
+    check([], join(roots.reference, 'RCS Schematics'));
+  });
+
+  it('resolves empty legacy overrides and anchors both defaults at the builder checkout', async () => {
+    const { main } = await builder();
+    const refs = await import('../../../scripts/reference-docs.mjs');
+    const resolve = vi.spyOn(refs, 'referenceDir').mockImplementation(() => dir);
+    vi.stubEnv('RCS_SCHEMATICS', '');
+    vi.stubEnv('LOKI_DATA', '');
+    const stop = new Error('stop before reading data');
+    expect(() => main({ argv: [], extract: () => { throw stop; } })).toThrow(stop);
+    expect(resolve.mock.calls).toEqual([
+      ['RCS Schematics', { repoRoot: join(here, '..', '..', '..') }],
+      ['Loki Data', { repoRoot: join(here, '..', '..', '..') }],
+    ]);
   });
 
   it('writes nothing and exits 1 when the build is refused', async () => {
@@ -1034,6 +1071,7 @@ describe('running the builder as a command', () => {
     mkdirSync(join(dir, 'real', 'scripts'));
     copyFileSync(join(here, '../../../scripts/is-main.mjs'), join(dir, 'real', 'scripts', 'is-main.mjs'));
     copyFileSync(join(here, '../../../scripts/machine-profile.mjs'), join(dir, 'real', 'scripts', 'machine-profile.mjs'));
+    copyFileSync(join(here, '../../../scripts/reference-docs.mjs'), join(dir, 'real', 'scripts', 'reference-docs.mjs'));
     for (const f of ['build-nozzle-db.mjs', 'nozzle-db-helpers.mjs', 'atomic-write.mjs']) copyFileSync(join(here, f), join(real, f));
     const link = join(dir, 'link');
     symlinkSync(real, link, 'junction'); // a junction on Windows; the type is ignored elsewhere

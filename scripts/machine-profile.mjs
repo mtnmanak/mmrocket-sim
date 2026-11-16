@@ -92,6 +92,7 @@ export function checkMachineProfile({ env = process.env, log = console.log } = {
   for (const [key, envVar, fallback] of [
     ['openrocketSource', 'OPENROCKET_SRC'], ['jdk17', 'JAVA_HOME', () => portableJavaHome(homedir())], ['dropbox'],
     ['tools.python', 'PYTHON', 'python'], ['tools.agy'],
+    ['repos.online_open_rocket.referenceDocs', 'MMRSIM_REFERENCE_ROOT'],
   ]) {
     try {
       if (key === 'jdk17' && env.JAVA_HOME && !existingJavaHome(env)) log(`JAVA_HOME: ${env.JAVA_HOME} ignored (path does not exist)`);

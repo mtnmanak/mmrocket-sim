@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { referenceDir } from '../../../scripts/reference-docs.mjs';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -417,8 +418,8 @@ describe('aerotech-certified.json reads its letters right', () => {
    * holds them and nowhere else, CI included.
    */
   const python = process.env.PYTHON ?? 'python';
-  const source = process.env.RCS_SCHEMATICS ?? join(here, '..', '..', '..', 'docs', 'RCS Schematics');
-  const canExtract = existsSync(join(source, 'Cert Docs', 'TRA'))
+  const source = process.env.RCS_SCHEMATICS || referenceDir('RCS Schematics');
+  const canExtract = source && existsSync(join(source, 'Cert Docs', 'TRA'))
     && spawnSync(python, ['-c', 'import pymupdf'], { stdio: 'ignore' }).status === 0;
 
   it.skipIf(!canExtract)('is what extract-aerotech-certified.py reads from the letters today', () => {

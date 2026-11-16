@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
+import { referenceFile } from '../../../scripts/reference-docs.mjs';
 import { strFromU8, unzipSync } from 'fflate';
 import { createJsXmlParser, xmlGate } from '../../app/src/services/xmlParseJs.js';
 import { currentXmlParser, DOCTYPE_REFUSAL, setXmlParser, XmlDoctypeRefused, XmlParseError } from '../../app/src/services/xmlParse.js';
@@ -70,8 +71,8 @@ it('keeps the unrestricted parser default for browser-parity and other hosts', (
   expect(() => xmlGate('<r>'.repeat(65) + '</r>'.repeat(65))).not.toThrow();
 });
 
-const largest = new URL('../../../docs/User files/TRF RASAero Files/Wildman Mach 2 this one.ork', import.meta.url);
-it.skipIf(!existsSync(largest))('accepts the largest measured real stored-flight XML at the API budgets', () => {
-  const xml = strFromU8(unzipSync(new Uint8Array(readFileSync(largest)))['rocket.ork']!);
+const largest = referenceFile('User files', 'TRF RASAero Files/Wildman Mach 2 this one.ork');
+it.skipIf(!largest || !existsSync(largest))('accepts the largest measured real stored-flight XML at the API budgets', () => {
+  const xml = strFromU8(unzipSync(new Uint8Array(readFileSync(largest!)))['rocket.ork']!);
   expect(() => xmlGate(xml, API_XML_LIMITS)).not.toThrow();
 });

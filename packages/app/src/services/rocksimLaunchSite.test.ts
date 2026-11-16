@@ -1,14 +1,12 @@
 // @vitest-environment happy-dom
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { referenceFile } from '../../../../scripts/reference-docs.mjs';
 import { describe, expect, it } from 'vitest';
 import { importRkt } from './rocksimFile.js';
 import { importedLaunch, planImport, retainedLaunchNote } from './importApply.js';
 import { DEFAULT_PREFS } from '../prefs/preferences.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
 
 /**
  * A .rkt's launch site (board Tier 0 row 80, ruled by Eric 2026-10-11).
@@ -200,15 +198,14 @@ describe('.rkt launch site (board row 80)', () => {
   });
 
   // Tester files are gitignored; this runs locally and skips on CI.
-  const corpus = join(here, '../../../../docs/User files');
-  const WILD = join(corpus, 'TRF RASAero Files/SS Wild Bash 20260623v0.rkt');
-  const WM = join(corpus, '4in WM Extreme.rkt');
-  it.skipIf(!existsSync(WILD) || !existsSync(WM))('the corpus: Black Rock imports, a longitude-0 file keeps the site', () => {
-    const wild = importRkt(readFileSync(WILD, 'utf8'));
+  const WILD = referenceFile('User files', 'TRF RASAero Files/SS Wild Bash 20260623v0.rkt');
+  const WM = referenceFile('User files', '4in WM Extreme.rkt');
+  it.skipIf(!WILD || !WM || !existsSync(WILD) || !existsSync(WM))('the corpus: Black Rock imports, a longitude-0 file keeps the site', () => {
+    const wild = importRkt(readFileSync(WILD!, 'utf8'));
     expect(wild.launch?.latitudeDeg).toBe(40.845);
     expect(wild.launch?.longitudeDeg).toBe(-119.112);
     expect(wild.launch?.launchAltitudeM).toBe(1189.94);
-    const wm = importRkt(readFileSync(WM, 'utf8'));
+    const wm = importRkt(readFileSync(WM!, 'utf8'));
     expect(wm.launch).toBeUndefined();
     expect(siteNote(wm.notes)).toContain('longitude 0°');
   }, 30_000);

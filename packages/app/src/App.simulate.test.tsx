@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { strFromU8, unzipSync } from 'fflate';
 import { existsSync, readFileSync } from 'node:fs';
+import { referenceDir } from '../../../scripts/reference-docs.mjs';
 import { dirname, join } from 'node:path';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { createRoot, type Root } from 'react-dom/client';
@@ -187,7 +188,7 @@ function repoRoot(): string {
   return process.cwd();
 }
 const FIXTURES = join(repoRoot(), 'packages', 'app', 'src', 'services', '__fixtures__');
-const CORPUS = join(repoRoot(), 'docs', 'User files');
+const CORPUS = referenceDir('User files');
 
 let mounted: { root: Root; host: HTMLElement }[] = [];
 
@@ -1158,7 +1159,7 @@ describe('the Launch button and simulateFile fly an opened file the same', () =>
   }, 60000);
 });
 
-const corpus = (name: string) => join(CORPUS, name);
+const corpus = (name: string) => join(CORPUS!, name);
 
 /**
  * Native designs have no importer-seeded ignition defaults. Exercise the actual card and Launch.
@@ -1327,7 +1328,7 @@ it('FC-4 fixup None preserves history for the saved owner while keeping working 
     .toEqual({ event: 'automatic', delay: 0 });
 }, 30000);
 
-it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('FC-5 LEM banners, expanded notice, Reset kernel input, Undo, Use everywhere and equal edit', async () => {
+it.skipIf(!CORPUS || !existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('FC-5 LEM banners, expanded notice, Reset kernel input, Undo, Use everywhere and equal edit', async () => {
   prefs(CLASSIC);
   localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { altitude: 'ft', distance: 'km' } }));
   const host = await mountApp();
@@ -1407,7 +1408,7 @@ it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('FC-5 LEM bann
   expect(peekSession()!.savedConfigs!.find(c => c.id === peekSession()!.activeConfigId)!.deployments?.[selected.id!]).toBeUndefined();
 }, 60000);
 
-it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('FC-4 LEM file: panels show 300 ft; Launch and file API fly ejection; Save keeps both layers', async () => {
+it.skipIf(!CORPUS || !existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('FC-4 LEM file: panels show 300 ft; Launch and file API fly ejection; Save keeps both layers', async () => {
   const bytes = new Uint8Array(readFileSync(corpus('atestani files/LEM-1-2026_2.ork')));
   let xml = '';
   const { app, out } = await fileCase(bytes, 'LEM-1-2026_2.ork', CLASSIC, async host => {
@@ -1453,27 +1454,27 @@ it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('FC-4 LEM file
     .toEqual([{ deployEvent: 'ejection', deployAltitude: 200, deployDelay: 0 }, { deployEvent: 'ejection', deployAltitude: 200, deployDelay: 0 }]);
 }, 60000);
 describe('the Launch button and simulateFile fly a real design the same (local corpus)', () => {
-  it.skipIf(!existsSync(corpus('LEM-M2B.ork')))('K1: LEM-M2B.ork, seven configurations', async () => {
+  it.skipIf(!CORPUS || !existsSync(corpus('LEM-M2B.ork')))('K1: LEM-M2B.ork, seven configurations', async () => {
     const { out } = await fileCase(new Uint8Array(readFileSync(corpus('LEM-M2B.ork'))), 'LEM-M2B.ork', CLASSIC);
     expect(out.run.flightConfig).toBeDefined();
   }, 60000);
 
-  it.skipIf(!existsSync(corpus('4in WM Extreme.rkt')))('K2: 4in WM Extreme.rkt, another simulation re-picked', async () => {
+  it.skipIf(!CORPUS || !existsSync(corpus('4in WM Extreme.rkt')))('K2: 4in WM Extreme.rkt, another simulation re-picked', async () => {
     await fileCase(new Uint8Array(readFileSync(corpus('4in WM Extreme.rkt'))), '4in WM Extreme.rkt', CLASSIC);
   }, 60000);
 
-  it.skipIf(!existsSync(corpus('WM_4_Extreme.CDX1')))('K3: WM_4_Extreme.CDX1, a RASAero export', async () => {
+  it.skipIf(!CORPUS || !existsSync(corpus('WM_4_Extreme.CDX1')))('K3: WM_4_Extreme.CDX1, a RASAero export', async () => {
     await fileCase(new Uint8Array(readFileSync(corpus('WM_4_Extreme.CDX1'))), 'WM_4_Extreme.CDX1', CLASSIC);
   }, 60000);
 
-  it.skipIf(!existsSync(corpus('WM_4_Extreme.ork')))('K4: WM_4_Extreme.ork on Auto aero', async () => {
+  it.skipIf(!CORPUS || !existsSync(corpus('WM_4_Extreme.ork')))('K4: WM_4_Extreme.ork on Auto aero', async () => {
     const { app } = await fileCase(new Uint8Array(readFileSync(corpus('WM_4_Extreme.ork'))), 'WM_4_Extreme.ork', AUTO);
     expect(app.upgraded).toBe(true);
   }, 60000);
 });
 
 
-it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('LW real LEM import warns below every launch site and Show focuses its parachute row on Motors & Configuration', async () => {
+it.skipIf(!CORPUS || !existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('LW real LEM import warns below every launch site and Show focuses its parachute row on Motors & Configuration', async () => {
   prefs(CLASSIC);
   localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { altitude: 'ft', distance: 'km' } }));
   const host = await mountApp();
@@ -1550,7 +1551,7 @@ it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('LW real LEM i
   expectShown();
 }, 60000);
 
-it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('CFG-2 LEM rows show both chutes overridden; one bulk reset flies both at 300 ft and undoes in one step', async () => {
+it.skipIf(!CORPUS || !existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('CFG-2 LEM rows show both chutes overridden; one bulk reset flies both at 300 ft and undoes in one step', async () => {
   prefs(CLASSIC);
   localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { altitude: 'ft', distance: 'km' } }));
   const host = await mountApp();

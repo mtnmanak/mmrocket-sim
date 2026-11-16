@@ -1,12 +1,13 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
+import { referenceFile } from '../../../scripts/reference-docs.mjs';
 import { bytesOf } from './fixtures.testSupport.js';
 import { authenticatedWorker as worker } from './auth.testSupport.js';
 
 const injection = vi.hoisted(() => ({ enabled: true, boosterOnly: false, mainLanded: false,
   summary: { maxAltitude: 0, maxVelocity: 0, maxMachNumber: 0, flightTime: 0 } }));
 afterEach(() => { injection.enabled = true; injection.boosterOnly = false; });
-const INCOMPLETE_FILE = new URL('../../../docs/User files/TRF RASAero Files/SS Wild Bash 20260623v0.rkt', import.meta.url);
+const INCOMPLETE_FILE = referenceFile('User files', 'TRF RASAero Files/SS Wild Bash 20260623v0.rkt');
 
 // Keep the real import/build/flight response shape; isolate the summary's
 // warning contract from kernel timing and local-only corpus availability.
@@ -61,10 +62,10 @@ it('honors incomplete-flight warnings without inventing an abort event', async (
   expect(result.partial).toBe(true);
 });
 
-it.skipIf(!existsSync(INCOMPLETE_FILE))('reports the real time-capped tester flight as incomplete at its last sample', async () => {
+it.skipIf(!INCOMPLETE_FILE || !existsSync(INCOMPLETE_FILE))('reports the real time-capped tester flight as incomplete at its last sample', async () => {
   injection.enabled = false;
   const response = await worker.fetch(new Request('http://local/experimental/fly?filename=slow-descent.rkt',
-    { method: 'POST', body: new Uint8Array(readFileSync(INCOMPLETE_FILE)) }), {}, { waitUntil() {} });
+    { method: 'POST', body: new Uint8Array(readFileSync(INCOMPLETE_FILE!)) }), {}, { waitUntil() {} });
   expect(response.status, await response.clone().text()).toBe(200);
   const result = await response.json() as {
     warnings: { key: string; message: string }[]; aborts: unknown[]; outcome: string; partial: boolean; flightTimeS: number;

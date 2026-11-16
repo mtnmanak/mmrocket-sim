@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { referenceFile } from '../../../../scripts/reference-docs.mjs';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -158,11 +157,10 @@ describe('announcing the group', () => {
   });
 });
 
-const here = dirname(fileURLToPath(import.meta.url));
-const LEM = join(here, '../../../../docs/User files/atestani files/LEM-1-2026_2.ork');
+const LEM = referenceFile('User files', 'atestani files/LEM-1-2026_2.ork');
 
-it.skipIf(!existsSync(LEM))('LEM-1-2026_2.ork: the bar leads with the Caution override note', async () => {
-  const b = readFileSync(LEM);
+it.skipIf(!LEM || !existsSync(LEM))('LEM-1-2026_2.ork: the bar leads with the Caution override note', async () => {
+  const b = readFileSync(LEM!);
   const imported = { ...importOrk(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer), sourceFormat: 'ork' as const };
   const loaded: MountMotor = {
     label: 'F67C-8', meta: { label: 'F67C', manufacturer: 'AeroTech', motorId: 'db-F67C' }, ignition: { event: 'automatic', delay: 0 },

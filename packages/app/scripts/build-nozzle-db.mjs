@@ -66,6 +66,7 @@
  */
 import { isMain } from '../../../scripts/is-main.mjs';
 import { resolveSetting } from '../../../scripts/machine-profile.mjs';
+import { referenceDir } from '../../../scripts/reference-docs.mjs';
 import { atomicWriteFileSync } from './atomic-write.mjs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -2530,11 +2531,10 @@ const flagIn = (argv, name) => {
  */
 export function main({
   argv = process.argv.slice(2),
-  source = flagIn(argv, '--source') ?? process.env.RCS_SCHEMATICS
-    ?? join(here, '..', '..', '..', 'docs', 'RCS Schematics'),
+  source = flagIn(argv, '--source') || process.env.RCS_SCHEMATICS
+    || referenceDir('RCS Schematics', { repoRoot: join(here, '..', '..', '..') }),
   // Transcribed sheets must match their recorded source bytes before reuse.
-  lokiSource = flagIn(argv, '--loki') ?? process.env.LOKI_DATA
-    ?? join(here, '..', '..', '..', 'docs', 'Loki Data'),
+  lokiSource = flagIn(argv, '--loki') || process.env.LOKI_DATA,
   report = argv.includes('--report'),
   lokiSheets = LOKI_SHEETS,
   lokiHashes = LOKI_SHEET_HASHES,
@@ -2551,11 +2551,12 @@ export function main({
     if (['--source', '--loki'].includes(flag)
       && (!argv[i + 1] || argv[i + 1].startsWith('--'))) throw new Error(`${flag} requires a value`);
   }
-  if (!existsSync(source)) {
+  if (!source || !existsSync(source)) {
     console.error(`No RCS document set at ${source}.`);
     console.error('It is LOCAL-ONLY (docs/ is gitignored). Pass --source "<folder>" or set RCS_SCHEMATICS.');
     return 1;
   }
+  lokiSource ||= referenceDir('Loki Data', { repoRoot: join(here, '..', '..', '..') });
   // The extractor reads an instruction sheet only when it is named here.
   const raw = extract(source, INSTRUCTION_SHEET_NOZZLES.map((e) => e.file));
   const motorsDb = JSON.parse(readFileSync(motorsPath, 'utf8'));

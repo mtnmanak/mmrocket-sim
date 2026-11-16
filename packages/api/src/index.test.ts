@@ -1,6 +1,7 @@
 import { gzipSync, strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { referenceFile } from '../../../scripts/reference-docs.mjs';
 import { fileURLToPath } from 'node:url';
 import type { unstable_startWorker } from 'wrangler';
 import {
@@ -37,7 +38,7 @@ interface FlightResponse {
   timing: { basis: string; parseMs: number; flyMs: number; totalMs: number };
 }
 const FIXTURES = ['reference.ork', 'TubeFins2.rkt', 'Show-off.CDX1'] as const;
-const INCOMPLETE_FILE = new URL('../../../docs/User files/TRF RASAero Files/SS Wild Bash 20260623v0.rkt', import.meta.url);
+const INCOMPLETE_FILE = referenceFile('User files', 'TRF RASAero Files/SS Wild Bash 20260623v0.rkt');
 let normal: LocalWorker | undefined;
 let trapped: LocalWorker | undefined;
 let overlay: LocalWorker | undefined;
@@ -76,9 +77,9 @@ afterAll(async () => {
 });
 
 describe('S1 in real workerd', () => {
-  it.skipIf(!existsSync(INCOMPLETE_FILE))('marks a time-capped descent incomplete without inventing an abort event', async () => {
+  it.skipIf(!INCOMPLETE_FILE || !existsSync(INCOMPLETE_FILE))('marks a time-capped descent incomplete without inventing an abort event', async () => {
     const response = await normal!.fetch('http://local/experimental/fly?filename=slow-descent.rkt',
-      { method: 'POST', body: new Uint8Array(readFileSync(INCOMPLETE_FILE)) });
+      { method: 'POST', body: new Uint8Array(readFileSync(INCOMPLETE_FILE!)) });
     expect(response.status, await response.clone().text()).toBe(200);
     const result = await response.json() as FlightResponse;
     expect(result.warnings.some(w => /flight is incomplete/.test(w.message))).toBe(true);

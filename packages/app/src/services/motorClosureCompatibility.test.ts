@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { userMotorCorpusPath } from './userMotorCorpusPath.testSupport.js';
@@ -33,7 +33,7 @@ it('reports the shipped motor census through the app and engine guards', async (
   expect(checked + noFiles + refused.length).toBe(MOTOR_DB.length);
 }, 60_000);
 
-const userFiles = userMotorCorpusPath(join(dirname(fileURLToPath(import.meta.url)), '../../../..'), existsSync, join);
+const userFiles = userMotorCorpusPath(join(dirname(fileURLToPath(import.meta.url)), '../../../..'));
 it.skipIf(userFiles === null)('admits user motor files and embedded EX definitions through the same guards', () => {
   const built = rocket();
   let files = 0, checked = 0, embedded = 0;

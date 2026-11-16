@@ -2,6 +2,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { referenceFile } from '../../../../scripts/reference-docs.mjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import presetsJson from '../data/presets.json';
@@ -34,7 +35,7 @@ import { restoredPadMassNote } from './padMassReconcile.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string) => readFileSync(join(here, '__fixtures__', name), 'utf8');
-const LEM = join(here, '../../../../docs/User files/atestani files/LEM-1-2026_2.ork');
+const LEM = referenceFile('User files', 'atestani files/LEM-1-2026_2.ork');
 const arrayBuffer = (b: Buffer): ArrayBuffer => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
 
 /** The lines a reader result shows, each with its tier. */
@@ -136,8 +137,8 @@ describe('the .ork reader (orkFile.ts, sanitize, deployOverrideNote)', () => {
     expect(tierOf(lines, /^Recovery: .*overrides the deployment setting/)).toBe('caution');
   });
 
-  it.skipIf(!existsSync(LEM))('LEM-1-2026_2.ork: the override note is Caution and leads the open', async () => {
-    const imported: ImportedDesign = { ...importOrk(arrayBuffer(readFileSync(LEM))), sourceFormat: 'ork' };
+  it.skipIf(!LEM || !existsSync(LEM))('LEM-1-2026_2.ork: the override note is Caution and leads the open', async () => {
+    const imported: ImportedDesign = { ...importOrk(arrayBuffer(readFileSync(LEM!))), sourceFormat: 'ork' };
     const loaded: MountMotor = {
       label: 'F67C-8', meta: { label: 'F67C', manufacturer: 'AeroTech', motorId: 'db-F67C' },
       ignition: { event: 'automatic', delay: 0 },

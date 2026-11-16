@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { referenceDir } from '../../../../scripts/reference-docs.mjs';
 import { expect, it } from 'vitest';
 import { importOrk } from './orkFile.js';
 import { motorMounts } from '../tree/treeModel.js';
@@ -11,10 +11,10 @@ import { asymmetricThrustWarnings, thrustImbalance, type ThrustSite } from './as
 import { aftLayout } from '../tree/aftLayout.js';
 import type { MountMotor } from '../model/design.js';
 
-const corpus = join(dirname(fileURLToPath(import.meta.url)), '../../../../docs/User files');
-const file = existsSync(corpus) ? readdirSync(corpus).find(f => /^8 in Goblin 4 x 75mm v2\.ork$/i.test(f)) : undefined;
+const corpus = referenceDir('User files');
+const file = corpus && existsSync(corpus) ? readdirSync(corpus).find(f => /^8 in Goblin 4 x 75mm v2\.ork$/i.test(f)) : undefined;
 it.skipIf(!file)('row 127 owner Goblin: 1 M1780NT + 3 K1499N is Danger, four K1499N are balanced', async () => {
-  const bytes = readFileSync(join(corpus, file!));
+  const bytes = readFileSync(join(corpus!, file!));
   const tree = importOrk(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer).tree;
   const load = async (designation: string): Promise<MountMotor> => {
     const entry = MOTOR_DB.find(m => m.designation === designation)!;

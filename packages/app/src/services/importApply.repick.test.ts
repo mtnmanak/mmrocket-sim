@@ -2,6 +2,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { referenceFile } from '../../../../scripts/reference-docs.mjs';
 import { describe, expect, it } from 'vitest';
 import { rocksimCorpusPath } from './rocksimCorpusPath.testSupport.mjs';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
@@ -203,14 +204,13 @@ describe('planImport — opens a configuration that can leave the pad', () => {
  * configurations landed.
  */
 describe('planImport — the owner’s designs open flyable', () => {
-  const repo = join(here, '../../../..');
   // Optional corpus from ROCKSIM_CORPUS or the machine profile's Dropbox.
   const root = rocksimCorpusPath();
   const corpora = root ? [root] : [];
-  const find = (...candidates: string[]) => candidates.find((p) => existsSync(p));
+  const find = (...candidates: (string | null)[]) => candidates.find((p): p is string => p !== null && existsSync(p));
   const cases: [string, string | undefined, string][] = [
-    ['4in WM Extreme.rkt', find(join(repo, 'docs/User files/4in WM Extreme.rkt')), 'M2700W'],
-    ['Mach 3.rkt', find(join(repo, 'docs/User files/TRF RASAero Files/Mach 3.rkt')), '4LC'],
+    ['4in WM Extreme.rkt', find(referenceFile('User files', '4in WM Extreme.rkt')), 'M2700W'],
+    ['Mach 3.rkt', find(referenceFile('User files', 'TRF RASAero Files/Mach 3.rkt')), '4LC'],
   ];
   for (const [label, path, missing] of cases) {
     it.skipIf(!path)(`${label}: a motor on the pad and Launch available`, async () => {

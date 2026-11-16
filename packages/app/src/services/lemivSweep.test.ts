@@ -25,7 +25,8 @@
  * (Kbf) / +2.4 % (Supersonic) apogee residual survives both.
  */
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { referenceFile } from '../../../../scripts/reference-docs.mjs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { OrkRocket, resetEngine, type MotorSpec } from '@online-openrocket/engine';
 import { importOrk } from './orkFile.js';
@@ -40,17 +41,7 @@ import { numOpt } from '../tree/nodeNum.js';
  * `import.meta.url`: under the happy-dom environment Vite hands this module a
  * served `/@fs/` URL, so a URL-relative path silently resolves to nothing.
  */
-function repoRoot(): string {
-  let dir = process.cwd();
-  for (let i = 0; i < 6; i++) {
-    if (existsSync(join(dir, 'version.json'))) return dir;
-    const up = dirname(dir);
-    if (up === dir) break;
-    dir = up;
-  }
-  return process.cwd();
-}
-const local = (rel: string) => join(repoRoot(), 'docs', 'User files', rel);
+const local = (rel: string) => referenceFile('User files', rel);
 const ORK = local('LEM-IV.ork');
 const ENG = local(join('TRF RASAero Files', 'rasp.eng'));
 /** The M1500G flight configuration — NOT the file's default (an HP-K535W). */
@@ -61,7 +52,7 @@ const FT = 1 / 0.3048;
 const MEASURED_APOGEE_FT = 11755;
 const MEASURED_ACCEL_FT: readonly [number, number] = [598, 685];
 
-const ENABLED = process.env['LEMIV'] === '1' && existsSync(ORK) && existsSync(ENG);
+const ENABLED = process.env['LEMIV'] === '1' && ORK !== null && ENG !== null && existsSync(ORK) && existsSync(ENG);
 
 /**
  * Imported ONCE per process. The editor node ids the importer hands out come
@@ -72,7 +63,7 @@ const ENABLED = process.env['LEMIV'] === '1' && existsSync(ORK) && existsSync(EN
 let cached: ReturnType<typeof importOrk> | null = null;
 function loadOrk() {
   if (cached) return cached;
-  const buf = readFileSync(ORK);
+  const buf = readFileSync(ORK!);
   const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
   cached = importOrk(ab, { configId: CONFIG });
   return cached;
@@ -87,7 +78,7 @@ function mountId(): string {
 
 /** The reload as published, from the local RASP file. */
 function m1500g(): MotorSpec {
-  const ex = parseEng(readFileSync(ENG, 'utf8')).find((m) => m.designation === 'M1500G');
+  const ex = parseEng(readFileSync(ENG!, 'utf8')).find((m) => m.designation === 'M1500G');
   if (!ex) throw new Error('M1500G not found in rasp.eng');
   const tc = {
     motorId: ex.motorId, manufacturerAbbrev: 'AT', designation: ex.designation,

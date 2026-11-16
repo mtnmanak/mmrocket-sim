@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { hostname, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -25,7 +25,78 @@ import { afterEach, describe, expect, it } from 'vitest';
 const here = dirname(fileURLToPath(import.meta.url));
 const extractor = join(here, 'extract-aerotech-certified.py');
 const python = process.env.PYTHON ?? 'python';
-const hasPyMuPDF = spawnSync(python, ['-c', 'import pymupdf'], { stdio: 'ignore' }).status === 0;
+const pythonProbe = spawnSync(python, ['-c', 'import pymupdf'], { encoding: 'utf8' });
+const hasPyMuPDF = pythonProbe.status === 0;
+// A stub `python` (the Windows Store alias, an unconfigured pyenv shim) starts and exits non-zero: probe that it RUNS.
+const hasPython = hasPyMuPDF || spawnSync(python, ['-c', 'pass'], { stdio: 'ignore' }).status === 0;
+
+it.skipIf(!hasPython)('resolves Python references in env/profile/docs order, rejecting foreign profiles and files', () => {
+  const scratch = mkdtempSync(join(tmpdir(), 'python-references-'));
+  try {
+    const repo = join(scratch, 'repo'), envRoot = join(scratch, 'env'), profileRoot = join(scratch, 'profile');
+    const profilePath = join(scratch, 'machine.json');
+    const docs = join(repo, 'docs');
+    for (const root of [envRoot, profileRoot, docs]) mkdirSync(join(root, 'RCS Schematics'), { recursive: true });
+    writeFileSync(profilePath, JSON.stringify({ hostname: hostname().toUpperCase(),
+      repos: { online_open_rocket: { referenceDocs: profileRoot } } }));
+    const driver = `import json, os, sys\nsys.path.insert(0, sys.argv[1])\nimport reference_docs\nif 'REFERENCE_TEST_HOSTNAME' in os.environ: reference_docs.socket.gethostname = lambda: os.environ['REFERENCE_TEST_HOSTNAME']\nprint(json.dumps(reference_docs.reference_dir('RCS Schematics', sys.argv[2])))`;
+    const env = { ...process.env, MMRSIM_REFERENCE_ROOT: envRoot, MACHINE_PROFILE: profilePath, PYTHONDONTWRITEBYTECODE: '1' };
+    const resolve = () => {
+      const run = spawnSync(python, ['-c', driver, here, repo], { encoding: 'utf8', env, cwd: docs });
+      expect(run.status, run.stderr).toBe(0);
+      return JSON.parse(run.stdout);
+    };
+    expect(resolve()).toBe(join(envRoot, 'RCS Schematics'));
+    rmSync(join(envRoot, 'RCS Schematics'), { recursive: true });
+    writeFileSync(join(envRoot, 'RCS Schematics'), 'not a directory');
+    expect(resolve()).toBe(join(profileRoot, 'RCS Schematics'));
+    writeFileSync(profilePath, JSON.stringify({ hostname: 'foreign', repos: { online_open_rocket: { referenceDocs: profileRoot } } }));
+    expect(resolve()).toBe(join(docs, 'RCS Schematics'));
+    writeFileSync(profilePath, '{');
+    expect(resolve()).toBe(join(docs, 'RCS Schematics'));
+    for (const referenceDocs of ['', 42, join(scratch, 'missing')]) {
+      writeFileSync(profilePath, JSON.stringify({ hostname: hostname(), repos: { online_open_rocket: { referenceDocs } } }));
+      expect(resolve()).toBe(join(docs, 'RCS Schematics'));
+    }
+    // Even an empty host returned by the OS must not validate a missing/empty hostname.
+    env.REFERENCE_TEST_HOSTNAME = '';
+    for (const host of [undefined, '', 42]) {
+      writeFileSync(profilePath, JSON.stringify({ hostname: host, repos: { online_open_rocket: { referenceDocs: profileRoot } } }));
+      expect(resolve()).toBe(join(docs, 'RCS Schematics'));
+    }
+    delete env.REFERENCE_TEST_HOSTNAME;
+    rmSync(join(docs, 'RCS Schematics'), { recursive: true });
+    expect(resolve()).toBeNull();
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+});
+
+it.skipIf(!hasPython)('resolves both extractor defaults at main time and ignores empty legacy overrides', () => {
+  // No PDFs or PyMuPDF needed: stop at read_all after argparse chooses the source.
+  const driver = `import importlib.util, os, sys, types
+sys.path.insert(0, sys.argv[1])
+sys.modules['pymupdf'] = types.SimpleNamespace(set_messages=lambda **kwargs: None)
+for name in ['extract-aerotech-certified', 'extract-aerotech-delays']:
+    spec = importlib.util.spec_from_file_location(name, os.path.join(sys.argv[1], name + '.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    chosen = []
+    class Stop(Exception): pass
+    def read_all(source, *args):
+        chosen.append(source)
+        raise Stop()
+    module.read_all = read_all
+    for legacy, flags, expected in [('', [], 'resolved-late'), ('legacy', [], 'legacy'), ('legacy', ['--source', 'flag'], 'flag')]:
+        os.environ['RCS_SCHEMATICS'] = legacy
+        module.reference_dir = lambda *args: 'resolved-late'
+        try: module.main(flags)
+        except Stop: pass
+        assert chosen[-1] == expected, (name, chosen, expected)
+print('both extractor defaults resolved at main time')`;
+  const run = spawnSync(python, ['-c', driver, here], { encoding: 'utf8',
+    env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } });
+  expect(run.status, run.stderr).toBe(0);
+  expect(run.stdout).toContain('both extractor defaults resolved at main time');
+});
 
 /** One PDF per spec entry: a list of visual lines, each a list of [x, text]; null is a page with no text at all. */
 const MAKE_PDFS = `

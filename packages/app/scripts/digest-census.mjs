@@ -29,6 +29,7 @@
  */
 import { isMain } from '../../../scripts/is-main.mjs';
 import { resolveSetting } from '../../../scripts/machine-profile.mjs';
+import { REFERENCE_FOLDERS, referenceDir } from '../../../scripts/reference-docs.mjs';
 import { atomicWriteFileSync } from './atomic-write.mjs';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -57,6 +58,28 @@ function walk(dir, found = []) {
     }
   }
   return found;
+}
+
+/**
+ * Keep each file once, the first entry winning (docs before Dropbox): a relocated static folder can sit inside the
+ * Dropbox root that the census also walks. Windows paths compare case-insensitively.
+ */
+export function uniqueByPath(entries, platform = process.platform) {
+  const seen = new Set();
+  return entries.filter((entry) => {
+    const key = platform === 'win32' ? resolve(entry.path).toLowerCase() : resolve(entry.path);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/** Living docs plus relocated static folders, without counting a path twice. */
+export function localDesignPaths(repoRoot = ROOT) {
+  const roots = [join(repoRoot, 'docs'), ...REFERENCE_FOLDERS
+    .map(name => referenceDir(name, { repoRoot })).filter(Boolean)];
+  return uniqueByPath(roots.flatMap(root => walk(root)).map(path => ({ path: resolve(path) })))
+    .map(entry => entry.path);
 }
 
 /**
@@ -119,7 +142,7 @@ export async function main(argv = process.argv.slice(2)) {
   }
   mkdirSync(out, { recursive: true });
 
-  const paths = [...walk(join(ROOT, 'docs')).map((p) => ({ path: p, corpus: 'docs' }))];
+  const paths = localDesignPaths().map((p) => ({ path: p, corpus: 'docs' }));
   if (list) {
     for (const line of readFileSync(list, 'utf8').split(/\r?\n/)) {
       if (line.trim()) paths.push({ path: resolve(dropbox ?? '.', line.trim()), corpus: 'dropbox' });
@@ -127,7 +150,8 @@ export async function main(argv = process.argv.slice(2)) {
   } else if (dropbox && existsSync(dropbox)) {
     paths.push(...walk(dropbox).map((p) => ({ path: p, corpus: 'dropbox' })));
   }
-  const files = paths.filter((f) => statSync(f.path, { throwIfNoEntry: false })?.isFile())
+  const files = uniqueByPath(paths)
+    .filter((f) => statSync(f.path, { throwIfNoEntry: false })?.isFile())
     .map((f) => ({ ...f, sha256: createHash('sha256').update(readFileSync(f.path)).digest('hex') }));
   console.log(`${files.length} .ork files (${new Set(files.map((f) => f.sha256)).size} distinct by content)`);
 

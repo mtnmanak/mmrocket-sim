@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { referenceDir } from '../../../../scripts/reference-docs.mjs';
 import { expect, it } from 'vitest';
 import { OrkRocket } from '@online-openrocket/engine';
 import { importOrk } from './orkFile.js';
@@ -26,9 +26,9 @@ import { recordFlightOverrides } from './flightOverrideSummary.js';
 import { unzipSync } from 'fflate';
 
 // Same optional local docs junction as xmlParse.corpus.test.ts; no backup copy.
-const corpus = join(dirname(fileURLToPath(import.meta.url)), '../../../../docs/User files');
-function ownedDesign(root: string, name = '8 in Goblin 4 x 75mm v2.ork'): string | undefined {
-  if (!existsSync(root)) return undefined;
+const corpus = referenceDir('User files');
+function ownedDesign(root: string | null, name = '8 in Goblin 4 x 75mm v2.ork'): string | undefined {
+  if (!root || !existsSync(root)) return undefined;
   for (const entry of readdirSync(root, { withFileTypes: true })) {
     const path = join(root, entry.name);
     if (entry.isFile() && entry.name.toLowerCase() === name.toLowerCase()) return path;
@@ -36,7 +36,7 @@ function ownedDesign(root: string, name = '8 in Goblin 4 x 75mm v2.ork'): string
   }
   return undefined;
 }
-const file = ownedDesign(corpus);
+const file = corpus ? ownedDesign(corpus) : undefined;
 
 it.skipIf(!file)('discloses the owner’s four separate mounts on two real batch candidates', async () => {
   const loaded = importOrk(new Uint8Array(readFileSync(file!)));
@@ -81,7 +81,8 @@ it.skipIf(!file)('discloses the owner’s four separate mounts on two real batch
   }
 }, 120_000);
 
-it.skipIf(!existsSync(corpus))('124/125 measures target-set eligibility across the tester corpus without altering saved rows', async () => {
+it.skipIf(!corpus || !existsSync(corpus))('124/125 measures target-set eligibility across the tester corpus without altering saved rows', async () => {
+  const corpusRoot = corpus!;
   const inputs: { path: string; bytes: Uint8Array }[] = [];
   const walk = (root: string) => {
     for (const entry of readdirSync(root, { withFileTypes: true })) {
@@ -95,7 +96,7 @@ it.skipIf(!existsSync(corpus))('124/125 measures target-set eligibility across t
       }
     }
   };
-  walk(corpus);
+  walk(corpusRoot);
   const distinct = new Map(inputs.map(i => [createHash('sha256').update(i.bytes).digest('hex'), i]));
   const affected: { file: string; matching: number; defaultOn: boolean; mixedRing: boolean }[] = [];
   const diameterChanges: { file: string; selected: string; before: number; after: number; excluded: string[] }[] = [];
@@ -115,20 +116,20 @@ it.skipIf(!existsSync(corpus))('124/125 measures target-set eligibility across t
         if (targets.length < 2) continue;
         const before = MOTOR_DB.filter(m => isAvailable(m) && fitsMount(selected.diameterMm, m));
         const after = before.filter(m => targets.every(target => fitsMount(target.diameterMm, m)));
-        if (before.length !== after.length) diameterChanges.push({ file: path.slice(corpus.length + 1), selected: selected.label,
+        if (before.length !== after.length) diameterChanges.push({ file: path.slice(corpusRoot.length + 1), selected: selected.label,
           before: before.length, after: after.length, excluded: before.filter(m => !after.includes(m)).map(m => m.designation) });
       }
       const sets = mounts.map(m => batchMatchingMounts(tree, mounts, m)).filter(ms => ms.length > 1);
       if (!sets.length) continue;
       const resolved = await Promise.all(Object.entries(loaded.motors).map(async ([id, ref]) => [id, await matchImportedMotor(ref)] as const));
-      if (resolved.some(([, result]) => !result.motor)) { refused.push(path.slice(corpus.length + 1)); continue; }
+      if (resolved.some(([, result]) => !result.motor)) { refused.push(path.slice(corpusRoot.length + 1)); continue; }
       const metadata = Object.fromEntries(resolved.map(([id, result]) => [id, result.motor!]));
       const motors = Object.fromEntries(resolved.map(([id, result]) => [id, result.motor!.spec]));
       const ids = Object.fromEntries(resolved.map(([id, result]) => [id, result.motor!.meta.motorId ?? result.motor!.meta.exMotorId]));
-      affected.push({ file: path.slice(corpus.length + 1), matching: Math.max(...sets.map(s => s.length)),
+      affected.push({ file: path.slice(corpusRoot.length + 1), matching: Math.max(...sets.map(s => s.length)),
         defaultOn: sets.some(s => batchTargetsDefault(s, motors, metadata, ids)),
         mixedRing: sets.some(s => batchRingSplits(tree, s).halves !== null) });
-    } catch (error) { refused.push(`${path.slice(corpus.length + 1)}: ${String(error)}`); }
+    } catch (error) { refused.push(`${path.slice(corpusRoot.length + 1)}: ${String(error)}`); }
   }
   expect(inputs.length).toBeGreaterThan(0);
   console.log('124/125 tester corpus eligibility (not flown cases):', JSON.stringify({

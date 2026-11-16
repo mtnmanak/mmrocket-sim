@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, extname, join } from 'node:path';
+import { dirname, extname, isAbsolute, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { referenceDir } from '../../../../scripts/reference-docs.mjs';
 import { unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import { browserXmlParser, setXmlParser } from './xmlParse.js';
@@ -29,8 +30,22 @@ import { parseRse } from './exMotors.js';
  */
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '../../../..');
-const ROOTS = ['docs/User files', 'docs/testing', 'docs/Flight Data'].map((d) => join(repo, d));
-const present = ROOTS.some((d) => existsSync(d));
+const userFiles = referenceDir('User files');
+const ROOTS = [userFiles, join(repo, 'docs/testing'), referenceDir('Flight Data')]
+  .filter((path): path is string => path !== null);
+const present = userFiles !== null && existsSync(userFiles);
+
+function diagnosticPath(path: string): string {
+  const local = relative(repo, path);
+  return isAbsolute(local) || local === '..' || local.startsWith(`..${sep}`) ? path : local;
+}
+
+it('keeps relocated corpus diagnostic paths intact', () => {
+  const local = join(repo, 'docs', 'User files', 'model.ork');
+  const external = join(repo, '..', 'references', 'model.ork!member.ork');
+  expect(diagnosticPath(local)).toBe(join('docs', 'User files', 'model.ork'));
+  expect(diagnosticPath(external)).toBe(external);
+});
 
 interface Input { name: string; bytes: Uint8Array }
 function corpus(): Input[] {
@@ -73,7 +88,7 @@ describe('the local corpus: JS parser against happy-dom', () => {
     for (const i of inputs) {
       const happy = withParser(browserXmlParser, () => importFixture(i.name, i.bytes, false));
       const js = withParser(jsXmlParser, () => importFixture(i.name, i.bytes, false));
-      if (happy !== js) differ.push(i.name.slice(repo.length));
+      if (happy !== js) differ.push(diagnosticPath(i.name));
     }
     expect(differ).toEqual([]);
   }, 300_000);
@@ -112,7 +127,7 @@ describe('the local corpus: JS parser against happy-dom', () => {
           cases++;
           let msg = 'imported';
           try { withParser(parser, () => run(i.name, text)); } catch (e) { msg = (e as Error).message; }
-          if (!/XML parse error|Not valid XML \(\.rse\)/.test(msg)) notRefused.push(`${how} ${pn} ${i.name.slice(repo.length)}: ${msg}`);
+          if (!/XML parse error|Not valid XML \(\.rse\)/.test(msg)) notRefused.push(`${how} ${pn} ${diagnosticPath(i.name)}: ${msg}`);
         }
       }
     }

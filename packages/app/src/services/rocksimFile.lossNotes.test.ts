@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { referenceFile } from '../../../../scripts/reference-docs.mjs';
 import { describe, expect, it } from 'vitest';
 import { rocksimCorpusPath } from './rocksimCorpusPath.testSupport.mjs';
 import { OrkRocket, resetEngine, type ComponentNode } from '@online-openrocket/engine';
@@ -12,7 +12,6 @@ import { engineTree } from '../tree/treeModel.js';
 import { parseXml } from './xmlParse.js';
 import { inlineXmlCdata } from './xmlUtil.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
 const rkt = (parts: string) => `<RockSimDocument><DesignInformation><RocketDesign><StageCount>1</StageCount>
   <Stage3Parts>${parts}</Stage3Parts></RocketDesign></DesignInformation></RockSimDocument>`;
 const tube = (attached: string, extra = '') => `<BodyTube><Name>Host</Name><OD>40</OD><ID>38</ID><Len>300</Len>
@@ -126,9 +125,9 @@ describe('RockSim discloses losses without moving or retaining the lost parts', 
   ] as const) {
     // Local corpus from override/profile; preserve docs and legacy env fallbacks.
     const corpusRoot = rocksimCorpusPath();
-    const path = [join(here, '../../../../docs/User files/Rocksim Designs', name),
+    const path = [referenceFile('User files', 'Rocksim Designs', name),
       ...(process.env.ROCKSIM_DESIGNS ? [join(process.env.ROCKSIM_DESIGNS, name)] : []),
-      ...(corpusRoot ? [join(corpusRoot, name)] : [])].find(p => existsSync(p));
+      ...(corpusRoot ? [join(corpusRoot, name)] : [])].find((p): p is string => p !== null && existsSync(p));
     it.skipIf(!path)(`${name}: same parts and built mass, bounded fin-loss summary`, () => {
       const xml = readFileSync(path!, 'utf8');
       // happy-dom needs the same CDATA inlining as the RockSim importer.

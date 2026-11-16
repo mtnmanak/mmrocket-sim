@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { referenceDir } from '../../../scripts/reference-docs.mjs';
 import { afterEach, describe, expect, it } from 'vitest';
 
 /**
@@ -26,7 +27,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const extractor = join(here, 'extract-aerotech-delays.py');
 const python = process.env.PYTHON ?? 'python';
 const hasPyMuPDF = spawnSync(python, ['-c', 'import pymupdf'], { stdio: 'ignore' }).status === 0;
-const realDocs = join(here, '..', '..', '..', 'docs', 'RCS Schematics', 'Cert Docs');
+const rcs = process.env.RCS_SCHEMATICS || referenceDir('RCS Schematics');
+const realDocs = rcs ? join(rcs, 'Cert Docs') : null;
 
 /** One PDF per spec entry: a list of visual lines, each a list of [x, text]. */
 const MAKE_PDFS = `
@@ -371,7 +373,7 @@ describe.skipIf(!hasPyMuPDF)('reviewed scan transcriptions', { timeout: 30_000 }
   });
 });
 
-describe.skipIf(!hasPyMuPDF || !existsSync(realDocs))('src/data/aerotechDelays.json', { timeout: 30_000 }, () => {
+describe.skipIf(!hasPyMuPDF || !realDocs || !existsSync(realDocs))('src/data/aerotechDelays.json', { timeout: 30_000 }, () => {
   it('is what the certification documents give', () => {
     const res = spawnSync(python, [extractor, '--check', '--watch-out', join(here, 'aerotech-delay-sources.json')],
       { encoding: 'utf8', env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
