@@ -97,6 +97,8 @@ const SYMBOL_SPEC: Record<string, ColSpec> = {
   Cdb: { name: 'Base drag coefficient', si: '' },
   Cda: { name: 'Axial drag coefficient', si: '' },
   Cn: { name: 'Normal force coefficient', si: '' },
+  'CNα': { name: 'Normal force slope', si: '/rad' },
+  Ccm: { name: 'Corrective moment coefficient', si: 'N·m/rad' },
   'Cθ': { name: 'Pitch moment coefficient (about CG)', si: '' },
   'CτΨ': { name: 'Yaw moment coefficient', si: '' },
   'Cτs': { name: 'Side force coefficient', si: '' },

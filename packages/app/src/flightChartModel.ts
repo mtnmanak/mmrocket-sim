@@ -123,7 +123,9 @@ export function seriesCatalog(prefs: Pick<Preferences, 'units'>, C: readonly str
     { key: 'dynamicPressure', title: 'Dynamic pressure', unit: u.pressure, quantity: 'pressure', token: 'pressure', f: (v) => siToUi('pressure', u.pressure, v) },
     { key: 'qAlpha', title: 'q·α', unit: `${u.pressure}·rad`, token: null, f: (v) => siToUi('pressure', u.pressure, v), toSI: (v) => uiToSi('pressure', u.pressure, v) },
     { key: 'ωn', title: 'Pitch natural frequency', unit: 'rad/s', token: null },
+    { key: 'Ccm', title: 'Corrective moment coefficient', unit: 'N·m/rad', token: null },
     { key: 'Cn', title: 'Normal force coefficient', unit: '', token: null },
+    { key: 'CNα', title: 'Normal force slope (CNα)', unit: '/rad', token: null },
     { key: 'Cθ', title: 'Pitch moment coefficient (about CG)', unit: '', token: null },
     { key: 'Cζθ', title: 'Pitch damping coefficient', unit: '', token: null },
     { key: 'dθ', title: 'Pitch rate', unit: 'rad/s', token: null },
@@ -236,8 +238,8 @@ export function arbitraryCatalog(series: FlightSeries, prefs: Pick<Preferences, 
   return known.filter(d => d.key !== 'tc' && usableSeries(series, [String(d.key)]));
 }
 
-export const STABILITY_DIAGNOSTIC_KEYS = ['ωn', 'Cn', 'Cθ', 'Cζθ', 'dθ'] as const;
-export const STABILITY_DIAGNOSTIC_PANELS = ['stability', 'ωn', 'aoa', 'dθ', 'Cn', 'Cθ', 'Cζθ'];
+export const STABILITY_DIAGNOSTIC_KEYS = ['ωn', 'Ccm', 'Cn', 'CNα', 'Cθ', 'Cζθ', 'dθ'] as const;
+export const STABILITY_DIAGNOSTIC_PANELS = ['stability', 'ωn', 'Ccm', 'aoa', 'dθ', 'Cn', 'CNα', 'Cθ', 'Cζθ'];
 
 /** The branch's own transition out of 6DOF, shared by the display gates. */
 function beforeRecovery(events: FlightEvent[]): (time: unknown) => boolean {
@@ -247,7 +249,7 @@ function beforeRecovery(events: FlightEvent[]): (time: unknown) => boolean {
 }
 
 /** Display only: stability and CP stop at recovery/tumble; CG continues.
- * Cn starts recording at guide exit; ωn's guide zero is not data.
+ * Cn starts recording at guide exit; ωn's and Ccm's guide zeros are not data.
  * Preserve absent full-only series so summary recordings never gain empty chips. */
 export function withStabilityDiagnostics(series: FlightSeries, events: FlightEvent[] = []): FlightSeries {
   const airborne = beforeRecovery(events);

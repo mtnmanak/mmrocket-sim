@@ -7,6 +7,7 @@ export const stabilityTerms = {
   rate: slug('Pitch rate'),
   normalForce: slug('Normal-force coefficient, CN / Cn'),
   slope: slug('CNα (normal-force slope)'),
+  correctiveMoment: slug('Corrective moment coefficient (Ccm)'),
 };
 const components: Record<string, string> = {
   stage: 'Stage / serial staging', nosecone: 'Nose cone / nose profile', bodytube: 'Body tube',

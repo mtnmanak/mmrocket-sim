@@ -69,6 +69,23 @@ it('N052 keeps descriptive CG parentheses out of dimensionless workbook units', 
   expect(charts.some(c => c.includes('Pitch natural frequency (rad/s)'))).toBe(true);
 });
 
+it('N052 exports raw slope and signed moment with separate fixed-unit charts', () => {
+  const flight = singleFlight();
+  flight.series['CNα'] = [null, 3, 2];
+  flight.series.Ccm = [0, 0.4, -0.1];
+  const before = structuredClone(flight);
+  const files = unzipSync(flightXlsx(flight, IMPERIAL_UNITS));
+  const data = strFromU8(files['xl/worksheets/sheet1.xml']!);
+  expect(data).toContain('CNα — Normal force slope (/rad)');
+  expect(data).toContain('Ccm — Corrective moment coefficient (N·m/rad)');
+  expect(data).toContain('<v>-0.1</v>');
+  const charts = Object.entries(files).filter(([p]) => /^xl\/charts\/chart\d+\.xml$/.test(p))
+    .map(([, b]) => strFromU8(b));
+  expect(charts.filter(c => c.includes('Normal force slope (/rad)'))).toHaveLength(1);
+  expect(charts.filter(c => c.includes('Corrective moment coefficient (N·m/rad)'))).toHaveLength(1);
+  expect(flight).toEqual(before);
+});
+
 it('N032 keeps altitude and horizontal position on separate unit-labelled Excel axes', () => {
   const result = singleFlight();
   result.series.ha = [304.8, 609.6, 914.4];
@@ -304,7 +321,7 @@ describe('flightXlsx', () => {
     const want = (token: ChartToken, tier = 0) => ({
       color: LIGHT_PALETTE[slotOf(token)]!.slice(1).toUpperCase(), dash: (lineStyle(slotOf(token), tier) ?? []).join(','),
     });
-    // N052 reserves five more first-class looks. Extras must still match the
+    // N052 reserves seven more first-class looks. Extras must still match the
     // screen catalog, but no longer occupy its former tier-2 slots.
     const catalog = arbitraryCatalog(series, { units: METRIC_UNITS }, LIGHT_PALETTE);
     const extra = (key: string) => {

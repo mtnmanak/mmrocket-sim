@@ -38,6 +38,14 @@ function fakeSeries(): FlightSeries {
 }
 
 describe('seriesColumns', () => {
+  it('N052 exports raw signed corrective moment and slope in fixed SI units', () => {
+    const series = { ...fakeSeries(), 'CNα': [null, 3, 2], Ccm: [0, 0.4, -0.1] };
+    const before = structuredClone(series);
+    const columns = seriesColumns(series, '', IMPERIAL_UNITS);
+    expect(columns.find(c => c.header === 'CNα — Normal force slope (/rad)')!.values).toEqual([null, 3, 2]);
+    expect(columns.find(c => c.header === 'Ccm — Corrective moment coefficient (N·m/rad)')!.values).toEqual([0, 0.4, -0.1]);
+    expect(series).toEqual(before);
+  });
   it('N032 separates AGL and ASL altitude from horizontal columns without changing SI samples', () => {
     const input = { ...fakeSeries(), ha: [304.8, 609.6, null], Px: [1000, 2000, null], Py: [1000, 2000, null], Pl: [1000, 2000, null] };
     const before = structuredClone(input);

@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+// N052 r2: FlightCharts 11 -> 12 adds "against Mach" in the static-slope
+// explanation. This is static diagnostic copy, not a measurement comparison
+// or threshold; FlightCharts.diagnostics checks the flight/static conditions.
 // Rows 136/138 r2: batchCriteria 3 -> 4 adds the selected-mixed refusal:
 // at least two candidates are needed for a mixed flight. The shared count,
 // fit slack and flight cap are unchanged. batchCriteria.test's r2-1 case

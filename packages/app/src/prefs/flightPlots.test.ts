@@ -6,7 +6,9 @@ const plot = { id: 'one', name: 'Coast', panels: ['altitude', 'stabilityPercent'
 
 describe('stored flight plots', () => {
   it('reloads a saved diagnostic layout with every new panel intact', () => {
-    const saved = { ...plot, panels: [...STABILITY_DIAGNOSTIC_PANELS], comparison: '' };
+    const panels = ['stability', 'ωn', 'Ccm', 'aoa', 'dθ', 'Cn', 'CNα', 'Cθ', 'Cζθ'];
+    expect(STABILITY_DIAGNOSTIC_PANELS).toEqual(panels);
+    const saved = { ...plot, panels, comparison: '' };
     expect(normalizeFlightPlots(JSON.parse(JSON.stringify([saved])))).toEqual([saved]);
   });
   it('validates custom axes and event selection while accepting older layouts', () => {

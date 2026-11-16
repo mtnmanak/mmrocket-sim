@@ -489,7 +489,7 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
       </div>
       {showDiagnostics && <Note as="div" tier="information" className="chart-comparison-note">
         <p>These are diagnostics; the app gives no pass/fail on dynamic stability. They come from this flight&apos;s own
-          simulated aerodynamics, the same model that flew it. The five diagnostic figures are blank on the launch guide
+          simulated aerodynamics, the same model that flew it. The seven diagnostic figures are blank on the launch guide
           and after recovery deployment or tumble. Stability margin and CP location also stop at deployment or tumble;
           CG location continues.</p>
         <p>Pitch natural frequency (ωn) describes how fast the rocket swings back toward the wind after a disturbance;
@@ -497,6 +497,18 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
           there is no restoring moment there. Missing inputs can also leave gaps. At large angles of attack it is a
           stiffness estimate, not a full dynamic-stability measure.
           <GlossaryHelp term={stabilityTerms.frequency} label="Pitch natural frequency (ωn)" /></p>
+        <p>Normal force slope (CNα) describes how strongly the normal force coefficient grows with angle of attack,
+          per radian. The flight chart records CNα at each instant&apos;s Mach, angle of attack and roll orientation.
+          The Normal force slope (CNα) vs Mach chart in Drag analysis shows the zero-angle value against Mach in its roll plane.
+          <GlossaryHelp term={stabilityTerms.slope} label="CNα (normal-force slope)" /></p>
+        <p>Corrective moment coefficient (Ccm) is the signed corrective stiffness:
+          the restoring moment per radian of angle of attack at small angles. It is computed as
+          dynamic pressure × reference area × CNα × (CP − CG distance), in N·m/rad. Positive means CP is behind CG:
+          the moment turns the nose back toward the airflow. Negative means CP is ahead of CG: the moment turns it
+          further away, and ωn is blank on those rows. Near apogee, where the rocket is barely moving, Ccm is close to
+          zero and can briefly turn negative. At large angles of attack it is a stiffness estimate, not the moment the rocket actually feels.
+          Where ωn is positive, ωn² equals Ccm divided by the pitch moment of inertia.
+          <GlossaryHelp term={stabilityTerms.correctiveMoment} label="Corrective moment coefficient (Ccm)" /></p>
         <p>Pitch rate is how fast the rocket turns in pitch, in rad/s.
           <GlossaryHelp term={stabilityTerms.rate} label="Pitch rate" /> Normal force coefficient describes the force across
           the rocket&apos;s axis, scaled by dynamic pressure and reference area.
