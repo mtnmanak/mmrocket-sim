@@ -1,5 +1,5 @@
 {
-  "version": "0.201",
+  "version": "0.202",
   "released": "2026-11-15",
-  "note": "Batch simulate can fly each candidate in all matching mounts (ticked by default when they carry the same motor; changes new batch rows on such designs, untick for v0.200 behaviour); mixed batches on rings of separate tubes; a Caution/Danger warning when the motors push the rocket off its centreline, which the simulation itself cannot show."
+  "note": "RockSim .rkt upper stages now light their ignition delay after separation, as RockSim does (moves staged .rkt flights whose booster has an ejection delay); AeroTech printed average delays in the launch and print reports; an airfoil fin-mass Caution for RockSim files; .CDX1 saves write Optimum as Sheet Metal; the hosted app refuses to be framed at another address."
 }
