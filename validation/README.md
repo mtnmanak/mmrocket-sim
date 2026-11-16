@@ -19,6 +19,15 @@ node --test validation/score.test.mjs        # R-100 fixture and scoring regress
 
 ## Scoreboard
 
+**GATE REVISION (2026-11-15, row 91; 191 → 178 gates): TN D-4013 fins-on drag now
+gates only the report's tested Machs.** Thirteen reads between tested Machs move to
+`cd-transonic-fairing` (`gate: false`), following the fins-off fairing convention.
+The remaining seventeen fins-on gates receive per-point report-derived RSS budgets
+of ±0.008–0.012, all tighter than ±0.03. Anchor values, fixture geometry and the kernel
+are unchanged. **Classic 11/191 → 8/178; Kbf 38/191 → 30/178; Supersonic 80/191 →
+68/178; Hybrid 80/191 → 69/178.** Every changed row, the exact budget rule and
+before/after containment proof: `scorecard-finson-gates-2026-11-15.md`.
+
 **ANCHOR REVISION (2026-10-11, night; gates unchanged at 191): the TN D-4013 fins-on curves
 re-read off the report scan.** The `cd-transonic-tunnel` values came from a 2026-08 read of the
 curves as reproduced in Rogers' comparison deck, and they lay below the curve all through the drag
@@ -172,10 +181,10 @@ base CD ≈ 0.09 at M1.19 vs the ±0.02 tolerance). Phase-1..4 scorecards below
 are historical (scored against the 137-gate anchors); the current state under
 revised anchors is `scorecard-audit-2026-08-04.md`.
 
-**Read a percentage with its denominator or not at all.** The gate corpus has been revised five
+**Read a percentage with its denominator or not at all.** The gate corpus has been revised
 times — 137 → 135 (the 2026-08-04 audit) → 164 (the ARCAS re-fixture plus 29 free-flight gates) →
 166 (fins-off cells) → 175 (the fins-off curve from the report scans) → 191 (the sharp-airfoil
-cell). Percentages across revisions are not comparable; per-scorecard gate FLIPS are. A denominator
+cell) → 178 (fins-on fairing reads un-gated). Percentages across revisions are not comparable; per-scorecard gate FLIPS are. A denominator
 pins the gate SET, not the anchor values — some anchor values moved inside a revision as well, so a
 row's grade can change with neither the model nor the denominator moving. *(Hoisted here
 2026-09-21: it was one sentence buried 25 lines below the table it governs.)*
@@ -206,10 +215,14 @@ row's grade can change with neither the model nor the denominator moving. *(Hois
 | Hybrid, same kernel | 79/191 (41.4%) historical | commit 7b47fb3e (74 → 79); re-scored on the v0.177 kernel |
 | Rogers Kbf, v0.179 kernel (row 87: Fleeman nose wave drag) | 41/191 (21.5%) historical | LEDGER row-87 entry (22 → 41); superseded by the fins-on re-read below |
 | Supersonic / Hybrid, v0.179 kernel (per-fin CNα top) | 86 / 82/191 historical | LEDGER entry (83 → 86, 79 → 82); superseded by the fins-on re-read below |
-| **Current: classic, v0.179 kernel, fins-on curves re-read (191 gates)** | **11/191 (5.8%)** | `scorecard-finson-reread-2026-10-11.md` — Short M0.95 and Short-nosection M0.95 PASS → FAIL |
-| **Current: Rogers Kbf — THE SHIPPED DEFAULT, same** | **38/191 (19.9%)** | same — M0.90 PASS → FAIL on Short, Short-nosection and Long |
-| **Current: supersonic, same** | **80/191 (41.9%)** | same — M0.90 ×3 and Long M0.95/1.00/1.10 PASS → FAIL |
-| **Current: hybrid, same** | **80/191 (41.9%)** | same — M0.90 ×3 PASS → FAIL, Long M1.10 FAIL → PASS |
+| Classic, v0.179 kernel, fins-on curves re-read (191 gates) | 11/191 (5.8%) historical | `scorecard-finson-reread-2026-10-11.md` — Short M0.95 and Short-nosection M0.95 PASS → FAIL |
+| Rogers Kbf, same | 38/191 (19.9%) historical | same — M0.90 PASS → FAIL on Short, Short-nosection and Long |
+| Supersonic, same | 80/191 (41.9%) historical | same — M0.90 ×3 and Long M0.95/1.00/1.10 PASS → FAIL |
+| Hybrid, same | 80/191 (41.9%) historical | same — M0.90 ×3 PASS → FAIL, Long M1.10 FAIL → PASS |
+| **Current: classic, tested-Mach fins-on gates and report budgets (178 gates)** | **8/178 (4.5%)** | `scorecard-finson-gates-2026-11-15.md` — 13 fairing gates removed, 3 tested gates PASS → FAIL |
+| **Current: Rogers Kbf — THE SHIPPED DEFAULT, same** | **30/178 (16.9%)** | same — 3 passing fairing gates removed, 5 tested gates PASS → FAIL |
+| **Current: supersonic, same** | **68/178 (38.2%)** | same — 7 passing fairing gates removed, 5 tested gates PASS → FAIL |
+| **Current: hybrid, same** | **69/178 (38.8%)** | same — 6 passing fairing gates removed, 5 tested gates PASS → FAIL |
 
 **Read the two 2026-08-25 numbers together or not at all.** The supersonic percentage
 *fell* from the 2026-08-04 line (47.4% → 42.7%) while the model got materially better,
@@ -330,7 +343,12 @@ node validation/score.mjs > validation/scorecard.md
 - `score.mjs` — builds each fixture, runs `dragSweep` (which emits CD
   power-off/on + CP + CNα per Mach), interpolates at anchor Machs, grades.
   `cdDelta` subtracts a `referenceFixture` swept under the same model
-- `scorecard-finson-reread-2026-10-11.md` — **the newest scorecard**: the TN D-4013 fins-on
+- `scorecard-finson-gates-2026-11-15.md` — **the newest gate revision**: tested-Mach-only
+  fins-on gates, per-point report-derived budgets, all changed rows in all four models
+  (8 · 30 · 68 · 69 of 178), no anchor-value or model-number changes.
+- `digitize/d4013-finson-budget.mjs` — reproduces the per-point RSS budgets from the full
+  unchanged read curves, including informational fairing points in the local-slope estimate.
+- `scorecard-finson-reread-2026-10-11.md` — the TN D-4013 fins-on
   `cd-transonic-tunnel` curves re-read off the NTRS scan and checked two other ways, 12 points replaced,
   every gate flip in all four models (11 · 38 · 80 · 80 of 191), the fin increment above M0.70 and what it
   says about airfoil fin drag.
@@ -355,7 +373,7 @@ node validation/score.mjs > validation/scorecard.md
   informational points and all four models measured, with every prior output
   byte unchanged. Gate scores remain 13/191 · 21/191 · 77/191 · 73/191
   (Classic · Kbf · Supersonic · Hybrid).
-- `scorecard-nosection-2026-08-29.md` — the latest gate-set revision. It is where
+- `scorecard-nosection-2026-08-29.md` — the historical sharp-airfoil gate-set revision. It is where
   the **13/191 · 21/191 · 77/191** that held until the 2026-10-08 kernel change was set. Walk back through the entries below for how
   each earlier revision's denominator was reached. *(This line named the 27 August scorecard and
   its 10/17/71 until 2026-09-21 — two revisions of the gate set out of date, in the one place
@@ -463,12 +481,11 @@ tolerances come from the datasets' own stated accuracies.
   primary source, verified four ways.
 - ~~Re-reading the fins-ON transonic curves (`cd-transonic-tunnel`) the same
   way.~~ — **DONE 2026-10-11** (`scorecard-finson-reread-2026-10-11.md`): 12 points
-  replaced (Short 4, Long 8), each confirmed by a second read. Still open from it: four of
-  the ten gated fins-on Machs on the Short model and five on the Long are fairing points the
-  report did not test (M0.70, 1.05, 1.10, 1.15 on both, plus M0.95 on the Long), which the fins-off cells carry as `gate: false`. The
-  series' ±0.03 is not derived from the report's accuracy; a report-derived budget would be
-  about ±0.008 subsonically. Both would change the gate set or a tolerance derivation, so
-  they are left for their own decision.
+  replaced (Short 4, Long 8), each confirmed by a second read. **Follow-up DONE 2026-11-15**
+  (`scorecard-finson-gates-2026-11-15.md`): the thirteen untested fairing reads across Short,
+  its sharp-airfoil copy and Long are now `gate: false`; the seventeen tested-Mach gates
+  use report-derived per-point budgets of ±0.008–0.012 instead of ±0.03. No anchor value
+  or model number changes.
 - **The base-drag panel (C_A,b) of TN D-4013 Figs 11/12** — digitized, its sign
   convention established from the report and demonstrated against the report's
   own C_p,b figures, and deliberately NOT gated: the tunnel base is

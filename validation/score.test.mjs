@@ -4,9 +4,11 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { OrkRocket, resetEngine } from '../packages/engine/dist/index.js';
+import { finsOnBudgets } from './digitize/d4013-finson-budget.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const anchors = JSON.parse(readFileSync(new URL('anchors.json', import.meta.url), 'utf8'));
+const gateScores = { '': 8, '--kbf': 30, '--supersonic': 68, '--hybrid': 69 };
 const cases = [
   [82, 1.78, 0.438, 0.142, 0.007],
   [83, 1.78, 0.700, 0.114, 0.005],
@@ -80,7 +82,7 @@ test('R-100 fixtures reproduce the six assigned geometries and informational rea
   }
 });
 
-test('the 2026-10-11 coverage cells exist, are informational, and keep 191 gates', () => {
+test('the 2026-10-11 coverage cells stay informational; the revised gate set has 178 points', () => {
   for (const cell of coverageCells) {
     const spec = anchors[cell];
     assert.ok(spec, `missing ${cell}`);
@@ -98,14 +100,14 @@ test('the 2026-10-11 coverage cells exist, are informational, and keep 191 gates
     const tree = fixture(anchors[cell].fixture);
     assert.ok(!tree.components.some(c => c.children?.length), `${cell}: increment fixture carries fins`);
   }
-  // And the gate set is still the 191 points it was: every gating series'
+  // The 2026-11-15 revision removes 13 untested fins-on fairing gates: every gating series'
   // points inside its gate Mach window, the predicate score.mjs counts by.
   const gates = Object.entries(anchors).filter(([name]) => !name.startsWith('_'))
     .flatMap(([, spec]) => spec.series.filter(series => series.gate))
     .reduce((sum, series) => sum + series.points.filter(([m]) =>
       (series.gateMaxMach == null || m <= series.gateMaxMach)
       && (series.gateMinMach == null || m >= series.gateMinMach)).length, 0);
-  assert.equal(gates, 191);
+  assert.equal(gates, 178);
   // The finned cells carry the report's three type-A fins as drawn.
   for (const name of ['r100-78-finned.json', 'r100-92-finned.json', 'r100-98-finned.json', 'r100-23.json']) {
     const fins = fixture(name).components.flatMap(c => c.children ?? []);
@@ -121,12 +123,22 @@ test('the 2026-10-11 coverage cells exist, are informational, and keep 191 gates
 
 for (const flag of ['', '--kbf', '--supersonic', '--hybrid']) {
   // A real-kernel sweep of every model through the scorer: over a second each.
-  test(`cdAfterbody subtracts nose pressure, includes base, excludes friction: ${flag || 'Classic'}`, { timeout: 30_000 }, () => {
+  test(`cdAfterbody subtracts nose pressure, includes base, excludes friction: ${flag || 'Classic'}`, { timeout: 60_000 }, () => {
     const args = ['validation/score.mjs', ...(flag ? [flag] : []), '--strict'];
     const result = spawnSync(process.execPath, args, { cwd: root, encoding: 'utf8' });
     assert.equal(result.stderr, '');
     assert.equal(result.status, 1, 'existing failed gates retain strict exit 1');
-    assert.match(result.stdout, /Gate points: \d+\/191 within tolerance/);
+    assert.ok(result.stdout.includes(`Gate points: ${gateScores[flag]}/178 within tolerance`));
+    for (const cell of ['arcas-short', 'arcas-short-nosection', 'arcas-long']) {
+      for (const series of anchors[cell].series.filter(s => s.id.startsWith('cd-transonic-'))) {
+        for (const [mach, anchor, pointTol] of series.points) {
+          const [, , , , tol, verdict] = scoredRow(result.stdout, cell, series.id, mach);
+          assert.equal(tol, `±${(pointTol ?? series.tol).toFixed(4)}`);
+          assert.match(verdict, series.gate ? /^(PASS|\*\*FAIL\*\*)$/ : /^(ok|off) \(info\)$/);
+          assert.equal(Number(scoredRow(result.stdout, cell, series.id, mach)[1]), anchor);
+        }
+      }
+    }
     // Explicit nose reference, rather than the scorer's removed-afterbody tree.
     const nose = atMach({ name: 'Independent R-100 nose reference', components: [
       { type: 'nosecone', shape: 'parabolic', shapeParameter: 1,
@@ -199,7 +211,7 @@ for (const flag of ['', '--kbf', '--supersonic', '--hybrid']) {
     const args = ['validation/score.mjs', ...(flag ? [flag] : [])];
     const result = spawnSync(process.execPath, args, { cwd: root, encoding: 'utf8' });
     assert.equal(result.stderr, '');
-    assert.match(result.stdout, /Gate points: \d+\/191 within tolerance/);
+    assert.match(result.stdout, /Gate points: \d+\/178 within tolerance/);
     for (const [cell, ids] of Object.entries(subsonicCp)) {
       for (const mach of [0.6, 0.8, 0.9]) {
         resetEngine();
@@ -235,20 +247,43 @@ const finsOnReread = {
     [1.05, 0.7279], [1.1, 0.698], [1.15, 0.665], [1.2, 0.6219]],
 };
 
-test('the TN D-4013 fins-on anchors carry the scan re-read, at the old tolerance, copied into the sharp-airfoil cell', () => {
+test('the TN D-4013 fins-on gates use tested Machs and report budgets; fairing reads stay informational', () => {
   const series = (cell, id) => anchors[cell].series.find(s => s.id === id);
+  const tolerances = {
+    'arcas-short': [0.008, 0.008, 0.012, 0.012, 0.010, 0.008],
+    'arcas-long': [0.008, 0.008, 0.012, 0.011, 0.008],
+  };
   for (const [cell, points] of Object.entries(finsOnReread)) {
     const s = series(cell, 'cd-transonic-tunnel');
-    assert.deepEqual(s.points, points);
+    const machs = cell === 'arcas-short' ? [0.6, 0.8, 0.9, 0.95, 1, 1.2] : [0.6, 0.8, 0.9, 1, 1.2];
+    assert.deepEqual(s.points, points.filter(([m]) => machs.includes(m))
+      .map(([m, value], i) => [m, value, tolerances[cell][i]]));
     assert.equal(s.gate, true);
     assert.equal(s.base, 'excluded');
-    // A re-read moves anchor values only; the tolerance and its derivation stay as they were.
-    assert.equal(s.tol, 0.03);
+    assert.equal(s.tol, undefined, 'every tested point has its own budget, no old fallback');
     assert.match(s.source, /read-d4013-ca\.py/);
+    assert.match(s.source, /d4013-finson-budget\.mjs/);
+    assert.match(s.source, /RSS/);
+    const fairing = series(cell, 'cd-transonic-fairing');
+    assert.equal(fairing.gate, false);
+    assert.equal(fairing.quantity, 'cd');
+    assert.equal(fairing.base, 'excluded');
+    assert.equal(fairing.tol, 0.03, 'old informational band retained, no fabricated measurement accuracy');
+    assert.match(fairing.source, /fairing/);
+    assert.deepEqual(fairing.points, points.filter(([m]) => !machs.includes(m)));
+    // The calculator is reproducible from the entire unchanged read curve.
+    const budgets = finsOnBudgets(points).filter(p => machs.includes(p.mach));
+    assert.deepEqual(budgets.map(p => p.tolerance), tolerances[cell]);
+    for (const p of budgets) {
+      const rss = Math.sqrt(0.004 ** 2 + (0.01 * 0.4225) ** 2 + 0.004 ** 2 + (0.003 * p.slope) ** 2);
+      assert.ok(Math.abs(rss - p.rss) < 1e-14);
+      assert.ok(p.tolerance >= rss && p.tolerance - rss < 0.001);
+      assert.ok(p.tolerance < 0.03, 'never widen the old band');
+    }
   }
   // arcas-short-nosection gates the same tunnel run through another kernel path: its CD series must
   // stay verbatim copies of the parent's, or the two cells stop measuring the same thing.
-  for (const id of ['cd-transonic-tunnel', 'cd-supersonic-tunnel']) {
+  for (const id of ['cd-transonic-tunnel', 'cd-transonic-fairing', 'cd-supersonic-tunnel']) {
     const parent = series('arcas-short', id);
     const copy = series('arcas-short-nosection', id);
     assert.deepEqual(copy.points, parent.points, `${id} points drifted from arcas-short`);

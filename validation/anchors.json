@@ -1,5 +1,6 @@
 {
   "_readme": [
+    "GATE REVISION 2026-11-15 (row 91, 191 -> 178 gates): cd-transonic-tunnel on arcas-short, its sharp-airfoil copy and arcas-long gates only TN D-4013 p.4 tested Machs. Thirteen unchanged between-test reads move to cd-transonic-fairing (gate false); the seventeen tested points receive per-point report-derived RSS budgets, rounded upward, all tighter than the old +/-0.03. No anchor value, fixture or kernel changes. See scorecard-finson-gates-2026-11-15.md and digitize/d4013-finson-budget.mjs.",
     "cdAfterbody = fixture pressure CD - nose-only pressure CD + fixture base CD; cylindrical afterbodies contribute base CD only. Coefficients use kernel max-diameter area, then refAreaScale. R-100 Figure 13(a), added 2026-10-07: six informational points, no gate changes; friction excluded, ISA sea level acceptable. Equation (1) is not used.",
     "Machine-readable validation anchors. Provenance, tolerances and caveats for each dataset are recorded in the project's research notes; every anchor cites its source report below.",
     "Scored by validation/score.mjs. Each series: quantity is one of cd | cdAfterbody | cdDelta | cpPctL | cpOverL | cnaPerRad | cnaPerDeg.",
@@ -29,9 +30,14 @@
         "points": [[1.49, 0.532], [1.8, 0.470], [2.29, 0.376], [2.95, 0.300], [3.95, 0.223], [4.65, 0.198]]
       },
       {
-        "id": "cd-transonic-tunnel", "quantity": "cd", "base": "excluded", "gate": true, "tol": 0.03,
-        "source": "TN D-4013 Fig 11 CA,corr fins-on dF=0 (corrected to free-stream base pressure => base excluded). RE-READ 2026-10-11 off the NTRS report scan by validation/digitize/read-d4013-ca.py (scorecard-finson-reread-2026-10-11.md): M0.70/0.80/0.90/0.95 REPLACED. They were 0.300/0.309/0.350/0.46, read in 2026-08 off the curve as reproduced in Rogers' comparison deck; the scan reads 0.3087/0.3295/0.4201/0.5658 (read uncertainty +/-0.004, the fins-off digitization term), and two other routes agree: the TRF reproduction of the same figure, read by the same code (0.3086/0.3294/0.4204/0.5673), and at the tested M0.80/0.90/0.95 the report's own alpha=0 data, Fig 7(a) C_A plus Fig 3 C_p,b x A_b/S 0.4225 (0.325/0.419/0.559, +/-0.006-0.009). The superseded values lay below the curve all through the drag rise. The other six points agree with the scan read to <=0.0035 and are unchanged. tol 0.03 unchanged.",
-        "points": [[0.6, 0.295], [0.7, 0.3087], [0.8, 0.3295], [0.9, 0.4201], [0.95, 0.5658], [1.0, 0.683], [1.05, 0.685], [1.1, 0.666], [1.15, 0.635], [1.2, 0.596]]
+        "id": "cd-transonic-tunnel", "quantity": "cd", "base": "excluded", "gate": true,
+        "source": "TN D-4013 Fig 11 CA,corr fins-on dF=0 (corrected to free-stream base pressure => base excluded). RE-READ 2026-10-11 off the NTRS report scan by validation/digitize/read-d4013-ca.py (scorecard-finson-reread-2026-10-11.md): M0.70/0.80/0.90/0.95 REPLACED. They were 0.300/0.309/0.350/0.46, read in 2026-08 off the curve as reproduced in Rogers' comparison deck; the scan reads 0.3087/0.3295/0.4201/0.5658 (read uncertainty +/-0.004, the fins-off digitization term), and two other routes agree: the TRF reproduction of the same figure, read by the same code (0.3086/0.3294/0.4204/0.5673), and at the tested M0.80/0.90/0.95 the report's own alpha=0 data, Fig 7(a) C_A plus Fig 3 C_p,b x A_b/S 0.4225 (0.325/0.419/0.559, +/-0.006-0.009). The superseded values lay below the curve all through the drag rise. The other six points agree with the scan read to <=0.0035 and are unchanged. GATE REVISION 2026-11-15: only report-tested Machs (p.4); untested reads moved unchanged to cd-transonic-fairing (gate false). Third element = point tolerance, computed by validation/digitize/d4013-finson-budget.mjs: RSS of C_A +/-0.004, C_p,b +/-0.01 x A_b/S 0.4225, digitization +/-0.004, and Mach +/-0.003 x local slope; rounded UP to 0.001 as scorecard-finsoff-figs-2026-08-25.md section 3.1. Local slope = larger absolute adjacent secant on the full unchanged anchor curve including fairing reads, one-sided at endpoints. All budgets tighten the old +/-0.03; see scorecard-finson-gates-2026-11-15.md.",
+        "points": [[0.6, 0.295, 0.008], [0.8, 0.3295, 0.008], [0.9, 0.4201, 0.012], [0.95, 0.5658, 0.012], [1, 0.683, 0.01], [1.2, 0.596, 0.008]]
+      },
+      {
+        "id": "cd-transonic-fairing", "quantity": "cd", "base": "excluded", "gate": false, "tol": 0.03,
+        "source": "THE SAME CURVE, READ BETWEEN THE TEST POINTS - info only, never gated: these Mach numbers were not tested (TN D-4013 p.4); the curve there is the report draftsman's fairing, not a measurement. Same field and fairing-series convention as cd0-finsoff-fairing. M0.95 was tested only on Short. Anchor values unchanged; the old +/-0.03 curve-read band is retained for information only.",
+        "points": [[0.7, 0.3087], [1.05, 0.685], [1.1, 0.666], [1.15, 0.635]]
       },
       {
         "id": "cp-supersonic-tunnel", "quantity": "cpPctL", "gate": true, "tol": 2.0, "gateMaxMach": 3.5,
@@ -111,9 +117,14 @@
         "points": [[1.49, 0.532], [1.8, 0.470], [2.29, 0.376], [2.95, 0.300], [3.95, 0.223], [4.65, 0.198]]
       },
       {
-        "id": "cd-transonic-tunnel", "quantity": "cd", "base": "excluded", "gate": true, "tol": 0.03,
-        "source": "TN D-4013 CA,corr fins-on dF=0 (corrected to free-stream base pressure => base excluded). Copied verbatim from arcas-short, including its 2026-10-11 re-read of M0.70/0.80/0.90/0.95 (see that series' source).",
-        "points": [[0.6, 0.295], [0.7, 0.3087], [0.8, 0.3295], [0.9, 0.4201], [0.95, 0.5658], [1.0, 0.683], [1.05, 0.685], [1.1, 0.666], [1.15, 0.635], [1.2, 0.596]]
+        "id": "cd-transonic-tunnel", "quantity": "cd", "base": "excluded", "gate": true,
+        "source": "TN D-4013 CA,corr fins-on dF=0 (corrected to free-stream base pressure => base excluded). Copied verbatim from arcas-short, including its 2026-10-11 re-read of M0.70/0.80/0.90/0.95 (see that series' source). GATE REVISION 2026-11-15: only report-tested Machs (p.4); untested reads moved unchanged to cd-transonic-fairing (gate false). Third element = point tolerance, computed by validation/digitize/d4013-finson-budget.mjs: RSS of C_A +/-0.004, C_p,b +/-0.01 x A_b/S 0.4225, digitization +/-0.004, and Mach +/-0.003 x local slope; rounded UP to 0.001 as scorecard-finsoff-figs-2026-08-25.md section 3.1. Local slope = larger absolute adjacent secant on the full unchanged anchor curve including fairing reads, one-sided at endpoints. All budgets tighten the old +/-0.03; see scorecard-finson-gates-2026-11-15.md.",
+        "points": [[0.6, 0.295, 0.008], [0.8, 0.3295, 0.008], [0.9, 0.4201, 0.012], [0.95, 0.5658, 0.012], [1, 0.683, 0.01], [1.2, 0.596, 0.008]]
+      },
+      {
+        "id": "cd-transonic-fairing", "quantity": "cd", "base": "excluded", "gate": false, "tol": 0.03,
+        "source": "THE SAME CURVE, READ BETWEEN THE TEST POINTS - info only, never gated: these Mach numbers were not tested (TN D-4013 p.4); the curve there is the report draftsman's fairing, not a measurement. Same field and fairing-series convention as cd0-finsoff-fairing. M0.95 was tested only on Short. Anchor values unchanged; the old +/-0.03 curve-read band is retained for information only.",
+        "points": [[0.7, 0.3087], [1.05, 0.685], [1.1, 0.666], [1.15, 0.635]]
       }
     ]
   },
@@ -129,9 +140,14 @@
         "points": [[1.8, 0.508], [2.29, 0.410], [2.95, 0.336], [3.95, 0.269], [4.65, 0.225]]
       },
       {
-        "id": "cd-transonic-tunnel", "quantity": "cd", "base": "excluded", "gate": true, "tol": 0.03,
-        "source": "TN D-4013 Fig 12 CA,corr fins-on dF=0 (base excluded); peak region +/-0.03. RE-READ 2026-10-11 off the NTRS report scan by validation/digitize/read-d4013-ca.py (scorecard-finson-reread-2026-10-11.md): M0.70/0.80/0.90/0.95/1.00/1.05/1.10/1.20 REPLACED. They were 0.348/0.353/0.385/0.47/0.63/0.72/0.735/0.635, read in 2026-08 off the curve as reproduced in Rogers' comparison deck; the scan reads 0.3550/0.3714/0.4516/0.5928/0.7253/0.7279/0.6980/0.6219 (read uncertainty +/-0.004) and the TRF reproduction of the same figure, read by the same code, agrees at every one (0.3568/0.3732/0.4540/0.5969/0.7239/0.7282/0.6982/0.6226). The report's own alpha=0 data (Fig 9(a) C_A plus Fig 5 C_p,b x A_b/S 0.4225) agree at M1.00/1.20 (0.723/0.616); at M0.80/0.90 they read 0.364/0.442, 0.008-0.010 below the scan read, but equally far below it at M0.60 (0.339), where every read and the gated 0.348 agree, so they confirm the rise from M0.60 (+0.103 to M0.90, scan +0.104, superseded +0.037). The superseded peak sat at M1.10; the curve peaks at M1.02-1.05. M0.60 and M1.15 agree with the scan read to <=0.003 and are unchanged. tol 0.03 unchanged.",
-        "points": [[0.6, 0.348], [0.7, 0.355], [0.8, 0.3714], [0.9, 0.4516], [0.95, 0.5928], [1.0, 0.7253], [1.05, 0.7279], [1.1, 0.698], [1.15, 0.665], [1.2, 0.6219]]
+        "id": "cd-transonic-tunnel", "quantity": "cd", "base": "excluded", "gate": true,
+        "source": "TN D-4013 Fig 12 CA,corr fins-on dF=0 (base excluded); RE-READ 2026-10-11 off the NTRS report scan by validation/digitize/read-d4013-ca.py (scorecard-finson-reread-2026-10-11.md): M0.70/0.80/0.90/0.95/1.00/1.05/1.10/1.20 REPLACED. They were 0.348/0.353/0.385/0.47/0.63/0.72/0.735/0.635, read in 2026-08 off the curve as reproduced in Rogers' comparison deck; the scan reads 0.3550/0.3714/0.4516/0.5928/0.7253/0.7279/0.6980/0.6219 (read uncertainty +/-0.004) and the TRF reproduction of the same figure, read by the same code, agrees at every one (0.3568/0.3732/0.4540/0.5969/0.7239/0.7282/0.6982/0.6226). The report's own alpha=0 data (Fig 9(a) C_A plus Fig 5 C_p,b x A_b/S 0.4225) agree at M1.00/1.20 (0.723/0.616); at M0.80/0.90 they read 0.364/0.442, 0.008-0.010 below the scan read, but equally far below it at M0.60 (0.339), where every read and the gated 0.348 agree, so they confirm the rise from M0.60 (+0.103 to M0.90, scan +0.104, superseded +0.037). The superseded peak sat at M1.10; the curve peaks at M1.02-1.05. M0.60 and M1.15 agree with the scan read to <=0.003 and are unchanged. GATE REVISION 2026-11-15: only report-tested Machs (p.4); untested reads moved unchanged to cd-transonic-fairing (gate false). Third element = point tolerance, computed by validation/digitize/d4013-finson-budget.mjs: RSS of C_A +/-0.004, C_p,b +/-0.01 x A_b/S 0.4225, digitization +/-0.004, and Mach +/-0.003 x local slope; rounded UP to 0.001 as scorecard-finsoff-figs-2026-08-25.md section 3.1. Local slope = larger absolute adjacent secant on the full unchanged anchor curve including fairing reads, one-sided at endpoints. All budgets tighten the old +/-0.03; see scorecard-finson-gates-2026-11-15.md.",
+        "points": [[0.6, 0.348, 0.008], [0.8, 0.3714, 0.008], [0.9, 0.4516, 0.012], [1, 0.7253, 0.011], [1.2, 0.6219, 0.008]]
+      },
+      {
+        "id": "cd-transonic-fairing", "quantity": "cd", "base": "excluded", "gate": false, "tol": 0.03,
+        "source": "THE SAME CURVE, READ BETWEEN THE TEST POINTS - info only, never gated: these Mach numbers were not tested (TN D-4013 p.4); the curve there is the report draftsman's fairing, not a measurement. Same field and fairing-series convention as cd0-finsoff-fairing. M0.95 was tested only on Short. Anchor values unchanged; the old +/-0.03 curve-read band is retained for information only.",
+        "points": [[0.7, 0.355], [0.95, 0.5928], [1.05, 0.7279], [1.1, 0.698], [1.15, 0.665]]
       },
       {
         "id": "cp-supersonic-tunnel", "quantity": "cpPctL", "gate": true, "tol": 2.0, "gateMaxMach": 3.5,
