@@ -40,6 +40,23 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.204",
+    "date": "2026-11-16",
+    "title": "More published delay averages, a RockSim recovery-mass caution, and RASAero's Polished finish",
+    "summary": [
+      "The launch report's Published test delays column now covers 13 more motors: nine AeroTech single-use motors (D10W, D24T, E23T, F27R/L, G38FJ, G71R, G77R/L, J435WS, J520W) and four Quest Q-Jets (A3, B4, C12, D16), whose certification documents print only an average delay. They show as printed average only, as before.",
+      "Opening a RockSim .rkt whose recovery part counts several canopies or streamers now adds a Caution when the mass RockSim pinned for them is less than a tenth of what the app calculates. Too little recovery mass puts the CG in the wrong place, so check mass, CG and stability before flying.",
+      "Saving to RASAero a design finished in Aircraft sheet-metal (2 µm) now writes RASAero's Polished, the nearest of its surfaces, instead of Sheet Metal.",
+      "No flight number moves from v0.203."
+    ],
+    "items": [
+      "PRINTED AVERAGE DELAYS. AeroTech's certification documents for 13 more motors print the average delay their test motors measured at each setting, not each motor's own figure. The app now reads them from the documents' text, where until now it read only the scanned summaries: nine AeroTech single-use motors (D10W, D24T, E23T, F27R/L, G38FJ, G71R, G77R/L, J435WS, J520W) and four Quest Q-Jets (A3, B4, C12, D16), 33 delay settings in all. Where you fly one of those motors at a printed setting, the launch report's Published test delays column shows that average, labelled printed average only, because the document gives no spread; the flight still fires the charge at exactly the flown delay. Three more documents read cleanly but are not used: the E30T sheet names a thrust-ring case the catalogue does not list separately, the F23FJ sheet could not be matched to one catalogue motor, and the G79W sheet's header and table name different delays. Measured figures still take precedence over a printed average.",
+      "ROCKSIM RECOVERY MASS. A RockSim parachute or streamer part with a count above one opens as one equivalent device, with the mass RockSim calculated (CalcMass) pinned as an override. When that pinned mass is less than a tenth of what the app calculates from the part's dimensions and materials, the import now adds a Caution naming each device and both masses in your units. The app still uses the pinned mass. Too little recovery mass puts the CG in the wrong place: for a device ahead of the CG with the motor loaded, the shown stability margin is smaller than the rocket really has; for one behind it, larger. Enter the measured total, or clear Mass under Overrides to use the app's calculation. On the tester files and the RockSim design library none of the three multi-device pins is that light, so no current file shows the Caution.",
+      "RASAERO FINISH. Saving a design whose finish is Aircraft sheet-metal (2 µm) to RASAero now writes RASAero's Polished, which RASAero rates at 0.00005 in (1.27 µm), instead of Sheet Metal (0.00016 in, 4.06 µm); Polished is the nearer. Reopening that file gives the app's Polished (0.5 µm), one finish step away; until now it came back as Optimum paint (5 µm).",
+      "WHAT MOVES. No flight number. The new averages are report text beside the flown delay; the Caution and the RASAero finish change only notes and the saved file."
+    ]
+  },
+  {
     "version": "0.203",
     "date": "2026-11-16",
     "title": "A Maximum flight time setting, read from and saved to .ork files",
