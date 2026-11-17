@@ -505,7 +505,7 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
           the restoring moment per radian of angle of attack at small angles. It is computed as
           dynamic pressure × reference area × CNα × (CP − CG distance), in N·m/rad. Positive means CP is behind CG:
           the moment turns the nose back toward the airflow. Negative means CP is ahead of CG: the moment turns it
-          further away, and ωn is blank on those rows. Near apogee, where the rocket is barely moving, Ccm is close to
+          further away, and ωn is blank on those rows. At low airspeed, as near apogee on most flights, Ccm is close to
           zero and can briefly turn negative. At large angles of attack it is a stiffness estimate, not the moment the rocket actually feels.
           Where ωn is positive, ωn² equals Ccm divided by the pitch moment of inertia.
           <GlossaryHelp term={stabilityTerms.correctiveMoment} label="Corrective moment coefficient (Ccm)" /></p>
