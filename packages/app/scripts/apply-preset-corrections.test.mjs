@@ -42,6 +42,72 @@ const replacementMasses = {
 const retiredCorrections = { 'Transition|semroc|btc20bbr': 0.0232466089625 };
 const serialize = (db) => JSON.stringify(db, null, 1) + '\n';
 
+const recoveryCorrections = [
+  ...['stc236', 'std440', 'std660'].map(p => [`Streamer|fliskits|${p}`, 90, 0.09]),
+  ...['rs118', 'rs124', 'rs136', 'rs224', 'rs236', 'rsw36', 'sm1a'].map(p => [`Streamer|semroc|${p}`, 90, 0.09]),
+  ...['24', '36', '48', '60', '72', '84'].map(p => [`Parachute|giantleap|tac${p}`, 0.00006685, 0.06685]),
+];
+
+describe('recovery material density corrections CLI', () => {
+  let dir, path, script, db;
+  beforeEach(() => {
+    dir = mkdtempSync(join(scratch, 'preset-recovery-corrections-'));
+    mkdirSync(join(dir, 'scripts'));
+    copyFileSync(join(here, '../../../scripts/is-main.mjs'), join(dir, 'scripts/is-main.mjs'));
+    mkdirSync(join(dir, 'packages/app/scripts'), { recursive: true });
+    mkdirSync(join(dir, 'packages/app/src/data'), { recursive: true });
+    for (const file of ['apply-preset-corrections.mjs', 'manufacturers.mjs', 'atomic-write.mjs']) {
+      copyFileSync(join(here, file), join(dir, 'packages/app/scripts', file));
+    }
+    script = join(dir, 'packages/app/scripts/apply-preset-corrections.mjs');
+    path = join(dir, 'packages/app/src/data/presets.json');
+    db = structuredClone(shipped);
+    for (const [key, bad] of recoveryCorrections) {
+      expect(db.presets.filter(p => presetKey(p) === key)).toHaveLength(1);
+      db.presets.find(p => presetKey(p) === key).material.density = bad;
+    }
+  });
+  afterEach(() => {
+    if (dir && dirname(dir) === scratch) rmSync(dir, { recursive: true, force: true });
+  });
+  const run = () => spawnSync(process.execPath, [script], { encoding: 'utf8' });
+
+  it('changes exactly sixteen densities, preserves listed masses, and is idempotent', () => {
+    writeFileSync(path, serialize(db));
+    const first = run();
+    expect(first.status, first.stdout + first.stderr).toBe(0);
+    expect(first.stdout).toContain('16 field(s) applied');
+    for (const [key, , good] of recoveryCorrections) db.presets.find(p => presetKey(p) === key).material.density = good;
+    expect(readFileSync(path, 'utf8')).toBe(serialize(db));
+    const second = run();
+    expect(second.status, second.stdout + second.stderr).toBe(0);
+    expect(second.stdout).toContain('0 field(s) applied');
+    expect(readFileSync(path, 'utf8')).toBe(serialize(db));
+  });
+
+  it.each(recoveryCorrections)('refuses an unexpected density on %s without writing', (key) => {
+    db.presets.find(p => presetKey(p) === key).material.density = 0.12345;
+    const raw = serialize(db);
+    writeFileSync(path, raw);
+    const result = run();
+    expect(result.status, result.stdout + result.stderr).toBe(1);
+    expect(result.stderr).toContain(`UNEXPECTED VALUE at ${key} material.density`);
+    expect(readFileSync(path, 'utf8')).toBe(raw);
+  });
+
+  it.each(['missing', 'duplicate'])('refuses a %s recovery row without writing', surprise => {
+    const key = recoveryCorrections[0][0];
+    if (surprise === 'missing') db.presets = db.presets.filter(p => presetKey(p) !== key);
+    else db.presets.push(structuredClone(db.presets.find(p => presetKey(p) === key)));
+    const raw = serialize(db);
+    writeFileSync(path, raw);
+    const result = run();
+    expect(result.status, result.stdout + result.stderr).toBe(1);
+    expect(result.stderr).toContain(key);
+    expect(readFileSync(path, 'utf8')).toBe(raw);
+  });
+});
+
 describe.each(Object.entries(retiredMasses).filter(([key]) => !(key in retiredCorrections)))('%s mass correction CLI', (key, [bad]) => {
   const good = replacementMasses[key];
   const isTarget = (p) => presetKey(p) === key;

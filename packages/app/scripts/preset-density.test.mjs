@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { LINE_DENSITY_RANGE, SURFACE_DENSITY_RANGE } from '../src/data/materialDensityRanges.ts';
+import { LINE_MATERIALS, SURFACE_MATERIALS } from '../src/data/materials.ts';
 
 /**
- * A plausibility screen on every BULK material density the shipped parts
+ * A plausibility screen on every supplied material density the shipped parts
  * catalogue carries. Runs against the SHIPPED presets.json in `npm test`, so a
  * regeneration that re-imports an impossible upstream value fails the deploy.
  *
@@ -59,5 +61,30 @@ describe('every bulk density in presets.json could belong to a real material', (
       .filter((p) => !(p.material.density >= 1000))
       .map((p) => `${p.kind} ${p.manufacturer} ${p.partNo}: "${p.material.name}" = ${p.material.density}`);
     expect(offenders, offenders.join('\n')).toEqual([]);
+  });
+});
+
+describe.each([
+  ['SURFACE', SURFACE_DENSITY_RANGE, SURFACE_MATERIALS, 'kg/m²'],
+  ['LINE', LINE_DENSITY_RANGE, LINE_MATERIALS, 'kg/m'],
+])('%s material densities', (type, { min, max }, builtins, unit) => {
+  it(`keeps shipped densities within [${min}, ${max}] ${unit}`, () => {
+    const offenders = [];
+    for (const p of rows) {
+      for (const field of ['material', 'lineMaterial']) {
+        const m = p[field];
+        // Missing densities are not numbers: presetPatch leaves the kernel
+        // default in place. Do not invent a material value to fill those gaps.
+        if (m?.type !== type || m.density === undefined) continue;
+        if (!(Number.isFinite(m.density) && m.density >= min && m.density <= max)) {
+          offenders.push(`${p.kind} ${p.manufacturer} ${p.partNo} ${field}: "${m.name}" = ${m.density} ${unit}`);
+        }
+      }
+    }
+    expect(offenders, offenders.join('\n')).toEqual([]);
+  });
+
+  it('also admits every built-in material of this type', () => {
+    expect(builtins.filter(m => !(Number.isFinite(m.density) && m.density >= min && m.density <= max))).toEqual([]);
   });
 });

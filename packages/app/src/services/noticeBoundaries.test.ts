@@ -5,6 +5,7 @@ import { INITIAL_UNITS, IMPERIAL_UNITS, noticeComparison, type UnitSelection } f
 import { fieldNoticeText } from '../components/weatherText.js';
 import { preflightAudit, DENSITY_RANGE_FACTOR } from './preflightAudit.js';
 import { SURFACE_MATERIALS, LINE_MATERIALS, BULK_MATERIALS } from '../data/materials.js';
+import { LINE_DENSITY_RANGE, SURFACE_DENSITY_RANGE } from '../data/materialDensityRanges.js';
 import { reconcileIncludedMotor, OVERRIDE_INCLUDES_MOTOR, boundedStageCg, stageCgWithoutMotor } from './statedLaunchWeight.js';
 import { statedWeightTextFor } from './unitText.js';
 import { importCdx1 } from './rasaeroFile.js';
@@ -182,7 +183,11 @@ for (const [type, table, field, name] of [
 ] as const) {
   it.each(selections)('C04 ' + field + ' ignores ULP residue but reports a real exceedance (%j)', units => {
     const material = table.find(m => m.name === 'Mylar') ?? table[0]!;
-    const max = Math.max(...table.filter(m => m.group === material.group).map(m => m.density)) * DENSITY_RANGE_FACTOR;
+    // Row 49: recovery uses the narrower family/type intersection, including
+    // the LINE type ceiling below the family's old 4.5686629 kg/m maximum.
+    const familyMax = Math.max(...table.filter(m => m.group === material.group).map(m => m.density)) * DENSITY_RANGE_FACTOR;
+    const max = Math.min(familyMax, type === 'parachute' ? SURFACE_DENSITY_RANGE.max
+      : type === 'shockcord' ? LINE_DENSITY_RANGE.max : Infinity);
     const check = (density: number) => preflightAudit({ components: [{ type, id: 'part', [field]: density, [name]: material.name }] }, {}, [], units)
       .findings.filter(f => f.kind === 'material-density');
     expect(check(max)).toHaveLength(0);

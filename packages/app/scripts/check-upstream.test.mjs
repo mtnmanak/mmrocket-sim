@@ -3,12 +3,13 @@ import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   checkMotorCorrections, checkOpenMeteoShape, checkThrustCurve, checkOpenMeteoTerms, main, motorCorrectionVerdicts, OPEN_METEO_HOURLY_UNITS,
-  openMeteoHourlyProblems, DEFAULT_CHECKS,
+  openMeteoHourlyProblems, DEFAULT_CHECKS, checkCorrections,
 } from '../../../scripts/check-upstream.mjs';
 import {
   auditFix, checkAdvisories, npmAdvisories, runtimeNodes, wranglerAdvisories, wranglerPins,
 } from '../../../scripts/upstream-advisories.mjs';
 import { MOTOR_CORRECTIONS } from './motor-corrections.mjs';
+import { MATERIAL_CORRECTIONS } from './apply-preset-corrections.mjs';
 import { createThrustcurveFetch, ThrustcurveChallengeError, ThrustcurveUnavailableError } from './thrustcurve-client.mjs';
 import * as thrustcurveClient from './thrustcurve-client.mjs';
 
@@ -58,6 +59,49 @@ function runSection(npm = result(audit, 1), gh = result(github), read = reader) 
 }
 
 afterEach(() => vi.restoreAllMocks());
+
+describe('recovery material upstream watch', () => {
+  const descriptor = { file: 'giantleaprocketry.orc', name: 'Rip stop nylon', bad: '0.06685', units: 'g/m2' };
+  const correction = { key: 'Parachute|giantleap|tac24', upstreamMaterial: descriptor };
+  const material = (density = '0.06685', units = 'g/m2') =>
+    `<Material${units ? ` UnitsOfMeasure="${units}"` : ''}><Name>Rip stop nylon</Name><Density>${density}</Density><Type>SURFACE</Type></Material>`;
+
+  it('watches the raw density and unit label for all six TAC corrections', () => {
+    const rows = MATERIAL_CORRECTIONS.filter(c => /^Parachute\|giantleap\|tac/.test(c.key));
+    expect(rows).toHaveLength(6);
+    for (const row of rows) {
+      expect(row.upstreamMaterial).toEqual(descriptor);
+      expect(row.unwatched).toBeUndefined();
+    }
+  });
+
+  it.each([
+    ['unchanged', material(), 0, 'UnitsOfMeasure = g/m2'],
+    ['unit label fixed only', material('0.06685', 'kg/m2'), 1, 'UnitsOfMeasure = kg/m2, was g/m2'],
+    ['unit label removed', material('0.06685', ''), 1, 'UnitsOfMeasure = null, was g/m2'],
+    ['density changed only', material('66.85'), 1, 'density = 66.85, was 0.06685'],
+    ['density removed', material().replace('<Density>0.06685</Density>', ''), 1, 'density = null, was 0.06685'],
+    ['material removed', '<Materials/>', 1, 'is GONE from upstream'],
+    ['density unit takes precedence', material().replace('<Density>', '<Density UnitsOfMeasure="kg/m2">'), 1,
+      'UnitsOfMeasure = kg/m2, was g/m2'],
+  ])('reports %s without network', async (_case, xml, status, message) => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const getOrc = vi.fn(async () => xml);
+    expect(await main([() => checkCorrections(getOrc, [correction])], () => {})).toBe(status);
+    expect(getOrc).toHaveBeenCalledExactlyOnceWith('giantleaprocketry.orc');
+    expect(log.mock.calls.flat().join('\n')).toContain(message);
+    expect(unexpectedFetch).not.toHaveBeenCalled();
+  });
+
+  it('preserves density-only descriptors without requiring a unit label', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { units: _units, ...legacy } = descriptor;
+    expect(await main([() => checkCorrections(async () => material('0.06685', ''), [
+      { ...correction, upstreamMaterial: legacy },
+    ])], () => {})).toBe(0);
+    expect(log.mock.calls.flat().join('\n')).not.toContain('UnitsOfMeasure');
+  });
+});
 
 it.each(['İstanbul<script>hidden</script>', '<p title="x > y">Delay < 5</p>'])('reads Open-Meteo terms after %s', async prefix => {
   const log = vi.spyOn(console, 'log').mockImplementation(() => {});

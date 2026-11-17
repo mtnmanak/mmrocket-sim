@@ -194,19 +194,26 @@ export function rowsByPart(xml, element) {
 }
 
 /**
- * The <Density> declared for a named <Material> in an .orc file, as the raw
- * string upstream wrote, or null when no such material is declared. Parsed by
+ * The raw density and effective UnitsOfMeasure for a named <Material>, or
+ * null when no such material is declared. Use the Density attribute before
+ * the Material attribute, matching fetch-component-presets.mjs. Parsed by
  * hand: the names carry quotes, commas and inch marks, and building a regex
  * from them is one more thing to get wrong.
  */
-export function materialDensityIn(xml, name) {
-  for (const { body } of elementBlocks(xml, 'Material')) {
+function materialIn(xml, name) {
+  for (const { attrs, body } of elementBlocks(xml, 'Material')) {
     const fields = childElements(body);
     if (fields.find(child => child.tag === 'Name')?.text === name) {
-      return fields.find(child => child.tag === 'Density')?.text ?? null;
+      const density = fields.find(child => child.tag === 'Density');
+      return { density: density?.text ?? null, units: density?.attrs.UnitsOfMeasure || attrs.UnitsOfMeasure || null };
     }
   }
   return null;
+}
+
+/** The raw density string; kept for density-only callers. */
+export function materialDensityIn(xml, name) {
+  return materialIn(xml, name)?.density ?? null;
 }
 
 const fileCache = new Map();
@@ -215,17 +222,24 @@ async function orc(file) {
   return fileCache.get(file);
 }
 
-async function checkCorrections() {
+export async function checkCorrections(getOrc = orc, corrections = CORRECTIONS) {
   say('1. openrocket-database rows this app corrects');
-  for (const c of CORRECTIONS) {
+  for (const c of corrections) {
     // A material-density correction watches a <Material> block, not a part row.
     if (c.upstreamMaterial) {
       const um = c.upstreamMaterial;
       checked++;
-      const cur = materialDensityIn(await orc(um.file), um.name);
+      const cur = materialIn(await getOrc(um.file), um.name);
       if (cur === null) { flag(`${um.file}: material "${um.name}" is GONE from upstream. Our correction keys off it — re-check before the next regeneration.`); continue; }
-      if (cur === um.bad) say(`  ok   ${um.file} material "${um.name}" density = ${cur} (still the known-bad value; our correction is still needed)`);
-      else { flag(`${um.file} material "${um.name}" density = ${cur}, was ${um.bad} — upstream changed it. Re-examine ${c.key}: the correction may be retirable.`); notes.push(`upstream moved material ${um.name} in ${um.file}`); }
+      const watched = [['density', cur.density, um.bad]];
+      if (um.units !== undefined) {
+        checked++;
+        watched.push(['UnitsOfMeasure', cur.units, um.units]);
+      }
+      for (const [field, value, expected] of watched) {
+        if (value === expected) say(`  ok   ${um.file} material "${um.name}" ${field} = ${value} (still matches the correction's upstream input; our correction is still needed)`);
+        else { flag(`${um.file} material "${um.name}" ${field} = ${value}, was ${expected} — upstream changed it. Re-examine ${c.key}: the correction may be retirable.`); notes.push(`upstream moved material ${um.name} ${field} in ${um.file}`); }
+      }
       continue;
     }
     if (c.unwatched) {
@@ -234,7 +248,7 @@ async function checkCorrections() {
     }
     const u = c.upstream;
     if (!u) { flag(`${c.key}: correction carries no \`upstream\` descriptor — it cannot be watched. Add one.`); continue; }
-    const rows = rowsByPart(await orc(u.file), u.element);
+    const rows = rowsByPart(await getOrc(u.file), u.element);
     const row = rows.get(u.partNo);
     if (!row) { flag(`${u.file} ${u.partNo}: row is GONE from upstream. Our correction keys off it — re-check before the next regeneration.`); continue; }
     for (const [tag, { bad, good }] of Object.entries(u.fields)) {

@@ -253,7 +253,8 @@ export const RETIRED_MASS_CORRECTIONS = [
  *
  * Each entry's `fields` uses the dotted path 'material.density'. Upstream is
  * described one of two ways: `upstreamMaterial` names a <Material> block in a
- * github .orc for check-upstream.mjs to keep watching, and `unwatched` states
+ * github .orc for check-upstream.mjs to keep watching (optional `units` also
+ * watches UnitsOfMeasure), and `unwatched` states
  * why no watch is possible — the value comes from a desktop-24.12 internal
  * file, a released artifact that will not change.
  */
@@ -275,6 +276,24 @@ const paperRow = (kind, mfrKeyPart, partNo, file) => ({
 });
 
 export const MATERIAL_CORRECTIONS = [
+  // --- Recovery sheets: kg/m2 label on a g/m2 value, or the reverse.
+  ...[
+    ['fliskits', ['stc236', 'std440', 'std660'],
+      'fliskits-legacy.orc:21-25 defines its own Paper SURFACE at 90 with a kg/m2 label; Streamer rows 1262-1288 use it'],
+    ['semroc', ['rs118', 'rs124', 'rs136', 'rs224', 'rs236', 'rsw36', 'sm1a'],
+      'semroc-legacy.orc:8568-8621,8642-8650 references Paper SURFACE, but defines Paper only as BULK at 26-30; the pipeline\'s pooled material lookup inherits FlisKits\' own Paper SURFACE 90 with a kg/m2 label from fliskits-legacy.orc:21-25'],
+  ].flatMap(([maker, parts, origin]) => parts.map(part => ({
+    key: `Streamer|${maker}|${part}`,
+    why: `desktop 24.12 ${origin}. Paper at 90 kg/m2 makes these unweighed streamers 1000 times too heavy. Correct 90 g/m2 to 0.09 kg/m2, consistent with draft paper and the app's 0.08 kg/m2 office paper.`,
+    fields: { 'material.density': { bad: 90, good: 0.09 } },
+    unwatched: 'value comes from desktop 24.12 internal .orc files, released artifacts that will not change',
+  }))),
+  ...['24', '36', '48', '60', '72', '84'].map(size => ({
+    key: `Parachute|giantleap|tac${size}`,
+    why: 'openrocket/openrocket-database orc/giantleaprocketry.orc:26-31 labels Rip stop nylon UnitsOfMeasure="g/m2" but its raw Density 0.06685 is a kg/m2 value (roughly 1.9 oz fabric). The pipeline honours that incorrect unit label and divides by 1000, producing 0.00006685 kg/m2. Correct to 0.06685 kg/m2, agreeing with desktop 24.12 giantleaprocketry-legacy.orc:26-30; keep the TAC listed mass overrides.',
+    fields: { 'material.density': { bad: 0.00006685, good: 0.06685 } },
+    upstreamMaterial: { file: 'giantleaprocketry.orc', name: 'Rip stop nylon', bad: '0.06685', units: 'g/m2' },
+  })),
   // --- Paper, bulk at 0.0011 kg/m3 — 18 rows, two makers, one shared upstream error
   ...['cr2050p', 'cr2050p1', 'cr35p', 'cr5052hp', 'cr5052hp1', 'cr5055p', 'cr520p']
     .map((k) => paperRow('CenteringRing', `balsamachining|${k}`, k.toUpperCase().replace(/P(1?)$/, '-P$1'), 'BMS.ORC')),

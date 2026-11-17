@@ -3,6 +3,7 @@ import { OrkRocket, type ComponentNode, type RocketTree } from '@online-openrock
 import { INITIAL_UNITS, noticeEqual, noticeComparison, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import type { NoteTier } from '../components/Note.js';
 import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
+import { LINE_DENSITY_RANGE, SURFACE_DENSITY_RANGE } from '../data/materialDensityRanges.js';
 import { flownDeployEvent } from '../tree/deployEvent.js';
 import { numOpt } from '../tree/nodeNum.js';
 import { DISPLAY_NAME } from '../tree/schema.js';
@@ -85,10 +86,15 @@ export function readAuditMasses(tree: RocketTree, build: (tree: RocketTree) => {
   return masses;
 }
 
-interface DensityField { name: string; field: string; unit: string; list: MaterialDef[] }
+interface DensityField {
+  name: string; field: string; unit: string; list: MaterialDef[];
+  typeRange?: { min: number; max: number };
+}
 const BULK: DensityField = { name: 'materialName', field: 'density', unit: 'kg/m³', list: BULK_MATERIALS };
-const SURFACE: DensityField = { name: 'surfaceMaterialName', field: 'surfaceDensity', unit: 'kg/m²', list: SURFACE_MATERIALS };
-const LINE: DensityField = { name: 'lineMaterialName', field: 'lineDensity', unit: 'kg/m', list: LINE_MATERIALS };
+const SURFACE: DensityField = { name: 'surfaceMaterialName', field: 'surfaceDensity', unit: 'kg/m²', list: SURFACE_MATERIALS,
+  typeRange: SURFACE_DENSITY_RANGE };
+const LINE: DensityField = { name: 'lineMaterialName', field: 'lineDensity', unit: 'kg/m', list: LINE_MATERIALS,
+  typeRange: LINE_DENSITY_RANGE };
 const FILLET: DensityField = { name: 'filletMaterialName', field: 'filletDensity', unit: 'kg/m³', list: BULK_MATERIALS };
 // N028: ComponentFactory applies bulk materials to External/StructuralComponent,
 // including guides without a density editor. App-only synthesized carriers are excluded.
@@ -152,19 +158,29 @@ export function preflightAudit(
       // every finite recovery surface/line value, including explicit zero.
       if (value === undefined || ((field === BULK || field === FILLET) && value <= 0)) continue;
       const material = field.list.find(m => m.name === node[field.name]);
-      if (!material) { result.unknownMaterialCount++; continue; }
-      const family = field.list.filter(m => m.group === material.group);
-      const min = Math.min(...family.map(m => m.density)) / DENSITY_RANGE_FACTOR;
-      const max = Math.max(...family.map(m => m.density)) * DENSITY_RANGE_FACTOR;
+      if (!material && !field.typeRange) { result.unknownMaterialCount++; continue; }
+      const family = material ? field.list.filter(m => m.group === material.group) : [];
+      // Retain the named-family screen and also catch recovery unit slips even
+      // when a catalogue/custom name has no exact built-in match.
+      const min = Math.max(Math.min(...family.map(m => m.density)) / DENSITY_RANGE_FACTOR,
+        field.typeRange?.min ?? -Infinity);
+      const max = Math.min(Math.max(...family.map(m => m.density)) * DENSITY_RANGE_FACTOR,
+        field.typeRange?.max ?? Infinity);
+      const range = family.length ? { min, max } : field.typeRange!;
+      // A custom name counts only if something printable survives noteField: a blank or
+      // control-only name falls back to the generic label instead of rendering ": density".
+      const customName = typeof node[field.name] === 'string' ? noteField(String(node[field.name])).trim() : '';
+      const materialName = material?.name ?? (customName
+        || (field === SURFACE ? 'Canopy or streamer material' : 'Line material'));
       const quantity = field === SURFACE ? 'surfaceDensity' : field === LINE ? 'lineDensity' : 'density';
       const density = (n: number, against?: number) => against === undefined ? noticeQuantity(quantity, n, units) : noticeComparison(quantity, n, against, units)[0];
       // Eight relative ULPs cover arithmetic/serialization residue at a family
       // bound, not measurement error (e.g. 0.4000000000000001 vs 0.4 kg/m2).
-      const bound = value < min ? min : max;
-      if ((value < min || value > max) && !noticeEqual(value, bound)) add(node, {
-        kind: 'material-density', tier: 'caution', density: { field: field.field, unit: field.unit, value, min, max },
-        reason: `${noteField(field.field === 'filletDensity' ? 'Fillet material' : material.name)}: density ${density(value, bound).startsWith('just ') ? 'is just outside' : `${density(value)} is outside`} `
-          + `the screening range ${density(min)}–${density(max)} for its material family. `
+      const bound = value < range.min ? range.min : range.max;
+      if ((value < range.min || value > range.max) && !noticeEqual(value, bound)) add(node, {
+        kind: 'material-density', tier: 'caution', density: { field: field.field, unit: field.unit, value, ...range },
+        reason: `${noteField(field.field === 'filletDensity' ? 'Fillet material' : materialName)}: density ${density(value, bound).startsWith('just ') ? 'is just outside' : `${density(value)} is outside`} `
+          + `the screening range ${density(range.min)}–${density(range.max)} for ${material ? 'its material family' : 'this material type'}. `
           + 'Check the material and units. A wrong density changes computed weight and can change the stability margin.',
       });
     }

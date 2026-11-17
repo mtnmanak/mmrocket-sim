@@ -37,7 +37,8 @@ export function PreflightAudit({ result, onSelectPart }: {
         Assembly replacements are not compared to shell mass.</p>
       <p>For a named material in the app’s material list, the density screening range runs from one tenth of its
         family’s lowest listed density to ten times its highest, using the part’s bulk, surface or line units.
-        Custom or unnamed materials are not checked.</p>
+        Canopy, streamer and line densities are also screened by material type, including custom or unnamed materials.
+        Custom or unnamed bulk and fillet materials are not checked.</p>
       <p>Recovery checks find no parachute or streamer in the design, or a device set to Never in the active flight settings.
         They do not check whether electronics, an ejection charge, every separated stage, or a real recovery system will work.</p>
     </details>

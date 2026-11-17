@@ -1,4 +1,10 @@
 // @vitest-environment happy-dom
+// Row 49: census unchanged (preflightAudit 8; PreflightAudit 5). The density
+// producer retains its named-family bounds and intersects recovery ranges with
+// shared type bands, also screening unknown names. preflightAudit.test covers
+// both type endpoints, residue, zero, paper/nylon slips and both unit systems;
+// C04 still covers the existing named-family upper boundary and copy formatting.
+// The component's added help is static scope text, not a numerical producer.
 // N052 r2: FlightCharts 11 -> 12 adds "against Mach" in the static-slope
 // explanation. This is static diagnostic copy, not a measurement comparison
 // or threshold; FlightCharts.diagnostics checks the flight/static conditions.

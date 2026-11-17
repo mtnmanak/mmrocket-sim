@@ -3,6 +3,8 @@ import { OrkRocket, type ComponentNode, type RocketTree, type SimulationOptions 
 import { engineTree, defaultTree, findNode, motorMounts, updateNode } from '../tree/treeModel.js';
 import { resolveFlightState } from './flightState.js';
 import { preflightAudit, readAuditMasses, type AuditMasses } from './preflightAudit.js';
+import { LINE_DENSITY_RANGE, SURFACE_DENSITY_RANGE } from '../data/materialDensityRanges.js';
+import { IMPERIAL_UNITS, INITIAL_UNITS, noticeQuantity } from '../prefs/units.js';
 
 const part = (patch: Partial<ComponentNode> = {}): ComponentNode => ({
   type: 'bodytube', id: 'body', name: 'Body', length: 0.4, outerRadius: 0.025,
@@ -114,6 +116,16 @@ describe('preflight design advice (N028)', () => {
     expect(kinds(good)).toEqual([]);
   });
 
+  it('applies the type screen to known families too, without changing named-family findings', () => {
+    expect(kinds(design(part({ children: [chute({ surfaceMaterialName: 'Mylar', surfaceDensity: 0.002 })] })))).toEqual(['material-density']);
+    expect(kinds(design(part({ children: [chute({ lineMaterialName: 'Thread (heavy-duty)', lineDensity: 2 })] })))).toEqual(['material-density']);
+    const result = preflightAudit(design(part({ children: [
+      chute({ surfaceMaterialName: 'Paper\n[Warning.fake]', surfaceDensity: 90 }),
+    ] })), {});
+    expect(result.findings[0]!.reason).not.toContain('\n');
+    expect(result.findings[0]!.reason).toContain('Check the material and units.');
+  });
+
   it('does not guess a family for custom/unnamed densities or mix bulk, surface and line units', () => {
     const tree = design(part({ density: 10000, materialName: 'My lightweight layup',
       surfaceMaterialName: 'Ripstop nylon', surfaceDensity: 10 }));
@@ -122,13 +134,56 @@ describe('preflight design advice (N028)', () => {
     expect(kinds(design(part({ materialName: 'Balsa', density: 170 })))).toEqual([]);
   });
 
-  it.each([undefined, 'Custom recovery fabric'])('counts applicable zero recovery densities with unknown name %s as unchecked', name => {
+  it.each([undefined, 'Custom recovery fabric'])('screens zero recovery densities even without a known family (%s)', name => {
     const tree = design(part({ materialName: 'Cardboard', children: [
       chute({ surfaceMaterialName: name, surfaceDensity: 0, lineMaterialName: name, lineDensity: 0 }),
       { type: 'streamer', id: 'streamer', surfaceMaterialName: name, surfaceDensity: 0, deployEvent: 'apogee' },
       { type: 'shockcord', id: 'cord', lineMaterialName: name, lineDensity: 0 },
     ] }));
-    expect(preflightAudit(tree, {})).toEqual({ findings: [], uncheckedMassParts: [], unknownMaterialCount: 4 });
+    const result = preflightAudit(tree, {});
+    expect(result.unknownMaterialCount).toBe(0);
+    expect(result.findings.map(f => [f.part.id, f.density?.field])).toEqual([
+      ['chute', 'surfaceDensity'], ['chute', 'lineDensity'], ['streamer', 'surfaceDensity'], ['cord', 'lineDensity'],
+    ]);
+  });
+
+  it.each([INITIAL_UNITS, IMPERIAL_UNITS])('screens Paper streamers and variant nylon names by type (%j)', units => {
+    const tree = design(part({ children: [
+      { type: 'streamer', id: 'paper', surfaceMaterialName: 'Paper', surfaceDensity: 90 },
+      chute({ surfaceMaterialName: 'Rip stop nylon', surfaceDensity: 0.00006685 }),
+    ] }));
+    const before = structuredClone(tree);
+    const result = preflightAudit(tree, {}, [], units);
+    expect(result.findings.map(f => f.part.id)).toEqual(['paper', 'chute']);
+    for (const finding of result.findings) {
+      expect(finding).toMatchObject({ kind: 'material-density', tier: 'caution',
+        density: { field: 'surfaceDensity', ...SURFACE_DENSITY_RANGE } });
+      expect(finding.reason).toContain(noticeQuantity('surfaceDensity', finding.density!.value, units));
+      expect(finding.reason).toContain('stability margin');
+    }
+    expect(tree).toEqual(before);
+    const corrected = updateNode(updateNode(tree, 'paper', { surfaceDensity: 0.09 }), 'chute', { surfaceDensity: 0.06685 });
+    expect(preflightAudit(corrected, {}).findings).toEqual([]);
+  });
+
+  it.each(['   ', '\n', '\u007f'])('names a blank or control-only recovery material generically (%j)', name => {
+    const result = preflightAudit(design(part({ children: [
+      { type: 'streamer', id: 'blank', surfaceMaterialName: name, surfaceDensity: 90 },
+    ] })), {});
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]!.reason.startsWith('Canopy or streamer material: density')).toBe(true);
+  });
+
+  it.each([
+    ['streamer', 'surfaceDensity', SURFACE_DENSITY_RANGE],
+    ['shockcord', 'lineDensity', LINE_DENSITY_RANGE],
+  ] as const)('screens unnamed %s densities at both type boundaries', (type, field, { min, max }) => {
+    for (const value of [min, max, min - 1e-15, max + 1e-15]) {
+      expect(kinds(design(part({ children: [{ type, id: 'custom', [field]: value }] })))).toEqual([]);
+    }
+    for (const value of [min / 2, max * 2]) {
+      expect(kinds(design(part({ children: [{ type, id: 'custom', [field]: value }] })))).toEqual(['material-density']);
+    }
   });
 
   it('leaves absent recovery densities and nonpositive bulk/fillet densities at kernel defaults', () => {
