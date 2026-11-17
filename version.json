@@ -1,5 +1,5 @@
 {
-  "version": "0.207",
+  "version": "0.208",
   "released": "2026-11-16",
-  "note": "Stability diagnostics gain two flight series: Corrective moment coefficient (Ccm, the signed restoring stiffness) and Normal force slope (CNα), as charts in a nine-chart Stability diagnostics set and as download columns. Diagnostics only, no pass/fail. No flight number moves."
+  "note": "Ten paper streamers in the parts list weighed about a thousand times too much (a FlisKits STD-660 came out near 21 kg); they are corrected, and the pre-flight check now flags any parachute, streamer, line or shock-cord material whose density is far outside real materials. No tester design used these parts."
 }

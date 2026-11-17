@@ -40,6 +40,24 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.208",
+    "date": "2026-11-16",
+    "title": "Ten paper streamers weighed a thousand times too much; a recovery-material density check",
+    "summary": [
+      "Ten paper competition streamers in the parts list (FlisKits STC-2-36, STD-440, STD-660; SEMROC RS-118, RS-124, RS-136, RS-224, RS-236, RSW-36, SM-1A) weighed about a thousand times too much: a FlisKits STD-660 came out at about 20.9 kg. Picking one now gives about 21 g.",
+      "A design that already uses one of these streamers keeps its old weight until you pick the part again; the pre-flight check now gives it a Caution.",
+      "The pre-flight check now flags any parachute or streamer material, and any shroud line or shock cord, whose density is far outside what real materials weigh, whatever the material is called.",
+      "No tester design used these parts. Flights of designs without them do not change."
+    ],
+    "items": [
+      "PAPER STREAMERS. Ten paper streamers in the parts list carried a paper density of 90 kg/m² where 90 g/m² was meant, and no listed weight, so the app weighed them from that density: FlisKits STD-660 (6 × 60 in) at about 20.9 kg, STD-440 about 9.3 kg, STC-2-36 about 2.1 kg, and the seven SEMROC streamers between about 0.46 and 6.3 kg. They now use 0.09 kg/m². The FlisKits value comes from OpenRocket 24.12’s own parts file, so desktop OR weighs them the same way; the SEMROC streamers picked it up through this app’s parts pipeline. Affected: FlisKits STC-2-36, STD-440, STD-660; SEMROC RS-118, RS-124, RS-136, RS-224, RS-236, RSW-36, SM-1A.",
+      "DESIGNS THAT ALREADY USE ONE. A design keeps the density it was given when the part was picked, so a design saved with one of these streamers still flies the heavy one. Pick the streamer again from the parts list, or set its material; the pre-flight check gives it a Caution until you do.",
+      "GIANT LEAP TAC PARACHUTES. Six Giant Leap TAC parachutes (24 to 84 in) carried a canopy cloth density a thousand times too low, because the source file labels the value in the wrong unit. Their listed weight sets the parachute’s mass, so no flight changed; the cloth density is now right if you clear that weight.",
+      "RECOVERY MATERIAL CHECK. The pre-flight check now screens every parachute and streamer material against 0.005–1 kg/m², and every shroud line and shock cord against 0.00001–1 kg/m, whatever the material is called; until now it checked only materials whose names it knew. A value outside the range gets a Caution. The ranges are a screen for slips such as grams entered as kilograms, not measured limits.",
+      "WHAT MOVES. Only designs that use one of the ten streamers, and only once the streamer is picked again: their launch mass drops by the streamer’s excess weight. No design in the tester files uses any of the sixteen corrected parts."
+    ]
+  },
+  {
     "version": "0.207",
     "date": "2026-11-16",
     "title": "Stability diagnostics: normal force slope (CNα) and corrective moment coefficient (Ccm) through the flight",
