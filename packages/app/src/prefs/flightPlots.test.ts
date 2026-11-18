@@ -6,10 +6,12 @@ const plot = { id: 'one', name: 'Coast', panels: ['altitude', 'stabilityPercent'
 
 describe('stored flight plots', () => {
   it('reloads a saved diagnostic layout with every new panel intact', () => {
-    const panels = ['stability', 'ωn', 'Ccm', 'aoa', 'dθ', 'Cn', 'CNα', 'Cθ', 'Cζθ'];
+    const panels = ['stability', 'ωn', 'rollPitchRatio', 'Ccm', 'aoa', 'dθ', 'Cn', 'CNα', 'Cθ', 'Cζθ'];
     expect(STABILITY_DIAGNOSTIC_PANELS).toEqual(panels);
     const saved = { ...plot, panels, comparison: '' };
     expect(normalizeFlightPlots(JSON.parse(JSON.stringify([saved])))).toEqual([saved]);
+    const older = { ...saved, panels: panels.filter(key => key !== 'rollPitchRatio') };
+    expect(normalizeFlightPlots(JSON.parse(JSON.stringify([older])))).toEqual([older]);
   });
   it('validates custom axes and event selection while accepting older layouts', () => {
     const custom = { ...plot, comparison: 'custom', custom: { x: 'Px', y: 'Py' }, events: ['BURNOUT'] };
@@ -27,8 +29,12 @@ describe('stored flight plots', () => {
   it('drops invalid records and duplicate ids or names without crashing', () => {
     expect(normalizeFlightPlots(null)).toEqual([]);
     expect(normalizeFlightPlots([plot, null, {}, { ...plot, id: 'two', name: ' coast ' },
-      { ...plot, name: 'Other' }, { ...plot, id: 'three', name: 'Bad comparison', comparison: 'obsolete' },
-      { ...plot, id: 'four', name: 'Bad series', panels: ['not-a-series'] }])).toEqual([plot]);
+      { ...plot, name: 'Other' }, { ...plot, id: 'three', name: 'Bad comparison', comparison: 'obsolete' }])).toEqual([plot]);
+  });
+  it('drops unknown panel keys while preserving the rest of a future layout', () => {
+    const future = { ...plot, panels: ['stability', 'someFutureKey'] };
+    expect(normalizeFlightPlots([future])).toEqual([{ ...future, panels: ['stability'] }]);
+    expect(normalizeFlightPlots([{ ...plot, panels: ['not-a-series'] }])).toEqual([{ ...plot, panels: [] }]);
   });
   it('normalizes names and unique keys and bounds malformed stores', () => {
     expect(normalizeFlightPlots([{ ...plot, name: '  Coast  ', panels: ['altitude', 'altitude'] }]))

@@ -16,7 +16,7 @@
     "components/ExampleDesignsDialog.tsx": 3,
     "components/FinAlignmentJigMenu.tsx": 4,
     "components/FinPointsEditor.tsx": 9,
-    "components/FlightCharts.tsx": 12,
+    "components/FlightCharts.tsx": 13,
     "components/FlightDataBundleDialog.tsx": 5,
     "components/FlightExportLayoutDialog.tsx": 1,
     "components/FlightLoadStats.tsx": 5,
