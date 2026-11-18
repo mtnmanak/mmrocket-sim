@@ -40,6 +40,26 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.210",
+    "date": "2026-11-18",
+    "title": "Roll rate against pitch frequency: a new Stability diagnostics chart; G35 delay averages",
+    "summary": [
+      "Flight plots → Stability diagnostics has a new chart, Roll rate ÷ pitch natural frequency. Where it is near 1 (the shaded band, 0.85 to 1.15), roll and pitch can couple: roll–pitch resonance. It is a diagnostic, with no pass/fail.",
+      "The note above the charts gives this flight’s figures before apogee: when the roll rate crossed the pitch natural frequency, and how long it spent within ±15 % of it.",
+      "It is most useful for rockets that roll, as canted fins make them do. Without fin cant the simulated rocket hardly rolls: on the testers’ designs flown for this check, none of which has canted fins, the ratio stayed far below the band.",
+      "The AeroTech G35 (out of production) now shows its printed average ejection delays in the launch report: 4.3 s at 4 s and 7.6 s at 7 s.",
+      "Nothing flown changes in this release: no flight number moves."
+    ],
+    "items": [
+      "A NEW DIAGNOSTIC CHART. Flight plots → Stability diagnostics now selects ten charts, adding Roll rate ÷ pitch natural frequency after Pitch natural frequency. It divides how fast the rocket rolls by how fast it swings back in pitch, both in rad/s, so the chart has no unit. A shaded band runs from 0.85 to 1.15 with a thin line at 1. Near 1, roll and pitch can couple: a small asymmetry such as a slightly misaligned fin can keep pushing the pitch swing in step with itself, and angle of attack can grow (roll–pitch resonance). The chart is blank where Pitch natural frequency is blank: on the launch guide, from recovery deployment or tumble onward, and where CP is ahead of CG. It is also blank where the roll rate is missing. The idea comes from Pocket Rocket Flight Lab, another browser simulator, which also watches for the roll rate crossing the pitch natural frequency and uses the same 0.85–1.15 band.",
+      "THE FLIGHT’S FIGURES. When the chart has data, the note above the charts says, for the flight shown, before apogee: how many times the roll rate crossed the pitch natural frequency, and when (the first five times, then how many more), and how many seconds it spent within ±15 % of it (“under 0.01 s” for a very short time). The figures follow the curve between recorded points and never across a gap; a booster’s chart uses that booster’s own apogee. With no apogee in the recording they run to the last point the chart has, and the note says so.",
+      "WHAT IT CANNOT SHOW. The simulation models fin cant and adds tiny random pitch and yaw disturbances, but it does not model individual fins’ build misalignment. So a crossing here tells you when a real rocket’s small asymmetries could drive the coupling, and the simulated flight’s own charts may not show the growth. Without fin cant the simulated rocket hardly rolls. None of the 42 .ork designs testers have sent has canted fins; the 27 of them flown for this check all stayed far below the band, so their note says the roll rate never came within ±15 % of the pitch natural frequency.",
+      "DOWNLOADS AND COLOURS. The chart is display only. It is not a column in the flight-data downloads (.csv, .xlsx), which still hold the two columns it is worked out from, Roll rate (dΦ) and Pitch natural frequency (ωn); the chart’s description says so, including when it is used as a custom-plot axis. Every existing chart keeps its colour and line pattern, on screen and in the .xlsx charts. In a plot against something other than time (a custom plot or the ground track), a few series now draw the part where the plot runs backwards in a different pattern, so that no two series share a look. The glossary has a new entry, Roll–pitch resonance.",
+      "SAVED PLOT LAYOUTS. A saved layout that lists a chart this version does not know now opens without that chart, instead of being left out of the list. Versions up to v0.209 leave out a saved layout that lists the new chart among its charts.",
+      "G35 DELAY AVERAGES. AeroTech’s certification index added a copy of the AeroTech G35 Econojet’s 1996 NAR test report (12 motors tested). It prints only an average for each delay — 4.29 s at the 4 s setting and 7.57 s at 7 s — so the launch report’s Published test delays column shows “4.3 s (printed average only)” and “7.6 s (printed average only)” for a G35 flown at those delays. 39 motors now show printed averages (38 before). The index also added a 1998 Tripoli data sheet for the J135W, which prints no delay measurements. The flight still fires the charge at exactly the delay you set."
+    ]
+  },
+  {
     "version": "0.209",
     "date": "2026-11-18",
     "title": "A new version waits for you: “ready — Reload” instead of reloading on its own",
