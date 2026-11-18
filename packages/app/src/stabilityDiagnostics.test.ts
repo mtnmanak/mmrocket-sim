@@ -75,7 +75,7 @@ describe('N052 diagnostic display gates', () => {
       expect(def.f).toBeUndefined();
       expect(def.toSI).toBeUndefined();
     }
-    expect(STABILITY_DIAGNOSTIC_PANELS).toEqual(['stability', 'ωn', 'Ccm', 'aoa', 'dθ', 'Cn', 'CNα', 'Cθ', 'Cζθ']);
+    expect(STABILITY_DIAGNOSTIC_PANELS).toEqual(['stability', 'ωn', 'rollPitchRatio', 'Ccm', 'aoa', 'dθ', 'Cn', 'CNα', 'Cθ', 'Cζθ']);
     expect(STABILITY_DIAGNOSTIC_KEYS).toEqual(expectedKeys);
   });
 

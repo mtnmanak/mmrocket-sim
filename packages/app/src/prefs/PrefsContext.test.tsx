@@ -172,14 +172,15 @@ describe('storage hardening: result tiles', () => {
 
   it('loads saved plots alongside v0.188 viewer settings and independent flight advice validation', () => {
     const layout = { id: 'coast', name: 'Coast', panels: ['stabilityPercent'], comparison: 'phase' };
+    const future = { id: 'future', name: 'Future', panels: ['stability', 'unknown'], comparison: 'phase' };
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      flightPlots: [layout, { id: 'bad', name: 'Bad', panels: ['unknown'], comparison: 'phase' }],
+      flightPlots: [layout, future],
       flightAdvisories: { maxMach: 0.8, maxAirspeedMs: 'fast' },
       configurationSort: 'motor', fieldPrecision: 4, grid2d: false,
       rulerReference2d: 'offset', rulerOffset2dM: -0.0254, rulerReversed2d: true,
     }));
     mount();
-    expect(seen.prefs.flightPlots).toEqual([layout]);
+    expect(seen.prefs.flightPlots).toEqual([layout, { ...future, panels: ['stability'] }]);
     expect(seen.prefs.flightAdvisories).toEqual({ maxMach: 0.8 });
     expect(seen.prefs).toMatchObject({ configurationSort: 'motor', fieldPrecision: 4, grid2d: false,
       rulerReference2d: 'offset', rulerOffset2dM: -0.0254, rulerReversed2d: true });

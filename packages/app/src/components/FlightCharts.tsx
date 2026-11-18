@@ -5,7 +5,7 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { boosterBranches, type FlightResult, type FlightSeries } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { arbitraryCatalog, seriesCatalog, PRESETS, STABILITY_DIAGNOSTIC_KEYS, STABILITY_DIAGNOSTIC_PANELS, usableSeries, withStabilityDiagnostics, withStabilityPercent, type ComparisonPreset, type SeriesDef } from '../flightChartModel.js';
+import { flightChartCatalogs, PRESETS, STABILITY_DIAGNOSTIC_KEYS, STABILITY_DIAGNOSTIC_PANELS, usableSeries, withStabilityDiagnostics, withStabilityPercent, withRollPitchRatio, rollPitchResonance, type ComparisonPreset, type SeriesDef } from '../flightChartModel.js';
 import { GlossaryHelp } from './GlossaryHelp.js';
 import { stabilityTerms } from '../tree/glossaryTerms.js';
 import { ComparisonChart } from './ComparisonChart.js';
@@ -29,6 +29,7 @@ import { emphasizeSeries } from '../chartEmphasis.js';
 import { DEFAULT_PLOT_EVENTS, PLOT_EVENTS, eventPlugin } from '../flightPlotEvents.js';
 import { PlotEventKey, eventCaptions } from './PlotEventKey.js';
 import { PlotImage } from './PlotImage.js';
+import { resonanceBandPlugin, rollPitchRange } from '../flightPlotResonance.js';
 
 /**
  * Separate panels remain the default; optional comparisons use explicit
@@ -111,7 +112,8 @@ function Panel({ result, def, flightName, plots, expanded, onToggleExpand, onZoo
     x: result.series.time,
     at: (t) => `${formatReadout(t, 3)} s`,
     series: [{ label: def.title, values }],
-    source: csvNote,
+    source: def.key === 'rollPitchRatio'
+      ? 'Shaded band: 0.85 to 1.15; reference line: 1. This display ratio is not in flight-data downloads.' : csvNote,
   }), [result, def, values, csvNote, flightName]);
   // Read through a ref by the plot effect, and applied on its own below: the
   // download note changes when the design moves under a flight (staleReason),
@@ -135,7 +137,7 @@ function Panel({ result, def, flightName, plots, expanded, onToggleExpand, onZoo
       width: el.clientWidth || 640,
       height: chartH(),
       cursor: { sync: { key: SYNC_KEY, scales: ['x', null] }, points: { size: 7 }, bind: { click: () => null } },
-      scales: { x: { time: false } },
+      scales: { x: { time: false }, ...(def.key === 'rollPitchRatio' ? { y: { range: rollPitchRange } } : {}) },
       legend: { live: true },
       series: [
         { label: 't (s)', value: (_u, v) => formatReadout(v) },
@@ -153,6 +155,7 @@ function Panel({ result, def, flightName, plots, expanded, onToggleExpand, onZoo
         { stroke: ink.axis, grid: { stroke: ink.grid, width: 1 }, ticks: { stroke: ink.tick, width: 1 }, font: ink.font, size: 56 },
       ],
       plugins: [
+        ...(def.key === 'rollPitchRatio' ? [resonanceBandPlugin(ink)] : []),
         panZoomPlugin(() => plots,
           (u) => onZoomChangeRef.current(plotIsZoomed(u), zoomPercent(u))),
         tooltipPlugin(),
@@ -260,11 +263,6 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
   const palette = useChartPalette();
   const exportLayout = prefs.flightExportLayouts?.find(l => l.id === prefs.flightExportLayoutId);
   const [layoutEditor, setLayoutEditor] = useState<null | 'new' | 'edit'>(null);
-  const catalog = useMemo(
-    () => seriesCatalog({ units: prefs.units }, palette),
-    // Other preferences do not change plotted series (audit 2026-10-11, S3b-2).
-    [prefs.units, palette],
-  );
   const [comparison, setComparison] = useState('');
   const [custom, setCustom] = useState({ x: 'time', y: 'altitude' });
   const [selectedEvents, setSelectedEvents] = useState<string[]>(DEFAULT_PLOT_EVENTS);
@@ -285,11 +283,10 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
   const branchName = branch ? `Booster ${branchIndex}: ${branch.name}` : 'Sustainer stack';
   const plotIdentity = boosters.length > 0 ? `${flightName} · ${branchName}` : flightName;
   const shown = useMemo(() => ({ ...recording, events: branch?.events ?? recording.events,
-    series: withStabilityDiagnostics(withStabilityPercent(branch?.series ?? recording.series, branch?.events ?? recording.events), branch?.events ?? recording.events),
+    series: withRollPitchRatio(withStabilityDiagnostics(withStabilityPercent(branch?.series ?? recording.series, branch?.events ?? recording.events), branch?.events ?? recording.events)),
   }), [recording, branch]);
-  const axesCatalog = useMemo(() => arbitraryCatalog(shown.series, { units: prefs.units }, palette),
+  const { catalog, axesCatalog, plotCatalog } = useMemo(() => flightChartCatalogs(shown.series, { units: prefs.units }, palette),
     [shown.series, prefs.units, palette]);
-  const plotCatalog = useMemo(() => [...catalog, ...axesCatalog.filter(d => !catalog.some(c => c.key === d.key))], [catalog, axesCatalog]);
   const panelKey = `${branchChoice.generation}-${branchIndex}`;
   const preset = useMemo<ComparisonPreset | undefined>(() => comparison === 'custom'
     ? { id: 'custom', title: 'Custom plot', x: custom.x, left: [custom.y], right: [] }
@@ -342,8 +339,11 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
   const visible = panelCatalog.filter((d) => selected.has(d.key) && usableSeries(shown.series, [String(d.key)]));
   const legend = plotCatalog.filter((d) => (visible.some((v) => v.key === d.key)
     || preset?.left.includes(String(d.key)) || preset?.right.includes(String(d.key))) && usableSeries(shown.series, [String(d.key)]));
-  const showDiagnostics = STABILITY_DIAGNOSTIC_KEYS.some(key => legend.some(d => d.key === key)
+  const showDiagnostics = [...STABILITY_DIAGNOSTIC_KEYS, 'rollPitchRatio'].some(key => legend.some(d => d.key === key)
     || (preset?.x === key && usableSeries(shown.series, [key])));
+  const resonance = useMemo(() => rollPitchResonance(shown.series, shown.events), [shown]);
+  const resonanceWindow = shown.events.some(e => e.type === 'APOGEE' && Number.isFinite(e.time))
+    ? 'Before apogee on this flight' : 'Up to the last recorded ratio sample (no apogee was recorded)';
   const requested = hovered ?? focused ?? pinned;
   const emphasis = legend.some((d) => d.key === requested) ? requested : null;
 
@@ -497,6 +497,19 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
           there is no restoring moment there. Missing inputs can also leave gaps. At large angles of attack it is a
           stiffness estimate, not a full dynamic-stability measure.
           <GlossaryHelp term={stabilityTerms.frequency} label="Pitch natural frequency (ωn)" /></p>
+        {usableSeries(shown.series, ['rollPitchRatio']) && <p>Roll rate ÷ pitch natural frequency compares how fast the rocket
+          rolls with how fast it swings back in pitch (both in rad/s). Near 1 — the shaded band, 0.85 to 1.15 — the two can
+          couple: a small asymmetry such as a slightly misaligned fin can keep pushing the pitch swing in step with itself,
+          and angle of attack can grow (roll–pitch resonance). This is a diagnostic with no pass/fail. The model includes
+          configured fin cant and tiny random pitch and yaw moment disturbances, but does not model individual fins&apos;
+          build misalignment, so its charts may not show that growth. {resonanceWindow}: {resonance.sampled
+            ? <>roll rate {resonance.crossings.length
+              ? <>crossed ωn {resonance.crossings.length} {resonance.crossings.length === 1 ? 'time' : 'times'} (at {resonance.crossings.slice(0, 5).map(t => `${t.toFixed(2)} s`).join(', ')}{resonance.crossings.length > 5 ? ` and ${resonance.crossings.length - 5} more` : ''})</>
+              : 'never crossed ωn'}{resonance.secondsInBand > 0
+              ? <> and spent {resonance.secondsInBand < 0.005 ? 'under 0.01' : resonance.secondsInBand.toFixed(2)} s within ±15 % of it</>
+              : ' and spent no time within ±15 % of it'}. Gaps are excluded from these figures.</>
+            : 'no ratio samples are available in this window.'}
+          <GlossaryHelp term={stabilityTerms.resonance} label="Roll–pitch resonance" /></p>}
         <p>Normal force slope (CNα) describes how strongly the normal force coefficient grows with angle of attack,
           per radian. The flight chart records CNα at each instant&apos;s Mach, angle of attack and roll orientation.
           The Normal force slope (CNα) vs Mach chart in Drag analysis shows the zero-angle value against Mach in its roll plane.
@@ -624,7 +637,9 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
         flightName={plotIdentity} catalog={plotCatalog} plots={plotsRef.current}
         events={shown.events} selectedEvents={selectedEvents}
         onZoomChange={(z, pct) => { setZoomed(z); setZoomPct(pct); }}
-        csvNote={onFullSeries && !staleReason ? exportLayout ? 'Choose Full export for every timestep in the Flight data (.csv) download.'
+        csvNote={[preset.x, ...preset.left, ...preset.right].includes('rollPitchRatio')
+          ? 'This display ratio is not in flight-data downloads; Roll rate and Pitch natural frequency are its recorded input columns.'
+          : onFullSeries && !staleReason ? exportLayout ? 'Choose Full export for every timestep in the Flight data (.csv) download.'
           : 'The Flight data (.csv) download above holds every timestep.' : undefined} />}
       <div className="charts-grid">
         {visible.map((d) => (

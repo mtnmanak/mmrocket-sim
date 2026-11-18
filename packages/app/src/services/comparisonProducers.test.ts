@@ -1,4 +1,12 @@
 // @vitest-environment happy-dom
+// PRFL-1: census unchanged. The owner-defined 0.85–1.15 display band and
+// unity crossings describe the sampled flight, with no verdict or flight
+// threshold change. rollPitchResonance.test covers interval boundaries,
+// interpolation, gaps and apogee clipping; FlightCharts.diagnostics covers
+// the formatted times, no-data/never-near copy and five-crossing list cap.
+// PRFL-1 round 2: FlightCharts 12 -> 13 formats positive band times below
+// 0.005 s as "under 0.01 s". This is display precision, not a flight verdict;
+// FlightCharts.diagnostics tests below/at that boundary and ordinary durations.
 // Inventory review (2026-11-18, swup round 4): App 34 -> 35 is the reload
 // recovery tooltip "The update has taken over" (the census matches "over").
 // Scope exemption: worker lifecycle copy, no measured comparison or tolerance.

@@ -8,7 +8,7 @@ import { FlightCharts } from './FlightCharts.js';
 import { PrefsProvider, usePrefs } from '../prefs/PrefsContext.js';
 import { METRIC_UNITS } from '../prefs/units.js';
 import { LIGHT_PALETTE, lineStyle, slotOf } from '../chartTheme.js';
-import { arbitraryCatalog, directionDash, seriesCatalog } from '../flightChartModel.js';
+import { directionDash, flightChartCatalogs } from '../flightChartModel.js';
 import { strFromU8, unzipSync } from 'fflate';
 import { flightXlsx } from '../services/flightXlsx.js';
 import * as fileName from '../services/fileName.js';
@@ -427,9 +427,7 @@ describe('flight comparisons wiring', () => {
     expect(phase.opts.cursor?.sync).toBeUndefined(); expect(phase.series.slice(1).every((s) => typeof s.paths === 'function')).toBe(true);
     // N052 reserves more catalog looks. Include arbitrary axes (notably time),
     // as the viewer does, so the falling style avoids every actual catalog pair.
-    const named = seriesCatalog({ units: METRIC_UNITS }, LIGHT_PALETTE);
-    const defs = [...named, ...arbitraryCatalog(result().series, { units: METRIC_UNITS }, LIGHT_PALETTE)
-      .filter(d => !named.some(n => n.key === d.key))];
+    const { plotCatalog: defs } = flightChartCatalogs(result().series, { units: METRIC_UNITS }, LIGHT_PALETTE);
     const velocity = defs.find(d => d.key === 'velocity')!;
     expect(phase.series[1]!.dash).toEqual(lineStyle(slotOf('velocity')));
     expect(phase.series[2]!.dash).toEqual(directionDash(velocity, defs).falling);

@@ -86,18 +86,22 @@ export class StyleAllocator {
   }
 }
 
+const ROLL_PITCH_RATIO: Unstyled = { key: 'rollPitchRatio', title: 'Roll rate ÷ pitch natural frequency', unit: '', token: null };
+
 function styleCatalog(defs: Unstyled[], styles: StyleAllocator): SeriesDef[] {
   const looks = new Map<keyof FlightSeries, Look>();
   // Quantities first, so a later quantity (dynamic pressure) is never beaten
   // to its own tier-0 pair by an earlier non-quantity (mass).
   for (const d of defs) if (d.token) looks.set(d.key, styles.next(d.token));
-  for (const d of defs) if (!d.token) looks.set(d.key, styles.next(null));
+  for (const d of defs) if (!d.token && d.key !== 'rollPitchRatio') looks.set(d.key, styles.next(null));
+  // New display-only ratios take a style last so existing series keep their ink.
+  for (const d of defs) if (d.key === 'rollPitchRatio') looks.set(d.key, styles.next(null));
   return defs.map(({ token: _token, ...d }) => ({ ...d, ...looks.get(d.key)! }));
 }
 
 /** Series defs in the user's units — the engine data underneath stays SI. */
 export function seriesCatalog(prefs: Pick<Preferences, 'units'>, C: readonly string[],
-  styles = new StyleAllocator(C)): SeriesDef[] {
+  styles = new StyleAllocator(C), includeRollPitchRatio = true): SeriesDef[] {
   const u = prefs.units;
   const defs: Unstyled[] = [
     { key: 'altitude', title: 'Altitude', unit: u.altitude, quantity: 'altitude', token: 'altitude', f: (v) => siToUi('altitude', u.altitude, v) },
@@ -123,6 +127,7 @@ export function seriesCatalog(prefs: Pick<Preferences, 'units'>, C: readonly str
     { key: 'dynamicPressure', title: 'Dynamic pressure', unit: u.pressure, quantity: 'pressure', token: 'pressure', f: (v) => siToUi('pressure', u.pressure, v) },
     { key: 'qAlpha', title: 'q·α', unit: `${u.pressure}·rad`, token: null, f: (v) => siToUi('pressure', u.pressure, v), toSI: (v) => uiToSi('pressure', u.pressure, v) },
     { key: 'ωn', title: 'Pitch natural frequency', unit: 'rad/s', token: null },
+    ...(includeRollPitchRatio ? [ROLL_PITCH_RATIO] : []),
     { key: 'Ccm', title: 'Corrective moment coefficient', unit: 'N·m/rad', token: null },
     { key: 'Cn', title: 'Normal force coefficient', unit: '', token: null },
     { key: 'CNα', title: 'Normal force slope (CNα)', unit: '/rad', token: null },
@@ -217,15 +222,18 @@ export function directionDash(member: SeriesDef, catalog: readonly SeriesDef[]):
 
 export const finiteSample = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
-/** C-E7: share export metadata; unknown future symbols must not acquire guessed units. */
-export function arbitraryCatalog(series: FlightSeries, prefs: Pick<Preferences, 'units'>, colors: readonly string[]): SeriesDef[] {
+/** Allocate named and extra definitions together before filtering unavailable data. */
+function allocatedCatalog(series: FlightSeries, prefs: Pick<Preferences, 'units'>, colors: readonly string[], includeRatio: boolean) {
   // One allocator across the named catalog and the extras: an extra never
   // repeats a colour + style pair a named series already draws.
   const styles = new StyleAllocator(colors);
-  const known = seriesCatalog(prefs, colors, styles);
+  // Allocate the display ratio after ALL raw extras, preserving their v0.209
+  // styles on screen and in XLSX, including before full series are loaded.
+  const known = seriesCatalog(prefs, colors, styles, false);
+  const catalog = [...known];
   const columns = new Map(exportColumnCatalog().map(c => [c.key, c]));
   for (const key of Object.keys(series)) {
-    if (key === 'tc' || known.some(d => d.key === key)) continue;
+    if (key === 'tc' || key === 'rollPitchRatio' || known.some(d => d.key === key)) continue;
     const spec = columns.get(key);
     const quantity = spec?.quantity;
     const unit = quantity ? prefs.units[quantity] : spec?.si ?? 'unit unknown';
@@ -235,11 +243,29 @@ export function arbitraryCatalog(series: FlightSeries, prefs: Pick<Preferences, 
       toSI: quantity ? v => uiToSi(quantity, unit, v) : undefined });
   }
   if (!known.some(d => d.key === 'time')) known.unshift({ key: 'time', title: 'Time', unit: 's', ...styles.next(null) });
-  return known.filter(d => d.key !== 'tc' && usableSeries(series, [String(d.key)]));
+  if (includeRatio) {
+    const ratio = styleCatalog([ROLL_PITCH_RATIO], styles)[0]!;
+    for (const defs of [catalog, known]) defs.splice(defs.findIndex(d => d.key === 'ωn') + 1, 0, ratio);
+  }
+  return { catalog, all: known };
+}
+
+/** C-E7: share export metadata; unknown future symbols must not acquire guessed units. */
+export function arbitraryCatalog(series: FlightSeries, prefs: Pick<Preferences, 'units'>, colors: readonly string[]): SeriesDef[] {
+  return allocatedCatalog(series, prefs, colors, !!series['rollPitchRatio']).all
+    .filter(d => d.key !== 'tc' && usableSeries(series, [String(d.key)]));
+}
+
+/** Shared definitions for the named chips/panels and every comparison axis. */
+export function flightChartCatalogs(series: FlightSeries, prefs: Pick<Preferences, 'units'>, colors: readonly string[]) {
+  const { catalog, all } = allocatedCatalog(series, prefs, colors, true);
+  const axesCatalog = all.filter(d => d.key !== 'tc' && usableSeries(series, [String(d.key)]));
+  const plotCatalog = [...catalog, ...axesCatalog.filter(d => !catalog.some(c => c.key === d.key))];
+  return { catalog, axesCatalog, plotCatalog };
 }
 
 export const STABILITY_DIAGNOSTIC_KEYS = ['ωn', 'Ccm', 'Cn', 'CNα', 'Cθ', 'Cζθ', 'dθ'] as const;
-export const STABILITY_DIAGNOSTIC_PANELS = ['stability', 'ωn', 'Ccm', 'aoa', 'dθ', 'Cn', 'CNα', 'Cθ', 'Cζθ'];
+export const STABILITY_DIAGNOSTIC_PANELS = ['stability', 'ωn', 'rollPitchRatio', 'Ccm', 'aoa', 'dθ', 'Cn', 'CNα', 'Cθ', 'Cζθ'];
 
 /** The branch's own transition out of 6DOF, shared by the display gates. */
 function beforeRecovery(events: FlightEvent[]): (time: unknown) => boolean {
@@ -264,6 +290,61 @@ export function withStabilityDiagnostics(series: FlightSeries, events: FlightEve
       && finiteSample(series[key]?.[i]) ? series[key]![i]! : null);
   }
   return gated;
+}
+
+/** Display only; call after withStabilityDiagnostics so guide/recovery gaps survive. */
+export function withRollPitchRatio(series: FlightSeries): FlightSeries {
+  if (!series['dΦ'] || !series['ωn']) return series;
+  return { ...series, rollPitchRatio: series.time.map((t, i) => {
+    const roll = series['dΦ']![i], frequency = series['ωn']![i];
+    if (!finiteSample(t) || !finiteSample(roll) || !finiteSample(frequency) || frequency <= 0) return null;
+    const ratio = Math.abs(roll) / frequency;
+    return finiteSample(ratio) ? ratio : null;
+  }) };
+}
+
+export const ROLL_PITCH_BAND = [0.85, 1.15] as const;
+
+/** Integrate straight segments, never bridge a missing sample or extrapolate.
+ * Exact unity samples (including a plateau's first sample) count once per run. */
+export function rollPitchResonance(series: FlightSeries, events: FlightEvent[]): {
+  crossings: number[]; secondsInBand: number; windowEnd: number | null; sampled: boolean;
+} {
+  const apogee = Math.min(Infinity, ...events.filter(e => e.type === 'APOGEE' && finiteSample(e.time)).map(e => e.time));
+  const result = { crossings: [] as number[], secondsInBand: 0, windowEnd: null as number | null, sampled: false };
+  let previous: { time: number; ratio: number } | null = null;
+  for (let i = 0; i < series.time.length; i++) {
+    const time = series.time[i], ratio = series['rollPitchRatio']?.[i];
+    if (!finiteSample(time) || !finiteSample(ratio)) { previous = null; continue; }
+    if (time <= apogee) {
+      result.sampled = true;
+      result.windowEnd = finiteSample(apogee) ? apogee : time;
+      const nextTime = series.time[i + 1], nextRatio = series['rollPitchRatio']?.[i + 1];
+      const hasNeighbour = (previous && previous.time < time)
+        || (time < apogee && finiteSample(nextTime) && nextTime > time && finiteSample(nextRatio));
+      if (ratio === 1 && previous?.ratio !== 1 && hasNeighbour) result.crossings.push(time);
+    }
+    if (previous && time > previous.time && previous.time < apogee) {
+      const duration = time - previous.time;
+      const end = Math.min(1, (apogee - previous.time) / duration);
+      const delta = ratio - previous.ratio;
+      if (delta === 0) {
+        if (ratio >= ROLL_PITCH_BAND[0] && ratio <= ROLL_PITCH_BAND[1]) result.secondsInBand += duration * end;
+      } else {
+        const a = (ROLL_PITCH_BAND[0] - previous.ratio) / delta;
+        const b = (ROLL_PITCH_BAND[1] - previous.ratio) / delta;
+        result.secondsInBand += duration * Math.max(0, Math.min(end, Math.max(a, b)) - Math.max(0, Math.min(a, b)));
+        // Opposite signs establish a crossing even if its fraction rounds to 0/1.
+        // Exact endpoint hits are handled above. Keep interpolation in the segment.
+        if ((previous.ratio < 1 && ratio > 1) || (previous.ratio > 1 && ratio < 1)) {
+          const crossingTime = Math.max(previous.time, Math.min(time, previous.time + duration * (1 - previous.ratio) / delta));
+          if (crossingTime <= apogee) result.crossings.push(crossingTime);
+        }
+      }
+    }
+    previous = { time, ratio };
+  }
+  return result;
 }
 
 /** N042: the branch's recorded geometry, never the edited design's length.

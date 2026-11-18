@@ -2,6 +2,7 @@
 const slug = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 export const stabilityTerms = {
   frequency: slug('Pitch natural frequency (ωn)'),
+  resonance: slug('Roll–pitch resonance'),
   moment: slug('Pitch moment coefficient'),
   damping: slug('Pitch damping coefficient'),
   rate: slug('Pitch rate'),

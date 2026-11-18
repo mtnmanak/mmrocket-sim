@@ -4,7 +4,7 @@ import { STABILITY_DIAGNOSTIC_KEYS } from '../flightChartModel.js';
 /** N041: viewer layouts only; no units, design, branch data or .ork state. */
 const PLOT_KEYS = ['altitude', 'velocity', 'Vz', 'acceleration', 'mass', 'thrust', 'drag',
   'mach', 'stability', 'stabilityPercent', 'cpLocation', 'cgLocation', 'aoa', 'dynamicPressure', 'qAlpha',
-  ...STABILITY_DIAGNOSTIC_KEYS] as const;
+  ...STABILITY_DIAGNOSTIC_KEYS, 'rollPitchRatio'] as const;
 const COMPARISON_IDS = ['', 'altitude-velocity', 'altitude-vertical', 'velocity-acceleration', 'stability', 'phase', 'custom', 'ground-track'] as const;
 export const MAX_FLIGHT_PLOTS = 50;
 export interface SavedFlightPlot {
@@ -25,7 +25,7 @@ export function normalizeFlightPlots(value: unknown): SavedFlightPlot[] {
     const { id, name, panels, comparison, custom, events } = item as Record<string, unknown>;
     if (typeof id !== 'string' || !id.trim() || id.length > 100
       || typeof name !== 'string' || !name.trim() || name.trim().length > 80
-      || !Array.isArray(panels) || !panels.every(key => PLOT_KEYS.some(k => k === key))
+      || !Array.isArray(panels)
       || !COMPARISON_IDS.some(key => key === comparison)) continue;
     const axes = custom as Record<string, unknown> | undefined;
     const validKey = (key: unknown): key is string => typeof key === 'string' && !!key.trim()
@@ -35,7 +35,7 @@ export function normalizeFlightPlots(value: unknown): SavedFlightPlot[] {
     if (events !== undefined && (!Array.isArray(events) || !events.every(e => DEFAULT_PLOT_EVENTS.some(k => k === e)))) continue;
     const title = name.trim(), folded = title.toLowerCase();
     if (ids.has(id) || names.has(folded)) continue;
-    out.push({ id, name: title, panels: [...new Set(panels as string[])], comparison: comparison as string,
+    out.push({ id, name: title, panels: [...new Set(panels.filter((key): key is string => PLOT_KEYS.some(k => k === key)))], comparison: comparison as string,
       ...(axes ? { custom: { x: axes['x'] as string, y: axes['y'] as string } } : {}),
       ...(events ? { events: [...new Set(events as string[])] } : {}) });
     ids.add(id); names.add(folded);
