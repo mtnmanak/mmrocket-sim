@@ -63,7 +63,8 @@
  *     build's copy claimed more than the terms said). The free tier the app
  *     uses rests on the same page's definition of non-commercial use — the
  *     owner's 2026-09-21 ruling that mountainmanrockets.com, a non-profit
- *     hobby site with no subscriptions or advertising, fits it. The sentences
+ *     hobby site with no subscriptions or advertising, fits it (reaffirmed
+ *     2026-11-18 after the page reworded its example list, board row 147). The sentences
  *     those rest on are quoted in OPEN_METEO_TERMS below; if any stops
  *     appearing, the copy (WeatherDialog.tsx WEATHER_DIALOG_COPY.intro,
  *     user-guide.md) or the ruling needs a fresh look before the release.
@@ -769,15 +770,19 @@ export async function checkAerotechDelays(getText = text, getBytes = pdfBytes,
 
 /**
  * 6. The sentences of Open-Meteo's terms the app's copy and its free-tier use
- * rest on, VERBATIM from https://open-meteo.com/en/terms as read 2026-09-23.
+ * rest on, VERBATIM from https://open-meteo.com/en/terms as read 2026-09-23
+ * (the free-tier sentence re-read 2026-11-18: the page dropped its "Using our
+ * service for" lead-in and kept the example as a bare list item).
  * `for` says what depends on each. Matched on the page's text with its tags
  * dropped and its whitespace collapsed, so a re-wrap or new markup is not a
  * change; a reworded sentence is.
  */
 const OPEN_METEO_TERMS_URL = 'https://open-meteo.com/en/terms';
 const OPEN_METEO_TERMS = [
-  { for: 'the free tier (owner ruling 2026-09-21: a non-profit hobby site)',
-    text: 'Using our service for private or non-profit websites or apps that do not have subscriptions or advertising.' },
+  { for: 'the free tier (owner ruling 2026-09-21, reaffirmed 2026-11-18: a non-profit hobby site)',
+    text: 'Private or non-profit websites or apps that do not have subscriptions or advertising.' },
+  { for: 'the free tier (owner ruling 2026-09-21, reaffirmed 2026-11-18: a non-profit hobby site)',
+    text: 'You may only use the free API services for non-commercial purposes.' },
   { for: 'the dialog intro and the guide: "may collect IP addresses for technical reasons"',
     text: 'We may collect non-personal information, such as IP addresses, for technical reasons such as server maintenance or prevent misuse' },
   { for: 'the dialog intro and the guide: "server logs, which may contain coordinates"',
