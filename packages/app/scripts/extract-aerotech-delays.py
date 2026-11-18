@@ -23,7 +23,7 @@ measured samples come only from documents printing EACH motor's delay:
     designation carrying the delay it was sold with ("E20-4W", "F51-NT-10",
     "G53-10FJ") and a Delay (or T-DELAY) column holding what it measured.
 
-The 43 reviewed average-only scans supply printed averages separately from
+The 44 reviewed average-only scans supply printed averages separately from
 individual measurements (Eric's 2026-11-15 ruling); they supply no spread.
 Text-layer average-only NAR summaries and TRA letters are read by word
 coordinates too, never as individual measurements. --text-average-inventory
@@ -177,6 +177,9 @@ AVERAGE_JOIN = {
     'NAR/29mm Model Rocket Single-Use/F50T.pdf': ('AeroTech', 'F50T'),
     # Discontinued single-use motor; the catalogue G25W is an RMS-29/120 reload.
     'NAR/29mm Model Rocket Single-Use/G25W.pdf': None,
+    # The catalogue's G35 is this SU 29x98 Econojet: same 100.82 N-s, 76.22 N peak and
+    # 2.91 s burn as the 1996 report (archive.org copy, added 2026-11-18).
+    'NAR/29mm Model Rocket Single-Use/G35W.pdf': ('AeroTech', 'G35'),
     'NAR/29mm Model Rocket Single-Use/G40W.pdf': ('AeroTech', 'G40W'),
     # Old G80: measured data for the new 137 N-sec version wins.
     'NAR/29mm Model Rocket Single-Use/G80T.pdf': None,

@@ -312,7 +312,9 @@
     "https://s3.eu-west-1.amazonaws.com/static.fw1.biz/Templates/170652/myimages/g73c%20certification%20letter%20draft_1765925669211.pdf",
     "https://s3.eu-west-1.amazonaws.com/static.fw1.biz/Templates/170652/myimages/j550st%20certification%20letter%20draft_1765925757729.pdf",
     "https://s3.eu-west-1.amazonaws.com/static.fw1.biz/Templates/170652/myimages/n2700w%20tra%20cert_1754333128692.pdf",
-    "https://s3.eu-west-1.amazonaws.com/static.fw1.biz/Templates/170652/myimages/n3120x%20certification%20letter%20draft_1765925965318.pdf"
+    "https://s3.eu-west-1.amazonaws.com/static.fw1.biz/Templates/170652/myimages/n3120x%20certification%20letter%20draft_1765925965318.pdf",
+    "https://web.archive.org/web/20200728194431/http://www.aerotech-rocketry.com/customersite/resource_library/Certification_Documents/NAR/single-use/29mm_mr_su/g35w_nar_cert.pdf",
+    "https://web.archive.org/web/20200728194431/http://www.aerotech-rocketry.com/customersite/resource_library/Certification_Documents/Tripoli/reloadable/rms-54_1280/j135w_tra_cert.pdf"
   ],
   "documents": [
     {
@@ -404,6 +406,11 @@
       "document": "NAR/29mm Model Rocket Single-Use/F67W.pdf",
       "url": "https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/aerotech%20f67%20-%202017%20v1_1656555014171.pdf",
       "sha256": "0a383f5a75322d05e8249de5500bd39f456f999d0705e33e96c45f6dd4988d9b"
+    },
+    {
+      "document": "NAR/29mm Model Rocket Single-Use/G35W.pdf",
+      "url": "https://web.archive.org/web/20200728194431/http://www.aerotech-rocketry.com/customersite/resource_library/Certification_Documents/NAR/single-use/29mm_mr_su/g35w_nar_cert.pdf",
+      "sha256": "6060aa91e3f29e32d574a0b19ad1d9429b713c6d7b28321e2a1e9cd943817c8f"
     },
     {
       "document": "NAR/29mm Model Rocket Single-Use/G38FJ.pdf",

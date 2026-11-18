@@ -7,16 +7,16 @@
     "tmt": 13,
     "nar": 19,
     "plugged": 5,
-    "none": 159,
-    "scan": 100,
+    "none": 160,
+    "scan": 101,
     "scan-reviewed": 0,
     "text-average": 16
   },
   "scanReview": {
-    "reviewed": 100,
+    "reviewed": 101,
     "accepted": 0,
-    "unreadForMerge": 100,
-    "averagesRead": 43,
+    "unreadForMerge": 101,
+    "averagesRead": 44,
     "source": "packages/app/scripts/aerotech-delay-transcriptions.json"
   },
   "textAverageReview": {
@@ -1482,8 +1482,8 @@
       ]
     }
   },
-  "averageMotorCount": 38,
-  "averagePairCount": 97,
+  "averageMotorCount": 39,
+  "averagePairCount": 99,
   "averages": {
     "5f4294d200023100000002e3": {
       "designation": "D10W",
@@ -2053,6 +2053,28 @@
       ],
       "documentForms": {
         "NAR/RMS-29-40-120/F52T.pdf": "scan-average"
+      }
+    },
+    "5f4294d20002310000000054": {
+      "designation": "G35",
+      "manufacturer": "AeroTech",
+      "documents": [
+        "NAR/29mm Model Rocket Single-Use/G35W.pdf"
+      ],
+      "url": "https://web.archive.org/web/20200728194431/http://www.aerotech-rocketry.com/customersite/resource_library/Certification_Documents/NAR/single-use/29mm_mr_su/g35w_nar_cert.pdf",
+      "form": "scan-average",
+      "delays": [
+        {
+          "nominalS": 4,
+          "averageS": 4.29
+        },
+        {
+          "nominalS": 7,
+          "averageS": 7.57
+        }
+      ],
+      "documentForms": {
+        "NAR/29mm Model Rocket Single-Use/G35W.pdf": "scan-average"
       }
     },
     "5f4294d20002310000000057": {

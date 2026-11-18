@@ -1,7 +1,7 @@
 {
   "reviewedOn": "2026-10-13",
   "method": "Visual review of all 114 pages rendered with pymupdf at 200 dpi, outside the repo; no OCR. Positions use 1-based pages and printed row/column labels.",
-  "policy": "Merge individual measurements only when the document also prints an agreeing delay average or repeated summary. Count checks are recorded but do not verify values. Candidates in unread are never merged. Printed averages are separate from individual measurements and never supply spread. Text-layer average-only certification documents are read by word coordinates by extract-aerotech-delays.py, never manually transcribed here; --text-average-inventory enumerates every eligible NAR summary and TRA labeled/tested average letter with positions, rejection reasons and exact document/nominal counts, also recorded in textAverageReview on regeneration. Measured 2026-11-16 (row 133): 16 text-layer documents / 40 nominals (10 NAR summaries / 24 nominals, 6 TRA labeled/tested average letters / 16 nominals); AVERAGE_JOIN leaves 3 documents unjoined, so 13 motors / 33 nominals ship from text. The 43 average-only scans were read independently by Claude (Opus 5.5, workflow wf_04bb1231-230, 4 agents, Read on 200 dpi renders) and agy (Gemini 4 Carbon High, agent reviewer, read_file on the same renders); all 113 cells agreed, including 111 numeric averages and two plugged columns excluded from averages.",
+  "policy": "Merge individual measurements only when the document also prints an agreeing delay average or repeated summary. Count checks are recorded but do not verify values. Candidates in unread are never merged. Printed averages are separate from individual measurements and never supply spread. Text-layer average-only certification documents are read by word coordinates by extract-aerotech-delays.py, never manually transcribed here; --text-average-inventory enumerates every eligible NAR summary and TRA labeled/tested average letter with positions, rejection reasons and exact document/nominal counts, also recorded in textAverageReview on regeneration. Measured 2026-11-16 (row 133): 16 text-layer documents / 40 nominals (10 NAR summaries / 24 nominals, 6 TRA labeled/tested average letters / 16 nominals); AVERAGE_JOIN leaves 3 documents unjoined, so 13 motors / 33 nominals ship from text. The 43 average-only scans of 2026-10-13 were read independently by Claude (Opus 5.5, workflow wf_04bb1231-230, 4 agents, Read on 200 dpi renders) and agy (Gemini 4 Carbon High, agent reviewer, read_file on the same renders); all 113 cells agreed, including 111 numeric averages and two plugged columns excluded from averages. A 44th, NAR/29mm Model Rocket Single-Use/G35W.pdf (added to AeroTech's index as an archive.org link), was read the same way on 2026-11-18 by Claude and agy; all six table cells agreed.",
   "documents": [],
   "unread": [
     {
@@ -932,6 +932,56 @@
     },
     {
       "index": 17,
+      "document": "NAR/29mm Model Rocket Single-Use/G35W.pdf",
+      "printedAverages": [
+        {
+          "nominalS": 4,
+          "printed": "4.29",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 1
+          }
+        },
+        {
+          "nominalS": 7,
+          "printed": "7.57",
+          "label": "Avg. Measured Delay",
+          "position": {
+            "page": 1,
+            "row": "Avg. Measured Delay",
+            "column": 2
+          }
+        }
+      ],
+      "filenameMotor": "G35W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160018",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "6060aa91e3f29e32d574a0b19ad1d9429b713c6d7b28321e2a1e9cd943817c8f",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread.",
+      "reviewedOn": "2026-11-18",
+      "readers": "Claude (Opus 5.5, Read on a 110 dpi render) and agy (Gemini 4 Carbon High, agent reviewer, on the 200 dpi render) read it independently; all six table cells agreed. Source: the archive.org link AeroTech's certification index added (check-upstream 5b, 2026-10-26)."
+    },
+    {
+      "index": 18,
       "document": "NAR/29mm Model Rocket Single-Use/G40W.pdf",
       "printedAverages": [
         {
@@ -989,7 +1039,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 18,
+      "index": 19,
       "document": "NAR/29mm Model Rocket Single-Use/G80T.pdf",
       "printedAverages": [
         {
@@ -1047,7 +1097,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 19,
+      "index": 20,
       "document": "NAR/RMS-18-20/C12T.pdf",
       "printedAverages": [
         {
@@ -1105,7 +1155,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 20,
+      "index": 21,
       "document": "NAR/RMS-18-20/C6W.pdf",
       "printedAverages": [
         {
@@ -1153,7 +1203,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 21,
+      "index": 22,
       "document": "NAR/RMS-18-20/D13W.pdf",
       "printedAverages": [
         {
@@ -1211,7 +1261,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 22,
+      "index": 23,
       "document": "NAR/RMS-18-20/E27T.pdf",
       "printedAverages": [
         {
@@ -1249,7 +1299,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 23,
+      "index": 24,
       "document": "NAR/RMS-24-40/D15T.pdf",
       "printedAverages": [
         {
@@ -1307,7 +1357,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 24,
+      "index": 25,
       "document": "NAR/RMS-24-40/D9W.pdf",
       "printedAverages": [
         {
@@ -1355,7 +1405,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 25,
+      "index": 26,
       "document": "NAR/RMS-24-40/E11J.pdf",
       "printedAverages": [
         {
@@ -1393,7 +1443,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 26,
+      "index": 27,
       "document": "NAR/RMS-24-40/E18W.pdf",
       "printedAverages": [
         {
@@ -1451,7 +1501,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 27,
+      "index": 28,
       "document": "NAR/RMS-24-40/E28T.pdf",
       "printedAverages": [
         {
@@ -1509,7 +1559,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 28,
+      "index": 29,
       "document": "NAR/RMS-24-40/F12J.pdf",
       "printedAverages": [
         {
@@ -1547,7 +1597,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 29,
+      "index": 30,
       "document": "NAR/RMS-24-40/F24W.pdf",
       "printedAverages": [
         {
@@ -1595,7 +1645,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 30,
+      "index": 31,
       "document": "NAR/RMS-24-40/F39T.pdf",
       "printedAverages": [
         {
@@ -1653,7 +1703,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 31,
+      "index": 32,
       "document": "NAR/RMS-29-100/G54W.pdf",
       "printedAverages": [
         {
@@ -1711,7 +1761,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 32,
+      "index": 33,
       "document": "NAR/RMS-29-240/H220T.pdf",
       "printedAverages": [
         {
@@ -1769,7 +1819,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 33,
+      "index": 34,
       "document": "NAR/RMS-29-40-120/E16W.pdf",
       "printedAverages": [
         {
@@ -1827,7 +1877,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 34,
+      "index": 35,
       "document": "NAR/RMS-29-40-120/F22J.pdf",
       "printedAverages": [
         {
@@ -1865,7 +1915,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 35,
+      "index": 36,
       "document": "NAR/RMS-29-40-120/F40W.pdf",
       "printedAverages": [
         {
@@ -1923,7 +1973,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 36,
+      "index": 37,
       "document": "NAR/RMS-29-40-120/F52T.pdf",
       "printedAverages": [
         {
@@ -1981,7 +2031,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 37,
+      "index": 38,
       "document": "NAR/RMS-29-40-120/G33J.pdf",
       "printedAverages": [
         {
@@ -2029,7 +2079,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 38,
+      "index": 39,
       "document": "NAR/RMS-29-40-120/G64W.pdf",
       "printedAverages": [
         {
@@ -2087,7 +2137,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 39,
+      "index": 40,
       "document": "NAR/RMS-29-60/F37W.pdf",
       "printedAverages": [
         {
@@ -2145,7 +2195,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 40,
+      "index": 41,
       "document": "NAR/RMS-38-480/I300T.pdf",
       "printedAverages": [
         {
@@ -2203,7 +2253,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 41,
+      "index": 42,
       "document": "NAR/RMS-R-C 24-20-40/D7T.pdf",
       "filenameMotor": "D7T",
       "metadata": {
@@ -2229,7 +2279,7 @@
       "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
     },
     {
-      "index": 42,
+      "index": 43,
       "document": "NAR/RMS-R-C 24-20-40/E12J.pdf",
       "filenameMotor": "E12J",
       "metadata": {
@@ -2255,7 +2305,7 @@
       "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
     },
     {
-      "index": 43,
+      "index": 44,
       "document": "NAR/RMS-R-C 24-20-40/E6T-RC.pdf",
       "filenameMotor": "E6T-RC",
       "metadata": {
@@ -2281,7 +2331,7 @@
       "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
     },
     {
-      "index": 44,
+      "index": 45,
       "document": "NAR/RMS-R-C 24-20-40/E7T.pdf",
       "filenameMotor": "E7T",
       "metadata": {
@@ -2307,7 +2357,7 @@
       "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
     },
     {
-      "index": 45,
+      "index": 46,
       "document": "NAR/RMS-R-C 32-60-100/F13T.pdf",
       "filenameMotor": "F13T",
       "metadata": {
@@ -2333,7 +2383,7 @@
       "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
     },
     {
-      "index": 46,
+      "index": 47,
       "document": "NAR/RMS-R-C 32-60-100/F16J.pdf",
       "filenameMotor": "F16J",
       "metadata": {
@@ -2359,7 +2409,7 @@
       "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
     },
     {
-      "index": 47,
+      "index": 48,
       "document": "NAR/RMS-R-C 32-60-100/G12T.pdf",
       "filenameMotor": "G12T",
       "metadata": {
@@ -2385,7 +2435,7 @@
       "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
     },
     {
-      "index": 48,
+      "index": 49,
       "document": "TRA/24mm Model Rocket Single-Use/F21W.pdf",
       "filenameMotor": "F21W",
       "metadata": {
@@ -2411,7 +2461,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 49,
+      "index": 50,
       "document": "TRA/24mm Quest Single Use/Quest Q-Jet E35-5, 8, 11W.pdf",
       "filenameMotor": "Quest Q-Jet E35-5, 8, 11W",
       "metadata": {
@@ -2560,7 +2610,7 @@
       ]
     },
     {
-      "index": 50,
+      "index": 51,
       "document": "TRA/24mm Quest Single Use/Quest Q-Jet F41-5, 8, 11W.pdf",
       "filenameMotor": "Quest Q-Jet F41-5, 8, 11W",
       "metadata": {
@@ -2693,7 +2743,7 @@
       ]
     },
     {
-      "index": 51,
+      "index": 52,
       "document": "TRA/29mm High Power Single-Use/H124FJ.pdf",
       "filenameMotor": "H124FJ",
       "metadata": {
@@ -2720,7 +2770,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 52,
+      "index": 53,
       "document": "TRA/29mm High Power Single-Use/H55W.pdf",
       "filenameMotor": "H55W",
       "metadata": {
@@ -2746,7 +2796,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 53,
+      "index": 54,
       "document": "TRA/38mm High Power Single-Use/I132W.pdf",
       "filenameMotor": "I132W",
       "metadata": {
@@ -2772,7 +2822,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 54,
+      "index": 55,
       "document": "TRA/38mm High Power Single-Use/I40N-P DMS.pdf",
       "filenameMotor": "I40N-P DMS",
       "metadata": {
@@ -2799,7 +2849,7 @@
       "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
     },
     {
-      "index": 55,
+      "index": 56,
       "document": "TRA/54mm High Power Single-Use/I65W-P DMS.pdf",
       "filenameMotor": "I65W-P DMS",
       "metadata": {
@@ -2825,7 +2875,7 @@
       "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
     },
     {
-      "index": 56,
+      "index": 57,
       "document": "TRA/54mm High Power Single-Use/J1265ST-14A DMS.pdf",
       "filenameMotor": "J1265ST-14A DMS",
       "metadata": {
@@ -2902,7 +2952,7 @@
       ]
     },
     {
-      "index": 57,
+      "index": 58,
       "document": "TRA/54mm High Power Single-Use/K62N-P DMS.pdf",
       "filenameMotor": "K62N-P DMS",
       "metadata": {
@@ -2929,7 +2979,7 @@
       "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
     },
     {
-      "index": 58,
+      "index": 59,
       "document": "TRA/98mm High Power Single Use/N1975W-PS DMS.pdf",
       "filenameMotor": "N1975W-PS DMS",
       "metadata": {
@@ -2956,7 +3006,7 @@
       "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
     },
     {
-      "index": 59,
+      "index": 60,
       "document": "TRA/98mm High Power Single Use/O5500X-PS DMS.pdf",
       "filenameMotor": "O5500X-PS DMS",
       "metadata": {
@@ -2983,7 +3033,7 @@
       "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
     },
     {
-      "index": 60,
+      "index": 61,
       "document": "TRA/Kosdon By AeroTech (KBA) & Kosdon by AeroTech Animal-Compatible (KBA A-C)/KBA I170S.pdf",
       "filenameMotor": "KBA I170S",
       "metadata": {
@@ -3009,7 +3059,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 61,
+      "index": 62,
       "document": "TRA/Kosdon By AeroTech (KBA) & Kosdon by AeroTech Animal-Compatible (KBA A-C)/KBA I280F.pdf",
       "filenameMotor": "KBA I280F",
       "metadata": {
@@ -3035,7 +3085,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 62,
+      "index": 63,
       "document": "TRA/Kosdon By AeroTech (KBA) & Kosdon by AeroTech Animal-Compatible (KBA A-C)/KBA I450F.pdf",
       "filenameMotor": "KBA I450F",
       "metadata": {
@@ -3061,7 +3111,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 63,
+      "index": 64,
       "document": "TRA/Kosdon By AeroTech (KBA) & Kosdon by AeroTech Animal-Compatible (KBA A-C)/KBA J405S.pdf",
       "filenameMotor": "KBA J405S",
       "metadata": {
@@ -3087,7 +3137,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 64,
+      "index": 65,
       "document": "TRA/Kosdon By AeroTech (KBA) & Kosdon by AeroTech Animal-Compatible (KBA A-C)/KBA J605F.pdf",
       "filenameMotor": "KBA J605F",
       "metadata": {
@@ -3113,7 +3163,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 65,
+      "index": 66,
       "document": "TRA/Kosdon By AeroTech (KBA) & Kosdon by AeroTech Animal-Compatible (KBA A-C)/KBA K400S-7, P.pdf",
       "filenameMotor": "KBA K400S-7, P",
       "metadata": {
@@ -3139,7 +3189,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 66,
+      "index": 67,
       "document": "TRA/Kosdon By AeroTech (KBA) & Kosdon by AeroTech Animal-Compatible (KBA A-C)/KBA K600F.pdf",
       "filenameMotor": "KBA K600F",
       "metadata": {
@@ -3165,7 +3215,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 67,
+      "index": 68,
       "document": "TRA/Kosdon By AeroTech (KBA) & Kosdon by AeroTech Animal-Compatible (KBA A-C)/KBA L1000S-P.pdf",
       "filenameMotor": "KBA L1000S-P",
       "metadata": {
@@ -3191,7 +3241,7 @@
       "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
     },
     {
-      "index": 68,
+      "index": 69,
       "document": "TRA/Kosdon By AeroTech (KBA) & Kosdon by AeroTech Animal-Compatible (KBA A-C)/KBA L1400F.pdf",
       "filenameMotor": "KBA L1400F",
       "metadata": {
@@ -3217,7 +3267,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 69,
+      "index": 70,
       "document": "TRA/RMS-29-100/G104T.pdf",
       "filenameMotor": "G104T",
       "metadata": {
@@ -3243,7 +3293,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 70,
+      "index": 71,
       "document": "TRA/RMS-29-100/G54W.pdf",
       "printedAverages": [
         {
@@ -3301,7 +3351,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 71,
+      "index": 72,
       "document": "TRA/RMS-29-180/H128W.pdf",
       "filenameMotor": "H128W",
       "metadata": {
@@ -3327,7 +3377,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 72,
+      "index": 73,
       "document": "TRA/RMS-29-180/H165R.pdf",
       "filenameMotor": "H165R",
       "metadata": {
@@ -3353,7 +3403,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 73,
+      "index": 74,
       "document": "TRA/RMS-29-180/H238T.pdf",
       "filenameMotor": "H238T",
       "metadata": {
@@ -3379,7 +3429,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 74,
+      "index": 75,
       "document": "TRA/RMS-29-240/H180W.pdf",
       "filenameMotor": "H180W",
       "metadata": {
@@ -3405,7 +3455,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 75,
+      "index": 76,
       "document": "TRA/RMS-29-240/H97JS.pdf",
       "filenameMotor": "H97JS",
       "metadata": {
@@ -3431,7 +3481,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 76,
+      "index": 77,
       "document": "TRA/RMS-29-360/I200W.pdf",
       "filenameMotor": "I200W",
       "metadata": {
@@ -3457,7 +3507,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 77,
+      "index": 78,
       "document": "TRA/RMS-29-60/F37W.pdf",
       "printedAverages": [
         {
@@ -3515,7 +3565,7 @@
       "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
     },
     {
-      "index": 78,
+      "index": 79,
       "document": "TRA/RMS-29-60/F62T.pdf",
       "filenameMotor": "F62T",
       "metadata": {
@@ -3541,7 +3591,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 79,
+      "index": 80,
       "document": "TRA/RMS-38-240/H148R.pdf",
       "filenameMotor": "H148R",
       "metadata": {
@@ -3567,7 +3617,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 80,
+      "index": 81,
       "document": "TRA/RMS-38-240/H73J.pdf",
       "filenameMotor": "H73J",
       "metadata": {
@@ -3593,7 +3643,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 81,
+      "index": 82,
       "document": "TRA/RMS-38-360/I161W.pdf",
       "filenameMotor": "I161W",
       "metadata": {
@@ -3619,7 +3669,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 82,
+      "index": 83,
       "document": "TRA/RMS-38-360/I357T.pdf",
       "filenameMotor": "I357T",
       "metadata": {
@@ -3645,7 +3695,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 83,
+      "index": 84,
       "document": "TRA/RMS-38-600/I366R.pdf",
       "filenameMotor": "I366R",
       "metadata": {
@@ -3671,7 +3721,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 84,
+      "index": 85,
       "document": "TRA/RMS-38-720/J350W (Small Core).pdf",
       "filenameMotor": "J350W (Small Core)",
       "metadata": {
@@ -3697,7 +3747,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 85,
+      "index": 86,
       "document": "TRA/RMS-38-720/J420R-M, L.pdf",
       "filenameMotor": "J420R-M, L",
       "metadata": {
@@ -3723,7 +3773,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 86,
+      "index": 87,
       "document": "TRA/RMS-38-720/J420R-S.pdf",
       "filenameMotor": "J420R-S",
       "metadata": {
@@ -3749,7 +3799,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 87,
+      "index": 88,
       "document": "TRA/RMS-54-1280/J540R.pdf",
       "filenameMotor": "J540R",
       "metadata": {
@@ -3775,7 +3825,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 88,
+      "index": 89,
       "document": "TRA/RMS-54-1706/K185W.pdf",
       "filenameMotor": "K185W",
       "metadata": {
@@ -3801,7 +3851,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 89,
+      "index": 90,
       "document": "TRA/RMS-54-1706/K695R.pdf",
       "filenameMotor": "K695R",
       "metadata": {
@@ -3827,7 +3877,7 @@
       "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
     },
     {
-      "index": 90,
+      "index": 91,
       "document": "TRA/RMS-54-852/J615ST-20A Aerospike.pdf",
       "filenameMotor": "J615ST-20A Aerospike",
       "metadata": {
@@ -3928,7 +3978,7 @@
       ]
     },
     {
-      "index": 91,
+      "index": 92,
       "document": "TRA/RMS-75-10240/N2700W-PS.pdf",
       "filenameMotor": "N2700W-PS",
       "metadata": {
@@ -3956,7 +4006,7 @@
       "identityNote": "Filename N2700W-PS; pages identify manufacturer designation M2700W-PS and TMT nomenclature N2717. No delay data; no catalogue join attempted."
     },
     {
-      "index": 92,
+      "index": 93,
       "document": "TRA/RMS-75-1280/K750ST-P.pdf",
       "filenameMotor": "K750ST-P",
       "metadata": {
@@ -3983,7 +4033,7 @@
       "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
     },
     {
-      "index": 93,
+      "index": 94,
       "document": "TRA/RMS-75-2560/K1800ST-PS.pdf",
       "filenameMotor": "K1800ST-PS",
       "metadata": {
@@ -4010,7 +4060,7 @@
       "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
     },
     {
-      "index": 94,
+      "index": 95,
       "document": "TRA/RMS-75-2560/K560W-P.pdf",
       "filenameMotor": "K560W-P",
       "metadata": {
@@ -4036,7 +4086,7 @@
       "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
     },
     {
-      "index": 95,
+      "index": 96,
       "document": "TRA/RMS-75-5120/M2225WS-PS.pdf",
       "filenameMotor": "M2225WS-PS",
       "metadata": {
@@ -4063,7 +4113,7 @@
       "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
     },
     {
-      "index": 96,
+      "index": 97,
       "document": "TRA/RMS-75-6400/M1315W-P.pdf",
       "filenameMotor": "M1315W-P",
       "metadata": {
@@ -4089,7 +4139,7 @@
       "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
     },
     {
-      "index": 97,
+      "index": 98,
       "document": "TRA/RMS-75-6400/M1550R-P.pdf",
       "filenameMotor": "M1550R-P",
       "metadata": {
@@ -4115,7 +4165,7 @@
       "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
     },
     {
-      "index": 98,
+      "index": 99,
       "document": "TRA/RMS-98-10240/M6000ST (2022 redesign).pdf",
       "filenameMotor": "M6000ST (2022 redesign)",
       "metadata": {
@@ -4142,7 +4192,7 @@
       "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
     },
     {
-      "index": 99,
+      "index": 100,
       "document": "TRA/RMS-98-7680/M1600R-P.pdf",
       "filenameMotor": "M1600R-P",
       "metadata": {
