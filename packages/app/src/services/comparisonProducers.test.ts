@@ -1,4 +1,8 @@
 // @vitest-environment happy-dom
+// Inventory review (2026-11-18, swup round 4): App 34 -> 35 is the reload
+// recovery tooltip "The update has taken over" (the census matches "over").
+// Scope exemption: worker lifecycle copy, no measured comparison or tolerance.
+// App.swUpdate.test covers applying, recovered takeover and later update states.
 // Row 49: census unchanged (preflightAudit 8; PreflightAudit 5). The density
 // producer retains its named-family bounds and intersects recovery ranges with
 // shared type bands, also screening unknown names. preflightAudit.test covers

@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { RecentDesignsDialog } from './RecentDesignsDialog.js';
 import * as recent from '../services/recentDesigns.js';
+import { pageActivity } from '../services/pageActivity.js';
 
 vi.mock('../services/recentDesigns.js', () => ({ listRecentDesigns: vi.fn(), recentDesignFile: vi.fn(), clearRecentDesigns: vi.fn() }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -20,6 +21,16 @@ beforeEach(() => {
   vi.mocked(recent.listRecentDesigns).mockResolvedValue([{ name: 'café.ork', openedAt: 1, size: 10 }]);
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
+
+it('tracks the Recent read before its first await and releases a failed read', async () => {
+  let rejectRead!: (error: Error) => void;
+  vi.mocked(recent.recentDesignFile).mockImplementation(() => new Promise((_resolve, reject) => { rejectRead = reject; }));
+  await show(); await click('café.ork');
+  expect(pageActivity.importsInProgress()).toBe(1);
+  expect(pageActivity.isUntouched()).toBe(false);
+  await act(async () => rejectRead(new Error('storage failed')));
+  expect(pageActivity.importsInProgress()).toBe(0);
+});
 
 it('opens the stored file through its caller and labels it as a browser copy', async () => {
   const file = new File(['same original bytes'], 'café.ork');

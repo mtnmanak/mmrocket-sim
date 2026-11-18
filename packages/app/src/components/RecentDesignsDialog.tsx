@@ -1,3 +1,4 @@
+import { pageActivity } from '../services/pageActivity.js';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Modal } from './Modal.js';
 import { Note } from './Note.js';
@@ -28,6 +29,7 @@ export function RecentDesignsDialog({ onOpen, onClose }: { onOpen: (file: File) 
     return () => { active = false; };
   }, [retry]);
   const open = async (name: string) => {
+    const finishImport = pageActivity.startImport();
     const operation = ++openOperation.current;
     setBusy(true); setError(null);
     try {
@@ -38,6 +40,7 @@ export function RecentDesignsDialog({ onOpen, onClose }: { onOpen: (file: File) 
     } catch (e) {
       if (operation === openOperation.current) setError(e instanceof Error ? e.message : 'This copy could not be opened.');
     } finally {
+      finishImport();
       if (operation === openOperation.current) setBusy(false);
     }
   };

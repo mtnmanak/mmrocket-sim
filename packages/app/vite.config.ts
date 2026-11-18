@@ -12,8 +12,25 @@ import { CHANGELOG, PRE_VERSIONING_NOTE } from './src/changelog';
 import { XML_JS_SETUP, XML_JS_SUITES } from './scripts/xml-js-suites.mjs';
 import { assertWorkspaceLinks } from '../../scripts/check-workspace-links.mjs';
 import { ProjectShardSequencer } from './scripts/project-shard-sequencer.mjs';
+import { APP_VERSION } from './src/version.js';
 
 assertWorkspaceLinks();
+
+/** Emit before PWA's closeBundle scans dist; versioned imports bypass stale HTTP cache. */
+export function workerBuild(version: string) {
+  const fileName = `sw-build-${version}.js`;
+  return {
+    importScripts: ['sw-update-protocol-v1.js', fileName],
+    plugin: {
+      name: 'sw-build-version',
+      apply: 'build',
+      generateBundle() {
+        this.emitFile({ type: 'asset', fileName, source: `self.__MMR_BUILD_VERSION = ${JSON.stringify(version)};` });
+      },
+    } satisfies Plugin,
+  };
+}
+const workerIdentity = workerBuild(APP_VERSION);
 
 /** Keep full notes in the build-time HTML, but ship only what the dialog reads. */
 function compactChangelog(): Plugin {
@@ -143,6 +160,7 @@ export default defineConfig({
     react(),
     compactChangelog(),
     brandTokensModule(),
+    workerIdentity.plugin,
     // PWA/offline: remote launch sites (Black Rock…) have no internet, so the
     // ENTIRE build precaches — 27 files, about 7.6 MB at v0.168 (precacheCoversBuild, the
     // last plugin, fails the build if one is left out): the engine, the parts
@@ -161,7 +179,7 @@ export default defineConfig({
     // the update check always reaches the real server instead of reading a cached
     // copy of itself — see services/versionCheck.ts.
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       // ONLY files globPatterns does not already match: anything listed in both is
       // precached twice, which workbox refuses once the two revisions differ
       // (precacheCoversBuild refuses the build). The favicons, touch icon and
@@ -190,6 +208,8 @@ export default defineConfig({
         ],
       },
       workbox: {
+        clientsClaim: true,
+        importScripts: workerIdentity.importScripts,
         // woff/woff2: the self-hosted brand fonts (Archivo, IBM Plex Mono) must
         // work offline. svg/ico: the header logo, the icon sprite and the
         // favicons (brand checklist step 4).

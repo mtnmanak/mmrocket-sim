@@ -178,6 +178,8 @@ export const XML_JS_SUITES = [
   // carries — on its import input, which reaches parseRse via parseMotorFile.
   // App.rodAim, App.weather and App.motorLink open designs through share links.
   'src/App.session.test.tsx',
+  // Update auto-apply guards must protect real design imports with either parser.
+  'src/App.swUpdate.test.tsx',
   'src/App.nozzle.test.tsx',
   'src/App.rodAim.test.tsx',
   'src/App.weather.test.tsx',

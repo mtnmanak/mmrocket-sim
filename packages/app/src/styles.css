@@ -3340,6 +3340,12 @@ html {
   background: var(--hover);
 }
 
+.version-downloading,
+.version-downloading:hover {
+  cursor: default;
+  background: transparent;
+}
+
 .version-badge:hover {
   color: var(--text-primary);
   border-color: var(--text-muted);

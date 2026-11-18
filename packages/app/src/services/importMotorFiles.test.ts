@@ -2,9 +2,26 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { importMotorFiles } from './importMotorFiles.js';
 import { sessionDebugLog } from './sessionDebugLog.js';
+import { pageActivity } from './pageActivity.js';
 import { EX_IMPORT_BYTES_NOTE, EX_NO_MOTOR_FILES_NOTE, MAX_EX_IMPORT_BYTES } from './exMotorLimits.js';
 
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
+
+it('holds an import before motor-file bytes arrive and releases after cancellation', async () => {
+  const controller = new AbortController();
+  let finishRead!: (bytes: ArrayBuffer) => void;
+  const file = new File(['motor'], 'held.eng');
+  Object.defineProperty(file, 'arrayBuffer', { value: () => new Promise(resolve => { finishRead = resolve; }) });
+  const pending = importMotorFiles([file], undefined, controller.signal);
+  expect(pageActivity.importsInProgress()).toBe(1);
+  expect(pageActivity.isUntouched()).toBe(false);
+  controller.abort();
+  const refused = expect(pending).rejects.toThrow();
+  finishRead(new ArrayBuffer(0));
+  await refused;
+  expect(pageActivity.importsInProgress()).toBe(0);
+  expect(pageActivity.isUntouched()).toBe(false);
+});
 
 it('row 112 (d): names every accepted motor extension when no motor files match', async () => {
   const out = await importMotorFiles([new File(['x'], 'notes.pdf')]);

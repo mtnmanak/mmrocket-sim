@@ -73,7 +73,8 @@ export function createOfflineStatusStore() {
     if (ticket === generation) publish(next);
   }
 
-  function start(register: Register, onRegisteredSW: Registered): () => void {
+  function start(register: Register, onRegisteredSW: Registered,
+    updateCallbacks: Pick<NonNullable<Parameters<Register>[0]>, 'onNeedReload' | 'onNeedRefresh'> = {}): () => void {
     let sw: ServiceWorkerContainer | undefined;
     const check = () => { void recheck(); };
     try {
@@ -86,6 +87,7 @@ export function createOfflineStatusStore() {
       check();
       register({
         immediate: true,
+        ...updateCallbacks,
         onOfflineReady: () => {
           ++generation;
           registrationError = '';

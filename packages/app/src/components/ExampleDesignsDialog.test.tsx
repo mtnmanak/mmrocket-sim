@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ExampleDesignsDialog } from './ExampleDesignsDialog.js';
 import * as examples from '../data/exampleDesigns.js';
+import { pageActivity } from '../services/pageActivity.js';
 
 vi.mock('../data/exampleDesigns.js', () => ({
   EXAMPLE_DESIGNS: [{ id: 'cluster', name: 'Three-motor cluster', fileName: 'cluster.ork', explanation: 'Three motors fire together.' }],
@@ -33,6 +34,16 @@ it('explains each example, opens ordinary files, and labels the sample assumptio
   expect(host.textContent).toContain('assumed');
   await click('Three-motor cluster');
   expect(onOpen).toHaveBeenCalledWith(file);
+});
+
+it('tracks the example read before its first await and releases a failed read', async () => {
+  let rejectRead!: (error: Error) => void;
+  vi.mocked(examples.loadExampleFile).mockImplementation(() => new Promise((_resolve, reject) => { rejectRead = reject; }));
+  await show(); await click('Three-motor cluster');
+  expect(pageActivity.importsInProgress()).toBe(1);
+  expect(pageActivity.isUntouched()).toBe(false);
+  await act(async () => rejectRead(new Error('offline')));
+  expect(pageActivity.importsInProgress()).toBe(0);
 });
 
 it('keeps the design when an asset fails and allows a retry', async () => {

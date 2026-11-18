@@ -10,7 +10,7 @@ import { flushSession, loadSession, saveSessionDebounced } from './session.js';
  * A CONFIGURATION-LESS IMPORT'S UNRESOLVED MOTORS SURVIVE A RELOAD (audit
  * 2026-09-22). A .rkt naming a motor the catalogue lacks opens with that
  * mount's reference held in App state alone — no flight configuration exists
- * to keep a copy — so any reload, the service worker's post-deploy one
+ * to keep a copy — so any reload, the automatic post-deploy reload used then
  * included, lost it, and Save .ork then wrote the mount with no motor. The
  * session payload carries the working references now; this is the round trip
  * App makes: autosave, reload, restore.

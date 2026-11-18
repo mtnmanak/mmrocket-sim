@@ -66,7 +66,7 @@ import {
 import { limitPatch } from './tree/sanitize.js';
 import { MotorPicker } from './components/MotorPicker.js';
 import { zeroDelayRecoveryAdvice } from './services/flightAdvisories.js';
-import { useMenuPopup } from './components/useDialog.js';
+import { openModalCount, useMenuPopup } from './components/useDialog.js';
 import { NumField } from './components/NumField.js';
 import { PropertyPanel } from './components/PropertyPanel.js';
 import { PreflightAudit } from './components/PreflightAudit.js';
@@ -142,7 +142,7 @@ import { checkFormatLossOf, checkFormatLossSafely, formatExtension, type Checked
 import { gateLossySave, lossySaveStatus, replacementLossNote, type LossySaveMark } from './services/lossySave.js';
 import {
   flushSession, loadSession, onSessionConflictChange, onSessionSaveStateChange, saveSessionDebounced,
-  sessionConflicted, sessionPredatesThisBuild, sessionSaveFailing, takeOverSession,
+  sessionConflicted, sessionPredatesThisBuild, sessionSaveFailing, takeOverSession, versionEarlierThan,
 } from './services/session.js';
 import {
   AERO_MODEL_CHANGED, aeroModelLabel, changedSinceRun, commentsOf,
@@ -159,7 +159,9 @@ import {
   addRun, appendImportedRuns, loadRuns, MAX_RUNS, persistFailed, runsEvictedByLastWrite, runsUnsavedByLastWrite, runsEvictedForUndoByLastWrite,
 } from './services/simStore.js';
 import { APP_VERSION } from './version.js';
-import { pokeServiceWorker, useVersionCheck } from './services/versionCheck.js';
+import { useVersionCheck } from './services/versionCheck.js';
+import { applyUpdate, setIsUntouched, useSwUpdate } from './services/swUpdate.js';
+import { pageActivity } from './services/pageActivity.js';
 import { DebugLogDownload } from './components/DebugLogDownload.js';
 import { sessionDebugLog } from './services/sessionDebugLog.js';
 import { offlineStatusText, useOfflineStatus } from './services/offlineStatus.js';
@@ -354,8 +356,9 @@ export function App() {
     root.setAttribute('data-theme', themeAttr);
   }, [resolvedTheme, daylight, themeAttr]);
   // "Am I on the current version?" — one cache-busted read of the deployed
-  // version.json, plus an on-demand recheck. Never polls.
+  // version.json, plus on-demand and hourly checks on return. Never polls.
   const { state: updateState, recheck: recheckVersion } = useVersionCheck();
+  const swUpdateState = useSwUpdate();
   const offlineState = useOfflineStatus();
   // Mountain Man Rockets site band + footer strip, and the feedback routes
   // below. ONE call for all three: the hook fetches once per mount, so the
@@ -2871,126 +2874,129 @@ export function App() {
    * the Flight configurations panel both empty the working set in one click.
    */
   const applyImported = async (imported: ImportedDesign, seq?: number, file: DesignFileRef | null = null) => {
-    clearMotorLink();
-    // Which open this is. Every motor in the file can cost a live
-    // thrustcurve.org fetch with no timeout, so two opens a second apart
-    // finish in whatever order the network decides: at a launch site the
-    // second (all built-ins, milliseconds) painted, then the first resolved
-    // and its setter block overwrote it AND stamped its own fingerprint as
-    // saved — leaving the user editing a rocket they had not asked for, with
-    // `dirty` false so the next Open discarded the work silently.
-    const openId = seq ?? openSeq.begin();
-    // The awaits of an open: every motor the file names, resolved.
-    const resolved = imported.resolvedMotors ?? await resolveImportMotors(imported, ref => matchImportedMotor(ref, { units: prefs.units }));
-    // EVERY await is behind us; from here on this function writes state. A
-    // newer open started while those fetches were outstanding owns the screen
-    // now, so this one stops here rather than overwriting it — and, crucially,
-    // never reaches the markSaved at the end, which is what made the loser's
-    // work look saved.
-    if (!openSeq.isCurrent(openId)) return;
-    documentGeneration.current++;
-    setShowBatch(false);
-    setBundleSource(null);
-    appliedSaveDestination.current = null;
-    appliedOrkSaveDestination.current = null;
-    recentNoteSave.current = ++saveCounter.current;
-    if (file) recentSaveByName.current.set(file.name, recentNoteSave.current);
-    setHiddenPartIds(new Set());
-    setRecentNote(null);
-    // Only a winning open replaces the old parse on screen and its notice
-    // (audit 2026-10-11, S2-4).
-    setRestoredByOlderBuild(false);
-    setTimeStepMigrated(false);
-    // The winning open owns the file name as well as the design. A share link
-    // has no file, so its omitted argument clears the previous file's name.
-    setDesignFile(file);
-    setLossySaved(null);
-    // What goes on screen, decided in services/importApply.ts and written by
-    // applyImportPlan, which marks from the SAME plan — so the two cannot be
-    // assembled apart. The launch is merged ONCE, from the mirror, now that
-    // every await is behind us (audit 2026-09-22). The history starts over
-    // from the opened design: Ctrl+Z does not reach across a file open.
-    const fileImport = linkFileImports.current.get(imported);
-    const filePlan = fileImport && planImport({ ...fileImport.imported, notes: imported.notes, noteTiers: imported.noteTiers, expand: imported.expand }, fileImport.resolved,
-      { launch: launchRef.current, text: statedWeightText, units: prefs.units });
-    const plan = planImport(imported, resolved, { launch: launchRef.current, text: statedWeightText, units: prefs.units });
-    const quietLines = new Set(planImport(imported, acceptedOtherMakerNotes(resolved),
-      { launch: launchRef.current, text: statedWeightText, units: prefs.units }).note.text.split('\n'));
-    const acceptedLines = plan.note.text.split('\n').filter(line => !quietLines.has(line));
-    if (filePlan) {
-      // The original motor-free import owns the orphan weighing caution.
-      const lines = [...plan.note.group.lines.filter(n => !n.kind.startsWith('I16.')),
-        ...filePlan.note.group.lines.filter(n => n.kind.startsWith('I16.'))];
-      const group = { ...plan.note.group, lines };
-      plan.note = { ...plan.note, group, text: [group.heading, ...lines.map(n => n.text)].filter(Boolean).join('\n'),
-        severity: highestTier(lines) === 'information' ? plan.note.severity : 'warn' };
-    }
-    motorChoices.current.clear();
-    setAutosavePaused(false);
-    applyImportPlan(plan, {
-      history: { reset: resetHistory },
-      setMountMotors, setUnmatchedRefs, setSavedConfigs, setActiveConfigId, setDetachedOverrides, setLaunch, setMeasured,
-      setLongitudeCheck: (evidence) => setLongitudeReview(evidence ? { evidence, applied: false } : null),
-      setMachAlt: setFileMachAlt, setNote: (text, severity, expand, group) => {
-        setFileNoteState({ text, severity, ...(expand ? { expand: true } : {}), ...(group ? { group } : {}) });
-      }, setShroudPrompt,
-      // eslint-disable-next-line no-restricted-syntax -- an import: the design on screen IS the file on disk
-      markSaved,
-    });
-    setDesignNotesEpoch(epoch => epoch + 1);
-    const identities = collectOpenMotorIdentities(imported, resolved, plan.snapshot);
-    setOpenMotorQuestion(identities.length ? {
-      identities, openId, acceptedLines,
-    } : null);
-    const storedCount = imported.storedSimulations?.length ?? 0;
-    setImportedDocument(summaryDocument(imported));
-    setInspectedSummary(null);
-    if (storedCount) {
-      const current = loadRuns();
-      // The matched configurations, so an unnamed one's runs carry its shown label.
-      const summaryPlan = planSummaryImport(fileImport?.imported ?? imported, current, filePlan?.snapshot.savedConfigs ?? plan.snapshot.savedConfigs);
-      let next = current;
-      if (summaryPlan.runs.length || summaryPlan.updatedRuns.length) {
-        next = appendImportedRuns(summaryPlan.runs, summaryPlan.updatedRuns, summaryPlan.warningMergeBudget);
-        recordRuns(next);
+    const finishImport = pageActivity.startImport();
+    try {
+      clearMotorLink();
+      // Which open this is. Every motor in the file can cost a live
+      // thrustcurve.org fetch with no timeout, so two opens a second apart
+      // finish in whatever order the network decides: at a launch site the
+      // second (all built-ins, milliseconds) painted, then the first resolved
+      // and its setter block overwrote it AND stamped its own fingerprint as
+      // saved — leaving the user editing a rocket they had not asked for, with
+      // `dirty` false so the next Open discarded the work silently.
+      const openId = seq ?? openSeq.begin();
+      // The awaits of an open: every motor the file names, resolved.
+      const resolved = imported.resolvedMotors ?? await resolveImportMotors(imported, ref => matchImportedMotor(ref, { units: prefs.units }));
+      // EVERY await is behind us; from here on this function writes state. A
+      // newer open started while those fetches were outstanding owns the screen
+      // now, so this one stops here rather than overwriting it — and, crucially,
+      // never reaches the markSaved at the end, which is what made the loser's
+      // work look saved.
+      if (!openSeq.isCurrent(openId)) return;
+      documentGeneration.current++;
+      setShowBatch(false);
+      setBundleSource(null);
+      appliedSaveDestination.current = null;
+      appliedOrkSaveDestination.current = null;
+      recentNoteSave.current = ++saveCounter.current;
+      if (file) recentSaveByName.current.set(file.name, recentNoteSave.current);
+      setHiddenPartIds(new Set());
+      setRecentNote(null);
+      // Only a winning open replaces the old parse on screen and its notice
+      // (audit 2026-10-11, S2-4).
+      setRestoredByOlderBuild(false);
+      setTimeStepMigrated(false);
+      // The winning open owns the file name as well as the design. A share link
+      // has no file, so its omitted argument clears the previous file's name.
+      setDesignFile(file);
+      setLossySaved(null);
+      // What goes on screen, decided in services/importApply.ts and written by
+      // applyImportPlan, which marks from the SAME plan — so the two cannot be
+      // assembled apart. The launch is merged ONCE, from the mirror, now that
+      // every await is behind us (audit 2026-09-22). The history starts over
+      // from the opened design: Ctrl+Z does not reach across a file open.
+      const fileImport = linkFileImports.current.get(imported);
+      const filePlan = fileImport && planImport({ ...fileImport.imported, notes: imported.notes, noteTiers: imported.noteTiers, expand: imported.expand }, fileImport.resolved,
+        { launch: launchRef.current, text: statedWeightText, units: prefs.units });
+      const plan = planImport(imported, resolved, { launch: launchRef.current, text: statedWeightText, units: prefs.units });
+      const quietLines = new Set(planImport(imported, acceptedOtherMakerNotes(resolved),
+        { launch: launchRef.current, text: statedWeightText, units: prefs.units }).note.text.split('\n'));
+      const acceptedLines = plan.note.text.split('\n').filter(line => !quietLines.has(line));
+      if (filePlan) {
+        // The original motor-free import owns the orphan weighing caution.
+        const lines = [...plan.note.group.lines.filter(n => !n.kind.startsWith('I16.')),
+          ...filePlan.note.group.lines.filter(n => n.kind.startsWith('I16.'))];
+        const group = { ...plan.note.group, lines };
+        plan.note = { ...plan.note, group, text: [group.heading, ...lines.map(n => n.text)].filter(Boolean).join('\n'),
+          severity: highestTier(lines) === 'information' ? plan.note.severity : 'warn' };
       }
-      const { added, updated, alreadySaved, notKept } = summaryImportCounts(summaryPlan, next);
-      // Their own lines in the open's group: Information, unless a stored run
-      // was not kept — imported flight evidence incomplete (D7 I28).
-      const runLines: ImportNote[] = [
-        ...warningMergeNotes(summaryPlan.warningMergeBudget).map((text): ImportNote => ({
-          kind: 'I28.stored-warnings', tier: 'caution', text,
-        })),
-        { kind: 'I28.stored-runs', tier: notKept > 0 ? 'caution' : 'information',
-          text: `Stored runs: ${added} added to Saved runs; ${updated ? `${updated} updated in Saved runs; ` : ''}${alreadySaved} already in Saved runs; ${notKept} not kept.` },
-        { kind: 'I27.stored-runs-rule', tier: 'information',
-          text: `Imports fill available spaces up to the ${MAX_RUNS}-run limit in file order; no existing runs were removed or reordered.` },
-      ];
-      setFileNoteState({ text: [plan.note.text, ...runLines.map(l => l.text)].filter(Boolean).join('\n'),
-        severity: plan.note.severity, ...(plan.note.expand ? { expand: true } : {}),
-        group: { ...plan.note.group, lines: [...plan.note.group.lines, ...runLines] } });
-    }
-    // An opened design (a share link included) that brings launch conditions
-    // of its own has replaced the ones the weather record describes.
-    if (imported.launch) setWeather(null);
-    // This design has now been through THIS build's importer, so the session
-    // the next autosave writes really was parsed by the running build.
-    parsedByVersion.current = APP_VERSION;
-    // A simulation error belonged to the design that threw it, and that design
-    // has just been replaced — as did the motors and mounts a pad-mass notice
-    // names (seam review of audit 2026-09-22). One the opened file earns is
-    // written after this, by the reconcile effect.
-    setSimError(null);
-    setPadMassNote(null);
-    setMotorLoadoutRepair(null);
-    setSelectedId(null);
-    const flight = preparedFlights.current.get(imported);
-    if (eligibleMotorLinks.current.has(imported)) setMotorLinkMark(designFingerprint(plan.snapshot));
-    if (flight) pendingLinkFlight.current = { ...flight, gen: documentGeneration.current, tree: plan.snapshot.tree,
-      ignition: { ...resolveFlightState(plan.snapshot.tree, plan.snapshot.savedConfigs, plan.snapshot.activeConfigId,
-        plan.snapshot.detachedOverrides ?? {}, plan.snapshot.mountMotors).mountMotors[flight.mountId]!.ignition },
-      motor: plan.snapshot.mountMotors[flight.mountId]!, motorDelay: plan.snapshot.mountMotors[flight.mountId]!.spec.ejectionDelay, previousTree: tree, previousMotor: mountMotors[flight.mountId], committed: false };
-    return plan.snapshot.tree;
+      motorChoices.current.clear();
+      setAutosavePaused(false);
+      applyImportPlan(plan, {
+        history: { reset: resetHistory },
+        setMountMotors, setUnmatchedRefs, setSavedConfigs, setActiveConfigId, setDetachedOverrides, setLaunch, setMeasured,
+        setLongitudeCheck: (evidence) => setLongitudeReview(evidence ? { evidence, applied: false } : null),
+        setMachAlt: setFileMachAlt, setNote: (text, severity, expand, group) => {
+          setFileNoteState({ text, severity, ...(expand ? { expand: true } : {}), ...(group ? { group } : {}) });
+        }, setShroudPrompt,
+        // eslint-disable-next-line no-restricted-syntax -- an import: the design on screen IS the file on disk
+        markSaved,
+      });
+      setDesignNotesEpoch(epoch => epoch + 1);
+      const identities = collectOpenMotorIdentities(imported, resolved, plan.snapshot);
+      setOpenMotorQuestion(identities.length ? {
+        identities, openId, acceptedLines,
+      } : null);
+      const storedCount = imported.storedSimulations?.length ?? 0;
+      setImportedDocument(summaryDocument(imported));
+      setInspectedSummary(null);
+      if (storedCount) {
+        const current = loadRuns();
+        // The matched configurations, so an unnamed one's runs carry its shown label.
+        const summaryPlan = planSummaryImport(fileImport?.imported ?? imported, current, filePlan?.snapshot.savedConfigs ?? plan.snapshot.savedConfigs);
+        let next = current;
+        if (summaryPlan.runs.length || summaryPlan.updatedRuns.length) {
+          next = appendImportedRuns(summaryPlan.runs, summaryPlan.updatedRuns, summaryPlan.warningMergeBudget);
+          recordRuns(next);
+        }
+        const { added, updated, alreadySaved, notKept } = summaryImportCounts(summaryPlan, next);
+        // Their own lines in the open's group: Information, unless a stored run
+        // was not kept — imported flight evidence incomplete (D7 I28).
+        const runLines: ImportNote[] = [
+          ...warningMergeNotes(summaryPlan.warningMergeBudget).map((text): ImportNote => ({
+            kind: 'I28.stored-warnings', tier: 'caution', text,
+          })),
+          { kind: 'I28.stored-runs', tier: notKept > 0 ? 'caution' : 'information',
+            text: `Stored runs: ${added} added to Saved runs; ${updated ? `${updated} updated in Saved runs; ` : ''}${alreadySaved} already in Saved runs; ${notKept} not kept.` },
+          { kind: 'I27.stored-runs-rule', tier: 'information',
+            text: `Imports fill available spaces up to the ${MAX_RUNS}-run limit in file order; no existing runs were removed or reordered.` },
+        ];
+        setFileNoteState({ text: [plan.note.text, ...runLines.map(l => l.text)].filter(Boolean).join('\n'),
+          severity: plan.note.severity, ...(plan.note.expand ? { expand: true } : {}),
+          group: { ...plan.note.group, lines: [...plan.note.group.lines, ...runLines] } });
+      }
+      // An opened design (a share link included) that brings launch conditions
+      // of its own has replaced the ones the weather record describes.
+      if (imported.launch) setWeather(null);
+      // This design has now been through THIS build's importer, so the session
+      // the next autosave writes really was parsed by the running build.
+      parsedByVersion.current = APP_VERSION;
+      // A simulation error belonged to the design that threw it, and that design
+      // has just been replaced — as did the motors and mounts a pad-mass notice
+      // names (seam review of audit 2026-09-22). One the opened file earns is
+      // written after this, by the reconcile effect.
+      setSimError(null);
+      setPadMassNote(null);
+      setMotorLoadoutRepair(null);
+      setSelectedId(null);
+      const flight = preparedFlights.current.get(imported);
+      if (eligibleMotorLinks.current.has(imported)) setMotorLinkMark(designFingerprint(plan.snapshot));
+      if (flight) pendingLinkFlight.current = { ...flight, gen: documentGeneration.current, tree: plan.snapshot.tree,
+        ignition: { ...resolveFlightState(plan.snapshot.tree, plan.snapshot.savedConfigs, plan.snapshot.activeConfigId,
+          plan.snapshot.detachedOverrides ?? {}, plan.snapshot.mountMotors).mountMotors[flight.mountId]!.ignition },
+        motor: plan.snapshot.mountMotors[flight.mountId]!, motorDelay: plan.snapshot.mountMotors[flight.mountId]!.spec.ejectionDelay, previousTree: tree, previousMotor: mountMotors[flight.mountId], committed: false };
+      return plan.snapshot.tree;
+    } finally { finishImport(); }
   };
 
   /**
@@ -3214,6 +3220,7 @@ export function App() {
   };
 
   const onOpenOrk = async (file: File) => {
+    const finishImport = pageActivity.startImport();
     clearMotorLink();
     sessionDebugLog.record('import-start');
     // Claim the open BEFORE the first await — the parse and the motor fetches
@@ -3271,7 +3278,7 @@ export function App() {
       // "I clicked it and nothing happened". Every other export/import failure
       // in this file already passes an explicit severity.
       setFileNote(designFileOpenFailure(file.name, e), 'error');
-    }
+    } finally { finishImport(); }
   };
 
   // No asynchronous resolution is allowed after applying the shared design.
@@ -3402,6 +3409,7 @@ export function App() {
   shareShouldOffer.current = dirty || !quickPicksOffered || autosavePaused;
   useEffect(() => {
     if (shareHandled.current || !hasSharePayload(window.location.hash)) return;
+    const finishImport = pageActivity.startImport();
     shareHandled.current = true; // StrictMode double-invoke guard (the ref survives the remount)
     clearMotorLink(false);
     const hash = window.location.hash;
@@ -3435,7 +3443,7 @@ export function App() {
       // The sentence names the browser when this one cannot unpack links at
       // all, rather than calling every link damaged (audit 2026-09-22).
       onError: (e) => { sessionDebugLog.record('import-failed', e); setFileNote(shareLinkOpenFailure(e), 'warn'); },
-    });
+    }).finally(finishImport);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot startup decode
   }, []);
 
@@ -3491,16 +3499,30 @@ export function App() {
     [assigned],
   );
 
-  /**
-   * Reload onto the new build. Poking the service worker first matters: under
-   * `registerType: 'autoUpdate'` the new worker takes over and reloads by
-   * itself once it installs, so a plain reload could otherwise land back on
-   * the cached build and look like the button did nothing.
-   */
-  const reloadForUpdate = useCallback(async () => {
-    await pokeServiceWorker();
-    window.location.reload();
-  }, []);
+  // Flight evidence is sticky for this page load, even after New or an edit
+  // clears the displayed result. Batch work lives inside its modal; new runs
+  // also pass through recordRuns. Stored runs from before this load are fine.
+  const initialRuns = useRef(runs);
+  const producedFlight = useRef(false);
+  useEffect(() => {
+    if (result || lastRun || lastSimCost || runs !== initialRuns.current) producedFlight.current = true;
+  }, [result, lastRun, lastSimCost, runs]);
+  // The predicate reads this render's state through a ref refreshed after every
+  // render, and is REGISTERED once, on mount. Registering it per render re-ran
+  // the auto-apply check on every render (one worker round trip each).
+  const untouchedNow = useRef<() => boolean>(() => false);
+  useEffect(() => { untouchedNow.current = () =>
+    pageActivity.importsInProgress() === 0 && !tour.open
+    && !canUndo && !canRedo && !producedFlight.current
+    && !flightHoldsHandle.current && !simulating && reflying === null && fullSeriesHolds.current === 0
+    && !shareOffer && !pendingOpen && !pendingLinkFlight.current
+    && !showBatch && !showPrefs && !showGuide && !showChangelog && !showWeather && !showScale
+    && !showRecent && !showExamples && !confirmNew && !lossDialog && !openMotorQuestion
+    && !showFileMenu && !showFeedback && !autosavePaused && !autosaveFailing && !sessionConflict
+    && openModalCount() === 0
+    && !document.querySelector('[role="dialog"][aria-modal="true"], dialog[open]');
+  });
+  useEffect(() => setIsUntouched(() => untouchedNow.current()), []);
 
   // Data header for the 2D/3D image exports (issue 2026-08-11a) — name,
   // dimensions, mass, CG/CP/margin in the user's units.
@@ -3776,10 +3798,29 @@ export function App() {
                 "check again" does not destroy the node the user is standing
                 on and throw focus back to the document. */}
             <span className="version-check" aria-live="polite">
-              {updateState.kind === 'stale' ? (
+              {swUpdateState.applying ? (
+                <button className="version-update" disabled
+                  title="The update is being applied. This tab will reload.">↻ Updating…</button>
+              ) : swUpdateState.reloadRequired ? (
+                <button className="version-update" disabled={swUpdateState.applying}
+                  title="The update has taken over. Reload to finish updating this tab."
+                  onClick={() => { void applyUpdate(); }}>↻ Reload to finish the update</button>
+              ) : swUpdateState.kind === 'ready' ? (
+                <button className="version-update" disabled={swUpdateState.applying}
+                  title="The download is finished. Reload updates every open tab of the app."
+                  onClick={() => { void applyUpdate(); }}>
+                  {swUpdateState.readyVersion && versionEarlierThan(APP_VERSION, swUpdateState.readyVersion)
+                    ? `↻ v${swUpdateState.readyVersion} ready — Reload` : '↻ New version ready — Reload'}
+                </button>
+              ) : swUpdateState.kind === 'downloading' ? (
+                <span className="version-update version-downloading"
+                  title="The new version is downloading in the background. The app will offer a reload when it is ready.">
+                  ↻ Downloading the new version…
+                </span>
+              ) : updateState.kind === 'stale' ? (
                 <button className="version-update"
-                  title={`v${updateState.latest.version}${updateState.latest.released ? ` (released ${updateState.latest.released})` : ''} is deployed. Reload to get it.`}
-                  onClick={() => { void reloadForUpdate(); }}>
+                  title={swUpdateState.kind === 'failed' ? 'The download did not start. Check your connection and click again.' : `v${updateState.latest.version}${updateState.latest.released ? ` (released ${updateState.latest.released})` : ''} is deployed. Check its download, then reload every open tab when ready.`}
+                  onClick={() => { void applyUpdate(); }}>
                   ↻ v{updateState.latest.version} available — Reload
                 </button>
               ) : (

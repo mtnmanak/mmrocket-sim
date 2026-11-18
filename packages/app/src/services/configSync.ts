@@ -426,7 +426,7 @@ export function withoutStoredRef(configs: SavedConfig[], activeId: string | null
  * audit the working references are persisted, because a configuration-less
  * import (a .rkt naming a motor the catalogue lacks) has no configuration to
  * keep them in: they lived in React state alone, a reload lost them (the
- * service worker's post-deploy reload included), and Save then wrote the
+ * automatic post-deploy reload used at the time included), and Save then wrote the
  * mount with no motor. A session written before that carries none, and falls
  * back to the ACTIVE configuration's stored refs, as v0.118 did.
  */

@@ -135,3 +135,78 @@ it.each(['fetch', 'body', 'worker'] as const)('S1c-8: times out a stalled %s and
     vi.useRealTimers();
   }
 });
+
+it('checks on visible return and persisted pageshow, at most hourly within one hook instance including explicit checks', async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  let time = 0;
+  const now = () => time;
+  let check: ReturnType<typeof useVersionCheck>;
+  const update = vi.fn().mockResolvedValue(undefined);
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonRes({ version: '0.001' }));
+  setSwRegistration({ update } as unknown as ServiceWorkerRegistration);
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+  function Probe() { check = useVersionCheck(now); return null; }
+  const pageShow = (persisted: boolean) => {
+    const event = new Event('pageshow');
+    Object.defineProperty(event, 'persisted', { value: persisted });
+    window.dispatchEvent(event);
+  };
+  try {
+    await act(async () => root.render(createElement(Probe)));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(update).not.toHaveBeenCalled();
+    time = 3_599_999;
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    time = 3_600_000;
+    visibility.mockReturnValue('hidden');
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    visibility.mockReturnValue('visible');
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update.mock.invocationCallOrder[0]).toBeLessThan(fetch.mock.invocationCallOrder[1]!);
+    await act(async () => pageShow(true));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    time += 3_600_000;
+    await act(async () => pageShow(false));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await act(async () => pageShow(true));
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(update).toHaveBeenCalledTimes(2);
+    time += 100;
+    await act(async () => check.recheck());
+    expect(fetch).toHaveBeenCalledTimes(4);
+    time += 3_599_999;
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    expect(fetch).toHaveBeenCalledTimes(4);
+  } finally {
+    act(() => root.unmount());
+    setSwRegistration(undefined);
+  }
+  time += 3_600_000;
+  document.dispatchEvent(new Event('visibilitychange'));
+  expect(fetch).toHaveBeenCalledTimes(4);
+});
+
+it('keeps the hourly throttle independent for simultaneous hook instances', async () => {
+  let firstTime = 0;
+  const firstNow = () => firstTime;
+  const secondNow = () => 1_800_000;
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonRes({ version: '0.001' }));
+  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  function First() { useVersionCheck(firstNow); return null; }
+  function Second() { useVersionCheck(secondNow); return null; }
+  try {
+    await act(async () => root.render(createElement('div', null, createElement(First), createElement(Second))));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    firstTime = 3_600_000;
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    expect(fetch).toHaveBeenCalledTimes(3);
+  } finally { act(() => root.unmount()); }
+});

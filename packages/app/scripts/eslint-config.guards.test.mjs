@@ -67,6 +67,19 @@ function lint(code, rules) {
 const GLOBALS = ['no-restricted-globals'];
 const READER = ['no-restricted-syntax'];
 
+it('protocol scripts have service-worker globals and still refuse DOM and Node globals', async () => {
+  const [result] = await eslint.lintText(`
+    self.addEventListener('install', event => event.waitUntil(Promise.resolve()));
+    const channel = new MessageChannel();
+    setTimeout(() => { clearTimeout(0); channel.port1.close(); self.skipWaiting(); }, 3000);
+    window.location.reload();
+    process.cwd();
+  `, { filePath: 'packages/app/public/sw-update-protocol-v1.js' });
+  expect(result.messages.map(message => message.message)).toEqual([
+    "'window' is not defined.", "'process' is not defined.",
+  ]);
+});
+
 describe('eslint.config.mjs — app accessibility guards', () => {
   const deferred = [
     'jsx-a11y/click-events-have-key-events',

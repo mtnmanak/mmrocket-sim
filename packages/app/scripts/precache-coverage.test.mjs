@@ -11,16 +11,19 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkDist, duplicatePrecacheUrls, precachedUrls, uncachedFiles } from './precache-coverage.mjs';
 
-// The shape of the shipped sw.js (minified by workbox), cut to three entries.
-const SW_MIN = 'define(["./workbox-9c191d2f"],function(e){"use strict";self.skipWaiting(),'
-  + 'e.clientsClaim(),e.precacheAndRoute([{url:"index.html",revision:"670f93746ee9d9471ade235d6a6ef449"},'
+// The prompt-mode sw.js shape (minified by workbox), cut to five entries.
+const SW_MIN = 'define(["./workbox-9c191d2f"],function(e){"use strict";importScripts("sw-update-protocol-v1.js","sw-build-0.210.js"),'
+  + 'self.addEventListener("message",e=>{e.data&&"SKIP_WAITING"===e.data.type&&self.skipWaiting()}),'
+  + 'e.clientsClaim(),e.precacheAndRoute([{url:"sw-update-protocol-v1.js",revision:"protocol"},'
+  + '{url:"sw-build-0.210.js",revision:"build"},'
+  + '{url:"index.html",revision:"670f93746ee9d9471ade235d6a6ef449"},'
   + '{url:"assets/index-C7tKBouI.js",revision:null},'
   + '{url:"assets/rajdhani-latin-600-normal-CXCVEoA9.woff2",revision:null}],{})});';
 
 describe('precache coverage — every built file is offline, or deliberately not', () => {
   it('reads the manifest of a minified sw.js, and of an unminified one', () => {
     expect([...precachedUrls(SW_MIN)]).toEqual([
-      'index.html', 'assets/index-C7tKBouI.js', 'assets/rajdhani-latin-600-normal-CXCVEoA9.woff2',
+      'sw-update-protocol-v1.js', 'sw-build-0.210.js', 'index.html', 'assets/index-C7tKBouI.js', 'assets/rajdhani-latin-600-normal-CXCVEoA9.woff2',
     ]);
     const dev = 'workbox.precacheAndRoute([{\n  "url": "index.html",\n  "revision": "abc"\n}], {});';
     expect([...precachedUrls(dev)]).toEqual(['index.html']);
@@ -33,6 +36,16 @@ describe('precache coverage — every built file is offline, or deliberately not
       'index.html', 'assets/index-C7tKBouI.js', 'assets/rajdhani-latin-600-normal-CXCVEoA9.woff2',
       'assets/logo-Ab12Cd34.svg',
     ], SW_MIN)).toEqual(['assets/logo-Ab12Cd34.svg']);
+  });
+
+  it.each([
+    ['sw-update-protocol-v1.js', 'protocol'], ['sw-build-0.210.js', 'build'],
+  ])('requires the imported %s in the precache exactly once', (file, revision) => {
+    expect(uncachedFiles([file], SW_MIN)).toEqual([]);
+    const missing = SW_MIN.replace(`{url:"${file}",revision:"${revision}"},`, '');
+    expect(uncachedFiles([file], missing)).toEqual([file]);
+    const twice = SW_MIN.replace('{url:"index.html",', `{url:"${file}",revision:"other"},{url:"index.html",`);
+    expect(duplicatePrecacheUrls(twice)).toEqual([file]);
   });
 
   it('leaves out the service worker, its runtime, version.json and host header rules on purpose', () => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { APP_VERSION } from '../version.js';
 import { versionEarlierThan } from './session.js';
 
@@ -13,11 +13,9 @@ import { versionEarlierThan } from './session.js';
  * this reason. So a fetch of it always reaches the network and always reports
  * what is actually deployed, even to a tab running an old cached build.
  *
- * The service worker is registered with `registerType: 'autoUpdate'`, which
- * means a new build takes over and reloads the page on its own — but only once
- * the browser gets around to re-checking, which it does on registration, i.e.
- * on a page load. That is why the honest action here is "Reload": it is both
- * what fetches the new build and what this check is telling you to do.
+ * Navigation triggers the browser's worker update check; registration alone
+ * does not. swUpdate watches the download and owns activation and reloads.
+ * Returning to a long-open page checks again, at most once an hour.
  */
 
 export interface LatestVersion {
@@ -89,9 +87,29 @@ export async function pokeServiceWorker(): Promise<void> {
   try { await swRegistration?.update(); } catch { /* offline, or no SW */ }
 }
 
-export function useVersionCheck(): { state: UpdateState; recheck: () => void; checking: boolean } {
+const HOUR_MS = 60 * 60 * 1000;
+
+export function useVersionCheck(now: () => number = Date.now): { state: UpdateState; recheck: () => void; checking: boolean } {
+  const lastCheckAt = useRef(-Infinity);
   const [state, setState] = useState<UpdateState>({ kind: 'checking' });
   const [nonce, setNonce] = useState(0);
+  const recheck = useCallback(() => setNonce((n) => n + 1), []);
+
+  useEffect(() => {
+    const onReturn = () => {
+      if (now() - lastCheckAt.current < HOUR_MS) return;
+      lastCheckAt.current = now();
+      recheck();
+    };
+    const visible = () => { if (document.visibilityState === 'visible') onReturn(); };
+    const restored = (event: PageTransitionEvent) => { if (event.persisted) onReturn(); };
+    document.addEventListener('visibilitychange', visible);
+    window.addEventListener('pageshow', restored);
+    return () => {
+      document.removeEventListener('visibilitychange', visible);
+      window.removeEventListener('pageshow', restored);
+    };
+  }, [now, recheck]);
 
   useEffect(() => {
     // Per-effect, not a shared ref: a ref would be re-armed by the NEXT run's
@@ -99,6 +117,7 @@ export function useVersionCheck(): { state: UpdateState; recheck: () => void; ch
     // answer over a fresh one.
     let cancelled = false;
     const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+    lastCheckAt.current = now();
     setState({ kind: 'checking' });
     const deadline = setTimeout(() => {
       cancelled = true;
@@ -106,9 +125,8 @@ export function useVersionCheck(): { state: UpdateState; recheck: () => void; ch
       setState({ kind: 'unknown' });
     }, 10_000);
     void (async () => {
-      // Poke the SW first so that, if a new build is already sitting there,
-      // autoUpdate's own reload beats us to it and the user never sees a
-      // banner for something already handled.
+      // Ask for the worker before reading the deployed version. The download
+      // controller offers activation only once that download is ready.
       if (nonce > 0) await pokeServiceWorker();
       if (cancelled) return;
       const latest = await fetchLatestVersion(ctrl?.signal);
@@ -123,11 +141,8 @@ export function useVersionCheck(): { state: UpdateState; recheck: () => void; ch
         : { kind: 'current', version: latest.version });
     })();
     return () => { cancelled = true; clearTimeout(deadline); ctrl?.abort(); };
-    // Mount-only, plus explicit rechecks. No polling: this is a design tool
-    // people leave open for hours, and a background request every few minutes
-    // buys nothing a reload would not.
-  }, [nonce]);
+    // Recheck on demand and on a throttled return to the page; no polling.
+  }, [nonce, now]);
 
-  const recheck = useCallback(() => setNonce((n) => n + 1), []);
   return { state, recheck, checking: state.kind === 'checking' };
 }

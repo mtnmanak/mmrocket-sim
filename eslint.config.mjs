@@ -611,6 +611,12 @@ export default tseslint.config(
   },
 
   {
+    // Imported directly by sw.js: worker globals, without DOM or Node globals.
+    files: ['packages/app/public/sw-update-protocol-*.js'],
+    languageOptions: { globals: { ...globals.serviceworker } },
+  },
+
+  {
     // packages/app/scripts/manufacturers.mjs is the ONE file in a directory of Node-only
     // build scripts that is ALSO imported by browser code (src/services/presets.ts and
     // src/services/recoverySizing.ts), so it ships inside the app bundle — `grep -c

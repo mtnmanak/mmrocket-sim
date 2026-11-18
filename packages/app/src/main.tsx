@@ -9,6 +9,38 @@ import { installFatalErrorBar } from './services/fatalErrorBar.js';
 import { sessionDebugLog, startSessionDebugCapture } from './services/sessionDebugLog.js';
 import { saveFile } from './services/saveFile.js';
 import { startCatalogueAutoCheck } from './services/catalogueAutoCheck.js';
+import { isPageUntouched, otherTabsOpen, startSwUpdate, swUpdate } from './services/swUpdate.js';
+import { pageActivity } from './services/pageActivity.js';
+
+// Capture before registration: first-install clientsClaim must not reload.
+let workerContainer: ServiceWorkerContainer | undefined;
+let initialController: ServiceWorker | null = null;
+let stopActivity = () => {};
+try {
+  workerContainer = navigator.serviceWorker;
+  initialController = workerContainer?.controller ?? null;
+  stopActivity = pageActivity.listen(window);
+} catch { workerContainer = undefined; /* Blocked storage must not prevent startup. */ }
+let stopSwUpdate = () => {};
+let trackedRegistration: ServiceWorkerRegistration | undefined;
+const trackRegistration = (reg: ServiceWorkerRegistration) => {
+  if (!workerContainer) return;
+  setSwRegistration(reg);
+  if (trackedRegistration === reg) return;
+  trackedRegistration = reg;
+  stopSwUpdate = startSwUpdate(reg, {
+    container: workerContainer, initialController,
+    reload: () => window.location.reload(), now: Date.now,
+    otherTabsOpen: () => otherTabsOpen(reg), isUntouched: isPageUntouched,
+  });
+};
+// register() can queue behind an in-flight install; this lookup does not.
+try {
+  void workerContainer?.getRegistration?.().then(reg => {
+    if (reg && !trackedRegistration) trackRegistration(reg);
+  }).catch(() => { /* Registration callbacks can still start tracking. */ });
+} catch { workerContainer = undefined; /* A synchronous lookup can also be denied. */ }
+import.meta.hot?.dispose(() => { stopActivity(); stopSwUpdate(); });
 
 const stopDebugCapture = startSessionDebugCapture();
 const stopWorkerDebug = (() => {
@@ -38,19 +70,20 @@ const fatalErrors = installFatalErrorBar({ downloadSessionDebugLog: async () => 
 } });
 import.meta.hot?.dispose(fatalErrors);
 
-// Offline-first. autoUpdate: a new build takes over and reloads the page by
-// itself. What it does NOT do is go looking — the browser checks for a new
-// worker when this registration runs, i.e. on a page load. Publishing the
-// registration lets the header's version check ask for that on demand, which
-// is the whole of the "am I on the current version?" support conversation.
+// Offline-first. Navigation triggers the browser's update check; registration
+// alone does not. The native controller watches even an already-installing
+// worker and offers the finished download before activation.
 // Every registration also goes past the empty-precache safeguard
 // (services/precacheGuard.ts), which does nothing unless the worker's offline
 // copy is empty. (Until v0.172 a branch here dismantled the PWA on the
 // pre-rename openrocket.* host; that host has 301-redirected here since
 // 2026-08-21, so the branch could no longer run and was removed.)
 offlineStatus.start(registerSW, (_url, reg) => {
-  setSwRegistration(reg);
+  if (reg) trackRegistration(reg);
   void guardPrecache(reg).catch(() => { /* Offline diagnostics must not prevent startup. */ });
+}, {
+  onNeedReload: swUpdate.reloadOnControllerChange,
+  onNeedRefresh: () => {},
 });
 
 // AppBoundary still offers design recovery for render failures. index.html's

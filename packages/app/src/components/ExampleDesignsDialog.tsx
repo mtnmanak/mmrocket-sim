@@ -1,3 +1,4 @@
+import { pageActivity } from '../services/pageActivity.js';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { EXAMPLE_DESIGNS, loadExampleFile, type ExampleDesign } from '../data/exampleDesigns.js';
 import { Modal } from './Modal.js';
@@ -17,6 +18,7 @@ export function ExampleDesignsDialog({ onOpen, onClose }: { onOpen: (file: File)
   const open = async (example: ExampleDesign) => {
     if (pending.current && !pending.current.signal.aborted) return;
     const operation = new AbortController();
+    const finishImport = pageActivity.startImport();
     pending.current = operation;
     setBusy(true); setError(null);
     try {
@@ -25,6 +27,7 @@ export function ExampleDesignsDialog({ onOpen, onClose }: { onOpen: (file: File)
     } catch (e) {
       if (!operation.signal.aborted) setError(e instanceof Error ? e.message : 'The example could not be loaded. Try again.');
     } finally {
+      finishImport();
       if (!operation.signal.aborted) { pending.current = null; setBusy(false); }
     }
   };
