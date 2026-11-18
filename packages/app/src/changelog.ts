@@ -40,6 +40,29 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.209",
+    "date": "2026-11-18",
+    "title": "A new version waits for you: “ready — Reload” instead of reloading on its own",
+    "summary": [
+      "A new version now downloads in the background and waits. The header shows “↻ Downloading the new version…”, then “↻ v0.2NN ready — Reload” when the download has finished. Clicking it updates every open tab of the app together.",
+      "The one exception: a tab you have only just opened and not used, and the only tab of the app that is open, updates itself when the download finishes.",
+      "Fixed: reloading while a new version was still downloading (including with the header’s own “available — Reload”) left the tab on the old version until it was opened again, and a tab left open did not check again unless you clicked the version check. A long-open tab now checks again when you come back to it, at most once an hour.",
+      "The tabs share one autosave: before you update with several tabs open, save any design you want to keep, in any of the tabs, as an .ork file.",
+      "This release itself still arrives the old way, by reloading on its own when its download finishes. It changes how updates arrive, not the simulation: no flight number moves."
+    ],
+    "items": [
+      "WHAT WAS WRONG. Until now a new version took over by itself: the browser downloaded it in the background and the page reloaded itself as soon as the download finished — on a slow connection half a minute or more into a visit, possibly while you were working (the design came back from autosave; undo history and the current flight charts did not). Two cases went wrong. If the page was reloaded while the download was still running — by hand, or with the header’s own “↻ v0.2NN available — Reload”, which appeared before the download had even started — the tab stayed on the old version after the download finished, until it was opened again; once its old files were gone from the browser’s cache, parts of that tab such as the user guide could fail to load. And the app did not check again for a tab left open unless you clicked the version check; when another tab of the app was opened, both reloaded on their own.",
+      "DOWNLOADING, THEN READY. A new version now downloads in the background and then waits. While it downloads the header says “↻ Downloading the new version…”. When the download has finished it says “↻ v0.2NN ready — Reload” (“↻ New version ready — Reload” when the version number cannot be read from the download itself). Apart from the fresh-open case below, nothing reloads until you click it, and the click updates and reloads every open tab of the app together.",
+      "UPDATING BY ITSELF ON A FRESH OPEN. A tab updates itself, without the click, only when all of these hold: the new version was found within a minute of opening the tab, and its download finished within five minutes of opening; since opening, you have not pressed a key or a mouse button, pasted or dropped anything in the tab, and nothing has been opened or imported in it; nothing has been flown and there is no undo or redo history; no dialog, menu or tour is open and no autosave problem is showing; and the app’s offline copy confirms it is the only tab of the app that is open. Otherwise the “ready — Reload” button waits for you.",
+      "A TAB LEFT OPEN. When you come back to a tab of the app that has been open a while, it checks for a new version again, at most once an hour, and shows the button when one is ready. It never updates itself in that case.",
+      "THE “AVAILABLE — RELOAD” BUTTON. “↻ v0.2NN available — Reload” means a newer version is published and its download is not ready yet. Clicking it now starts or checks the download instead of reloading onto the same old version: the header shows the download while it runs, and a download that is already finished is applied. If the download does not start, the button stays, and its tooltip says to check the connection and click again.",
+      "SEVERAL TABS. The tabs of the app share one autosave. Updating reloads every open tab, and a tab that reloads comes back with the design last autosaved from any tab. Before you update with several tabs open, save any design you want to keep, in any of the tabs, as an .ork file. (The same was true of the old automatic reload.) If the browser asks whether to leave the page and you choose to stay after the update has taken over, the button returns as “↻ Reload to finish the update”.",
+      "THIS RELEASE. Pages on v0.208 and earlier cannot show the new button, so v0.209 still arrives the old way: it downloads, and the page reloads itself when the download has finished, up to about ten seconds later than an update used to; as before, reloading while that download is still running leaves the page on v0.208 until it is opened again. From v0.209 on, new versions wait for you, apart from the fresh-open case above.",
+      "USER GUIDE. The Updates section describes the new behaviour, and its download size is re-measured: the v0.207 to v0.208 update re-downloaded about 4.5 MB of program, about 1.4 MB compressed (measured with gzip), plus the one data file that changed.",
+      "This release changes how updates arrive, not the simulation: no flight number moves."
+    ]
+  },
+  {
     "version": "0.208",
     "date": "2026-11-16",
     "title": "Ten paper streamers weighed a thousand times too much; a recovery-material density check",

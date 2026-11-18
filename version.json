@@ -1,5 +1,5 @@
 {
-  "version": "0.208",
-  "released": "2026-11-16",
-  "note": "Ten paper streamers in the parts list weighed about a thousand times too much (a FlisKits STD-660 came out near 21 kg); they are corrected, and the pre-flight check now flags any parachute, streamer, line or shock-cord material whose density is far outside real materials. No tester design used these parts."
+  "version": "0.209",
+  "released": "2026-11-18",
+  "note": "A new version now downloads in the background and waits: the header shows “↻ Downloading the new version…”, then “↻ v0.2NN ready — Reload”, and nothing reloads under you. A tab you have just opened and not used updates itself if it is the only one open. Fixed: reloading during a download left the tab on the old version."
 }
