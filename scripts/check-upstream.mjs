@@ -753,18 +753,33 @@ export async function checkAerotechDelays(getText = text, getBytes = pdfBytes,
     for (const url of added) say(`  ** certification index ADDED ${url} — inspect for new delay measurements`);
     for (const url of removed) say(`  ** certification index REMOVED ${url} — re-read the delay source/join`);
   } else say(`  ok   ${current.size} certification PDF links ${hostMoves.size ? 'accounted for after host moves' : 'unchanged'}`);
+  // ONE UNREADABLE DOCUMENT DOES NOT HIDE THE REST (2026-11-18): since the G35W
+  // report, one watched source is an archive.org copy, and archive.org answers
+  // scripted clients with 429. Read every other document first; the section
+  // still fails afterwards, naming each one it could not read.
+  const unreadable = [];
   for (const doc of snapshot.documents) {
     // A removed link was already reported; do not keep downloading its stale URL.
     const url = hostMoves.get(doc.url) ?? doc.url;
     if (!current.has(url)) continue;
     checked++;
-    const bytes = Buffer.from(await getBytes(url));
-    if (bytes.subarray(0, 5).toString() !== '%PDF-') throw new Error(`not a PDF: ${url}`);
+    let bytes;
+    try {
+      bytes = Buffer.from(await getBytes(url));
+      if (bytes.subarray(0, 5).toString() !== '%PDF-') throw new Error(`not a PDF: ${url}`);
+    } catch (err) {
+      say(`  !!   ${doc.document}: could not read ${url} (${err.message})`);
+      unreadable.push(`${doc.document} (${err.message})`);
+      continue;
+    }
     if (createHash('sha256').update(bytes).digest('hex') === doc.sha256) say(`  ok   ${doc.document}: source bytes unchanged`);
     else {
       flag(`${doc.document}: source bytes changed at ${url} — re-render/re-read and cross-check before regenerating delays`);
       notes.push(`AeroTech delay source changed: ${doc.document}`);
     }
+  }
+  if (unreadable.length) {
+    throw new Error(`${unreadable.length} AeroTech delay source${unreadable.length === 1 ? '' : 's'} could not be read: ${unreadable.join('; ')}`);
   }
 }
 

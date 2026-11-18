@@ -58,6 +58,26 @@ describe('AeroTech published delay source watch (offline)', () => {
     expect(() => aerotechDocumentLinks('<html>bot challenge</html>', snapshot.publishedOn)).toThrow('no certification PDF links');
   });
 
+  it('reads every other watched document when one cannot be fetched, then fails naming it', async () => {
+    const both = { ...snapshot, documents: [
+      { document: 'NAR/Test/G35W.pdf', url: urls[0], sha256: snapshot.documents[0].sha256 },
+      { document: 'TRA/Test/F41W.pdf', url: urls[1], sha256: snapshot.documents[0].sha256 },
+    ] };
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const getBytes = vi.fn(async (url) => {
+      if (url === urls[0]) throw Object.assign(new Error(`HTTP 429 for ${url}`), { status: 429 });
+      return bytes;
+    });
+    try {
+      const status = await main([() => checkAerotechDelays(async () => page, getBytes, both)], () => {});
+      const output = log.mock.calls.flat().join('\n');
+      expect(getBytes).toHaveBeenCalledWith(urls[1]);
+      expect(output).toContain('TRA/Test/F41W.pdf: source bytes unchanged');
+      expect(output).toContain('!!   NAR/Test/G35W.pdf: could not read');
+      expect(status).toBe(2);
+    } finally { log.mockRestore(); }
+  });
+
   it('accepts unchanged links and document bytes without writing any file', async () => {
     const result = await watch();
     expect(result.status).toBe(0);
