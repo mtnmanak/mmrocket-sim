@@ -32,7 +32,7 @@ and nominal counts (no heuristic inventory count is treated as evidence).
 Measured 2026-11-16 (row 133): 16 documents, 40 nominals (10 NAR summaries /
 24, 6 TRA "Delay Performance (labeled/tested)" letters / 16); AVERAGE_JOIN
 leaves 3 of them unjoined, so 13 motors / 33 nominals ship from text.
-The 100 scans with
+The 101 scans with
 no text layer use the reviewed, source-positioned transcriptions beside this
 script. A scan needs an agreeing delay average or repeated summary; a count
 of motors tested alone does not verify a manually read value (b10 DELAY).
@@ -1094,7 +1094,7 @@ def main(argv):
         with open(args.transcriptions, encoding='utf-8') as fh:
             review = json.load(fh)
         # Watch all index links, plus the bytes we consume or may consume after
-        # Eric rules on the four count-only scans. Do not fetch 312 PDFs per run.
+        # Eric rules on the four count-only scans. Do not fetch 314 PDFs per run.
         paths = {m['document'] for m in data['motors'].values()}
         paths.update(rel for m in data['averages'].values() for rel in m['documents'])
         paths.update(rel for rel, item in data['textAverageReview']['documents'].items() if item['averages'])

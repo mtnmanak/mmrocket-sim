@@ -3,11 +3,11 @@
   "publishedOn": "https://www.rocketmotorparts.com/page/nar-tra-certification-docs",
   "folder": "docs/RCS Schematics/Cert Docs/TRA (local-only)",
   "extractedBy": "packages/app/scripts/extract-aerotech-certified.py",
-  "documents": 216,
+  "documents": 217,
   "letters": 43,
   "readFromImage": 13,
   "olderForms": {
-    "withText": 134,
+    "withText": 135,
     "scans": 39
   },
   "rows": [

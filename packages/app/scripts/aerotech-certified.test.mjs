@@ -412,7 +412,7 @@ describe('aerotech-certified.json reads its letters right', () => {
 
   /**
    * And against the letters themselves, where they are: the extractor re-reads
-   * all 216 documents in about a second and compares its answer with the
+   * all 217 documents in about a second and compares its answer with the
    * committed file byte for byte. It needs docs/RCS Schematics (or
    * RCS_SCHEMATICS) and Python with PyMuPDF, so it runs on the machine that
    * holds them and nowhere else, CI included.
