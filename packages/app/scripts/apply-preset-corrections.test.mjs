@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { presetKey } from './manufacturers.mjs';
+import { PARTS_RECOVERY_CORRECTIONS } from './apply-preset-corrections.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // Scratch copies live in the OS temp folder, as every other script test's do: a
@@ -13,6 +14,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 const scratch = tmpdir();
 const shipped = JSON.parse(readFileSync(join(here, '../src/data/presets.json'), 'utf8'));
 const retiredMasses = {
+  'BodyTube|apogee|10064': [0.0081],
+  'TubeCoupler|quest|10100': [0.0283495231],
+  'TubeCoupler|quest|10104': [0.0283495231],
   'Transition|semroc|ta5055lr': [0.020128161401],
   'BodyTube|quest|10311': [0.001417476155],
   'EngineBlock|quest|14005': [0.000283495231],
@@ -46,6 +50,10 @@ const recoveryCorrections = [
   ...['stc236', 'std440', 'std660'].map(p => [`Streamer|fliskits|${p}`, 90, 0.09]),
   ...['rs118', 'rs124', 'rs136', 'rs224', 'rs236', 'rsw36', 'sm1a'].map(p => [`Streamer|semroc|${p}`, 90, 0.09]),
   ...['24', '36', '48', '60', '72', '84'].map(p => [`Parachute|giantleap|tac${p}`, 0.00006685, 0.06685]),
+  ...PARTS_RECOVERY_CORRECTIONS.map(c => {
+    const [field, { bad, good }] = Object.entries(c.fields)[0];
+    return [c.key, bad, good, field.split('.')[0]];
+  }),
 ];
 
 describe('recovery material density corrections CLI', () => {
@@ -62,9 +70,9 @@ describe('recovery material density corrections CLI', () => {
     script = join(dir, 'packages/app/scripts/apply-preset-corrections.mjs');
     path = join(dir, 'packages/app/src/data/presets.json');
     db = structuredClone(shipped);
-    for (const [key, bad] of recoveryCorrections) {
+    for (const [key, bad, , field = 'material'] of recoveryCorrections) {
       expect(db.presets.filter(p => presetKey(p) === key)).toHaveLength(1);
-      db.presets.find(p => presetKey(p) === key).material.density = bad;
+      db.presets.find(p => presetKey(p) === key)[field].density = bad;
     }
   });
   afterEach(() => {
@@ -72,12 +80,12 @@ describe('recovery material density corrections CLI', () => {
   });
   const run = () => spawnSync(process.execPath, [script], { encoding: 'utf8' });
 
-  it('changes exactly sixteen densities, preserves listed masses, and is idempotent', () => {
+  it('changes exactly the reviewed densities, preserves listed masses, and is idempotent', () => {
     writeFileSync(path, serialize(db));
     const first = run();
     expect(first.status, first.stdout + first.stderr).toBe(0);
-    expect(first.stdout).toContain('16 field(s) applied');
-    for (const [key, , good] of recoveryCorrections) db.presets.find(p => presetKey(p) === key).material.density = good;
+    expect(first.stdout).toContain(`${recoveryCorrections.length} field(s) applied`);
+    for (const [key, , good, field = 'material'] of recoveryCorrections) db.presets.find(p => presetKey(p) === key)[field].density = good;
     expect(readFileSync(path, 'utf8')).toBe(serialize(db));
     const second = run();
     expect(second.status, second.stdout + second.stderr).toBe(0);
@@ -85,13 +93,13 @@ describe('recovery material density corrections CLI', () => {
     expect(readFileSync(path, 'utf8')).toBe(serialize(db));
   });
 
-  it.each(recoveryCorrections)('refuses an unexpected density on %s without writing', (key) => {
-    db.presets.find(p => presetKey(p) === key).material.density = 0.12345;
+  it.each(recoveryCorrections)('refuses an unexpected density on %s without writing', (key, _bad, _good, field = 'material') => {
+    db.presets.find(p => presetKey(p) === key)[field].density = 0.12345;
     const raw = serialize(db);
     writeFileSync(path, raw);
     const result = run();
     expect(result.status, result.stdout + result.stderr).toBe(1);
-    expect(result.stderr).toContain(`UNEXPECTED VALUE at ${key} material.density`);
+    expect(result.stderr).toContain(`UNEXPECTED VALUE at ${key} ${field}.density`);
     expect(readFileSync(path, 'utf8')).toBe(raw);
   });
 

@@ -59,6 +59,25 @@ const RETIRED_MASSES_PATH = join(here, '..', 'src', 'data', 'retiredPresetMasses
  * third party sources."*
  */
 export const CORRECTIONS = [
+  // Tier 0 row 148, owner ruling 2026-11-18: use computed tube masses.
+  {
+    key: 'BodyTube|apogee|10064',
+    why: 'RockSim Body_tubeDATA.CSV:11,191 repeats the adjacent 10086 row (:12) mass of 8.1 g on a 2.75 in tube instead of the 18 in tube. Same wall and paper density compute about 1.26 g; clear the copied mass, not a measured replacement.',
+    fields: { mass: { bad: 0.0081, good: undefined } },
+    unwatched: 'value comes from local RockSim Body_tubeDATA.CSV, not a watched github .orc',
+  },
+  {
+    key: 'TubeCoupler|quest|10100',
+    why: 'desktop 24.12 Quest-legacy.orc:813-822 gives this paper coupler exactly one ounce (0.0283495231 kg), as it does 10104 at :823-832. Github-sourced Q10100/Q10104 carry no mass. Clear the placeholder so the stated geometry and Kraft Phenolic density compute its mass (about 2.92 g).',
+    fields: { mass: { bad: 0.0283495231, good: undefined } },
+    unwatched: 'value comes from desktop 24.12 internal Quest-legacy.orc, a released artifact that will not change',
+  },
+  {
+    key: 'TubeCoupler|quest|10104',
+    why: 'desktop 24.12 Quest-legacy.orc:823-832 repeats the 10100 one-ounce placeholder (0.0283495231 kg). Github-sourced Q10100/Q10104 carry no mass. Clear the placeholder so the stated geometry and Kraft Phenolic density compute its mass (about 3.26 g).',
+    fields: { mass: { bad: 0.0283495231, good: undefined } },
+    unwatched: 'value comes from desktop 24.12 internal Quest-legacy.orc, a released artifact that will not change',
+  },
   // 2026-10-08 too-light screen: only the eight ruled CLEAR/REPLACE rows.
   {
     key: 'EngineBlock|quest|14101',
@@ -275,7 +294,38 @@ const paperRow = (kind, mfrKeyPart, partNo, file) => ({
   partNo,
 });
 
+export const PARTS_RECOVERY_CORRECTIONS = [
+  ...[
+    ['estes', ['302262']],
+    ['semroc', ['cp12', 'cp16', 'cp20', 'cp24', 'cp32']],
+  ].flatMap(([maker, parts]) => parts.map(part => ({
+    key: `Parachute|${maker}|${part}`,
+    why: 'Owner ruling 2026-11-18: use 0.0235 kg/m2 for unweighed LDPE canopies, matching shipped Estes PK-10/PK-12 and SEMROC CP-12BW/CP-16O/CP-20R/CP-24Y/CP-32Y 1.0 mil polyethylene siblings. The desktop Estes and semroc legacy .orc files reference BULK LDPE as SURFACE; semroc-legacy.orc:46-49 supplies the 0.025 mm sheet (0.02347634 kg/m2). The 1.0 mil sibling sheet is the ruled assumption, not a measured canopy weight. Leave the three Estes listed-mass rows alone.',
+    fields: { 'material.density': { bad: undefined, good: 0.0235 } },
+    unwatched: 'target comes from desktop 24.12 internal .orc files, released artifacts that will not change',
+  }))),
+  {
+    key: 'Streamer|publicmissiles|pmltbd123',
+    why: 'publicmissiles-legacy.orc:266-274 defines LDPE bulk at 924.26533818 kg/m3 and its 0.051 mm sheet at 0.046952679179544 kg/m2. The streamer at :1331-1338 states 50.8 micrometre thickness: bulk density times thickness gives that surface density, replacing the unrelated nylon default.',
+    fields: { 'material.density': { bad: undefined, good: 0.046952679179544 } },
+    unwatched: 'value comes from desktop 24.12 internal publicmissiles-legacy.orc, a released artifact that will not change',
+  },
+  ...['14', '18', '24', '30', '36'].map(size => ({
+    key: `Parachute|semroc|pn${size}`,
+    why: 'semroc-legacy.orc:51-54 defines Rip stop nylon at 0.06685 kg/m2; PN-14 through PN-36 at :8302-8356 reference Rip Stop Nylon with different capitalization and no listed mass. Use the same-file sheet density.',
+    fields: { 'material.density': { bad: undefined, good: 0.06685 } },
+    unwatched: 'value comes from desktop 24.12 internal semroc-legacy.orc, a released artifact that will not change',
+  })),
+  ...['036', '048', '060', '072', '084', '096', '120'].map(size => ({
+    key: `Parachute|fruitychutes|ifc${size}n`,
+    why: 'Fruity_Chutes_Enhanced.orc:480-483 defines Nylon #400 IIIa Paraline [flat 6.4 mm, 1/4 in] at 0.003718285 kg/m. The seven IFC nylon rows at :854-974 omit #400 from that material name (e.g. :866), leaving density unresolved. Same width and IIIa grade; keep every listed whole-canopy mass.',
+    fields: { 'lineMaterial.density': { bad: undefined, good: 0.003718285 } },
+    unwatched: 'value comes from desktop 24.12 internal Fruity_Chutes_Enhanced.orc, a released artifact that will not change',
+  })),
+];
+
 export const MATERIAL_CORRECTIONS = [
+  ...PARTS_RECOVERY_CORRECTIONS,
   // --- Recovery sheets: kg/m2 label on a g/m2 value, or the reverse.
   ...[
     ['fliskits', ['stc236', 'std440', 'std660'],

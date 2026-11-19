@@ -388,7 +388,6 @@
     "type": "BULK",
     "density": 820
    },
-   "mass": 0.0081,
    "insideDiameter": 0.018034,
    "outsideDiameter": 0.018796,
    "length": 0.06985,
@@ -53049,7 +53048,8 @@
    "description": "6 in. Plastic Chute",
    "material": {
     "name": "Polyethylene LDPE",
-    "type": "SURFACE"
+    "type": "SURFACE",
+    "density": 0.0235
    },
    "diameter": 0.1524,
    "sides": 6,
@@ -54464,7 +54464,8 @@
    "packedLength": 0.13208,
    "lineMaterial": {
     "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
-    "type": "LINE"
+    "type": "LINE",
+    "density": 0.003718285
    },
    "source": "desktop-24.12",
    "spillHoleDiameter": 0.160934
@@ -54603,7 +54604,8 @@
    "packedLength": 0.19812,
    "lineMaterial": {
     "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
-    "type": "LINE"
+    "type": "LINE",
+    "density": 0.003718285
    },
    "source": "desktop-24.12",
    "spillHoleDiameter": 0.214579,
@@ -54661,7 +54663,8 @@
    "packedLength": 0.12954,
    "lineMaterial": {
     "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
-    "type": "LINE"
+    "type": "LINE",
+    "density": 0.003718285
    },
    "source": "desktop-24.12",
    "spillHoleDiameter": 0.268224,
@@ -54719,7 +54722,8 @@
    "packedLength": 0.15748,
    "lineMaterial": {
     "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
-    "type": "LINE"
+    "type": "LINE",
+    "density": 0.003718285
    },
    "source": "desktop-24.12",
    "spillHoleDiameter": 0.321869,
@@ -54777,7 +54781,8 @@
    "packedLength": 0.22352,
    "lineMaterial": {
     "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
-    "type": "LINE"
+    "type": "LINE",
+    "density": 0.003718285
    },
    "source": "desktop-24.12",
    "spillHoleDiameter": 0.375514,
@@ -54835,7 +54840,8 @@
    "packedLength": 0.18796,
    "lineMaterial": {
     "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
-    "type": "LINE"
+    "type": "LINE",
+    "density": 0.003718285
    },
    "source": "desktop-24.12",
    "spillHoleDiameter": 0.429158,
@@ -54893,7 +54899,8 @@
    "packedLength": 0.26924,
    "lineMaterial": {
     "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
-    "type": "LINE"
+    "type": "LINE",
+    "density": 0.003718285
    },
    "source": "desktop-24.12",
    "spillHoleDiameter": 0.536448
@@ -54937,8 +54944,9 @@
     "density": 0.035653924
    },
    "lineMaterial": {
-    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
-    "type": "LINE"
+    "name": "Spectra #400 [Oval 2.55 mm, 3/32in]",
+    "type": "LINE",
+    "density": 0.001202975
    },
    "mass": 0.35012,
    "diameter": 3.048,
@@ -54959,8 +54967,9 @@
     "density": 0.035653924
    },
    "lineMaterial": {
-    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
-    "type": "LINE"
+    "name": "Spectra #400 [Oval 2.55 mm, 3/32in]",
+    "type": "LINE",
+    "density": 0.001202975
    },
    "mass": 0.35891,
    "diameter": 3.048,
@@ -54981,9 +54990,9 @@
     "density": 0.035653924
    },
    "lineMaterial": {
-    "name": "Spectra #400 [Oval 2.55 mm, 3/32in]",
+    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
     "type": "LINE",
-    "density": 0.001202975
+    "density": 0.003718285
    },
    "mass": 1.38915,
    "diameter": 3.6576,
@@ -55055,9 +55064,9 @@
     "density": 0.035653924
    },
    "lineMaterial": {
-    "name": "Spectra #400 [Oval 2.55 mm, 3/32in]",
+    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
     "type": "LINE",
-    "density": 0.001202975
+    "density": 0.003718285
    },
    "mass": 1.5876,
    "diameter": 4.2672,
@@ -55129,9 +55138,9 @@
     "density": 0.035653924
    },
    "lineMaterial": {
-    "name": "Spectra #400 [Oval 2.55 mm, 3/32in]",
+    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
     "type": "LINE",
-    "density": 0.001202975
+    "density": 0.003718285
    },
    "mass": 2.12625,
    "diameter": 4.8768,
@@ -55300,8 +55309,9 @@
     "density": 0.035653924
    },
    "lineMaterial": {
-    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
-    "type": "LINE"
+    "name": "Spectra #200 [Round 1.5 mm, 1/16 in]",
+    "type": "LINE",
+    "density": 0.000656168
    },
    "mass": 0.04905,
    "diameter": 0.9144,
@@ -55322,8 +55332,9 @@
     "density": 0.035653924
    },
    "lineMaterial": {
-    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
-    "type": "LINE"
+    "name": "Spectra #200 [Round 1.5 mm, 1/16 in]",
+    "type": "LINE",
+    "density": 0.000656168
    },
    "mass": 0.03714,
    "diameter": 0.9144,
@@ -55367,8 +55378,9 @@
     "density": 0.035653924
    },
    "lineMaterial": {
-    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
-    "type": "LINE"
+    "name": "Spectra #400 [Oval 2.55 mm, 3/32in]",
+    "type": "LINE",
+    "density": 0.001202975
    },
    "mass": 0.0744,
    "diameter": 1.2192,
@@ -55389,8 +55401,9 @@
     "density": 0.035653924
    },
    "lineMaterial": {
-    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
-    "type": "LINE"
+    "name": "Spectra #400 [Oval 2.55 mm, 3/32in]",
+    "type": "LINE",
+    "density": 0.001202975
    },
    "mass": 0.1151,
    "diameter": 1.524,
@@ -55411,8 +55424,9 @@
     "density": 0.035653924
    },
    "lineMaterial": {
-    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
-    "type": "LINE"
+    "name": "Spectra #400 [Oval 2.55 mm, 3/32in]",
+    "type": "LINE",
+    "density": 0.001202975
    },
    "mass": 0.1352,
    "diameter": 1.6764,
@@ -55433,8 +55447,9 @@
     "density": 0.035653924
    },
    "lineMaterial": {
-    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
-    "type": "LINE"
+    "name": "Spectra #400 [Oval 2.55 mm, 3/32in]",
+    "type": "LINE",
+    "density": 0.001202975
    },
    "mass": 0.155,
    "diameter": 1.8288,
@@ -55455,8 +55470,9 @@
     "density": 0.035653924
    },
    "lineMaterial": {
-    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
-    "type": "LINE"
+    "name": "Spectra #400 [Oval 2.55 mm, 3/32in]",
+    "type": "LINE",
+    "density": 0.001202975
    },
    "mass": 0.289454,
    "diameter": 1.8288,
@@ -55477,8 +55493,9 @@
     "density": 0.035653924
    },
    "lineMaterial": {
-    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
-    "type": "LINE"
+    "name": "Spectra #400 [Oval 2.55 mm, 3/32in]",
+    "type": "LINE",
+    "density": 0.001202975
    },
    "mass": 0.197,
    "diameter": 2.1336,
@@ -55499,8 +55516,9 @@
     "density": 0.035653924
    },
    "lineMaterial": {
-    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
-    "type": "LINE"
+    "name": "Spectra #400 [Oval 2.55 mm, 3/32in]",
+    "type": "LINE",
+    "density": 0.001202975
    },
    "mass": 0.23814,
    "diameter": 2.4384,
@@ -55521,8 +55539,9 @@
     "density": 0.035653924
    },
    "lineMaterial": {
-    "name": "Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]",
-    "type": "LINE"
+    "name": "Spectra #400 [Oval 2.55 mm, 3/32in]",
+    "type": "LINE",
+    "density": 0.001202975
    },
    "mass": 0.25061,
    "diameter": 2.4384,
@@ -55543,9 +55562,9 @@
     "density": 0.035653924
    },
    "lineMaterial": {
-    "name": "Nylon #200 IIa Paraline [flat 4.0 mm, 5/32 in]",
+    "name": "Spectra #400 [Oval 2.55 mm, 3/32in]",
     "type": "LINE",
-    "density": 0.002952756
+    "density": 0.001202975
    },
    "mass": 0.021263,
    "diameter": 0.4064,
@@ -55566,9 +55585,9 @@
     "density": 0.035653924
    },
    "lineMaterial": {
-    "name": "Nylon #200 IIa Paraline [flat 4.0 mm, 5/32 in]",
+    "name": "Spectra #400 [Oval 2.55 mm, 3/32in]",
     "type": "LINE",
-    "density": 0.002952756
+    "density": 0.001202975
    },
    "mass": 0.02268,
    "diameter": 0.4572,
@@ -55589,9 +55608,9 @@
     "density": 0.035653924
    },
    "lineMaterial": {
-    "name": "Nylon #200 IIa Paraline [flat 4.0 mm, 5/32 in]",
+    "name": "Spectra #400 [Oval 2.55 mm, 3/32in]",
     "type": "LINE",
-    "density": 0.002952756
+    "density": 0.001202975
    },
    "mass": 0.02268,
    "diameter": 0.508,
@@ -55612,9 +55631,9 @@
     "density": 0.035653924
    },
    "lineMaterial": {
-    "name": "Nylon #200 IIa Paraline [flat 4.0 mm, 5/32 in]",
+    "name": "Spectra #400 [Oval 2.55 mm, 3/32in]",
     "type": "LINE",
-    "density": 0.002952756
+    "density": 0.001202975
    },
    "mass": 0.03402,
    "diameter": 0.6096,
@@ -60592,7 +60611,8 @@
    "description": "12 in. Plastic Chute",
    "material": {
     "name": "Polyethylene LDPE",
-    "type": "SURFACE"
+    "type": "SURFACE",
+    "density": 0.0235
    },
    "diameter": 0.3048,
    "sides": 6,
@@ -60712,7 +60732,8 @@
    "description": "16 in. Plastic Chute",
    "material": {
     "name": "Polyethylene LDPE",
-    "type": "SURFACE"
+    "type": "SURFACE",
+    "density": 0.0235
    },
    "diameter": 0.4064,
    "sides": 8,
@@ -60792,7 +60813,8 @@
    "description": "20 in. Plastic Chute",
    "material": {
     "name": "Polyethylene LDPE",
-    "type": "SURFACE"
+    "type": "SURFACE",
+    "density": 0.0235
    },
    "diameter": 0.508,
    "sides": 8,
@@ -60852,7 +60874,8 @@
    "description": "24 in. Plastic Chute",
    "material": {
     "name": "Polyethylene LDPE",
-    "type": "SURFACE"
+    "type": "SURFACE",
+    "density": 0.0235
    },
    "diameter": 0.6096,
    "sides": 8,
@@ -60892,7 +60915,8 @@
    "description": "32 in. Plastic Chute",
    "material": {
     "name": "Polyethylene LDPE",
-    "type": "SURFACE"
+    "type": "SURFACE",
+    "density": 0.0235
    },
    "diameter": 0.8128,
    "sides": 8,
@@ -60932,7 +60956,8 @@
    "description": "14 in. Nylon Chute",
    "material": {
     "name": "Rip Stop Nylon",
-    "type": "SURFACE"
+    "type": "SURFACE",
+    "density": 0.06685
    },
    "diameter": 0.3556,
    "sides": 6,
@@ -60952,7 +60977,8 @@
    "description": "18 In. Nylon Chute",
    "material": {
     "name": "Rip Stop Nylon",
-    "type": "SURFACE"
+    "type": "SURFACE",
+    "density": 0.06685
    },
    "diameter": 0.4572,
    "sides": 8,
@@ -60972,7 +60998,8 @@
    "description": "24 In. Nylon Chute",
    "material": {
     "name": "Rip Stop Nylon",
-    "type": "SURFACE"
+    "type": "SURFACE",
+    "density": 0.06685
    },
    "diameter": 0.6096,
    "sides": 0,
@@ -60992,7 +61019,8 @@
    "description": "30 In. Nylon Chute",
    "material": {
     "name": "Rip Stop Nylon",
-    "type": "SURFACE"
+    "type": "SURFACE",
+    "density": 0.06685
    },
    "diameter": 0.762,
    "sides": 0,
@@ -61012,7 +61040,8 @@
    "description": "36 In. Nylon Chute",
    "material": {
     "name": "Rip Stop Nylon",
-    "type": "SURFACE"
+    "type": "SURFACE",
+    "density": 0.06685
    },
    "diameter": 0.9144,
    "sides": 0,
@@ -63387,7 +63416,8 @@
    "description": "Streamer",
    "material": {
     "name": "Polyethylene LDPE",
-    "type": "SURFACE"
+    "type": "SURFACE",
+    "density": 0.046952679179544
    },
    "length": 3.048,
    "width": 0.0762,
@@ -76486,7 +76516,6 @@
     "type": "BULK",
     "density": 958.70503449
    },
-   "mass": 0.0283495231,
    "insideDiameter": 0.0234188,
    "outsideDiameter": 0.0249936,
    "length": 0.0508,
@@ -76502,7 +76531,6 @@
     "type": "BULK",
     "density": 958.70503449
    },
-   "mass": 0.0283495231,
    "insideDiameter": 0.03302,
    "outsideDiameter": 0.034036,
    "length": 0.0635,
