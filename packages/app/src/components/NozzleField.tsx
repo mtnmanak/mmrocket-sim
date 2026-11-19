@@ -1,4 +1,5 @@
 import { Note } from './Note.js';
+import { ReloadPageButton } from './ReloadPageButton.js';
 import { useEffect, useId, useState, useSyncExternalStore } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { noticeQuantity, fmtSi, niceStep, siToUi, uiToSi } from '../prefs/units.js';
@@ -248,9 +249,7 @@ export function NozzleField({
           {exitDiameterM === null && ' Blank means the pressure-thrust term and the power-on base-drag reduction are both off for this stage.'}
           {' '}The connection may have dropped, or the app may have been updated since this page loaded.
           {' '}
-          <button className="file-btn" style={{ marginLeft: 4 }} onClick={() => window.location.reload()}>
-            ↻ Reload the page
-          </button>
+          <ReloadPageButton />
         </p>
       )}
       </Note>

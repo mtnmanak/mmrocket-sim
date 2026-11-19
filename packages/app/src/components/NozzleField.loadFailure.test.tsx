@@ -5,6 +5,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { NozzleField } from './NozzleField.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { resetNozzleDbCache } from '../services/nozzleDb.js';
+import { setReloadHold } from '../services/swUpdate.js';
 
 /**
  * THE NOZZLE DATA COULD NOT BE DOWNLOADED (audit 2026-09-30). `nozzles.json` is
@@ -55,6 +56,7 @@ let committed: (number | null)[];
 beforeAll(async () => { await import('../data/nozzles.json'); });
 
 beforeEach(() => {
+  setReloadHold(() => false);
   // Every case starts with nothing loaded: a map an earlier case loaded would
   // answer this case's look-up without reading `data.fail` at all.
   resetNozzleDbCache();
@@ -112,6 +114,16 @@ const note = () => host.querySelector('[data-nozzle="unavailable"]');
 const text = () => host.textContent ?? '';
 
 describe('NozzleField — the nozzle data could not be loaded', () => {
+  it('V211-1 keeps a held design when its data fallback offers reload', async () => {
+    const reload = vi.fn();
+    vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, reload } as Location);
+    setReloadHold(() => true);
+    render();
+    await waitFor(() => note() !== null, 'the could-not-load note');
+    act(() => [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Reload'))!.click());
+    expect(reload).not.toHaveBeenCalled();
+    expect(note()!.textContent).toContain('shared autosave');
+  });
   it('says so and offers the reload, instead of waiting for a figure that never comes', async () => {
     render({ exitDiameterM: null });
     await waitFor(() => note() !== null, 'the could-not-load note');

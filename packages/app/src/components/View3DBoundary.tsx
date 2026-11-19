@@ -1,4 +1,5 @@
 import { Component, useState, type ErrorInfo, type ReactNode } from 'react';
+import { ReloadPageButton } from './ReloadPageButton.js';
 
 /**
  * Whether an error is a lazy chunk that could not be DOWNLOADED, in each
@@ -98,10 +99,9 @@ class View3DErrorBoundary extends Component<
               loaded. It is not your graphics hardware.
             </p>
             <p>
-              Reloading the page downloads it again; the design is restored from this
-              browser&rsquo;s autosave, as on any reload. Nothing else is affected — the 2D and Aft
-              views draw the same rocket from the same data, and every number on the page is
-              unchanged.
+              Reloading the page downloads it again. Save this tab&rsquo;s design as an .ork file
+              first: another tab may have replaced the shared autosave, and reloading can lose
+              this tab&rsquo;s design. The 2D and Aft views still work.
             </p>
           </>
         ) : (
@@ -119,7 +119,7 @@ class View3DErrorBoundary extends Component<
         )}
         {this.state.detail && <p className="hero-fallback-detail">{this.state.detail}</p>}
         {this.state.download && (
-          <button className="file-btn" onClick={() => window.location.reload()}>↻ Reload the page</button>
+          <ReloadPageButton />
         )}
         <button className="file-btn" onClick={this.props.onBack}>← Back to the 2D view</button>
       </div>

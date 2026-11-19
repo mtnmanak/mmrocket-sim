@@ -105,6 +105,7 @@ function env(over: {
           if (over.storage === 'throws-on-write') throw new DOMException('Quota', 'QuotaExceededError');
           if (k === PRECACHE_GUARD_KEY) seen.flag = v;
         },
+        removeItem: (k: string) => { if (k === PRECACHE_GUARD_KEY) seen.flag = null; },
       };
     },
     caches: () => ({
@@ -128,19 +129,56 @@ function registration(active = true) {
 }
 
 describe('guardPrecache — unregister and reload, once, only where that heals', () => {
+  it('r2 reloads a retired repair after a cancelled reload and a refilled cache without an update', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    setReloadHold(() => true);
+    const { e, seen } = env();
+    const { reg, unregister } = registration();
+    const reload = vi.fn();
+    const stop = swUpdate.start(Object.assign(new EventTarget(), reg, { waiting: null, update: vi.fn(async () => {}) }), {
+      container: Object.assign(new EventTarget(), { controller: reg.active }) as unknown as ServiceWorkerContainer,
+      initialController: reg.active, reload, now: () => 0, isUntouched: () => false, otherTabsOpen: async () => false,
+    });
+    try {
+      expect(await guardPrecache(reg, e)).toBe('held');
+      await swUpdate.applyUpdate();
+      expect(seen.reloads).toBe(1);
+      e.caches = env({ entries: 1 }).e.caches;
+      await swUpdate.applyUpdate();
+      expect(reload).toHaveBeenCalledOnce();
+      expect(unregister).toHaveBeenCalledOnce();
+      expect(swUpdate.getSnapshot().kind).not.toBe('failed');
+    } finally { stop(); }
+  });
+  it('r2 rechecks cache health after the server query before unregistering', async () => {
+    setReloadHold(() => true);
+    const { e, seen } = env();
+    const { reg, unregister } = registration();
+    expect(await guardPrecache(reg, e)).toBe('held');
+    e.serverAnswers = async () => {
+      e.caches = env({ entries: 1 }).e.caches;
+      return true;
+    };
+    await swUpdate.applyUpdate();
+    expect(unregister).not.toHaveBeenCalled();
+    expect(seen.flag).toBeNull();
+  });
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('149 B keeps a held design without unregistering or consuming the retry', async () => {
-    setReloadHold(() => true);
+    let held = true;
+    setReloadHold(() => held);
     const { e, seen } = env();
     const { reg, unregister } = registration();
     expect(await guardPrecache(reg, e)).toBe('held');
     expect(unregister).not.toHaveBeenCalled();
     expect(seen.reloads).toBe(0);
     expect(seen.flag).toBeNull();
-    setReloadHold(() => false);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    expect(await guardPrecache(reg, e)).toBe('reloaded');
+    held = false;
+    await settleReloadHold();
+    expect(unregister).toHaveBeenCalledOnce();
+    expect(seen.reloads).toBe(1);
   });
 
   it('149 B rechecks the hold after asynchronous unregistering', async () => {
@@ -185,6 +223,135 @@ describe('guardPrecache — unregister and reload, once, only where that heals',
     expect(seen.server).toBe(1);
     // Logged, for the bug report a second sighting would need.
     expect(console.warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('V211-2 checks connectivity on every retry after a cancelled reload', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    setReloadHold(() => true);
+    const { e, seen } = env();
+    const { reg, unregister } = registration();
+    expect(await guardPrecache(reg, e)).toBe('held');
+    await swUpdate.applyUpdate();
+    expect(seen.reloads).toBe(1);
+    e.online = () => false;
+    await swUpdate.applyUpdate();
+    expect(seen.reloads).toBe(1);
+    const server = vi.fn(async () => false);
+    e.online = () => true;
+    e.serverAnswers = server;
+    await swUpdate.applyUpdate();
+    expect(server).toHaveBeenCalledOnce();
+    expect(seen.reloads).toBe(1);
+    e.serverAnswers = async () => true;
+    await swUpdate.applyUpdate();
+    expect(seen.reloads).toBe(2);
+    expect(unregister).toHaveBeenCalledOnce();
+  });
+
+  it('V211-6 a rejected unregister does not consume this session retry', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { e, seen } = env();
+    const { reg, unregister } = registration();
+    unregister.mockRejectedValueOnce(new Error('worker storage'));
+    expect(await guardPrecache(reg, e)).toBe('unknown');
+    expect(seen.flag).toBeNull();
+    expect(await guardPrecache(reg, e)).toBe('reloaded');
+    expect(unregister).toHaveBeenCalledTimes(2);
+    expect(seen.reloads).toBe(1);
+  });
+
+  it.each([true, false])('V211-8 retires a repair refilled by another tab, online=%s', async online => {
+    setReloadHold(() => true);
+    const { e, seen } = env();
+    const { reg, unregister } = registration();
+    const old = reg.active;
+    const container = Object.assign(new EventTarget(), { controller: old });
+    const reload = vi.fn();
+    const stop = swUpdate.start(Object.assign(new EventTarget(), reg), {
+      container: container as unknown as ServiceWorkerContainer, initialController: old,
+      reload, now: () => 0, isUntouched: () => false, otherTabsOpen: async () => false,
+    });
+    try {
+      expect(await guardPrecache(reg, e)).toBe('held');
+      e.caches = env({ entries: 1 }).e.caches;
+      e.online = () => online;
+      container.controller = {} as ServiceWorker;
+      container.dispatchEvent(new Event('controllerchange'));
+      await swUpdate.applyUpdate();
+      expect(unregister).not.toHaveBeenCalled();
+      expect(reload).toHaveBeenCalledOnce();
+      expect(seen.server).toBe(1);
+      expect(seen.flag).toBeNull();
+    } finally { stop(); }
+  });
+
+  it('V211-9 retires a repair when the retry flag cannot be written', async () => {
+    setReloadHold(() => true);
+    const { e, seen } = env({ storage: 'throws-on-write' });
+    const { reg, unregister } = registration();
+    const old = reg.active;
+    const container = Object.assign(new EventTarget(), { controller: old });
+    const reload = vi.fn();
+    const stop = swUpdate.start(Object.assign(new EventTarget(), reg), {
+      container: container as unknown as ServiceWorkerContainer, initialController: old,
+      reload, now: () => 0, isUntouched: () => false, otherTabsOpen: async () => false,
+    });
+    try {
+      expect(await guardPrecache(reg, e)).toBe('held');
+      container.controller = {} as ServiceWorker;
+      container.dispatchEvent(new Event('controllerchange'));
+      await swUpdate.applyUpdate();
+      expect(reload).toHaveBeenCalledOnce();
+      expect(unregister).not.toHaveBeenCalled();
+      expect(seen.server).toBe(2);
+      await swUpdate.applyUpdate();
+      expect(seen.server).toBe(2);
+    } finally { stop(); }
+  });
+
+  it('V211-8 hands a healthy repaired cache to the waiting-worker update path', async () => {
+    setReloadHold(() => true);
+    const { e } = env();
+    const { reg, unregister } = registration();
+    const worker = Object.assign(new EventTarget(), { state: 'installed', postMessage: vi.fn() });
+    const live = Object.assign(new EventTarget(), reg, { waiting: null as ServiceWorker | null });
+    const stop = swUpdate.start(live as unknown as ServiceWorkerRegistration, {
+      container: Object.assign(new EventTarget(), { controller: reg.active }) as unknown as ServiceWorkerContainer,
+      initialController: reg.active, reload: vi.fn(), now: () => 0,
+      isUntouched: () => false, otherTabsOpen: async () => false,
+    });
+    try {
+      expect(await guardPrecache(reg, e)).toBe('held');
+      e.caches = env({ entries: 1 }).e.caches;
+      live.waiting = worker as unknown as ServiceWorker;
+      await swUpdate.applyUpdate();
+      expect(worker.postMessage).toHaveBeenCalledExactlyOnceWith({ type: 'SKIP_WAITING' });
+      expect(unregister).not.toHaveBeenCalled();
+    } finally { stop(); }
+  });
+
+  it('V211-14 keeps a slow repair busy and resumes it only once', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    setReloadHold(() => true);
+    const { e, seen } = env();
+    const { reg, unregister } = registration();
+    expect(await guardPrecache(reg, e)).toBe('held');
+    let answer!: (value: boolean) => void;
+    const gate = new Promise<boolean>(resolve => { answer = resolve; });
+    const server = vi.fn(() => gate);
+    e.serverAnswers = server;
+    const first = swUpdate.applyUpdate();
+    expect(swUpdate.getSnapshot()).toMatchObject({ applying: true });
+    await vi.waitFor(() => expect(server).toHaveBeenCalled());
+    expect(server).toHaveBeenCalledOnce();
+    expect(unregister).not.toHaveBeenCalled();
+    const second = swUpdate.applyUpdate();
+    answer(true);
+    await Promise.all([first, second]);
+    expect(server).toHaveBeenCalledOnce();
+    expect(unregister).toHaveBeenCalledOnce();
+    expect(seen.reloads).toBe(1);
+    expect(swUpdate.getSnapshot()).toMatchObject({ applying: false });
   });
 
   it.each(['offline', 'server-silent', 'cancelled reload'])('round 3 retries deferred repair after %s', async failure => {

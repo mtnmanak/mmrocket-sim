@@ -22,7 +22,7 @@ import { isReloadHeld, swUpdate } from './swUpdate.js';
  * every registration.
  */
 
-/** sessionStorage: set before the one unregister-and-reload a tab gets. */
+/** sessionStorage: rolled back if unregistering fails. */
 export const PRECACHE_GUARD_KEY = 'online-openrocket.precache-guard.v1';
 
 /**
@@ -64,7 +64,7 @@ export interface PrecacheGuardEnv {
   dev: boolean;
   online: () => boolean;
   /** sessionStorage. Reading the property itself throws where storage is blocked. */
-  session: () => Pick<Storage, 'getItem' | 'setItem'>;
+  session: () => Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
   caches: () => Pick<CacheStorage, 'keys' | 'open'> | undefined;
   /** version.json reached the real server (it is never precached). */
   serverAnswers: () => Promise<boolean>;
@@ -102,16 +102,16 @@ export async function guardPrecache(
   } catch {
     alreadyTried = true; // no flag, so "once" could not be promised
   }
-  let precacheEntries: number | null = null;
-  try {
+  const readEntries = async (): Promise<number | null> => {
     const store = env.caches();
-    if (!store) return 'unknown';
+    if (!store) throw new Error('Cache Storage unavailable');
     const name = precacheCacheName(reg.scope);
     // keys() first: open() CREATES the cache it is asked for.
-    if ((await store.keys()).includes(name)) precacheEntries = (await (await store.open(name)).keys()).length;
-  } catch {
-    return 'unknown';
-  }
+    return (await store.keys()).includes(name) ? (await (await store.open(name)).keys()).length : null;
+  };
+  let precacheEntries: number | null;
+  try { precacheEntries = await readEntries(); }
+  catch { return 'unknown'; }
   const verdict = precacheVerdict({
     dev: env.dev, alreadyTried, activeWorker: reg.active !== null, precacheEntries, online: env.online(),
   });
@@ -119,14 +119,25 @@ export async function guardPrecache(
   if (!(await env.serverAnswers())) return 'server-silent';
   let unregistered = false;
   const hold = () => {
-    swUpdate.deferReload(repair);
+    swUpdate.deferReload(async requested => {
+      const outcome = await repair(requested);
+      return outcome === 'precache-ok' || outcome === 'already-tried' ? 'continue' : 'retry';
+    });
     return 'held' as const;
   };
   const repair = async (requested = false, serverChecked = false): Promise<PrecacheGuardOutcome> => {
     if (!requested && isReloadHeld()) return hold();
+    // Another tab may have installed a healthy worker while this repair waited.
+    try { if ((await readEntries() ?? 0) > 0) return 'precache-ok'; }
+    catch { return 'unknown'; }
+    // A cancelled leave prompt can leave an unregistered document alive.
+    // Every later reload still needs a reachable server.
+    if (!env.online() || (!serverChecked && !(await env.serverAnswers()))) return 'server-silent';
+    // The server query may overlap another tab activating a healthy worker.
+    try { if ((await readEntries() ?? 0) > 0) return 'precache-ok'; }
+    catch { return 'unknown'; }
+    if (!requested && isReloadHeld()) return hold();
     if (!unregistered) {
-      if (!serverChecked && (!env.online() || !(await env.serverAnswers()))) return 'server-silent';
-      if (!requested && isReloadHeld()) return hold();
       try {
         env.session().setItem(PRECACHE_GUARD_KEY, '1');
       } catch {
@@ -138,11 +149,13 @@ export async function guardPrecache(
         await reg.unregister();
         unregistered = true;
       } catch {
+        try { env.session().removeItem(PRECACHE_GUARD_KEY); } catch { /* storage can fail independently */ }
         return 'unknown';
       }
     }
     // The tab may have been edited while unregister() was pending.
     if (!requested && isReloadHeld()) return hold();
+    if (!env.online()) return 'server-silent';
     env.reload();
     return 'reloaded';
   };

@@ -1075,12 +1075,28 @@ export function App() {
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => { window.removeEventListener('beforeunload', onBeforeUnload); };
   }, [sessionConflict, autosavePaused, autosaveFailing, dirty]);
-  const holdReload = dirty || sessionConflict;
+  // Protect the fragment before the mount effect can strip it, and keep that
+  // protection until the imported design or replacement offer has committed.
+  const [shareOpening, setShareOpening] = useState(() => hasSharePayload(window.location.hash));
+  const holdReload = dirty || sessionConflict || shareOpening || shareOffer !== null || pendingOpen !== null;
+  const reloadWarning = dirty
+    ? 'This tab has unsaved changes: save them (.ork) if you want to keep them, then Reload.'
+    : sessionConflict ? 'This tab is waiting because another tab changed the autosave. Save this design (.ork) if you want to keep it, then Reload.'
+    : heldSession() !== null || shareOpening || shareOffer !== null || pendingOpen !== null || pageActivity.importsInProgress() > 0
+      ? 'Save this tab’s design as an .ork file and finish or cancel the pending open first. Reloading can lose this tab’s work.'
+      : null;
+  const onApplyUpdate = () => {
+    if (!dirty && (heldSession() !== null || shareOpening || shareOffer !== null || pendingOpen !== null
+      || pageActivity.importsInProgress() > 0)
+      && !window.confirm('Save this tab’s design as an .ork file and finish or cancel the pending open first. Reloading can lose this tab’s work or the incoming design. Reload anyway?')) return;
+    void applyUpdate();
+  };
   const holdReloadNow = useRef(true);
   const dirtyReloadNow = useRef(true);
-  useEffect(() => { holdReloadNow.current = holdReload; dirtyReloadNow.current = dirty; });
+  useLayoutEffect(() => { holdReloadNow.current = holdReload; dirtyReloadNow.current = dirty; });
   // Dirty stops changing with App; the crash panel's conflict/held design stays live.
-  useEffect(() => setReloadHold(() => holdReloadNow.current,
+  useEffect(() => setReloadHold(() => holdReloadNow.current || sessionConflicted()
+    || heldSession() !== null || pageActivity.importsInProgress() > 0,
     () => dirtyReloadNow.current || sessionConflicted() || heldSession() !== null), []);
   useEffect(() => {
     if (startupSettled) void settleReloadHold();
@@ -3453,7 +3469,7 @@ export function App() {
       // The sentence names the browser when this one cannot unpack links at
       // all, rather than calling every link damaged (audit 2026-09-22).
       onError: (e) => { sessionDebugLog.record('import-failed', e); setFileNote(shareLinkOpenFailure(e), 'warn'); },
-    }).finally(finishImport);
+    }).finally(() => { finishImport(); setShareOpening(false); });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot startup decode
   }, []);
 
@@ -3813,15 +3829,12 @@ export function App() {
                   title="The update is being applied. This tab will reload.">↻ Updating…</button>
               ) : swUpdateState.reloadRequired ? (
                 <button className="version-update" disabled={swUpdateState.applying}
-                  title={dirty
-                    ? 'This tab has unsaved changes: save them (.ork) if you want to keep them, then Reload.'
-                    : sessionConflict ? 'This tab is waiting because another tab changed the autosave. Save this design (.ork) if you want to keep it, then Reload.'
-                    : 'Reload to finish updating this tab or repairing its offline copy.'}
-                  onClick={() => { void applyUpdate(); }}>↻ Reload to finish the update</button>
+                  title={reloadWarning ?? 'Reload to finish updating this tab or repairing its offline copy.'}
+                  onClick={onApplyUpdate}>↻ Reload to finish the update</button>
               ) : swUpdateState.kind === 'ready' ? (
                 <button className="version-update" disabled={swUpdateState.applying}
-                  title="The download is finished. Reload updates the app; other tabs with unsaved changes wait."
-                  onClick={() => { void applyUpdate(); }}>
+                  title={reloadWarning ?? 'The download is finished. Reload updates the app; other tabs with unsaved changes wait.'}
+                  onClick={onApplyUpdate}>
                   {swUpdateState.readyVersion && versionEarlierThan(APP_VERSION, swUpdateState.readyVersion)
                     ? `↻ v${swUpdateState.readyVersion} ready — Reload` : '↻ New version ready — Reload'}
                 </button>
@@ -3832,8 +3845,8 @@ export function App() {
                 </span>
               ) : updateState.kind === 'stale' ? (
                 <button className="version-update"
-                  title={swUpdateState.kind === 'failed' ? 'The download did not start. Check your connection and click again.' : `v${updateState.latest.version}${updateState.latest.released ? ` (released ${updateState.latest.released})` : ''} is deployed. Check its download, then reload when ready; other tabs with unsaved changes wait.`}
-                  onClick={() => { void applyUpdate(); }}>
+                  title={reloadWarning ?? (swUpdateState.kind === 'failed' ? 'The download did not start. Check your connection and click again.' : `v${updateState.latest.version}${updateState.latest.released ? ` (released ${updateState.latest.released})` : ''} is deployed. Check its download, then reload when ready; other tabs with unsaved changes wait.`)}
+                  onClick={onApplyUpdate}>
                   ↻ v{updateState.latest.version} available — Reload
                 </button>
               ) : (

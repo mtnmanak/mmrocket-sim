@@ -45,10 +45,42 @@ function setup(options: {
   return { worker, reg, container, reload, store, stop, found, ready, changeController, isUntouched, otherTabsOpen, setNow };
 }
 const cleanups: (() => void)[] = [];
+it.each(['idle', 'waiting', 'requested'])('r2 retires a terminal repair into the actual %s state', async mode => {
+  const s = setup({ waiting: mode === 'waiting', workerVersion: async () => '0.999' });
+  if (mode === 'waiting') await vi.waitFor(() => expect(s.store.getSnapshot().readyVersion).toBe('0.999'));
+  s.store.deferReload(async () => 'continue');
+  if (mode === 'requested') await s.store.applyUpdate();
+  else await s.store.recheckHeldReload();
+  expect(s.store.getSnapshot()).toMatchObject({
+    kind: mode === 'waiting' ? 'ready' : 'idle', reloadRequired: false,
+  });
+  if (mode === 'waiting') expect(s.store.getSnapshot().readyVersion).toBe('0.999');
+  expect(s.reload).toHaveBeenCalledTimes(mode === 'requested' ? 1 : 0);
+});
 beforeEach(() => { setReloadHold(() => false); });
 afterEach(() => { cleanups.splice(0).forEach(stop => stop()); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('149 B: hold unattended reloads with the production predicate', () => {
+  it('V211-15 a stale disposer leaves the newer live predicate installed', () => {
+    const stale = setReloadHold(() => false);
+    let held = true;
+    const current = setReloadHold(() => held);
+    stale();
+    expect(isReloadHeld()).toBe(true);
+    held = false;
+    expect(isReloadHeld()).toBe(false);
+    current();
+  });
+  it('V211-15 sibling: a stale untouched disposer leaves the newer predicate live', () => {
+    const stale = setIsUntouched(() => false);
+    let untouched = true;
+    const current = setIsUntouched(() => untouched);
+    stale();
+    expect(isPageUntouched()).toBe(true);
+    untouched = false;
+    expect(isPageUntouched()).toBe(false);
+    current();
+  });
   it.each(['after start', 'before tracking'])('round 2 defaults to held before ANY registration: %s', async mode => {
     vi.resetModules();
     const fresh = await import('./swUpdate.js');

@@ -71,7 +71,12 @@ export function createSwUpdateStore() {
   let controllerChanged = () => {};
   let recheckAutoApply = () => {};
   let recheckHeldReload = () => {};
-  let pendingReload: ((requested: boolean) => Promise<unknown>) | undefined;
+  let refreshUpdateState = () => publish('idle');
+  let continueReload = async (requested: boolean) => {
+    if (requested) await apply();
+    else recheckHeldReload();
+  };
+  let pendingReload: ((requested: boolean) => Promise<'retry' | 'continue'>) | undefined;
   let repairing = false;
   let stop = () => {};
   const publish = (kind: SwUpdateState['kind'], applying = false, readyVersion?: string, reloadRequired = false) => {
@@ -90,10 +95,23 @@ export function createSwUpdateStore() {
     const repair = pendingReload;
     repairing = true;
     publish('ready');
-    try { await repair(requested); }
+    let continued = false;
+    try {
+      if (await repair(requested) === 'continue' && pendingReload === repair) {
+        pendingReload = undefined;
+        continued = true;
+      }
+    }
     // A failed repair or cancelled beforeunload leaves this document alive.
     // Keep the same repair (including its unregister state) for the next click.
-    finally { repairing = false; publish('ready'); }
+    finally {
+      repairing = false;
+      if (pendingReload) publish('ready');
+      else refreshUpdateState();
+    }
+    if (continued) {
+      await continueReload(requested);
+    }
   };
 
   function start(reg: ServiceWorkerRegistration, deps: SwUpdateDeps): () => void {
@@ -136,6 +154,14 @@ export function createSwUpdateStore() {
     };
     recheckHeldReload = () => {
       if (controllerSwitched && !applying) reloadOnce();
+    };
+    refreshUpdateState = () => publishUpdate(reg.waiting || controllerSwitched ? 'ready'
+      : reg.installing ? 'downloading' : 'idle');
+    continueReload = async requested => {
+      if (!requested) { recheckHeldReload(); return; }
+      if (reg.waiting || controllerSwitched) { await apply(); return; }
+      reloadRequested = true;
+      reloadOnce();
     };
     // Reload when the controller is switched, including an uncontrolled hard
     // reload with an older active worker; a true first claim stays on the page.
@@ -248,7 +274,7 @@ export function createSwUpdateStore() {
   return {
     start,
     applyUpdate: () => pendingReload ? resumeReload(true) : apply(),
-    deferReload: (repair: (requested: boolean) => Promise<unknown>) => {
+    deferReload: (repair: (requested: boolean) => Promise<'retry' | 'continue'>) => {
       pendingReload = repair;
       publish('ready', false, undefined, true);
     },
@@ -267,8 +293,13 @@ export function createSwUpdateStore() {
 export const swUpdate = createSwUpdateStore();
 // Before App knows what was restored, keep the page. On a crash/unmount,
 // retain its last answer unless App supplies a live crash-panel check.
-let reloadHold = () => true;
+const initialReloadHold = () => true;
+let reloadHold = initialReloadHold;
 export const isReloadHeld = () => reloadHold();
+/** A first-render crash has no App predicate to replace the startup hold. */
+export function setCrashReloadHold(check: () => boolean): () => void {
+  return reloadHold === initialReloadHold ? setReloadHold(check) : () => {};
+}
 export function setReloadHold(check: () => boolean, afterUnmount?: () => boolean): () => void {
   reloadHold = check;
   void swUpdate.recheckHeldReload();

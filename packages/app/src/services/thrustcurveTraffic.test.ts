@@ -393,7 +393,7 @@ it('a failed bundle and open breaker retain the reload advice without claiming b
   expect(first.message).toContain('Reload the app with a connection');
   const error = await miss(client.fetchMotorSpec(motor, 5));
   expect(error.message).toMatch(/bundled with the app did not load, and thrustcurve.org is not answering/);
-  expect(error.message).toMatch(/about 10 minutes\. Reload the app with a connection/);
+  expect(error.message).toMatch(/about 10 minutes\. Save this tab’s design.*before reloading.*Reload the app with a connection/);
   expect(error.message).toContain("import the motor's .rse/.eng file");
   expect(error.message).not.toContain('still load');
   expect(fetcher).toHaveBeenCalledOnce();

@@ -155,6 +155,16 @@ describe('AppBoundary', () => {
     expect(button('Start fresh')).toBeTruthy();
   });
 
+  it('V211-1 does not promise this design is saved after another tab normally replaces the slot', () => {
+    const mine = JSON.parse(localStorage.getItem(SESSION)!) as Record<string, unknown>;
+    localStorage.setItem(SESSION, JSON.stringify({ ...mine, stamp: 'normal-other-write',
+      tree: { ...defaultTree(), name: 'Other tab design' } }));
+    renderCrashed();
+    const lead = host.querySelector('[role="alert"] p')!.textContent!;
+    expect(lead).not.toContain('Your design is still in');
+    expect(lead).toContain('check that it is the design you want to keep');
+  });
+
   it('"Download" hands over the autosaved design as an .ork', async () => {
     renderCrashed();
     await act(async () => { button('Download the autosaved design').click(); });
@@ -249,7 +259,7 @@ describe('AppBoundary — this tab’s changes held back by another tab', () => 
 
   it('does not ask when the autosave holds this tab’s design, as it usually does', () => {
     renderCrashed();
-    expect(host.querySelector('[role="alert"] p')!.textContent).toContain('still in this browser');
+    expect(host.querySelector('[role="alert"] p')!.textContent).toContain('Download the autosave');
     expect(leaving()).toBe(false);
   });
 

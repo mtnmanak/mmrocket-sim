@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { View3DBoundary, isChunkLoadError } from './View3DBoundary.js';
+import { setReloadHold } from '../services/swUpdate.js';
 
 /**
  * The app had exactly ONE error boundary — round the site nav band — so a
@@ -18,6 +19,7 @@ let root: Root;
 let backs: number;
 
 beforeEach(() => {
+  setReloadHold(() => false);
   backs = 0;
   host = document.createElement('div');
   document.body.appendChild(host);
@@ -97,6 +99,17 @@ describe('the 3D view’s error boundary', () => {
  */
 describe('the 3D view’s error boundary — a chunk that failed to download', () => {
   const CHROME = 'Failed to fetch dynamically imported module: https://mmrsim.mountainmanrockets.com/assets/Rocket3D-abc123.js';
+
+  it('V211-1 keeps held work when the download fallback requests reload', () => {
+    const reload = vi.fn();
+    vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, reload } as Location);
+    setReloadHold(() => true);
+    render(<Boom message={CHROME} />);
+    act(() => [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Reload'))!.click());
+    expect(reload).not.toHaveBeenCalled();
+    expect(host.textContent).not.toContain('restored from');
+    expect(host.textContent).toContain('shared autosave');
+  });
 
   it('recognises each engine’s wording, and nothing else', () => {
     expect(isChunkLoadError(new TypeError(CHROME))).toBe(true);

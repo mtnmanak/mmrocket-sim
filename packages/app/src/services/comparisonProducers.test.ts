@@ -1,4 +1,8 @@
 // @vitest-environment happy-dom
+// V211-1: View3DBoundary 2 -> 1 removes the download fallback's numeric
+// reassurance ("every number ... unchanged") along with its false autosave
+// promise. The WebGL fallback retains its reassurance. No measurement or
+// threshold changed; View3DBoundary.test covers both failure kinds and the hold.
 // PRFL-1: census unchanged. The owner-defined 0.85–1.15 display band and
 // unity crossings describe the sampled flight, with no verdict or flight
 // threshold change. rollPitchResonance.test covers interval boundaries,

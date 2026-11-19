@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { act } from 'react';
+import { act, useLayoutEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App.js';
 import { APP_VERSION } from './version.js';
@@ -15,6 +15,83 @@ import { saveFile } from './services/saveFile.js';
 import { createPageActivity, pageActivity } from './services/pageActivity.js';
 import * as shareLink from './services/shareLink.js';
 import * as importApply from './services/importApply.js';
+
+const dirtyOverride = vi.hoisted(() => ({ value: undefined as boolean | undefined }));
+it.each(['before tracking', 'before offer commit'])('r2 protects a clean restored share link %s', async mode => {
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+  dirtyOverride.value = false;
+  const snapshot: DesignSnapshot = {
+    tree: { name: 'Clean restored design', components: [{ type: 'stage', id: 's', children: [] }] },
+    launch: DEFAULT_CONDITIONS, mountMotors: {}, savedConfigs: [], activeConfigId: null,
+    maxMotorLengthByStage: {}, measured: { massKg: null, cgM: null },
+  };
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...snapshot,
+    savedAt: Date.now(), appVersion: APP_VERSION, savedMark: designFingerprint(snapshot) }));
+  vi.mocked(useVersionCheck).mockReturnValue({ state: { kind: 'unknown' }, recheck: vi.fn(), checking: false });
+  vi.mocked(useSwUpdate).mockReturnValue({ kind: 'ready', applying: false, reloadRequired: true });
+  let decode!: (xml: string) => void;
+  vi.spyOn(shareLink, 'decodeShareFragment').mockImplementation(() => new Promise(resolve => { decode = resolve; }));
+  window.history.replaceState(null, '', '/#d=restored');
+  setReloadHold(() => true);
+  const s = pendingTakeover(mode === 'before tracking');
+  const heldAtFinish: boolean[] = [];
+  const start = pageActivity.startImport;
+  vi.spyOn(pageActivity, 'startImport').mockImplementation(() => {
+    const finish = start();
+    return () => {
+      finish();
+      heldAtFinish.push(isReloadHeld());
+      if (mode === 'before offer commit') s.container.dispatchEvent(new Event('controllerchange'));
+    };
+  });
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+    expect(s.reload).not.toHaveBeenCalled();
+    await act(async () => {
+      decode('<openrocket version="1.10"><rocket><name>Linked design</name><subcomponents><stage><subcomponents>'
+        + '<bodytube><length>0.3</length><radius>0.02</radius><thickness>0.001</thickness></bodytube>'
+        + '</subcomponents></stage></subcomponents></rocket></openrocket>');
+      await vi.waitFor(() => expect(pageActivity.importsInProgress()).toBe(0));
+    });
+    expect(heldAtFinish).toContain(true);
+    expect(host.querySelector('[aria-label="Open design from link"]')).not.toBeNull();
+    expect(s.reload).not.toHaveBeenCalled();
+    const confirm = vi.fn(() => false); vi.stubGlobal('confirm', confirm);
+    await act(async () => host.querySelector<HTMLButtonElement>('.version-update')!.click());
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('lose'));
+    expect(applyUpdate).not.toHaveBeenCalled();
+  } finally { await act(async () => root.unmount()); host.remove(); s.stop(); window.history.replaceState(null, '', '/'); }
+});
+
+it.each(['held reload', 'waiting worker', 'stale version'])('r2 warns and confirms an explicit update reload for a clean unstored design (%s)', async mode => {
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+  dirtyOverride.value = false;
+  vi.mocked(heldSession).mockReturnValue({} as NonNullable<ReturnType<typeof heldSession>>);
+  vi.mocked(useVersionCheck).mockReturnValue({ state: { kind: 'stale', latest: { version: '0.999' } }, recheck: vi.fn(), checking: false });
+  vi.mocked(useSwUpdate).mockReturnValue({ kind: mode === 'stale version' ? 'idle' : 'ready', applying: false, reloadRequired: mode === 'held reload' });
+  const confirm = vi.fn(() => false); vi.stubGlobal('confirm', confirm);
+  const host = document.createElement('div'); const root = createRoot(host);
+  try {
+    await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+    const button = host.querySelector<HTMLButtonElement>('.version-update')!;
+    expect(button.title).toContain('.ork');
+    await act(async () => button.click());
+    expect(confirm).toHaveBeenCalled();
+    expect(applyUpdate).not.toHaveBeenCalled();
+    confirm.mockReturnValue(true);
+    await act(async () => button.click());
+    expect(applyUpdate).toHaveBeenCalledOnce();
+  } finally { await act(async () => root.unmount()); }
+});
+vi.mock('./hooks/useDesignDirty.js', async original => {
+  const real = await original<typeof import('./hooks/useDesignDirty.js')>();
+  return { ...real, useDesignDirty: (...args: Parameters<typeof real.useDesignDirty>) => {
+    const result = real.useDesignDirty(...args);
+    return { ...result, dirty: dirtyOverride.value ?? result.dirty };
+  } };
+});
 
 vi.mock('./services/versionCheck.js', async original => ({
   ...await original<typeof import('./services/versionCheck.js')>(), useVersionCheck: vi.fn(),
@@ -33,6 +110,7 @@ vi.mock('./services/session.js', async original => {
 });
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 beforeEach(() => {
+  dirtyOverride.value = undefined;
   pendingTakeover(false).stop();
   vi.mocked(sessionConflicted).mockReset().mockReturnValue(false);
   vi.mocked(heldSession).mockReset().mockReturnValue(null);
@@ -144,7 +222,7 @@ it.each(['click', 'startup settle'])('round 2 App resumes a held precache repair
   const unregister = vi.fn(async () => true);
   const reload = vi.fn();
   expect(await guardPrecache({ active: {}, scope: 'https://example.test/', unregister } as unknown as ServiceWorkerRegistration, {
-    dev: false, online: () => true, session: () => ({ getItem: () => null, setItem: vi.fn() }),
+    dev: false, online: () => true, session: () => ({ getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() }),
     caches: () => ({ keys: async () => [], open: vi.fn() }), serverAnswers: async () => true, reload,
   })).toBe('held');
   const host = document.createElement('div'); document.body.append(host);
@@ -431,7 +509,7 @@ it('tracks applyImported through motor resolution and stays touched after a succ
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
-it('marks the share import before stripping its fragment and releases it on failure', async () => {
+it.each(['before tracking', 'during decode'])('V211-3 holds a share import on takeover %s', async mode => {
   vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
   vi.mocked(useVersionCheck).mockReturnValue({ state: { kind: 'unknown' }, recheck: vi.fn(), checking: false });
   vi.mocked(useSwUpdate).mockReturnValue({ kind: 'idle', applying: false });
@@ -446,16 +524,103 @@ it('marks the share import before stripping its fragment and releases it on fail
   });
   const host = document.createElement('div'); document.body.append(host);
   const root = createRoot(host);
+  setReloadHold(() => true);
+  const s = pendingTakeover(mode === 'before tracking');
   try {
     await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
     expect(strip).toHaveBeenCalledOnce();
     expect(strippedAt).toEqual([{ imports: 1, untouched: false }]);
     expect(pageActivity.importsInProgress()).toBe(1);
     expect(isPageUntouched()).toBe(false);
+    expect(isReloadHeld()).toBe(true);
+    if (mode === 'during decode') s.container.dispatchEvent(new Event('controllerchange'));
+    expect(s.reload).not.toHaveBeenCalled();
     await act(async () => rejectDecode(new Error('invalid link')));
     expect(pageActivity.importsInProgress()).toBe(0);
     expect(isPageUntouched()).toBe(false);
-  } finally { await act(async () => root.unmount()); host.remove(); strip.mockRestore(); replace(null, '', '/'); }
+  } finally { await act(async () => root.unmount()); host.remove(); s.stop(); strip.mockRestore(); replace(null, '', '/'); }
+});
+
+it.each(['held design', 'live conflict'])('V211-4/10 holds a mounted clean tab with %s before rerender', async reason => {
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+  vi.mocked(useVersionCheck).mockReturnValue({ state: { kind: 'unknown' }, recheck: vi.fn(), checking: false });
+  vi.mocked(useSwUpdate).mockReturnValue({ kind: 'idle', applying: false });
+  const s = pendingTakeover(false);
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+    expect(isReloadHeld()).toBe(false);
+    if (reason === 'held design') vi.mocked(heldSession).mockReturnValue({} as NonNullable<ReturnType<typeof heldSession>>);
+    else vi.mocked(sessionConflicted).mockReturnValue(true);
+    expect(isReloadHeld()).toBe(true);
+    s.container.dispatchEvent(new Event('controllerchange'));
+    expect(s.reload).not.toHaveBeenCalled();
+  } finally { await act(async () => root.unmount()); host.remove(); s.stop(); }
+});
+
+it.each(['file', 'share'])('V211-3 holds a pending %s offer even after its current design becomes clean', async mode => {
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+  vi.mocked(useVersionCheck).mockReturnValue({ state: { kind: 'unknown' }, recheck: vi.fn(), checking: false });
+  vi.mocked(useSwUpdate).mockReturnValue({ kind: 'idle', applying: false });
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  const s = pendingTakeover(false);
+  let decode!: (xml: string) => void;
+  if (mode === 'share') {
+    vi.spyOn(shareLink, 'decodeShareFragment').mockImplementation(() => new Promise(resolve => { decode = resolve; }));
+    window.history.replaceState(null, '', '/#d=offer');
+  }
+  try {
+    await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+    await act(async () => host.querySelector<HTMLButtonElement>('.tour-close')?.click());
+    const name = host.querySelector<HTMLInputElement>('#rocket-name')!;
+    const original = name.value;
+    const changeName = (value: string) => act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, value);
+      name.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await changeName('Changed for replace offer');
+    if (mode === 'file') {
+      const picker = host.querySelector<HTMLInputElement>('input[aria-label="Open a design file"]')!;
+      Object.defineProperty(picker, 'files', { configurable: true, value: [new File(['bad'], 'offered.ork')] });
+      await act(async () => picker.dispatchEvent(new Event('change', { bubbles: true })));
+      expect(host.textContent).toContain('Save .ork, then open');
+    } else {
+      await act(async () => {
+        decode('<openrocket version="1.10"><rocket><name>Linked design</name><subcomponents><stage><subcomponents>'
+          + '<bodytube><length>0.3</length><radius>0.02</radius><thickness>0.001</thickness></bodytube>'
+          + '</subcomponents></stage></subcomponents></rocket></openrocket>');
+        await vi.waitFor(() => expect(pageActivity.importsInProgress()).toBe(0));
+      });
+      expect(host.querySelector('[aria-label="Open design from link"]')).not.toBeNull();
+    }
+    await changeName(original);
+    expect(host.textContent).toContain('No unsaved changes');
+    expect(isReloadHeld()).toBe(true);
+    s.container.dispatchEvent(new Event('controllerchange'));
+    expect(s.reload).not.toHaveBeenCalled();
+  } finally { await act(async () => root.unmount()); host.remove(); s.stop(); window.history.replaceState(null, '', '/'); }
+});
+
+it('V211-10 publishes the committed dirty hold before passive effects', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+  vi.mocked(useVersionCheck).mockReturnValue({ state: { kind: 'unknown' }, recheck: vi.fn(), checking: false });
+  vi.mocked(useSwUpdate).mockReturnValue({ kind: 'idle', applying: false });
+  dirtyOverride.value = false;
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  const layout = vi.fn();
+  function Probe() { useLayoutEffect(() => { layout(isReloadHeld()); }); return null; }
+  const render = () => act(async () => root.render(<><PrefsProvider><App /></PrefsProvider><Probe /></>));
+  try {
+    await render();
+    expect(isReloadHeld()).toBe(false);
+    layout.mockClear();
+    dirtyOverride.value = true;
+    await render();
+    expect(layout).toHaveBeenCalledWith(true);
+  } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
 it('registers the untouched predicate once, however often App renders, and it reads the latest state', async () => {

@@ -47,6 +47,23 @@ const GOOD_SAMPLES: TcSample[] = [
 
 const CACHE_KEY = `tc:samples:v7:${QUEST_C6.motorId}`;
 
+it.each(['batch', 'network', 'backoff'])('r2 warns to save before a missing curve chunk reload (%s)', async mode => {
+  const failure = async (promise: Promise<unknown>): Promise<Error> => {
+    try { await promise; throw new Error('Expected a curve-load failure'); }
+    catch (error) { return error as Error; }
+  };
+  vi.resetModules();
+  vi.doMock('../data/motorCurves.json', () => { throw new Error('Failed to fetch dynamically imported module'); });
+  try {
+    const tc = await import('./thrustcurve.js');
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    if (mode === 'backoff') await failure(tc.fetchMotorSpec(QUEST_C6, 5));
+    const error = await failure(mode === 'batch' ? tc.requireCurveBundle() : tc.fetchMotorSpec(QUEST_C6, 5));
+    expect(error.message).toContain('Save this tab’s design as an .ork file before reloading');
+    expect(error.message).toContain('another tab’s design');
+  } finally { vi.doUnmock('../data/motorCurves.json'); vi.resetModules(); }
+});
+
 it.each([false, true])('cancels an unread HTTP refusal body (cancel rejects: %s)', async rejects => {
   const tc = await freshModule();
   const cancel = vi.fn(() => rejects ? Promise.reject(new Error('stream failed')) : undefined);

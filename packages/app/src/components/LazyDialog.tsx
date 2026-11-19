@@ -1,6 +1,7 @@
 import { Component, Suspense, type ErrorInfo, type ReactNode } from 'react';
 import { useBackdropClose, useDialog } from './useDialog.js';
 import { isChunkLoadError } from './View3DBoundary.js';
+import { ReloadPageButton } from './ReloadPageButton.js';
 
 /**
  * The frame round a dialog whose code App.tsx lazy-loads — the user guide and
@@ -116,8 +117,9 @@ class LazyDialogBoundary extends Component<
               may have dropped, or the app may have been updated since this page loaded.
             </p>
             <p>
-              Reloading the page downloads it again; the design is restored from this
-              browser&rsquo;s autosave, as on any reload. Nothing else is affected.
+              Reloading the page downloads it again. Save this tab&rsquo;s design as an .ork file
+              first: another tab may have replaced the shared autosave, and reloading can lose
+              this tab&rsquo;s design.
             </p>
           </>
         ) : (
@@ -128,7 +130,7 @@ class LazyDialogBoundary extends Component<
         )}
         {this.state.detail && <p className="hero-fallback-detail">{this.state.detail}</p>}
         {this.state.download && (
-          <button className="file-btn" onClick={() => window.location.reload()}>↻ Reload the page</button>
+          <ReloadPageButton />
         )}
       </DialogStandIn>
     );

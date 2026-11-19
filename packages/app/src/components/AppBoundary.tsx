@@ -4,6 +4,7 @@ import { sessionDebugLog } from '../services/sessionDebugLog.js';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { autosavedDesignFile } from '../services/autosaveBackup.js';
 import { saveFile, saveOutcomeNote } from '../services/saveFile.js';
+import { setCrashReloadHold } from '../services/swUpdate.js';
 import {
   autosaveIsAnotherTabs, discardSession, heldSession, onSessionConflictChange, onSessionSaveStateChange, sessionPayload,
 } from '../services/session.js';
@@ -71,7 +72,8 @@ export class AppBoundary extends Component<
       const changed = () => this.setState({ held: heldSession() !== null });
       const offConflict = onSessionConflictChange(changed);
       const offSaving = onSessionSaveStateChange(changed);
-      this.unsubscribe = () => { offConflict(); offSaving(); };
+      const offReload = setCrashReloadHold(() => heldSession() !== null);
+      this.unsubscribe = () => { offConflict(); offSaving(); offReload(); };
       this.setState({ held: heldSession() !== null });
     }
   }
@@ -146,8 +148,9 @@ export class AppBoundary extends Component<
           </p>
         ) : (
           <p>
-            The app hit an error it could not draw past, so it stopped. Your design is still in this
-            browser&rsquo;s autosave: download it first, then start fresh.
+            The app hit an error it could not draw past, so it stopped. Download the autosave if one
+            is available, and check that it is the design you want to keep before starting fresh.
+            Another tab may have replaced it.
           </p>
         )}
         <p className="hero-fallback-detail">{this.state.error}</p>

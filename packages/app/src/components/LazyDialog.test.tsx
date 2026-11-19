@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LazyDialog } from './LazyDialog.js';
 import { openModalCount } from './useDialog.js';
+import { setReloadHold } from '../services/swUpdate.js';
 
 /**
  * The frame round the lazy-loaded guide and changelog (audit 2026-09-22, row
@@ -44,6 +45,7 @@ let host: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  setReloadHold(() => false);
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
@@ -151,6 +153,23 @@ describe('LazyDialog — when the dialog arrives', () => {
 });
 
 describe('LazyDialog — when the download fails', () => {
+  it('V211-1 keeps a held tab and warns about the shared autosave', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const reload = vi.fn();
+    vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, reload } as Location);
+    setReloadHold(() => true);
+    const Broken: DialogType = () => { throw new TypeError('Failed to fetch dynamically imported module'); };
+    act(() => root.render(<Harness Dialog={Broken} />));
+    open();
+    const button = [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Reload'))!;
+    act(() => button.click());
+    expect(reload).not.toHaveBeenCalled();
+    expect(host.querySelector('[role="status"]')?.textContent).toContain('shared autosave');
+    expect(host.textContent).not.toContain('restored from');
+    setReloadHold(() => false);
+    act(() => button.click());
+    expect(reload).toHaveBeenCalledOnce();
+  });
   it('says so in a dialog that closes like any other, instead of taking the page down', async () => {
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
     // Chrome's words for a chunk it could not fetch (isChunkLoadError).

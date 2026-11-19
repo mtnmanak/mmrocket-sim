@@ -589,6 +589,9 @@ async function loadBundledCurves(): Promise<Record<string, BundledSimFile[]>> {
   return bundledCurves;
 }
 
+const CURVE_RELOAD_WARNING = 'Save this tab’s design as an .ork file before reloading: '
+  + 'the shared autosave may restore another tab’s design and lose this tab’s work.';
+
 /** Batch must never turn a missing release chunk into a download per candidate. */
 export async function requireCurveBundle(motors: readonly TcMotor[] = []): Promise<void> {
   try {
@@ -603,7 +606,7 @@ export async function requireCurveBundle(motors: readonly TcMotor[] = []): Promi
         return isCurrentCurveCache(entry);
       } catch { return false; }
     })) return;
-    throw new Error('The thrust curves bundled with the app did not load — reload the app and run again.');
+    throw new Error(`The thrust curves bundled with the app did not load — ${CURVE_RELOAD_WARNING} Reload the app and run again.`);
   }
 }
 
@@ -1599,7 +1602,7 @@ async function curveFilesFromNetwork(motor: TcMotor, ctx: {
     const backoff = thrustcurveBackoffMessage();
     if (bundleFailed && backoff && !timedOut && !(err instanceof TypeError)) {
       throw new Error(`The thrust curves bundled with the app did not load, and ${backoff} `
-        + "Reload the app with a connection, or import the motor's .rse/.eng file.", { cause: err });
+        + `${CURVE_RELOAD_WARNING} Reload the app with a connection, or import the motor's .rse/.eng file.`, { cause: err });
     }
     if (!timedOut && !(err instanceof TypeError)) {
       if (backoff && !(err instanceof ThrustcurveBackoffError)) {
@@ -1612,8 +1615,8 @@ async function curveFilesFromNetwork(motor: TcMotor, ctx: {
       : `thrustcurve.org could not be reached for ${noteField(motor.designation)}`;
     throw new Error(
       bundleFailed
-        ? `The thrust curves bundled with the app did not load, and ${miss}. ${backoff ? backoff + ' ' : ''}Reload the app with a `
-          + "connection, or import the motor's .rse/.eng file."
+        ? `The thrust curves bundled with the app did not load, and ${miss}. ${backoff ? backoff + ' ' : ''}${CURVE_RELOAD_WARNING} `
+          + "Reload the app with a connection, or import the motor's .rse/.eng file."
         : backoff
           ? `${miss}. ${backoff} You can import the motor's .rse/.eng file.`
           : `${miss}${timedOut ? '.' : ' — are you offline?'} Check the connection and try again, or import `

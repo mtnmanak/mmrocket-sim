@@ -55,7 +55,7 @@
     "components/TreeSchematic.tsx": 2,
     "components/TubeWrapMenu.tsx": 1,
     "components/useRovingRows.ts": 1,
-    "components/View3DBoundary.tsx": 2,
+    "components/View3DBoundary.tsx": 1,
     "components/WeatherDialog.tsx": 15,
     "components/WeatherSkyInfo.tsx": 3,
     "components/WeatherStrip.tsx": 2,

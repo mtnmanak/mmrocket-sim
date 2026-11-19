@@ -56,7 +56,7 @@ it('a failed curve bundle stops Batch before any download, while single Load ret
   input.candidates = MOTOR_DB.slice(0, 3);
   const fetcher = vi.fn(async () => new Response('{"results":[]}'));
   vi.stubGlobal('fetch', fetcher);
-  await expect(sweep()).rejects.toThrow('The thrust curves bundled with the app did not load — reload the app and run again.');
+  await expect(sweep()).rejects.toThrow(/The thrust curves bundled with the app did not load — Save this tab’s design as an \.ork file before reloading: .*another tab’s design.* Reload the app and run again\./);
   expect(fetcher).not.toHaveBeenCalled();
   const { fetchMotorSpec, NoPublishedCurveError } = await import('./thrustcurve.js');
   await expect(fetchMotorSpec(input.candidates[0]!, 5)).rejects.toBeInstanceOf(NoPublishedCurveError);
@@ -88,11 +88,11 @@ it('a failed bundle still lets Batch fly candidates with cached curves without r
   expect(fetcher).not.toHaveBeenCalled();
   // One uncached candidate must still stop the whole run before downloading.
   input.candidates = [...input.candidates, { ...candidate, motorId: 'uncached' }];
-  await expect(sweep()).rejects.toThrow('reload the app and run again');
+  await expect(sweep()).rejects.toThrow(/Save this tab’s design.*before reloading.*Reload the app and run again/);
   expect(fetcher).not.toHaveBeenCalled();
   // A corrupt cache must not bypass that refusal either.
   localStorage.setItem('tc:samples:v7:uncached', '{"samples":[{"time":"bad","thrust":1}]}');
-  await expect(sweep()).rejects.toThrow('reload the app and run again');
+  await expect(sweep()).rejects.toThrow(/Save this tab’s design.*before reloading.*Reload the app and run again/);
   expect(fetcher).not.toHaveBeenCalled();
 });
 
