@@ -1,5 +1,5 @@
 {
-  "version": "0.210",
+  "version": "0.211",
   "released": "2026-11-18",
-  "note": "Flight plots → Stability diagnostics has a new chart, Roll rate ÷ pitch natural frequency, with the 0.85–1.15 band where roll and pitch can couple, and the note gives this flight’s crossings and time in that band before apogee. The AeroTech G35 shows its printed average ejection delays. No flight number moves."
+  "note": "When you update with several tabs open, a tab with unsaved changes is no longer reloaded by the update another tab applies: it keeps its Reload button and waits for you. Ten catalogue parts get their weight corrected (Apogee 10064 tube, Quest 10100/10104 couplers, six plastic parachutes, a Public Missiles streamer)."
 }

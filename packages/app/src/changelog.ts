@@ -40,6 +40,25 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.211",
+    "date": "2026-11-18",
+    "title": "An update no longer reloads another tab that has unsaved changes; ten catalogue parts get their weight corrected",
+    "summary": [
+      "When you update with several tabs open, a tab that has unsaved changes is no longer reloaded by the update another tab applies. It keeps its Reload button and waits for you; save its design as an .ork first if you want to keep it.",
+      "Corrected parts in the catalogue: the Apogee 10064 tube weighed 8.1 g instead of about 1.3 g; the Quest 10100 and 10104 couplers weighed 28.3 g instead of about 3 g; six plastic parachutes (Estes 302262, SEMROC CP-12 to CP-32) weighed as nylon; the Public Missiles TBD123 streamer weighed 15.6 g instead of 10.9 g.",
+      "These corrections apply when you pick the part, or when a file from another program uses the part and leaves its weight or material out. A design saved by the app keeps the values it was saved with.",
+      "The simulation itself is unchanged: other flights move only if they use one of these parts that way."
+    ],
+    "items": [
+      "WHAT WAS WRONG WITH UPDATES. Since v0.209, clicking “↻ v0.2NN ready — Reload” reloaded the other open tabs of the app together with it. The tabs share one autosave, so another tab holding unsaved changes came back with the design last autosaved from any tab, and its own changes were gone (found while measuring the update path, 18 November).",
+      "TABS WITH UNSAVED CHANGES WAIT. A tab with unsaved changes, or one whose design conflicts with another tab’s, is no longer reloaded without you: not when another tab applies the update, not when the update takes over, and not when the app repairs its offline copy. It keeps its Reload button — “↻ Reload to finish the update” once the new version has taken over, with a tooltip saying why it waited. Save the design as an .ork if you want to keep it, then click Reload; clicking it reloads that tab as before. A tab updates by itself on a fresh open only when it has no unsaved changes. Reloading a tab yourself still restores the design last autosaved from any tab, as before.",
+      "PARTS THAT WEIGHED TOO MUCH. These ten parts now weigh, picked from the catalogue (calculated from each part’s own dimensions and material): Apogee 10064 body tube 1.26 g (was 8.10 g — its listed weight was a copy of the 18-inch tube 10086’s); Quest 10100 coupler 2.92 g and Quest 10104 coupler 3.26 g (both were a 1 oz placeholder, 28.35 g); the Estes 302262 plastic parachute 0.73 g (was 1.52 g); SEMROC CP-12, CP-16, CP-20, CP-24 and CP-32 plastic parachutes 2.04, 3.63, 5.49, 7.73 and 13.35 g (were 5.21, 9.27, 14.30, 20.42 and 35.92 g); the Public Missiles TBD123 plastic streamer 10.91 g (was 15.56 g), and its automatic drag coefficient falls from 0.040 to 0.031 with it. The plastic parachutes had no material weight listed, so the simulation used ripstop nylon’s; they now use 0.0235 kg/m², the 1-mil polyethylene sheet the same makers list for their other plastic parachutes (the film thickness of these parts is not stated). The streamer uses its own file’s polyethylene at its stated thickness.",
+      "SMALLER CORRECTIONS. SEMROC PN-14 to PN-36 nylon parachutes take their maker file’s ripstop weight (0.06685 kg/m², under 0.1 g lighter each). Seven Fruity Chutes IFC nylon parachutes get their shroud-line material’s weight, and nineteen newer Fruity Chutes rows now carry their published shroud-line material (sixteen Spectra-line rows had been labelled nylon). These parachutes list their whole weight, which still governs, so nothing flown changes for them.",
+      "DESIGNS THAT ALREADY USE ONE. A design saved by the app keeps the mass and material it was saved with; pick the part again to take the corrected values. A file from another program that uses one of these parts and leaves its weight or material out takes the corrected values when it is opened. None of the 51 distinct .ork and .rkt tester designs the app is checked against changes its flight.",
+      "WHAT MOVES. The simulation itself is unchanged. A flight moves only if it uses one of the ten parts above picked after this update, or read from another program’s file that leaves that part’s weight or material out."
+    ]
+  },
+  {
     "version": "0.210",
     "date": "2026-11-18",
     "title": "Roll rate against pitch frequency: a new Stability diagnostics chart; G35 delay averages",
