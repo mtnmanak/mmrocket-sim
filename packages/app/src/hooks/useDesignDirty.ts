@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, type MutableRefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type MutableRefObject } from 'react';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { designFingerprint, isDirty, type DesignSnapshot } from '../services/dirtyState.js';
 
@@ -38,6 +38,8 @@ export interface DirtySeed {
 }
 
 export interface DesignDirty {
+  /** First render after the mount-time saved-mark seed/migrations completed. */
+  startupSettled: boolean;
   /** The design on screen differs from the last save, or has flown since. */
   dirty: boolean;
   /** The memoized fingerprint shared by dirty checks and the caller's save status. */
@@ -157,7 +159,7 @@ export function useDesignDirty(
   // has already moved the design off the seed, and that work keeps its prompt
   // (audit 2026-09-22). No motor ever landing (no bundle, no network) leaves
   // the seed standing, which is the design on screen.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const m = starter.landing.current;
     if (m === null) return;
     if (snapshot.mountMotors[starter.mountId ?? ''] !== m) {
@@ -175,6 +177,11 @@ export function useDesignDirty(
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the starter's mount is fixed at mount
   }, [snapshot]);
+
+  const [startupSettled, setStartupSettled] = useState(false);
+  // Ordered after the seed and migration effects above. Their ref writes and
+  // dirtyTick updates are visible in the render that first reads true.
+  useEffect(() => { setStartupSettled(true); }, []);
 
   const currentMark = useMemo(() => designFingerprint(snapshot), [snapshot]);
   const dirty = useMemo(
@@ -211,5 +218,5 @@ export function useDesignDirty(
     bumpDirty();
   }, []);
 
-  return { dirty, currentMark, markSaved, invalidateSaved, migrateSavedMark, markFlown, savedMark, flownSinceSave, flightCount, dirtyTick };
+  return { dirty, startupSettled, currentMark, markSaved, invalidateSaved, migrateSavedMark, markFlown, savedMark, flownSinceSave, flightCount, dirtyTick };
 }

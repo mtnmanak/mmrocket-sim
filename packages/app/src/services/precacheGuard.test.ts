@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setReloadHold, settleReloadHold, swUpdate } from './swUpdate.js';
 import { cacheNames } from 'workbox-core/_private/cacheNames.js';
 import {
   PRECACHE_GUARD_KEY, guardPrecache, precacheCacheName, precacheVerdict, type PrecacheGuardEnv,
@@ -14,6 +15,15 @@ import {
  */
 
 const SCOPE = 'https://mmrsim.example/';
+beforeEach(() => {
+  // Dispose the previous document's pending repair before installing this one.
+  swUpdate.start(new EventTarget() as ServiceWorkerRegistration, {
+    container: Object.assign(new EventTarget(), { controller: null }) as ServiceWorkerContainer,
+    initialController: null, reload: vi.fn(), now: () => 0,
+    isUntouched: () => false, otherTabsOpen: async () => false,
+  })();
+  setReloadHold(() => false);
+});
 
 describe('precacheVerdict — the decision, every branch', () => {
   const stranded = {
@@ -120,6 +130,50 @@ function registration(active = true) {
 describe('guardPrecache — unregister and reload, once, only where that heals', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
+  it('149 B keeps a held design without unregistering or consuming the retry', async () => {
+    setReloadHold(() => true);
+    const { e, seen } = env();
+    const { reg, unregister } = registration();
+    expect(await guardPrecache(reg, e)).toBe('held');
+    expect(unregister).not.toHaveBeenCalled();
+    expect(seen.reloads).toBe(0);
+    expect(seen.flag).toBeNull();
+    setReloadHold(() => false);
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(await guardPrecache(reg, e)).toBe('reloaded');
+  });
+
+  it('149 B rechecks the hold after asynchronous unregistering', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { e, seen } = env();
+    const { reg, unregister } = registration();
+    unregister.mockImplementation(async () => { setReloadHold(() => true); return true; });
+    expect(await guardPrecache(reg, e)).toBe('held');
+    expect(seen.reloads).toBe(0);
+    expect(swUpdate.getSnapshot()).toMatchObject({ kind: 'ready', reloadRequired: true });
+    await swUpdate.applyUpdate();
+    expect(seen.reloads).toBe(1);
+    expect(unregister).toHaveBeenCalledOnce();
+  });
+
+  it.each(['click', 'startup settle'])('round 2 keeps held precache repair pending until %s', async mode => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let held = true;
+    setReloadHold(() => held);
+    const { e, seen } = env();
+    const { reg, unregister } = registration();
+    expect(await guardPrecache(reg, e)).toBe('held');
+    expect(swUpdate.getSnapshot()).toMatchObject({ kind: 'ready', applying: false, reloadRequired: true });
+    if (mode === 'click') await swUpdate.applyUpdate();
+    else {
+      held = false;
+      await settleReloadHold();
+    }
+    expect(unregister).toHaveBeenCalledOnce();
+    expect(seen.reloads).toBe(1);
+    expect(seen.flag).toBe('1');
+  });
+
   it('unregisters a stranded worker and reloads, marking the session first', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { e, seen } = env();
@@ -128,8 +182,44 @@ describe('guardPrecache — unregister and reload, once, only where that heals',
     expect(unregister).toHaveBeenCalledTimes(1);
     expect(seen.reloads).toBe(1);
     expect(seen.flag).not.toBeNull();
+    expect(seen.server).toBe(1);
     // Logged, for the bug report a second sighting would need.
     expect(console.warn).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['offline', 'server-silent', 'cancelled reload'])('round 3 retries deferred repair after %s', async failure => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    setReloadHold(() => true);
+    const { e, seen } = env();
+    const { reg, unregister } = registration();
+    expect(await guardPrecache(reg, e)).toBe('held');
+    const online = e.online;
+    const server = e.serverAnswers;
+    if (failure === 'offline') e.online = () => false;
+    if (failure === 'server-silent') e.serverAnswers = async () => false;
+    await swUpdate.applyUpdate();
+    expect(seen.reloads).toBe(failure === 'cancelled reload' ? 1 : 0);
+    expect(swUpdate.getSnapshot()).toMatchObject({ kind: 'ready', applying: false, reloadRequired: true });
+    e.online = online;
+    e.serverAnswers = server;
+    await swUpdate.applyUpdate();
+    expect(seen.reloads).toBe(failure === 'cancelled reload' ? 2 : 1);
+    expect(unregister).toHaveBeenCalledOnce();
+    expect(seen.flag).toBe('1');
+  });
+
+  it('round 3 rechecks the hold after a resumed server query', async () => {
+    setReloadHold(() => true);
+    const { e, seen } = env();
+    const { reg, unregister } = registration();
+    expect(await guardPrecache(reg, e)).toBe('held');
+    let held = false;
+    e.serverAnswers = async () => { held = true; return true; };
+    setReloadHold(() => held);
+    await settleReloadHold();
+    expect(unregister).not.toHaveBeenCalled();
+    expect(seen.flag).toBeNull();
+    expect(seen.reloads).toBe(0);
   });
 
   it('does it once a session: the reloaded page leaves the worker alone', async () => {

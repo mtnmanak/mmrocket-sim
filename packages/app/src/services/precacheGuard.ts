@@ -1,4 +1,5 @@
 import { fetchLatestVersion } from './versionCheck.js';
+import { isReloadHeld, swUpdate } from './swUpdate.js';
 
 /**
  * "REGISTRATION PRESENT, PRECACHE EMPTY" — A SAFEGUARD (board Tier 1 row 16).
@@ -87,7 +88,7 @@ const browser: PrecacheGuardEnv = {
   reload: () => location.reload(),
 };
 
-export type PrecacheGuardOutcome = PrecacheVerdict | 'no-registration' | 'unknown' | 'server-silent' | 'reloaded';
+export type PrecacheGuardOutcome = PrecacheVerdict | 'no-registration' | 'unknown' | 'server-silent' | 'held' | 'reloaded';
 
 /** Look, decide, and — when the precache is stranded — unregister and reload. Never throws. */
 export async function guardPrecache(
@@ -116,18 +117,34 @@ export async function guardPrecache(
   });
   if (verdict !== 'stranded') return verdict;
   if (!(await env.serverAnswers())) return 'server-silent';
-  try {
-    env.session().setItem(PRECACHE_GUARD_KEY, '1');
-  } catch {
-    return 'already-tried';
-  }
-  console.warn('MMRocket Sim: the offline copy was empty while its service worker was active; '
-    + 'unregistering the worker and reloading once, so a fresh one installs.');
-  try {
-    await reg.unregister();
-  } catch {
-    return 'unknown';
-  }
-  env.reload();
-  return 'reloaded';
+  let unregistered = false;
+  const hold = () => {
+    swUpdate.deferReload(repair);
+    return 'held' as const;
+  };
+  const repair = async (requested = false, serverChecked = false): Promise<PrecacheGuardOutcome> => {
+    if (!requested && isReloadHeld()) return hold();
+    if (!unregistered) {
+      if (!serverChecked && (!env.online() || !(await env.serverAnswers()))) return 'server-silent';
+      if (!requested && isReloadHeld()) return hold();
+      try {
+        env.session().setItem(PRECACHE_GUARD_KEY, '1');
+      } catch {
+        return 'already-tried';
+      }
+      console.warn('MMRocket Sim: the offline copy was empty while its service worker was active; '
+        + 'unregistering the worker and reloading once, so a fresh one installs.');
+      try {
+        await reg.unregister();
+        unregistered = true;
+      } catch {
+        return 'unknown';
+      }
+    }
+    // The tab may have been edited while unregister() was pending.
+    if (!requested && isReloadHeld()) return hold();
+    env.reload();
+    return 'reloaded';
+  };
+  return repair(false, true);
 }

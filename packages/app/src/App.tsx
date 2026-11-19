@@ -141,7 +141,7 @@ import { cdx1StageFigures } from './services/cdx1StageFigures.js';
 import { checkFormatLossOf, checkFormatLossSafely, formatExtension, type CheckedFormatLossReport, type FormatLossInput, type FormatLossReport, type LossyFormat } from './services/formatLoss.js';
 import { gateLossySave, lossySaveStatus, replacementLossNote, type LossySaveMark } from './services/lossySave.js';
 import {
-  flushSession, loadSession, onSessionConflictChange, onSessionSaveStateChange, saveSessionDebounced,
+  flushSession, heldSession, loadSession, onSessionConflictChange, onSessionSaveStateChange, saveSessionDebounced,
   sessionConflicted, sessionPredatesThisBuild, sessionSaveFailing, takeOverSession, versionEarlierThan,
 } from './services/session.js';
 import {
@@ -160,7 +160,7 @@ import {
 } from './services/simStore.js';
 import { APP_VERSION } from './version.js';
 import { useVersionCheck } from './services/versionCheck.js';
-import { applyUpdate, setIsUntouched, useSwUpdate } from './services/swUpdate.js';
+import { applyUpdate, setIsUntouched, setReloadHold, settleReloadHold, useSwUpdate } from './services/swUpdate.js';
 import { pageActivity } from './services/pageActivity.js';
 import { DebugLogDownload } from './components/DebugLogDownload.js';
 import { sessionDebugLog } from './services/sessionDebugLog.js';
@@ -1038,7 +1038,7 @@ export function App() {
    * (AUDIT row 477 — savedMarkSites.test.ts counted the sites in this text).
    */
   const {
-    dirty, currentMark, markSaved, invalidateSaved, migrateSavedMark, markFlown, savedMark, flownSinceSave, flightCount, dirtyTick,
+    dirty, startupSettled, currentMark, markSaved, invalidateSaved, migrateSavedMark, markFlown, savedMark, flownSinceSave, flightCount, dirtyTick,
   } = useDesignDirty(designSnapshot, restored.session, { landing: starterLanding, mountId: defaultMountId }, preRankRestore, preLengthRestore, restored.preConfigRestore,
     // A .rkt/.CDX1 save marks the design it wrote, apart from the .ork mark:
     // a non-edit rewrite (catalogue relabel, restore migration, starter landing)
@@ -1075,6 +1075,16 @@ export function App() {
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => { window.removeEventListener('beforeunload', onBeforeUnload); };
   }, [sessionConflict, autosavePaused, autosaveFailing, dirty]);
+  const holdReload = dirty || sessionConflict;
+  const holdReloadNow = useRef(true);
+  const dirtyReloadNow = useRef(true);
+  useEffect(() => { holdReloadNow.current = holdReload; dirtyReloadNow.current = dirty; });
+  // Dirty stops changing with App; the crash panel's conflict/held design stays live.
+  useEffect(() => setReloadHold(() => holdReloadNow.current,
+    () => dirtyReloadNow.current || sessionConflicted() || heldSession() !== null), []);
+  useEffect(() => {
+    if (startupSettled) void settleReloadHold();
+  }, [startupSettled]);
   // The hook's counter is session-local; saved provenance carries its prior count.
   const lossyFlights = (session?.lossySaved?.flights ?? 0) + flightCount.current;
   const lossyStatus = designFile && (designFile.format === 'rkt' || designFile.format === 'cdx1')
@@ -3803,11 +3813,14 @@ export function App() {
                   title="The update is being applied. This tab will reload.">↻ Updating…</button>
               ) : swUpdateState.reloadRequired ? (
                 <button className="version-update" disabled={swUpdateState.applying}
-                  title="The update has taken over. Reload to finish updating this tab."
+                  title={dirty
+                    ? 'This tab has unsaved changes: save them (.ork) if you want to keep them, then Reload.'
+                    : sessionConflict ? 'This tab is waiting because another tab changed the autosave. Save this design (.ork) if you want to keep it, then Reload.'
+                    : 'Reload to finish updating this tab or repairing its offline copy.'}
                   onClick={() => { void applyUpdate(); }}>↻ Reload to finish the update</button>
               ) : swUpdateState.kind === 'ready' ? (
                 <button className="version-update" disabled={swUpdateState.applying}
-                  title="The download is finished. Reload updates every open tab of the app."
+                  title="The download is finished. Reload updates the app; other tabs with unsaved changes wait."
                   onClick={() => { void applyUpdate(); }}>
                   {swUpdateState.readyVersion && versionEarlierThan(APP_VERSION, swUpdateState.readyVersion)
                     ? `↻ v${swUpdateState.readyVersion} ready — Reload` : '↻ New version ready — Reload'}
@@ -3819,7 +3832,7 @@ export function App() {
                 </span>
               ) : updateState.kind === 'stale' ? (
                 <button className="version-update"
-                  title={swUpdateState.kind === 'failed' ? 'The download did not start. Check your connection and click again.' : `v${updateState.latest.version}${updateState.latest.released ? ` (released ${updateState.latest.released})` : ''} is deployed. Check its download, then reload every open tab when ready.`}
+                  title={swUpdateState.kind === 'failed' ? 'The download did not start. Check your connection and click again.' : `v${updateState.latest.version}${updateState.latest.released ? ` (released ${updateState.latest.released})` : ''} is deployed. Check its download, then reload when ready; other tabs with unsaved changes wait.`}
                   onClick={() => { void applyUpdate(); }}>
                   ↻ v{updateState.latest.version} available — Reload
                 </button>

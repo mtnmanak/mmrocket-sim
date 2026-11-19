@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AUTO_APPLY_WINDOW_MS, createSwUpdateStore, isPageUntouched, setIsUntouched, otherTabsOpen, waitingWorkerVersion, swUpdate } from './swUpdate.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AUTO_APPLY_WINDOW_MS, createSwUpdateStore, isPageUntouched, setIsUntouched, otherTabsOpen, waitingWorkerVersion, swUpdate, isReloadHeld, setReloadHold } from './swUpdate.js';
 
 class Worker extends EventTarget {
   state: ServiceWorkerState = 'installing';
@@ -45,7 +45,111 @@ function setup(options: {
   return { worker, reg, container, reload, store, stop, found, ready, changeController, isUntouched, otherTabsOpen, setNow };
 }
 const cleanups: (() => void)[] = [];
+beforeEach(() => { setReloadHold(() => false); });
 afterEach(() => { cleanups.splice(0).forEach(stop => stop()); vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+describe('149 B: hold unattended reloads with the production predicate', () => {
+  it.each(['after start', 'before tracking'])('round 2 defaults to held before ANY registration: %s', async mode => {
+    vi.resetModules();
+    const fresh = await import('./swUpdate.js');
+    expect(fresh.isReloadHeld()).toBe(true);
+    const old = new Worker();
+    const container = Object.assign(new EventTarget(), { controller: old });
+    const reload = vi.fn();
+    if (mode === 'before tracking') container.controller = new Worker();
+    const stop = fresh.swUpdate.start(Object.assign(new EventTarget(), { active: old }) as unknown as ServiceWorkerRegistration, {
+      container: container as unknown as ServiceWorkerContainer, initialController: old as unknown as ServiceWorker,
+      reload, now: () => 0, isUntouched: () => true, otherTabsOpen: async () => false,
+    });
+    cleanups.push(stop);
+    if (mode === 'after start') container.dispatchEvent(new Event('controllerchange'));
+    expect(reload).not.toHaveBeenCalled();
+    expect(fresh.swUpdate.getSnapshot()).toMatchObject({ kind: 'ready', reloadRequired: true });
+  });
+  it.each(['controllerchange', 'callback', 'before tracking'])(
+    'keeps unsaved work on %s and offers an explicit reload', async mode => {
+      setReloadHold(() => true);
+      const s = setup(mode === 'before tracking' ? { initialController: new Worker() as unknown as ServiceWorker } : {});
+      if (mode === 'controllerchange') s.changeController();
+      if (mode === 'callback') s.store.reloadOnControllerChange();
+      expect(s.reload).not.toHaveBeenCalled();
+      expect(s.store.getSnapshot()).toMatchObject({ kind: 'ready', applying: false, reloadRequired: true });
+      await s.store.applyUpdate();
+      expect(s.reload).toHaveBeenCalledOnce();
+    });
+  it('holds the 5 s auto-apply fallback if edits started after activation was requested', async () => {
+    vi.useFakeTimers();
+    const s = setup({ waiting: true, untouched: true });
+    await Promise.resolve();
+    expect(s.worker.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+    setReloadHold(() => true);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(s.reload).not.toHaveBeenCalled();
+    expect(s.store.getSnapshot()).toMatchObject({ kind: 'ready', applying: false, reloadRequired: false });
+    await s.store.applyUpdate();
+    expect(s.worker.postMessage).toHaveBeenCalledTimes(2);
+    s.changeController();
+    expect(s.reload).toHaveBeenCalledOnce();
+  });
+  it.each(['controllerchange', 'fallback'])('honours this held tab own Reload through %s', async mode => {
+    vi.useFakeTimers();
+    setReloadHold(() => true);
+    const s = setup({ waiting: true });
+    await s.store.applyUpdate();
+    if (mode === 'controllerchange') s.changeController();
+    else await vi.advanceTimersByTimeAsync(5000);
+    expect(s.reload).toHaveBeenCalledOnce();
+  });
+  it('does not let a failed earlier click authorize a later unattended reload', async () => {
+    const s = setup();
+    await s.store.applyUpdate();
+    setReloadHold(() => true);
+    s.changeController();
+    expect(s.reload).not.toHaveBeenCalled();
+    expect(s.store.getSnapshot()).toMatchObject({ kind: 'ready', reloadRequired: true });
+  });
+  it('round 3 clears local reload authorization after cancelled beforeunload', async () => {
+    vi.useFakeTimers();
+    setReloadHold(() => true);
+    const s = setup({ waiting: true });
+    await s.store.applyUpdate();
+    s.changeController();
+    expect(s.reload).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1000);
+    s.changeController();
+    expect(s.reload).toHaveBeenCalledOnce();
+    expect(s.store.getSnapshot()).toMatchObject({ kind: 'ready', applying: false, reloadRequired: true });
+  });
+  it.each(['waiting', 'uncontrolled'])('round 3 authorizes a held local Reload after update: %s', async mode => {
+    setReloadHold(() => true);
+    const s = setup();
+    s.reg.update.mockImplementation(async () => {
+      if (mode === 'waiting') s.reg.waiting = s.worker;
+      else s.container.controller = null;
+    });
+    await s.store.applyUpdate();
+    if (mode === 'waiting') {
+      expect(s.worker.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+      s.changeController();
+    }
+    expect(s.reload).toHaveBeenCalledOnce();
+  });
+  it('rechecks a takeover held before App registered a clean predicate', () => {
+    setReloadHold(() => true);
+    const s = setup({ pagePredicate: true, initialController: new Worker() as unknown as ServiceWorker });
+    expect(s.reload).not.toHaveBeenCalled();
+    setReloadHold(() => false);
+    expect(s.reload).toHaveBeenCalledOnce();
+  });
+  it.each([true, false])('retains the last hold value on unmount: %s', held => {
+    let value = !held;
+    const remove = setReloadHold(() => value);
+    value = held;
+    remove();
+    value = !held;
+    expect(isReloadHeld()).toBe(held);
+  });
+});
 
 describe('native update lifecycle', () => {
   it('observes a worker already installing on registration (reload during download)', () => {
@@ -434,6 +538,15 @@ describe('worker window count', () => {
 });
 
 describe('fresh-open auto-apply', () => {
+  it.each(['restored dirty', 'held during presence check', 'clean'])('round 2 fresh lone untouched tab: %s', async mode => {
+    let held = mode === 'restored dirty';
+    setReloadHold(() => held);
+    const s = setup({ waiting: true, untouched: true });
+    if (mode === 'held during presence check') held = true;
+    await Promise.resolve();
+    expect(s.worker.postMessage).toHaveBeenCalledTimes(mode === 'clean' ? 1 : 0);
+    expect(s.store.getSnapshot()).toMatchObject({ kind: 'ready', applying: mode === 'clean', reloadRequired: false });
+  });
   it.each(['untouched', 'touched', 'other tab', 'late update', 'departed', 'stopped', 'untracked', 'first install'])(
     'rechecks an existing waiting worker when App registers its predicate: %s', async mode => {
       const s = setup({ waiting: mode !== 'late update', first: mode === 'first install', pagePredicate: true, others: mode === 'other tab' });

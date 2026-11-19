@@ -6,7 +6,12 @@ import { App } from './App.js';
 import { APP_VERSION } from './version.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
 import { useVersionCheck } from './services/versionCheck.js';
-import { applyUpdate, isPageUntouched, setIsUntouched, useSwUpdate } from './services/swUpdate.js';
+import { applyUpdate, isPageUntouched, setIsUntouched, useSwUpdate, isReloadHeld, setReloadHold, swUpdate } from './services/swUpdate.js';
+import { heldSession, sessionConflicted } from './services/session.js';
+import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
+import { designFingerprint, type DesignSnapshot } from './services/dirtyState.js';
+import { guardPrecache } from './services/precacheGuard.js';
+import { saveFile } from './services/saveFile.js';
 import { createPageActivity, pageActivity } from './services/pageActivity.js';
 import * as shareLink from './services/shareLink.js';
 import * as importApply from './services/importApply.js';
@@ -16,11 +21,233 @@ vi.mock('./services/versionCheck.js', async original => ({
 }));
 vi.mock('./services/swUpdate.js', async original => {
   const real = await original<typeof import('./services/swUpdate.js')>();
-  return { ...real, useSwUpdate: vi.fn(), applyUpdate: vi.fn(), setIsUntouched: vi.fn(real.setIsUntouched) };
+  return { ...real, useSwUpdate: vi.fn(), applyUpdate: vi.fn(), setIsUntouched: vi.fn(real.setIsUntouched), setReloadHold: vi.fn(real.setReloadHold) };
+});
+vi.mock('./services/saveFile.js', async original => ({
+  ...await original<typeof import('./services/saveFile.js')>(),
+  saveFile: vi.fn(async () => ({ kind: 'downloaded', name: 'saved.ork' })),
+}));
+vi.mock('./services/session.js', async original => {
+  const real = await original<typeof import('./services/session.js')>();
+  return { ...real, sessionConflicted: vi.fn(real.sessionConflicted), heldSession: vi.fn(real.heldSession) };
 });
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-beforeEach(() => { Object.assign(pageActivity, createPageActivity()); });
+beforeEach(() => {
+  pendingTakeover(false).stop();
+  vi.mocked(sessionConflicted).mockReset().mockReturnValue(false);
+  vi.mocked(heldSession).mockReset().mockReturnValue(null);
+  Object.assign(pageActivity, createPageActivity());
+  setReloadHold(() => false);
+  vi.mocked(setReloadHold).mockClear();
+});
+
+it.each(['conflict', 'held design'])('round 3 clean unmount keeps later %s live', async reason => {
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+  vi.mocked(useVersionCheck).mockReturnValue({ state: { kind: 'unknown' }, recheck: vi.fn(), checking: false });
+  vi.mocked(useSwUpdate).mockReturnValue({ kind: 'idle', applying: false });
+  const s = pendingTakeover(false);
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+    expect(isReloadHeld()).toBe(false);
+  } finally { await act(async () => root.unmount()); host.remove(); }
+  try {
+    expect(isReloadHeld()).toBe(false);
+    if (reason === 'conflict') vi.mocked(sessionConflicted).mockReturnValue(true);
+    else vi.mocked(heldSession).mockReturnValue({} as NonNullable<ReturnType<typeof heldSession>>);
+    expect(isReloadHeld()).toBe(true);
+    s.container.dispatchEvent(new Event('controllerchange'));
+    expect(s.reload).not.toHaveBeenCalled();
+  } finally { s.stop(); }
+});
+
+it('round 3 startup settlement retries waiting-worker auto-apply', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true }));
+  vi.mocked(useVersionCheck).mockReturnValue({ state: { kind: 'unknown' }, recheck: vi.fn(), checking: false });
+  vi.mocked(useSwUpdate).mockReturnValue({ kind: 'idle', applying: false });
+  setReloadHold(() => true);
+  const active = {} as ServiceWorker;
+  const worker = Object.assign(new EventTarget(), { state: 'installed', postMessage: vi.fn() });
+  const stop = swUpdate.start(Object.assign(new EventTarget(), { active, waiting: worker }) as unknown as ServiceWorkerRegistration, {
+    container: Object.assign(new EventTarget(), { controller: active }) as unknown as ServiceWorkerContainer,
+    initialController: active, reload: vi.fn(), now: () => 0, isUntouched: isPageUntouched,
+    otherTabsOpen: async () => false, workerVersion: async () => null,
+  });
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    expect(worker.postMessage).not.toHaveBeenCalled();
+    await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+    expect(isReloadHeld()).toBe(false);
+    expect(isPageUntouched()).toBe(true);
+    expect(worker.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+  } finally { await act(async () => root.unmount()); host.remove(); stop(); }
+});
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.clearAllMocks(); localStorage.clear(); });
+
+function pendingTakeover(switched = true) {
+  const old = {} as ServiceWorker;
+  const container = Object.assign(new EventTarget(), { controller: switched ? {} as ServiceWorker : old });
+  const reload = vi.fn();
+  const stop = swUpdate.start(Object.assign(new EventTarget(), { active: old }) as unknown as ServiceWorkerRegistration, {
+    container: container as unknown as ServiceWorkerContainer, initialController: old,
+    reload, now: () => 0, isUntouched: () => false, otherTabsOpen: async () => false,
+  });
+  return { container, reload, stop };
+}
+
+it('round 2 restored flown design stays held on a fresh lone untouched open with a waiting worker', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+  const snapshot: DesignSnapshot = {
+    tree: { name: 'Restored flight', components: [{ type: 'stage', id: 's', children: [] }] },
+    launch: DEFAULT_CONDITIONS, mountMotors: {}, savedConfigs: [], activeConfigId: null,
+    maxMotorLengthByStage: {}, measured: { massKg: null, cgM: null },
+  };
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...snapshot,
+    savedAt: Date.now(), appVersion: APP_VERSION, savedMark: designFingerprint(snapshot), flownSinceSave: true }));
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true }));
+  vi.mocked(useVersionCheck).mockReturnValue({ state: { kind: 'unknown' }, recheck: vi.fn(), checking: false });
+  const real = await vi.importActual<typeof import('./services/swUpdate.js')>('./services/swUpdate.js');
+  vi.mocked(useSwUpdate).mockImplementation(real.useSwUpdate);
+  setReloadHold(() => true);
+  const worker = Object.assign(new EventTarget(), { state: 'installed', postMessage: vi.fn() });
+  const active = {} as ServiceWorker;
+  const reload = vi.fn();
+  const stop = swUpdate.start(Object.assign(new EventTarget(), { active, waiting: worker }) as unknown as ServiceWorkerRegistration, {
+    container: Object.assign(new EventTarget(), { controller: active }) as unknown as ServiceWorkerContainer,
+    initialController: active, reload, now: () => 0, isUntouched: isPageUntouched,
+    otherTabsOpen: async () => false, workerVersion: async () => null,
+  });
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+    expect(isPageUntouched()).toBe(true);
+    expect(isReloadHeld()).toBe(true);
+    expect(worker.postMessage).not.toHaveBeenCalled();
+    expect(reload).not.toHaveBeenCalled();
+    expect(host.querySelector('.version-update')?.textContent).toContain('ready — Reload');
+  } finally { await act(async () => root.unmount()); host.remove(); stop(); }
+});
+
+it.each(['click', 'startup settle'])('round 2 App resumes a held precache repair through %s', async mode => {
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  vi.mocked(sessionConflicted).mockReturnValueOnce(mode === 'click');
+  vi.mocked(useVersionCheck).mockReturnValue({ state: { kind: 'unknown' }, recheck: vi.fn(), checking: false });
+  const real = await vi.importActual<typeof import('./services/swUpdate.js')>('./services/swUpdate.js');
+  vi.mocked(useSwUpdate).mockImplementation(real.useSwUpdate);
+  if (mode === 'click') vi.mocked(applyUpdate).mockImplementationOnce(real.applyUpdate);
+  setReloadHold(() => true);
+  const unregister = vi.fn(async () => true);
+  const reload = vi.fn();
+  expect(await guardPrecache({ active: {}, scope: 'https://example.test/', unregister } as unknown as ServiceWorkerRegistration, {
+    dev: false, online: () => true, session: () => ({ getItem: () => null, setItem: vi.fn() }),
+    caches: () => ({ keys: async () => [], open: vi.fn() }), serverAnswers: async () => true, reload,
+  })).toBe('held');
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+    if (mode === 'click') {
+      const button = host.querySelector<HTMLButtonElement>('.version-update')!;
+      expect(button.textContent).toBe('↻ Reload to finish the update');
+      expect(reload).not.toHaveBeenCalled();
+      await act(async () => button.click());
+    }
+    expect(unregister).toHaveBeenCalledOnce();
+    expect(reload).toHaveBeenCalledOnce();
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it('round 2 startup transient dirty settles clean and retries an early takeover once', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+  vi.mocked(useVersionCheck).mockReturnValue({ state: { kind: 'unknown' }, recheck: vi.fn(), checking: false });
+  vi.mocked(useSwUpdate).mockReturnValue({ kind: 'ready', applying: false, reloadRequired: true });
+  setReloadHold(() => true);
+  const s = pendingTakeover();
+  expect(s.reload).not.toHaveBeenCalled();
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+    expect(isReloadHeld()).toBe(false);
+    expect(s.reload).toHaveBeenCalledOnce();
+    await act(async () => host.querySelector<HTMLButtonElement>('.tour-close')?.click());
+    expect(s.reload).toHaveBeenCalledOnce();
+  } finally { await act(async () => root.unmount()); host.remove(); s.stop(); }
+});
+
+it('round 2 holds a clean design with a session conflict and explains that cause', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+  vi.mocked(sessionConflicted).mockReturnValueOnce(true);
+  vi.mocked(useVersionCheck).mockReturnValue({ state: { kind: 'unknown' }, recheck: vi.fn(), checking: false });
+  vi.mocked(useSwUpdate).mockReturnValue({ kind: 'ready', applying: false, reloadRequired: true });
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+    expect(host.querySelector('.save-status')?.textContent ?? host.textContent).toContain('No unsaved changes');
+    expect(isReloadHeld()).toBe(true);
+    expect(host.querySelector<HTMLButtonElement>('.version-update')!.title).toContain('another tab');
+    expect(host.querySelector<HTMLButtonElement>('.version-update')!.title).not.toContain('unsaved changes');
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it('149 B registers once, holds edits, explains the wait, and releases after Save .ork', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+  vi.mocked(useVersionCheck).mockReturnValue({ state: { kind: 'unknown' }, recheck: vi.fn(), checking: false });
+  vi.mocked(useSwUpdate).mockReturnValue({ kind: 'ready', applying: false, reloadRequired: true });
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  const s = pendingTakeover(false);
+  const button = (scope: Element, text: string) => [...scope.querySelectorAll<HTMLButtonElement>('button')]
+    .find(b => b.textContent?.includes(text))!;
+  try {
+    await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+    await act(async () => host.querySelector<HTMLButtonElement>('.tour-close')?.click());
+    expect(isReloadHeld()).toBe(false);
+    const name = host.querySelector<HTMLInputElement>('#rocket-name')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, 'Unsaved tab design');
+      name.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(isReloadHeld()).toBe(true);
+    s.container.dispatchEvent(new Event('controllerchange'));
+    expect(s.reload).not.toHaveBeenCalled();
+    expect(host.querySelector<HTMLButtonElement>('.version-update')!.title)
+      .toBe('This tab has unsaved changes: save them (.ork) if you want to keep them, then Reload.');
+    await act(async () => button(host, 'Save As / Export').click());
+    await act(async () => button(host.querySelector('.file-menu')!, 'Save .ork').click());
+    expect(saveFile).toHaveBeenCalledOnce();
+    expect(isReloadHeld()).toBe(false);
+    expect(s.reload).not.toHaveBeenCalled();
+    expect(host.querySelector<HTMLButtonElement>('.version-update')!.title).toContain('Reload to finish updating this tab');
+    expect(setReloadHold).toHaveBeenCalledTimes(1);
+  } finally { await act(async () => root.unmount()); host.remove(); s.stop(); }
+  expect(isReloadHeld()).toBe(false);
+});
+
+it('149 B keeps the dirty hold when App unmounts into a crash panel', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+  vi.mocked(useVersionCheck).mockReturnValue({ state: { kind: 'unknown' }, recheck: vi.fn(), checking: false });
+  vi.mocked(useSwUpdate).mockReturnValue({ kind: 'idle', applying: false });
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+    await act(async () => host.querySelector<HTMLButtonElement>('.tour-close')?.click());
+    const name = host.querySelector<HTMLInputElement>('#rocket-name')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, 'Keep after crash');
+      name.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(isReloadHeld()).toBe(true);
+  } finally { await act(async () => root.unmount()); host.remove(); }
+  expect(isReloadHeld()).toBe(true);
+});
 
 it('renders ready, downloading, available and version-check states in one polite region', async () => {
   vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));

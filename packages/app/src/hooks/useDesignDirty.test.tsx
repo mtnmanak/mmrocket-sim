@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, useRef, useState } from 'react';
+import { act, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
@@ -58,6 +58,7 @@ afterEach(() => {
 
 interface Harness {
   current: DesignDirty;
+  renders: Pick<DesignDirty, 'dirty' | 'startupSettled'>[];
   /** Replace the design, as a state change in App does. */
   set: (s: DesignSnapshot) => void;
   /** App's starter-motor ref: what the loader writes as the motor arrives. */
@@ -97,11 +98,13 @@ it('hashes once with the real session restore inputs App always passes', () => {
  */
 function mount(initial: DesignSnapshot, seed: DirtySeed | null, preRank: PreRankRestore | null = null, preLength?: Pick<DesignSnapshot, 'tree' | 'maxMotorLengthByStage'>, preConfig?: Pick<DesignSnapshot, 'savedConfigs' | 'activeConfigId'> | null, onMarkMigrated?: (before: string, after: string) => void): Harness {
   const h = {} as Harness;
+  h.renders = [];
   function Probe() {
     const [s, setS] = useState(initial);
     const landing = useRef<MountMotor | null>(null);
     const pre = useRef<PreRankRestore | null>(preRank);
     h.current = useDesignDirty(s, seed, { landing, mountId: 'mmt' }, pre, preLength, preConfig, { onMarkMigrated });
+    h.renders.push({ dirty: h.current.dirty, startupSettled: h.current.startupSettled });
     h.set = setS;
     h.landing = landing;
     return null;
@@ -148,6 +151,20 @@ describe('useDesignDirty — live label migration', () => {
 });
 
 describe('useDesignDirty — the seeding rule', () => {
+  it.each(['seed', 'migration', 'restored dirty'])('round 2 signals settled only after startup %s renders', mode => {
+    const before = snap(tree('Saved'));
+    const after = { ...before, savedConfigs: [{ id: 'dry', name: null, isDefault: true, motors: {} }], activeConfigId: 'dry' };
+    const h = mode === 'seed' ? mount(before, null)
+      : mode === 'migration' ? mount(after, { savedMark: designFingerprint(before) }, null, undefined,
+        { savedConfigs: before.savedConfigs, activeConfigId: before.activeConfigId })
+        : mount(before, { savedMark: designFingerprint(before), flownSinceSave: true });
+    expect(h.renders[0]).toEqual({ dirty: true, startupSettled: false });
+    expect(h.renders.filter(r => r.startupSettled)).toEqual([{ dirty: mode === 'restored dirty', startupSettled: true }]);
+    act(() => h.set(snap(tree('Later edit'))));
+    act(() => h.current.markSaved(h.current.currentMark));
+    expect(h.current.startupSettled).toBe(true);
+    expect(h.current.dirty).toBe(false);
+  });
   it('a FIRST visit is clean: nobody is asked to save a rocket they have not touched', () => {
     const h = mount(snap(tree('Starter')), null);
     expect(h.current.dirty).toBe(false);
@@ -181,6 +198,25 @@ describe('useDesignDirty — the seeding rule', () => {
 });
 
 describe('useDesignDirty — the starter motor lands a render after the seed', () => {
+  it.each([false, true])('round 3 reconciles starter landing before yielding, edited: %s', edited => {
+    const initial = snap(tree('Starter'));
+    const landing = { current: null as MountMotor | null };
+    let setSnapshot!: (s: DesignSnapshot) => void;
+    const marks: (string | null)[] = [];
+    function Probe() {
+      const [snapshot, set] = useState(initial);
+      setSnapshot = set;
+      const state = useDesignDirty(snapshot, null, { landing, mountId: 'mmt' });
+      useLayoutEffect(() => { marks.push(state.savedMark.current); }, [snapshot, state.savedMark]);
+      return null;
+    }
+    const host = document.createElement('div'); document.body.append(host); hosts.push(host);
+    const root = createRoot(host); roots.push(root);
+    act(() => root.render(<Probe />));
+    const after = snap(tree(edited ? 'Edited' : 'Starter'), { mmt: C6 });
+    act(() => { landing.current = C6; setSnapshot(after); });
+    expect(marks.at(-1)).toBe(designFingerprint(edited ? initial : after));
+  });
   it.each(['matching', 'older', 'missing'] as const)('notifies independent marks on starter landing with a %s .ork mark', state => {
     const before = snap(tree('Starter'));
     const after = snap(tree('Starter'), { mmt: C6 });

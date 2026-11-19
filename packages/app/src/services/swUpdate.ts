@@ -70,12 +70,30 @@ export function createSwUpdateStore() {
   let apply = () => { publish('failed'); return Promise.resolve(); };
   let controllerChanged = () => {};
   let recheckAutoApply = () => {};
+  let recheckHeldReload = () => {};
+  let pendingReload: ((requested: boolean) => Promise<unknown>) | undefined;
+  let repairing = false;
   let stop = () => {};
   const publish = (kind: SwUpdateState['kind'], applying = false, readyVersion?: string, reloadRequired = false) => {
+    if (pendingReload || repairing) {
+      kind = 'ready';
+      applying = repairing;
+      reloadRequired = true;
+    }
     if (state.kind === kind && state.applying === applying && state.readyVersion === readyVersion
       && state.reloadRequired === reloadRequired) return;
     state = { kind, applying, readyVersion, reloadRequired };
     listeners.forEach((listener) => listener());
+  };
+  const resumeReload = async (requested: boolean) => {
+    if (!pendingReload || repairing) return;
+    const repair = pendingReload;
+    repairing = true;
+    publish('ready');
+    try { await repair(requested); }
+    // A failed repair or cancelled beforeunload leaves this document alive.
+    // Keep the same repair (including its unregister state) for the next click.
+    finally { repairing = false; publish('ready'); }
   };
 
   function start(reg: ServiceWorkerRegistration, deps: SwUpdateDeps): () => void {
@@ -86,6 +104,7 @@ export function createSwUpdateStore() {
     let stopped = false;
     let reloaded = false;
     let applying = false;
+    let reloadRequested = false;
     let readyWorker: ServiceWorker | undefined;
     let readyVersion: string | undefined;
     let controllerSwitched = !!deps.initialController && deps.container.controller !== deps.initialController;
@@ -96,6 +115,12 @@ export function createSwUpdateStore() {
     let recovery: ReturnType<typeof setTimeout> | undefined;
     const reloadOnce = () => {
       if (stopped || reloaded) return;
+      if (!reloadRequested && isReloadHeld()) {
+        applying = false;
+        clearTimeout(fallback);
+        publishUpdate('ready');
+        return;
+      }
       reloaded = true;
       applying = true;
       clearTimeout(fallback);
@@ -105,8 +130,12 @@ export function createSwUpdateStore() {
       recovery = setTimeout(() => {
         reloaded = false;
         applying = false;
+        reloadRequested = false;
         publishUpdate(reg.waiting || controllerSwitched ? 'ready' : state.kind);
       }, 1000);
+    };
+    recheckHeldReload = () => {
+      if (controllerSwitched && !applying) reloadOnce();
     };
     // Reload when the controller is switched, including an uncontrolled hard
     // reload with an older active worker; a true first claim stays on the page.
@@ -124,8 +153,9 @@ export function createSwUpdateStore() {
     };
     controllerChanged = onControllerChange;
 
-    const applyWaiting = () => {
+    const applyWaiting = (requested = false) => {
       if (!reg.waiting || applying || stopped) return;
+      reloadRequested = requested;
       applying = true;
       publishUpdate('ready');
       fallback = setTimeout(reloadOnce, 5000);
@@ -137,11 +167,11 @@ export function createSwUpdateStore() {
     // hours later in a tab left open, when another tab closes and it is alone.
     const fresh = () => deps.now() - registeredAt <= AUTO_APPLY_WINDOW_MS;
     const autoApply = async (worker: ServiceWorker) => {
-      if (!workers.get(worker)?.atLoad || !fresh() || !deps.isUntouched()) return;
+      if (!workers.get(worker)?.atLoad || !fresh() || !deps.isUntouched() || isReloadHeld()) return;
       try {
         const others = await deps.otherTabsOpen();
         // Recheck after the worker answers: work may have started meanwhile.
-        if (!stopped && reg.waiting === worker && !others && fresh() && deps.isUntouched()) applyWaiting();
+        if (!stopped && reg.waiting === worker && !others && fresh() && deps.isUntouched() && !isReloadHeld()) applyWaiting();
       } catch { /* Uncertain tab presence leaves the prompt visible. */ }
     };
     // App may mount after an existing waiting worker was inspected. One attempt
@@ -193,17 +223,19 @@ export function createSwUpdateStore() {
 
     apply = async () => {
       if (applying || stopped) return;
-      if (controllerSwitched) { reloadOnce(); return; }
-      if (reg.waiting) { applyWaiting(); return; }
+      if (controllerSwitched) { reloadRequested = true; reloadOnce(); return; }
+      if (reg.waiting) { applyWaiting(true); return; }
       try { await reg.update(); } catch { /* Keep the current session on failure. */ }
       if (stopped) return;
-      if (reg.waiting) applyWaiting();
+      if (reg.waiting) applyWaiting(true);
       else if (reg.installing) { watch(reg.installing, false); inspect(reg.installing); }
-      else if (!deps.container.controller || controllerSwitched) reloadOnce();
+      else if (!deps.container.controller || controllerSwitched) { reloadRequested = true; reloadOnce(); }
       else publishUpdate('failed');
     };
     stop = () => {
       stopped = true;
+      pendingReload = undefined;
+      repairing = false;
       clearTimeout(fallback);
       clearTimeout(recovery);
       deps.container.removeEventListener('controllerchange', onControllerChange);
@@ -215,15 +247,43 @@ export function createSwUpdateStore() {
   }
   return {
     start,
-    applyUpdate: () => apply(),
+    applyUpdate: () => pendingReload ? resumeReload(true) : apply(),
+    deferReload: (repair: (requested: boolean) => Promise<unknown>) => {
+      pendingReload = repair;
+      publish('ready', false, undefined, true);
+    },
     reloadOnControllerChange: () => controllerChanged(),
     recheckAutoApply: () => recheckAutoApply(),
+    recheckHeldReload: () => {
+      if (pendingReload) return isReloadHeld() ? Promise.resolve() : resumeReload(false);
+      recheckHeldReload();
+      return Promise.resolve();
+    },
     getSnapshot: () => state,
     subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
   };
 }
 
 export const swUpdate = createSwUpdateStore();
+// Before App knows what was restored, keep the page. On a crash/unmount,
+// retain its last answer unless App supplies a live crash-panel check.
+let reloadHold = () => true;
+export const isReloadHeld = () => reloadHold();
+export function setReloadHold(check: () => boolean, afterUnmount?: () => boolean): () => void {
+  reloadHold = check;
+  void swUpdate.recheckHeldReload();
+  return () => {
+    if (reloadHold === check) {
+      const held = check();
+      reloadHold = afterUnmount ?? (() => held);
+    }
+  };
+}
+/** App calls once after the mount-time saved-mark seed/migrations have rendered. */
+export async function settleReloadHold(): Promise<void> {
+  await swUpdate.recheckHeldReload();
+  swUpdate.recheckAutoApply();
+}
 let untouched = () => false;
 export function setIsUntouched(check: () => boolean): () => void {
   untouched = check;
