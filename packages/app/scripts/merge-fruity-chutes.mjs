@@ -43,7 +43,8 @@ import { atomicWriteFileSync } from './atomic-write.mjs';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mfrKey } from './manufacturers.mjs';
+import { mfrKey, presetKey } from './manufacturers.mjs';
+import { PARTS_RECOVERY_CORRECTIONS } from './apply-preset-corrections.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = join(here, '../src/data/presets.json');
@@ -94,6 +95,26 @@ const nearestSibling = (rows, m) => {
   return best;
 };
 
+/** The maker specifies line FAMILY in style, but not every line gauge/density.
+ * Keep the nearest-sibling convention within that family, using original rows
+ * with a resolved density. Resolve reviewed legacy aliases here too: the
+ * correction step runs AFTER this merge. Generated rows are never evidence.
+ * TARC has no original rows and uses CFC kin.
+ */
+const lineSibling = (rows, m) => {
+  const family = /Spectra/i.test(m.style) ? /Spectra/i : /nylon/i.test(m.style) ? /nylon/i : null;
+  if (!family) return null;
+  const candidates = rows.filter(r => r.source !== 'fruitychutes.com'
+    && family.test(r.lineMaterial?.name)).map(r => {
+    const correction = PARTS_RECOVERY_CORRECTIONS.find(c => c.key === presetKey(r))?.fields['lineMaterial.density'];
+    return correction && r.lineMaterial.density === correction.bad
+      ? { ...r, lineMaterial: { ...r.lineMaterial, density: correction.good } } : r;
+  }).filter(r => Number.isFinite(r.lineMaterial?.density));
+  const kin = nearestSibling(candidates, m);
+  if (!kin) throw new Error(`No ${family.source} line sibling for ${m.sku}`);
+  return kin;
+};
+
 export function mergeFruityChutes(db, data) {
   const rows = db.presets;
   const byKey = new Map(data.models.map((m) => [fcKey(m.sku), m]));
@@ -112,6 +133,12 @@ export function mergeFruityChutes(db, data) {
     row.lineCount = m.gores;
     row.diameter = m.diameterM;
     row.description = fcDescription(m);
+    // Existing generated rows also need repair: the old diameter-only pick
+    // could give a Spectra product a nylon label, or the reverse.
+    if (row.source === 'fruitychutes.com') {
+      const donor = lineSibling(rows, m);
+      if (donor) row.lineMaterial = { ...donor.lineMaterial };
+    }
     if (m.lineLengthM !== undefined) row.lineLength = m.lineLengthM;
     const diff = Object.keys(row).filter((k) => JSON.stringify(before[k]) !== JSON.stringify(row[k]));
     if (diff.length) changes.push({ action: 'update', partNo: row.partNo, sku: m.sku, fields: diff, before, after: { ...row } });
@@ -142,13 +169,14 @@ export function mergeFruityChutes(db, data) {
     if (seen.has(fcKey(m.sku))) continue;
     const kin = nearestSibling(rows, m);
     if (!kin) throw new Error(`No sibling row to take materials from for ${m.sku}`);
+    const lineKin = lineSibling(rows, m) ?? kin;
     const row = {
       kind: 'Parachute',
       manufacturer: 'Fruity Chutes',
       partNo: m.sku,
       description: fcDescription(m),
       material: kin.material,
-      ...(kin.lineMaterial ? { lineMaterial: kin.lineMaterial } : {}),
+      ...(lineKin.lineMaterial ? { lineMaterial: { ...lineKin.lineMaterial } } : {}),
       mass: m.massKg,
       diameter: m.diameterM,
       spillHoleDiameter: m.spillHoleM,

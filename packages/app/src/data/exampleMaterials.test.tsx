@@ -9,6 +9,7 @@ import { PropertyPanel } from '../components/PropertyPanel.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { openDesignFile } from '../services/designFile.js';
 import { linkedPreset, loadBundledPresets } from '../services/presets.js';
+import { SURFACE_DENSITY_RANGE } from './materialDensityRanges.js';
 
 const flatten = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap(n => [n, ...flatten(n.children ?? [])]);
 
@@ -33,9 +34,14 @@ it.each(EXAMPLE_DESIGNS)('shows the actual assumed fin material density in $id',
   }
 });
 
-it.each(EXAMPLE_DESIGNS)('shows recovery canopy material consistent with linked stock in $id', async example => {
+it.each(EXAMPLE_DESIGNS.flatMap(example => [
+  { ...example, upstreamDensity: undefined },
+  { ...example, upstreamDensity: SURFACE_DENSITY_RANGE.min },
+]))('shows recovery canopy material consistent with linked stock in $id (stock density $upstreamDensity)', async example => {
   const data = readFileSync(resolve('src/data/examples', example.fileName));
-  const presets = await loadBundledPresets();
+  const presets = (await loadBundledPresets()).map(p => example.upstreamDensity !== undefined
+    && p.material?.name === 'Polyethylene LDPE' && p.mass !== undefined
+    ? { ...p, material: { ...p.material, density: example.upstreamDensity } } : p);
   const imported = await openDesignFile(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength), example.fileName, { presets });
   const devices = flatten(imported.tree.components).filter(n => n.type === 'parachute');
   expect(devices).toHaveLength(['dual-deploy', 'two-stage'].includes(example.id) ? 2 : 1);
@@ -53,8 +59,7 @@ it.each(EXAMPLE_DESIGNS)('shows recovery canopy material consistent with linked 
     expect(option.getAttribute('value')).toBe(stock.material?.name);
     expect(option.textContent).toContain(`${stock.material?.name} (${node['surfaceDensity']} kg/m²)`);
     if (stock.material?.name === 'Polyethylene LDPE') {
-      // Stock omits density; the file explicitly assumes OpenRocket's thin film.
-      expect(stock.material.density).toBeUndefined();
+      // The file's explicit thin-film assumption stands even if stock gains a density.
       expect(node['surfaceDensity']).toBe(0.015);
       expect(node['comment']).toContain('0.015 kg/m^2');
       expect(node['comment']).toContain('assumed');
