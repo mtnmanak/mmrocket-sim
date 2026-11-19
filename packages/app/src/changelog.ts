@@ -40,6 +40,27 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.212",
+    "date": "2026-11-19",
+    "title": "Fixes to v0.211’s update hold: safer reloads after a download failure, while a share link opens, and during offline repairs",
+    "summary": [
+      "A tab that is waiting to update (it has unsaved changes, or another tab changed the autosave) can fail to load parts of the app it has not opened yet, such as the guide or the 3D view. Their “↻ Reload the page” button now asks you to save the design as an .ork first instead of reloading at once, and the guide and 3D-view messages no longer promise the design comes back from the autosave.",
+      "A design opened from a share link is no longer lost to an update reload while it is opening or while the app asks whether to replace your current design.",
+      "When the app repairs its offline copy for a waiting tab and you cancel the first reload, a later click on “Reload to finish the update” while offline no longer sends the tab to the browser’s network-error page: the button stays, and works once you are back online.",
+      "A correction to v0.211’s notes: a RockSim (.rkt) file that links one of the changed Fruity Chutes parachutes without stating its shroud-line weight or a known mass also moved in v0.211.",
+      "The simulation is unchanged: no flight number moves in this release."
+    ],
+    "items": [
+      "WHAT WAS WRONG. v0.211 made a tab with unsaved changes, or one waiting for a choice about another tab’s autosave, wait instead of being reloaded by an update another tab applied. A review after the release found three ways that waiting tab, or a design on its way in, could still be lost, and a few smaller faults in the same code.",
+      "DOWNLOAD FAILURES IN A WAITING TAB. A waiting tab keeps running the older version after another tab updates the app, and parts it has not loaded yet can then fail to download. Where such a failure offered a “↻ Reload the page” button (the user guide, the changelog, the glossary, the example-designs list, the 3D view and the nozzle field), the button reloaded at once, and the dialog and 3D-view messages said the design would be restored from this browser’s autosave — not true when another tab had replaced that autosave. Now, when the tab has work to keep, that button says to save the design as an .ork file first (or finish or cancel an open in progress) and offers “Reload anyway”, and the promise is gone. The crash panel no longer says your design is still in the autosave, and the thrust-curve load error now warns you to save the design as an .ork before reloading. Other download failures (the OBJ, GLB and STL exports, a single example design) show a text message, as before. The guide’s Updates section states the limit: the tabs share one autosave, and keeping every older version’s files, or a separate autosave per tab, is not supported.",
+      "SHARE LINKS AND OPENS IN PROGRESS. A tab now also waits while a file or share link is opening, while the app is asking whether to replace your current design with an incoming one, and while it holds a design the autosave could not store. Before, a share link’s design could be reloaded away at startup, because the address no longer carried the link by then and nothing had been autosaved. If such a tab has no unsaved changes of its own, clicking the update button first asks you to confirm; with unsaved changes, its button’s tooltip says why it waits.",
+      "OFFLINE REPAIRS. When the app repairs its offline copy for a waiting tab and the first reload is cancelled, a later “Reload to finish the update” checks again that you are online and that the site answers, instead of reloading straight into the browser’s network-error page; offline, the button stays until you click it again once connected. The repair also re-checks the offline copy after waiting for the server and stands down if another tab has meanwhile refilled it, and a repair that cannot record its progress (browser storage refusing writes) no longer leaves the button doing nothing.",
+      "A TAB THAT CRASHED AT START. If the app failed on its very first screen, the tab used to block updates forever. It now reloads into the new version when another tab applies an update, unless its autosave conflicts with another tab’s or could not store its design.",
+      "CORRECTION TO v0.211’S NOTES. They said a flight moves only for the ten corrected parts or a SEMROC PN parachute. A RockSim (.rkt) file that links one of the changed Fruity Chutes parachutes and states neither its shroud-line weight nor a known mass also moved: it takes the corrected shroud-line weight (one example, a Fruity Chutes 29185 with 12 lines of 2.80 m, gains 64.6 g of line mass). This is rare: in the RockSim reference collection the review checked (949 files), every Fruity Chutes parachute states both.",
+      "WHAT MOVES. No flight number: this release changes only when the app reloads, and what its messages say."
+    ]
+  },
+  {
     "version": "0.211",
     "date": "2026-11-18",
     "title": "An update no longer reloads another tab that has unsaved changes; ten catalogue parts get their weight corrected",
