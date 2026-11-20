@@ -53,11 +53,15 @@ describe('Launch panel file longitude row', () => {
     expect(status.textContent).toContain('this file');
     expect(status.isConnected).toBe(true);
   });
-  it('makes no write on render and does not ask again after Keep and re-render', () => {
+  it('S3c-g13 makes no write on render and restores focus after Keep', () => {
     render();
     expect(host.textContent).toContain('Longitude 80.126879° E — this file’s other simulations put the site 80.63° W.');
     expect(value.longitudeDeg).toBe(80.126879);
+    const longitude = [...host.querySelectorAll('label')].find(label => label.textContent?.startsWith('Longitude'))!.control;
+    expect(longitude).not.toBeNull();
+    act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Keep east')!.focus());
     click('Keep east');
+    expect(document.activeElement).toBe(longitude);
     render();
     expect(host.textContent).not.toContain('Use -80.126879');
     expect(value.longitudeDeg).toBe(80.126879);

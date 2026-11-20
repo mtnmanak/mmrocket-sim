@@ -544,6 +544,12 @@ it('prints the flight card header with a complete run as before', () => {
   expect(header.textContent!.startsWith('Earlier design — Maker F40 — flown ')).toBe(true);
 });
 
+it('S7d-g5 prints mixed-cluster makers once in the flight card heading', () => {
+  const run = { ...input.run!, manufacturer: 'AeroTech+Cesaroni', motor: '2× AeroTech H128W + 2× Cesaroni H255', motorConfig: 'mixed' };
+  const header = [...doc(designPrintHtml({ ...input, run })).querySelectorAll('p')].find(p => p.textContent!.includes(' — flown '))!;
+  expect(header.textContent).toContain(' — 2× AeroTech H128W + 2× Cesaroni H255 — flown ');
+});
+
 it.each([
   [['rocket'], 'Maker F40 — flown '],
   [['manufacturer'], 'Earlier design — F40 — flown '],

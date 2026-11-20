@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { act } from 'react';
+import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import {
@@ -11,7 +11,7 @@ import {
 } from './LaunchPanel.js';
 import { densityAltitudeM, isaPressurePa, isaTemperatureK, type AtmosphereModel } from '../services/atmosphere.js';
 import { fmtSi } from '../prefs/units.js';
-import type { WeatherSnapshot } from '../services/weatherSnapshot.js';
+import { applyProposal, undoApply, type WeatherSnapshot } from '../services/weatherSnapshot.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -964,7 +964,63 @@ describe('applied weather in the Launch panel', () => {
   const APPLIED: LaunchConditions = {
     ...DEFAULT_CONDITIONS, temperatureC: 23.3, pressureHPa: 877.2, windAverage: 1.75, launchAltitudeM: 1202,
   };
+  it.each(['blur', 'ArrowUp', 'ArrowDown'])('S3c-b3 weather Undo restores altitude before focus and %s', action => {
+    let stored = DEFAULT_CONDITIONS;
+    function AppliedWeather() {
+      const [value, setValue] = useState(DEFAULT_CONDITIONS);
+      const [weather, setWeather] = useState<WeatherSnapshot | null>(null);
+      const change = (next: LaunchConditions) => { stored = next; setValue(next); };
+      return <>
+        <button onClick={() => { change(applyProposal(value, SNAP.applied)); setWeather(SNAP); }}>Apply weather</button>
+        <LaunchPanel value={value} onChange={change} onLaunch={() => {}} simulating={false} canLaunch
+          weather={weather} onWeatherUndo={() => { change(undoApply(value, SNAP)); setWeather(null); }} onWeatherDismiss={() => setWeather(null)} />
+      </>;
+    }
+    act(() => root.render(<PrefsProvider><AppliedWeather /></PrefsProvider>));
+    act(() => host.querySelector<HTMLButtonElement>('button')!.click());
+    expect(stored.launchAltitudeM).toBe(1202);
+    const target = host.querySelector<HTMLInputElement>('[data-launch-field="launchAltitudeM"] input')!;
+    const undo = [...host.querySelectorAll<HTMLButtonElement>('[data-weather="strip"] button')].find(b => b.textContent === 'Undo')!;
+    // A keyboard activation emits click without pointer events.
+    act(() => undo.focus());
+    act(() => { undo.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 })); });
+    expect(document.activeElement).toBe(target);
+    expect(stored.launchAltitudeM).toBe(0);
+    expect(Number(target.value)).toBe(0);
+    if (action !== 'blur') act(() => { target.dispatchEvent(new KeyboardEvent('keydown', { key: action, bubbles: true })); });
+    act(() => target.blur());
+    const expected = action === 'ArrowUp' ? 50 : 0;
+    expect(stored.launchAltitudeM).toBe(expected);
+    expect(Number(target.value)).toBe(expected);
+  });
+  it.each(['Undo', 'Dismiss'])('S3c-b3 restores focus after %s removes the weather receipt', action => {
+    function AppliedWeather() {
+      const [weather, setWeather] = useState<WeatherSnapshot | null>(SNAP);
+      return <LaunchPanel value={APPLIED} onChange={() => {}} onLaunch={() => {}} simulating={false} canLaunch
+        weather={weather} onWeatherUndo={() => setWeather(null)} onWeatherDismiss={() => setWeather(null)} />;
+    }
+    act(() => root.render(<PrefsProvider><AppliedWeather /></PrefsProvider>));
+    const target = [...host.querySelectorAll('label')].find(label => label.textContent?.startsWith('Site altitude'))!.control;
+    const button = [...host.querySelectorAll<HTMLButtonElement>('[data-weather="strip"] button')].find(b => b.textContent === action)!;
+    act(() => { button.focus(); button.click(); });
+    expect(host.querySelector('[data-weather="strip"]')).toBeNull();
+    expect(document.activeElement).toBe(target);
+  });
   let calls: string[];
+  it.each(['clear', 'estimate', 'estimate callback'])('S3c-b3/S3c-g13 restores focus after weather %s removes its control', action => {
+    function AppliedWeather() {
+      const [value, setValue] = useState({ ...APPLIED, launchAltitudeM: action === 'clear' ? 1524 : APPLIED.launchAltitudeM });
+      return <LaunchPanel value={value} onChange={setValue} onLaunch={() => {}} simulating={false} canLaunch weather={SNAP}
+        onWeatherUndo={() => {}} onWeatherDismiss={() => {}}
+        onWeatherSigma={action === 'estimate callback' ? sigma => setValue({ ...value, windStdDev: sigma }) : undefined} />;
+    }
+    act(() => root.render(<PrefsProvider><AppliedWeather /></PrefsProvider>));
+    const target = host.querySelector<HTMLInputElement>(`[data-launch-field="${action === 'clear' ? 'launchAltitudeM' : 'windStdDev'}"] input`)!;
+    const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.startsWith(action === 'clear' ? 'Clear both' : 'Estimate from forecast gust'))!;
+    act(() => { button.focus(); button.click(); });
+    expect(button.isConnected).toBe(false);
+    expect(document.activeElement).toBe(target);
+  });
   function renderWeather(value: LaunchConditions, weather: WeatherSnapshot | null, withButton = true) {
     calls = [];
     lastLaunch = null;
@@ -1250,6 +1306,9 @@ describe('applied weather in the Launch panel', () => {
       const offered = /σ ≈ ([\d.]+) /.exec(chip())![1]!;
       act(() => host.querySelector<HTMLButtonElement>('.gust-estimate button')!.click());
       renderWeather(lastLaunch!, SNAP);
+      // Estimate now focuses this input; blur to check its display formatting,
+      // rather than the extra precision deliberately shown while editing.
+      act(() => launchBox('Wind gusts σ')!.blur());
       expect(box('Wind gusts σ'), unit).toBe(offered);
       const sum = /\(([\d.]+) \S+ \[[^\]]*\] − ([\d.]+) \S+ \[[^\]]*\]\)\s+÷ 3 = ([\d.]+) /.exec(chip())!;
       expect(sum[2], unit).toBe(box('Wind avg'));

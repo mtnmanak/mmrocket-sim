@@ -1,3 +1,6 @@
+// rocksimFile 302: the merge removed J6's dead says assignment (J9a dropped the field).
+// v0.213 integration (J9a merged): MyMaterialsDialog 3, OpenMotorDialog 2, orkFile 553, rocksimFile 303, xmlUtil 16 and
+// sanitize 40 are the merged sums of the lanes' reviewed producers; the merge adds no new producer.
 // v0.213 integration (J6 merged onto J1/J4/J5/J7): BatchSimulate 23, units 26, orkFile 552, rocksimFile 302 and
 // sanitize 41 are the sums of each lane's reviewed producers; the merge adds no new producer.
 // @vitest-environment happy-dom
@@ -107,6 +110,17 @@
 // aggregate copy and tiers; caching sites changes no comparison boundary.
 // laneJ5.test covers linear XML query counts, partial/full serial overrides,
 // retained unknown-code/Pro cautions and legacy catalogue-mass recognition.
+// J9a 2026-11-19: MyMaterialsDialog 1 -> 4 converts bulk densities at the
+// Round r2: MyMaterialsDialog 4 -> 3 shares the rounded edit seed instead of
+// repeating the conversion in submit. The imperial name-only edit regression
+// pins exact SI preservation; no material ceiling or flight threshold moved.
+// preference boundary; OpenMotorDialog 1 -> 2 and SimResults 51 -> 52 format
+// motor dimensions. ScaleDialog 38 -> 41 converts bore validation/input limits,
+// retaining the same SI fit thresholds (ScaleDialog's inch regression covers it).
+// orkFile 545 -> 546 gives maxtime defaults seconds; rocksimFile 290 -> 291
+// formats normalized fin rotations. xmlUtil 12 -> 15 counts CDATA growth before
+// escaping against the existing size cap. importNotices and API index regressions
+// cover these boundaries. No safety threshold or density ceiling was changed.
 // PRFL-1: census unchanged. The owner-defined 0.85–1.15 display band and
 // unity crossings describe the sampled flight, with no verdict or flight
 // threshold change. rollPitchResonance.test covers interval boundaries,

@@ -1,7 +1,7 @@
 import { noticeQuantity } from '../prefs/units.js';
 import { Note } from './Note.js';
 import { editProfileSurface } from '../services/windProfile.js';
-import { useId } from 'react';
+import { useId, useLayoutEffect, useRef } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { GUST_CONVECTIVE_INTENSITY, GUST_PEAK_FACTOR, sigmaFromGust } from '../services/gustSigma.js';
 import type { LaunchConditions } from './LaunchPanel.js';
@@ -40,6 +40,11 @@ export function GustEstimate({ value, onChange, onEstimate, forecastWind }: {
 }) {
   const { prefs } = usePrefs();
   const lineId = `${useId()}-gust`;
+  const returnFocus = useRef<HTMLInputElement | null>(null);
+  useLayoutEffect(() => {
+    returnFocus.current?.focus();
+    returnFocus.current = null;
+  });
   if (!forecastWind) return <Note id={lineId} role="status" tier="information" style={{ position: 'absolute' }}>{null}</Note>;
   const est = sigmaFromGust(forecastWind.meanMs, forecastWind.gustMs);
   if (!est.ok) return <Note id={lineId} role="status" tier="information" style={{ position: 'absolute' }}>{null}</Note>;
@@ -79,7 +84,11 @@ export function GustEstimate({ value, onChange, onEstimate, forecastWind }: {
       {meanMatches && !applied && (
         <button type="button" className="file-btn" aria-describedby={`${lineId}-text`}
           title={`Works out σ from the ${source}’s gust and average wind. Nothing changes until you click.`}
-          onClick={() => (onEstimate ? onEstimate(est.sigmaMs) : onChange(editProfileSurface(value, { ...value, windStdDev: est.sigmaMs })))}>
+          onClick={e => {
+            returnFocus.current = e.currentTarget.closest('.field-grid')?.querySelector<HTMLInputElement>('[data-launch-field="windStdDev"] input') ?? null;
+            if (onEstimate) onEstimate(est.sigmaMs);
+            else onChange(editProfileSurface(value, { ...value, windStdDev: est.sigmaMs }));
+          }}>
           Estimate from {source} gust
         </button>
       )}

@@ -394,6 +394,70 @@ describe('the flight catalog maps each series by QUANTITY', () => {
     expect(new Set(pairs(extras)).size).toBe(pairs(extras).length);
   });
 
+  it('S2-b4 gives every exported raw series a distinct visible colour/dash pair', async () => {
+    const { arbitraryCatalog, seriesCatalog } = await import('./flightChartModel.js');
+    const { exportColumnCatalog } = await import('./services/flightDataCsv.js');
+    const { METRIC_UNITS } = await import('./prefs/units.js');
+    const raw = Object.fromEntries([...exportColumnCatalog(), ...seriesCatalog({ units: METRIC_UNITS }, LIGHT_PALETTE)].map(c => [c.key, [0, 1]]));
+    const all = arbitraryCatalog(raw as never, { units: METRIC_UNITS }, LIGHT_PALETTE);
+    expect(all.length).toBeGreaterThan(64);
+    const pairs = all.map(d => `${d.color}|${(d.dash ?? []).join(',')}`);
+    expect(new Set(pairs).size).toBe(all.length);
+  });
+
+  it('S2-b4 fits a whole period of every extra style in a legend sample', () => {
+    for (let tier = 8; tier < 64; tier++) {
+      expect(lineStyle(0, tier)!.reduce((s, v) => s + v, 0), `tier ${tier}`).toBeLessThanOrEqual(SAMPLE_WIDTH);
+    }
+  });
+
+  it('S2-b4 extras contain a real dash and do not disguise repeated periods as new shapes', () => {
+    for (let tier = 8; tier < 64; tier++) {
+      const dash = lineStyle(0, tier)!;
+      expect(dash.some((v, i) => i % 2 === 0 && v >= 4), `tier ${tier} has a dash`).toBe(true);
+      for (let length = 2; length < dash.length; length += 2) {
+        if (dash.length % length === 0) expect(dash.every((v, i) => v === dash[i % length]), `tier ${tier} primitive period`).toBe(false);
+      }
+    }
+  });
+
+  it('S2-b4 keeps full-catalog primary and falling styles visibly separated', async () => {
+    const { arbitraryCatalog, seriesCatalog, directionDash } = await load();
+    const { exportColumnCatalog } = await import('./services/flightDataCsv.js');
+    const { METRIC_UNITS } = await load();
+    const totals = (dash: readonly number[] = []) => [dash.length,
+      dash.reduce((sum, v, i) => sum + (i % 2 === 0 ? v : 0), 0),
+      dash.reduce((sum, v, i) => sum + (i % 2 === 1 ? v : 0), 0)];
+    const distinct = (a: readonly number[] | undefined, b: readonly number[] | undefined) => {
+      const x = totals(a), y = totals(b);
+      return x[0] !== y[0] || Math.abs(x[1]! - y[1]!) >= 2 || Math.abs(x[2]! - y[2]!) >= 2;
+    };
+    // Include every reachable extra, including ones reserved for phase plots.
+    const styles = Array.from({ length: 64 }, (_, tier) => lineStyle(0, tier));
+    for (let i = 0; i < styles.length; i++) {
+      expect((styles[i] ?? []).reduce((s, v) => s + v, 0)).toBeLessThanOrEqual(SAMPLE_WIDTH);
+      for (let j = 0; j < i; j++) expect(distinct(styles[i], styles[j]), `tiers ${i}/${j}`).toBe(true);
+    }
+    for (const mode of MODES) {
+      const palette = paletteIn(mode);
+      const raw = Object.fromEntries([...exportColumnCatalog(), ...seriesCatalog({ units: METRIC_UNITS }, palette)].map(c => [c.key, [0, 1]]));
+      const all = arbitraryCatalog(raw as never, { units: METRIC_UNITS }, palette);
+      expect(all.length).toBeGreaterThan(64);
+      for (const [i, member] of all.entries()) {
+        for (const other of all.slice(0, i).filter(d => d.color === member.color)) {
+          expect(distinct(member.dash, other.dash), `${mode} ${String(member.key)}/${String(other.key)}`).toBe(true);
+        }
+        const { rising, falling } = directionDash(member, all);
+        expect(rising).toEqual(member.dash);
+        expect((falling ?? []).join(',')).not.toBe('6,4');
+        expect((falling ?? []).reduce((s, v) => s + v, 0)).toBeLessThanOrEqual(SAMPLE_WIDTH);
+        for (const other of all.filter(d => d.color === member.color)) {
+          expect(distinct(falling, other.dash), `${mode} ${String(member.key)} falling/${String(other.key)}`).toBe(true);
+        }
+      }
+    }
+  });
+
   it('a comparison member the catalog lacks takes an unused pair, never black or another series', async () => {
     const { comparisonMembers, seriesCatalog } = await import('./flightChartModel.js');
     const { METRIC_UNITS } = await import('./prefs/units.js');

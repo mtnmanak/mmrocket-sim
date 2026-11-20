@@ -25,6 +25,16 @@ afterEach(() => { act(() => root.unmount()); host.remove(); stylesheet.remove();
   localStorage.clear(); vi.unstubAllGlobals(); });
 const click = (name: string) => act(() => Array.from(host.querySelectorAll('button')).find(b => b.textContent === name)!.click());
 
+it('S3c-g13 hands focus to the paired move button at either end', () => {
+  const layout = { id: 'focus', name: 'Focus', columns: [{ key: 'time', unit: 's' }, { key: 'altitude', unit: 'm' }], events: {} };
+  act(() => root.render(<PrefsProvider><FlightExportLayoutDialog layout={layout} onClose={() => {}} /></PrefsProvider>));
+  for (const [direction, paired] of [['up', 'down'], ['down', 'up']]) {
+    const move = host.querySelector<HTMLButtonElement>(`button[aria-label="Move Altitude ${direction}"]`)!;
+    act(() => { move.focus(); move.click(); });
+    expect(document.activeElement).toBe(host.querySelector(`button[aria-label="Move Altitude ${paired}"]`));
+  }
+});
+
 it.each([false, true])('N038 bounds the whole editor with scrolling when dvh support is %s', supportsDvh => {
   // happy-dom has no layout engine; exercise the cascade with unsupported declarations discarded.
   dom.setWindowSize({ width: 360, height: 320 });

@@ -15,6 +15,12 @@ const probe = async (path, rule, code) => {
 
 // Each config is resolved independently: App replaces the shared rule options.
 describe('audit 2026-10-11 lint delta', () => {
+  it.each(['packages/api/scripts/import-memory.mjs', 'packages/app/vitest.config.ts', 'packages/api/vitest.config.ts'])(
+    'S5-g4 supplies Node globals and console policy to %s', async path => {
+      const config = await eslint.calculateConfigForFile(path);
+      expect(config.languageOptions.globals).toHaveProperty('setImmediate');
+      expect(config.rules['no-console'][0]).toBe(0);
+    });
   it.each(['packages/app/src/App.tsx', 'packages/app/src/services/motorDb.ts', 'packages/engine/src/index.ts'])(
     'item 1: %s refuses default exports', async (path) => {
       expect(await probe(path, 'no-restricted-syntax', 'export default function sample() {}')).toHaveLength(1);
@@ -22,8 +28,8 @@ describe('audit 2026-10-11 lint delta', () => {
     }, 30_000);
 
   it.each(['packages/app/src/App.tsx', 'packages/app/src/services/motorDb.ts', 'packages/engine/src/index.ts',
-    'packages/app/src/headless/index.ts', 'packages/api/src/index.ts'])(
-    'item 2: %s refuses test-support imports', async (path) => {
+    'packages/app/src/headless/index.ts', 'packages/app/src/services/xmlParseJs.ts', 'packages/api/src/index.ts'])(
+    'SL-g4 / item 2: %s refuses test-support imports', async (path) => {
       for (const name of ['./sample.testSupport', './sample.testSupport.js', '../services/sample.testSupport.ts']) {
         expect(await probe(path, 'no-restricted-imports', `import { sample } from '${name}';`)).toHaveLength(1);
       }

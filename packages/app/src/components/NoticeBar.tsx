@@ -1,7 +1,7 @@
 import { NoteLabel, noteClass, type NoteTier } from './Note.js';
 import { WarningCode } from './WarningCode.js';
 import { importNoteCode } from '../services/noteExplanations.js';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { changesText, highestTier, orderedLines, tierRank, type NoteGroup } from '../services/importNotes.js';
 
 /**
@@ -225,6 +225,18 @@ export function NoticeBar({ notices: all }: { notices: Notice[] }) {
   // than assumed, and re-measured on every resize — a long notice reflows to
   // two lines when the window narrows.
   const barRef = useRef<HTMLDivElement>(null);
+  const outsideFocus = useRef<HTMLElement | null>(null);
+  const dismissedControl = useRef<HTMLButtonElement | null>(null);
+  useLayoutEffect(() => {
+    const removed = dismissedControl.current;
+    dismissedControl.current = null;
+    // Respect a destination chosen by the notice's owner (for example a field
+    // editor); otherwise return to the strip toggle or where focus entered it.
+    if (removed && !removed.isConnected && (document.activeElement === document.body || document.activeElement === removed)) {
+      const target = barRef.current?.querySelector<HTMLButtonElement>('.notice-toggle') ?? outsideFocus.current;
+      if (target?.isConnected) target.focus();
+    }
+  });
   useEffect(() => {
     const el = barRef.current;
     const clear = () => document.documentElement.style.removeProperty('--notice-h');
@@ -272,6 +284,10 @@ export function NoticeBar({ notices: all }: { notices: Notice[] }) {
            and a live bar re-read itself whenever expanding rewrote it. */
         <div
           ref={barRef}
+          onFocusCapture={e => {
+            if (e.relatedTarget instanceof HTMLElement && e.relatedTarget !== document.body
+              && !e.currentTarget.contains(e.relatedTarget)) outsideFocus.current = e.relatedTarget;
+          }}
           className={`notice-bar notice-${worst}${expanded ? ' expanded' : ''}`}
           role="region"
           aria-label="Notices"
@@ -306,7 +322,7 @@ export function NoticeBar({ notices: all }: { notices: Notice[] }) {
                   {n.onDismiss && (
                     <button
                       className="notice-dismiss"
-                      onClick={n.onDismiss}
+                      onClick={e => { dismissedControl.current = e.currentTarget; n.onDismiss?.(); }}
                       aria-label={`Dismiss: ${firstLine(n.text)}`}
                     >×</button>
                   )}

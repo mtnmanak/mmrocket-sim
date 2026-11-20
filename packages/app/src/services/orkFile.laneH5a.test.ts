@@ -44,6 +44,7 @@ it.each([new XmlBudgetExceededError('XML element limit exceeded'), new InflatedF
     const err = await parseDesignFile(data.buffer, 'broken.ork', { presets: [] }).catch((e: unknown) => e);
     expect(err).toBe(refusal);
     expect(designFileOpenFailure('broken.ork', err)).toContain('.rkt file');
+    // Plain XML must reach the parser even when it exceeds the decompression cap.
     await expect(openHeadlessDesign(data, 'broken.ork', { presets: [], network: 'forbid', maxInflatedBytes: 16 })).rejects.toBe(refusal);
   } finally { setXmlParser(previous); }
 });

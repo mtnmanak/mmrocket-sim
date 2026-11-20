@@ -10,7 +10,7 @@ export function noteText(text: string): string {
       const left = source[at - 1], right = source[at + ch.length];
       const asciiChar = (c: string | undefined) => c !== undefined && /[\x00-\x7f]/.test(c);
       const edge = (c: string | undefined) => c === undefined || /[\u201c\u201d]/.test(c);
-      const ascii = (asciiChar(left) && (asciiChar(right) || edge(right)))
+      const ascii = (edge(left) && edge(right)) || (asciiChar(left) && (asciiChar(right) || edge(right)))
         || (edge(left) && asciiChar(right));
       const flanked = asciiChar(left) && asciiChar(right);
       return Array.from(ch, c => (/[\u200c\u200d]/u.test(c) ? flanked : ascii || /\p{Cf}/u.test(c)) ? marker(c) : c).join('');

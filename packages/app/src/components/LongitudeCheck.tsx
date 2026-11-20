@@ -32,7 +32,10 @@ export function LongitudeCheck({ value, onChange, review, onReview }: {
         onChange({ ...value, longitudeDeg: applied ? original : flipped });
         onReview({ evidence, applied: !applied });
       }}>{applied ? 'Put it back' : `Use ${flipped}`}</button>
-      {!applied && <button type="button" className="file-btn" onClick={() => onReview(null)}>Keep {side}</button>}
+      {!applied && <button type="button" className="file-btn" onClick={e => {
+        e.currentTarget.closest('.field-grid')?.querySelector<HTMLInputElement>('[data-launch-field="longitudeDeg"] input')?.focus();
+        onReview(null);
+      }}>Keep {side}</button>}
     </div>
   );
 }

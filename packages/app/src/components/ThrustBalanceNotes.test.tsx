@@ -12,14 +12,17 @@ const host = document.createElement('div');
 const root = createRoot(host);
 afterEach(() => { act(() => root.render(null)); localStorage.clear(); });
 
-it('row 127 shows the effective configuration tier, text, and ignition edits', () => {
+it('S3c-1 / row 127 announces the effective configuration tier, text, and ignition edits', () => {
   const tree = balanceTree(2), motor = balanceMotor();
   const props = { tree, motors: { m0: motor, m1: motor }, configs: [], activeConfigId: null, hasMotors: true,
     onApply: () => {}, onClear: () => {}, onCreate: () => null, onRename: () => {}, onDelete: () => {} };
   act(() => root.render(<ConfigPanel {...props} />));
   expect(host.querySelector('.message-danger')).toBeNull();
+  const live = host.querySelector('[role="status"][aria-live="polite"]');
+  expect(live).not.toBeNull();
   act(() => root.render(<ConfigPanel {...props} detachedOverrides={{ ignitions: { m1: { event: 'never', delay: 0 } } }} />));
   expect(host.querySelector('.message-danger')?.textContent).toContain('Unbalanced thrust');
+  expect(live?.textContent).toContain('Unbalanced thrust');
   expect(host.textContent).toContain('simulation does not show this turn');
   expect(host.textContent).toContain('Mount 1');
   act(() => root.render(<ConfigPanel {...props} motors={{ m0: balanceMotor(110), m1: balanceMotor(90) }} />));

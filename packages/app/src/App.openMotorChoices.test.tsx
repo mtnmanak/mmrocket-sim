@@ -13,6 +13,28 @@ import { num } from './tree/nodeNum.js';
 import { resolveImportMotors } from './services/importApply.js';
 import { sessionDebugLog } from './services/sessionDebugLog.js';
 import { defaultTree } from './tree/treeModel.js';
+import type { ComponentProps } from 'react';
+import type { BatchSimulate } from './components/BatchSimulate.js';
+
+const batchCapture = vi.hoisted(() => ({ props: [] as ComponentProps<typeof BatchSimulate>[] }));
+vi.mock('./components/BatchSimulate.js', async original => ({ ...await original<typeof import('./components/BatchSimulate.js')>(), BatchSimulate: (props: ComponentProps<typeof BatchSimulate>) => {
+  batchCapture.props.push(props);
+  return <div role="dialog" aria-label="Batch test capture" />;
+} }));
+
+it('S2-g9 preserves derived batch records across unrelated App renders', async () => {
+  await act(async () => root.unmount());
+  localStorage.setItem(sessionKey, JSON.stringify({ tree: defaultTree(), launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now() }));
+  root = createRoot(host);
+  await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+  await act(async () => button('Motors & Configuration').click());
+  await act(async () => button('Batch simulate motors…').click());
+  const before = batchCapture.props.at(-1)!;
+  expect(before).toBeDefined();
+  await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+  const after = batchCapture.props.at(-1)!;
+  for (const key of ['assignedMotors', 'assignedMotorIds', 'assignedAutoDelays', 'assignedIgnitions'] as const) expect(after[key], key).toBe(before[key]);
+}, 30_000);
 
 it('H1 closes a batch dialog opened while a replacement design is loading', async () => {
   await act(async () => root.unmount());

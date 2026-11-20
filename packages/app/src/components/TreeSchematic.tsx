@@ -713,7 +713,7 @@ export function TreeSchematic({ tree, info, motors, hiddenIds, onPatchNode, maxH
   }
 
   return (
-    <div ref={wrapRef} className="tree-schematic" onKeyDown={e => { if (e.key === 'Escape' && measuring) { e.stopPropagation(); setCaliper(null); } }}
+    <div ref={wrapRef} className="tree-schematic" onKeyDown={e => { if (e.key === 'Escape' && measuring) { e.stopPropagation(); setCaliper(null); svgRef.current?.focus(); } }}
       style={{ position: 'relative', ...(vertical || fillHeight ? { height: '100%' } : null),
         ...(bottomReserve && fillHeight ? { minHeight: 200 + bottomReserve } : null) }}>
       <svg ref={svgRef} viewBox={vertical ? `0 0 ${h} ${w}` : `0 0 ${w} ${h}`}

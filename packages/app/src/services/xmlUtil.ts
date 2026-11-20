@@ -4,6 +4,7 @@
  * skipped the quote escape) — with an attribute-value variant beside it.
  */
 import { DECIMAL } from '../prefs/decimal.js';
+import { InflatedFileTooLargeError } from './zipMember.js';
 import type { XmlElement } from './xmlParse.js';
 
 /**
@@ -298,7 +299,12 @@ export const unreadableFinPoints = (n: number): string =>
   + `a pair of numbers and ${n === 1 ? 'was' : 'were'} left out, as desktop OpenRocket also does — `
   + 'check the outline in the fin editor.';
 /** Inline CDATA for parsers that lack it, skipping comments and processing instructions. */
-export function inlineXmlCdata(xml: string): string {
+export function inlineXmlCdata(xml: string, maxBytes = Infinity): string {
+  let expandedLength = xml.length;
+  const checkSize = () => {
+    if (expandedLength > maxBytes) throw new InflatedFileTooLargeError(maxBytes,
+      'This XML file expands past the size limit when CDATA is escaped. Reduce its text and try again.');
+  };
   if (xml.includes('<![CDATA[')) {
     const OPEN = '<![CDATA[';
     const CLOSE = ']]>';
@@ -330,6 +336,14 @@ export function inlineXmlCdata(xml: string): string {
       }
       const close = xml.indexOf(CLOSE, open + OPEN.length);
       if (close < 0) break;
+      expandedLength -= OPEN.length + CLOSE.length;
+      // Count growth before making escaped copies, including bracket escapes.
+      for (let i = open + OPEN.length; i < close; i++) {
+        const c = xml[i];
+        if (c === '&' || c === ']') expandedLength += 4;
+        else if (c === '<' || c === '>') expandedLength += 3;
+      }
+      checkSize();
       // Trailing brackets must not join a following literal > into forbidden ]]> text.
       rebuilt += xml.slice(at, open) + xml.slice(open + OPEN.length, close)
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/]/g, '&#93;');

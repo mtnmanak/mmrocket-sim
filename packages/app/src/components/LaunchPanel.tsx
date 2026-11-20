@@ -160,7 +160,7 @@ export function LaunchField({
   const uiMin = min === undefined ? undefined : toUi(min);
   const uiMax = max === undefined ? undefined : toUi(max);
   return (
-    <div className="field" title={help}>
+    <div className="field" title={help} data-launch-field={field}>
       {/* The .field idiom puts the <label> beside the box, so it points at
           the box (htmlFor), as the printer boxes' do (PreferencesDialog). A
           label with no `for` names its first labelable descendant: on the
@@ -339,6 +339,8 @@ export const densityAltitudeHelp = (units: UnitSelection = INITIAL_UNITS): strin
   + 'your real temperature and pressure. Dry air: humid air is slightly thinner, so on a muggy day '
   + 'the true figure is a few hundred feet higher.';
 
+export const DENSITY_ALTITUDE_HELP = densityAltitudeHelp();
+
 /**
  * Help for the Rod aim field (weather build, step 2). Exported for the tests.
  * The sign convention is measured, not asserted: the wind blows from the east
@@ -347,8 +349,6 @@ export const densityAltitudeHelp = (units: UnitSelection = INITIAL_UNITS): strin
  * (simReport.kernel.test.ts). The last sentence is the identity
  * packages/engine/src/rodDirection.test.ts measures: +5° aimed 180° flies as −5°.
  */
-export const DENSITY_ALTITUDE_HELP = densityAltitudeHelp();
-
 export const rodAimHelp = (units: UnitSelection = INITIAL_UNITS): string =>
   `Which way the rod leans, measured from straight into the wind: ${noticeQuantity('angle', 0, units)} (the default) leans it into the `
   + `wind, ${noticeQuantity('angle', Math.PI, units)} downwind, ±${noticeQuantity('angle', Math.PI / 2, units)} across it — positive to your right as you face into the wind. It only `

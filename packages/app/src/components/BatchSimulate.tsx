@@ -987,7 +987,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
         </Note>
 
         {sorted.length > 0 && (
-          <div className="motor-table-wrap" style={{ maxHeight: 320 }}>
+          <div className="motor-table-wrap" style={{ maxHeight: 320 }} tabIndex={0} role="region" aria-label="Batch simulation results">
             <table className="motor-table">
               <thead>
                 <tr>

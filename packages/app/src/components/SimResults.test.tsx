@@ -77,11 +77,12 @@ it('r2 shows both mixed groups in the saved-history flown delay cell', () => {
 });
 
 it.each(['G80T in Inner Tube', 'E30T in Tube 1, Tube 3; E20 in Tube 2, Tube 4', 'Batch loadout not recorded'])(
-  'r4-1 uses the same batch loadout wording in history and the report: %s', flightConfig => {
+  'S3a-g7 / r4-1 uses the same batch loadout wording in history and the report: %s', flightConfig => {
     const saved = { ...run(), batch: true, flightConfig };
     const expected = flightConfig === 'Batch loadout not recorded' ? 'loadout not recorded' : flightConfig;
     render(<SimHistory runs={[saved]} onRunsChange={() => {}} />);
     act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Show')!.click());
+    expect(host.querySelector<HTMLElement>('[role="region"][aria-label="Saved simulations"]')?.tabIndex).toBe(0);
     expect(host.querySelector('tbody tr')!.querySelectorAll('td')[2]!.textContent).toBe(`Batch · ${expected}`);
     render(<SimRunDetails run={saved} />);
     const heading = flightConfig === 'Batch loadout not recorded' ? `Batch · ${expected}` : `Batch · Flew: ${expected}`;
@@ -1079,6 +1080,28 @@ describe('SimHistory — nothing is destroyed by one stray click (audit 2026-09-
     act(() => { byText('Delete all 3').click(); });
     expect(loadRuns()).toEqual([]);
     expect(host.querySelector('[role="dialog"]')).toBeNull();
+    const empty = host.querySelector('[aria-label="Saved simulations"]');
+    expect(empty).not.toBeNull();
+    expect(document.activeElement).toBe(empty);
+    expect(empty!.classList.contains('sr-only')).toBe(true);
+  });
+
+  it.each([false, true])('S3c-b3 Clear all preserves the history open state (%s) for the next run', expanded => {
+    function WithNextRun() {
+      const [runs, setRuns] = useState(() => loadRuns());
+      return <>
+        <button onClick={() => { addRuns([named('next', 'Next')]); setRuns(loadRuns()); }}>Add next run</button>
+        <SimHistory runs={runs} onRunsChange={setRuns} />
+      </>;
+    }
+    render(<WithNextRun />);
+    if (expanded) openTable();
+    act(() => { byText('Clear all').click(); });
+    act(() => { byText('Delete all 3').click(); });
+    expect(host.querySelector('.panel')).toBeNull();
+    // Keep the same mounted SimHistory and its disclosure state.
+    act(() => byText('Add next run').click());
+    expect(byText(expanded ? 'Hide' : 'Show').getAttribute('aria-expanded')).toBe(String(expanded));
   });
 
   it('explains which opened-file results survive saving before deleting saved runs', () => {
@@ -1094,7 +1117,7 @@ describe('SimHistory — nothing is destroyed by one stray click (audit 2026-09-
     expect(loadRuns()).toHaveLength(3);
   });
 
-  it('a row\'s ✕ deletes at once and offers Undo, which puts it back where it was', () => {
+  it('S3c-b3 a row\'s ✕ offers Undo, restoring its place and keyboard focus', () => {
     render(<Wired />);
     openTable();
     const del = host.querySelector('button[aria-label^="Delete run Bravo"]') as HTMLButtonElement;
@@ -1113,13 +1136,14 @@ describe('SimHistory — nothing is destroyed by one stray click (audit 2026-09-
     expect(line.classList.contains('sr-only')).toBe(false);
     act(() => { undo.click(); });
     expect(loadRuns().map((r) => r.id)).toEqual(['a', 'b', 'c']);
+    expect(document.activeElement).toBe(byText('Hide'));
     expect(host.textContent).not.toContain('Deleted run');
     // Emptied, and out of the flow again.
     expect(line.isConnected).toBe(true);
     expect(line.classList.contains('sr-only')).toBe(true);
   });
 
-  it('Undo still works after the LAST run is deleted', () => {
+  it('S3c-b3 Undo restores keyboard focus after the LAST run is deleted', () => {
     localStorage.clear();
     addRuns([named('only', 'Solo')]);
     render(<Wired />);
@@ -1130,6 +1154,24 @@ describe('SimHistory — nothing is destroyed by one stray click (audit 2026-09-
     expect(regions).toContain([...host.querySelectorAll('[role="status"]')].find(n => n.textContent?.includes('Deleted run Solo')));
     act(() => { byText('Undo').click(); });
     expect(loadRuns().map((r) => r.id)).toEqual(['only']);
+    expect(document.activeElement).toBe(byText('Hide'));
+  });
+
+  it.each([1, 2])('S3c-b3 Dismiss preserves focus after deleting one of %i runs', count => {
+    localStorage.clear();
+    addRuns([named('only', 'Solo'), ...(count === 2 ? [named('other', 'Other')] : [])]);
+    render(<Wired />); openTable();
+    act(() => { (host.querySelector('button[aria-label^="Delete run Solo"]') as HTMLButtonElement).click(); });
+    const dismiss = host.querySelector<HTMLButtonElement>('button[aria-label="Dismiss"]')!;
+    act(() => { dismiss.focus(); dismiss.click(); });
+    expect(host.textContent).not.toContain('Deleted run');
+    expect(document.activeElement).toBe(count === 2 ? byText('Hide') : host.querySelector('[aria-label="Saved simulations"]'));
+    expect(document.activeElement).not.toBe(document.body);
+    if (count === 1) {
+      expect(document.activeElement?.textContent).toContain('No saved simulations.');
+      expect(host.querySelector('.panel')).toBeNull();
+      expect(document.activeElement?.classList.contains('sr-only')).toBe(true);
+    }
   });
 });
 
@@ -1391,13 +1433,22 @@ it('reformats saved warning quantities when the current units change', () => {
   expect(host.textContent).not.toContain('(30.48 m/s [100 ft/s]): "Main"');
 });
 
-it('keeps the quoted vented Cd cell and brackets the landing-rate counterpart', () => {
+it('S3a-g7 keeps recovery tables reachable and preserves the quoted vented Cd cell', () => {
   const saved = run();
   saved.deployments = [{ ...preV099Deployment, cd: 1.44, cdNominal: 1.5, spillHoleDiameter: 0.122 }];
   render(<SimRunDetails run={saved} />);
   expect(host.textContent).toContain('1.44 (1.50 less a 122 mm vent)');
+  expect(host.querySelector<HTMLElement>('[role="region"][aria-label="Recovery deployments"]')?.tabIndex).toBe(0);
   act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Show all details')!.click());
   expect(host.textContent).toContain('Landing rate OK (≤ 6.1 m/s [20 ft/s])');
+});
+
+it('S3b-2 prints motor diameter in the selected motor dimension unit', () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { motorDimensions: 'in' } }));
+  render(<SimRunDetails run={{ ...run(), motorDiameterMm: 54 }} />);
+  act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Show all details')!.click());
+  const row = [...host.querySelectorAll('tr')].find(r => r.textContent?.startsWith('Motor diameter'))!;
+  expect(row.textContent).toContain('2.126 in (54 mm)');
 });
 
 it('uses the report opening threshold in mph role guidance', () => {

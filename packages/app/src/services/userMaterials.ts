@@ -199,7 +199,7 @@ export function importUserMaterialsCsv(csv: string, existing: readonly UserMater
     // Undo precisely the formula guard written by csvCell, including quoted commas.
     const name = unescapeCsvText(rawName);
     const entry = { kind, name, density: parseDecimal(density) };
-    let problem = cells.length !== 4 ? 'Expected four columns' : materialProblem(entry, units);
+    let problem = cells.length !== 4 ? 'Expected four columns' : materialProblem(entry, { ...units, density: 'kg/m³' });
     if (!problem) {
       const m = entry as UserMaterial;
       const expected = m.kind === 'bulk' ? 'kg/m3' : m.kind === 'surface' ? 'kg/m2' : 'kg/m';

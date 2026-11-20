@@ -3,9 +3,21 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { authenticatedWorker as worker } from './auth.testSupport.js';
 import * as headless from '../../app/src/headless/index.js';
 import { noteEcho, noteStrings, warningEcho, warningName } from './fileStrings.js';
-import { noteField } from '../../app/src/services/noteField.js';
+
+it('S1d-g4 bounds an invisible quoted name after marking, retaining the warning tail', () => {
+  const result = warningEcho('Check "' + '\u034f'.repeat(180) + '" — tail');
+  expect(result).toContain('[U+034F]');
+  expect(result).toContain('— tail');
+  expect(Array.from(result).length).toBeLessThan(250);
+});
+import { noteField, noteText } from '../../app/src/services/noteField.js';
 import { displayEcho } from './filenameEcho.js';
 import { bytesOf } from './fixtures.testSupport.js';
+
+it.each(['\u200dRocket', 'Rocket\u200d', '\u200cRocket', '\u034f', '\u3164'])('S1d-g4 preserves curly warning context across app/API for %s', name => {
+  const message = `Part “${name}” needs attention`;
+  expect(warningEcho(message)).toBe(noteText(message));
+});
 
 /** Hostile file text is bounded at the API display boundary. */
 const ctx = { waitUntil: (_p: Promise<unknown>) => {} };

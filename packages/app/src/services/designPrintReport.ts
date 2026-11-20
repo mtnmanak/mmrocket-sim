@@ -206,7 +206,9 @@ export function designPrintHtml(input: DesignPrintInput): string {
  */
 function flightCardHeader(run: SimRun): string {
   const text = runLabelText;
+  const named = (run.motorConfig ?? '').startsWith('mixed')
+    && text(run.manufacturer).split('+').every(m => text(run.motor).includes(`${m} `));
   const motor = (run.batch !== true ? flownLoadoutText(run) : null)
-    ?? ([text(run.manufacturer), text(run.motor)].filter(Boolean).join(' ') || 'Unknown motor');
+    ?? ([named ? '' : text(run.manufacturer), text(run.motor)].filter(Boolean).join(' ') || 'Unknown motor');
   return [text(run.rocket), motor, `flown ${formatRunWhenProse(run.when)}`].filter(Boolean).join(' — ');
 }

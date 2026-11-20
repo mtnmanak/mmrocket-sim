@@ -1,5 +1,6 @@
 import { Note, type NoteTier } from './Note.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
+import { noticeQuantity } from '../prefs/units.js';
 import { useEffect, useId, useRef, useState } from 'react';
 import { Modal } from './Modal.js';
 import { describeRow, matchingExMotors } from '../services/motorMatch.js';
@@ -96,7 +97,7 @@ export function OpenMotorDialog({ identities, onApply, onLater }: {
                 <label key={motor.motorId}>
                   <input type="radio" name={`${id}-${index}`} checked={selected?.kind === 'ex' && selected.motor.motorId === motor.motorId}
                     onChange={() => choose(group.key, { kind: 'ex', motor })} />
-                  {motor.realManufacturer} {db.designation} (EX, {db.diameter} mm)
+                  {motor.realManufacturer} {db.designation} (EX, {noticeQuantity('motorDimensions', db.diameter / 1000, prefs.units)})
                 </label>
               );
             })}

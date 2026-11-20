@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act } from 'react';
+import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { NoticeBar, type Notice } from './NoticeBar.js';
@@ -39,6 +39,52 @@ const draw = (notices: Notice[]) => {
 };
 
 const bar = () => host.querySelector('.notice-bar');
+
+it.each([false, true])('S3c-b3 keeps focus after dismissing a global receipt (another remains: %s)', another => {
+  function Receipts() {
+    const [show, setShow] = useState(true);
+    return <><button>Editor</button><NoticeBar notices={[
+      ...(show ? [{ ...warn, onDismiss: () => setShow(false) }] : []),
+      ...(another ? [info] : []),
+    ]} /></>;
+  }
+  act(() => root.render(<Receipts />));
+  const editor = host.querySelector<HTMLButtonElement>('button')!;
+  const dismiss = host.querySelector<HTMLButtonElement>('.notice-dismiss')!;
+  act(() => { editor.focus(); dismiss.focus(); dismiss.click(); });
+  expect(dismiss.isConnected).toBe(false);
+  expect(document.activeElement).toBe(another ? host.querySelector('.notice-toggle') : editor);
+});
+
+it('S3c-b3 respects a notice owner that chooses its own surviving focus target', () => {
+  function Receipts() {
+    const [show, setShow] = useState(true);
+    return <><button id="notice-owner-target">Editor</button><NoticeBar notices={show ? [{ ...warn, onDismiss: () => {
+      document.getElementById('notice-owner-target')!.focus(); setShow(false);
+    } }] : []} /></>;
+  }
+  act(() => root.render(<Receipts />));
+  const dismiss = host.querySelector<HTMLButtonElement>('.notice-dismiss')!;
+  act(() => { dismiss.focus(); dismiss.click(); });
+  expect(document.activeElement).toBe(host.querySelector('#notice-owner-target'));
+});
+
+it('S3c-b3 remembers the outside destination through successive notice dismissals', () => {
+  function Receipts() {
+    const [items, setItems] = useState([warn, info]);
+    return <><button>Editor</button><NoticeBar notices={items.map(item => ({ ...item,
+      onDismiss: () => setItems(previous => previous.filter(n => n.id !== item.id)),
+    }))} /></>;
+  }
+  act(() => root.render(<Receipts />));
+  const editor = host.querySelector<HTMLButtonElement>('button')!;
+  act(() => { editor.focus(); });
+  for (let i = 0; i < 2; i++) {
+    const dismiss = host.querySelector<HTMLButtonElement>('.notice-dismiss')!;
+    act(() => { dismiss.focus(); dismiss.click(); });
+    expect(document.activeElement).toBe(i === 0 ? host.querySelector('.notice-toggle') : editor);
+  }
+});
 
 it('visual tiers do not change announcement urgency or paint unrelated Information', () => {
   draw([{ ...info, tier: 'caution' }, err]);

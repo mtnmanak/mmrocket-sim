@@ -179,8 +179,11 @@ function typeInto(el: HTMLInputElement, value: string): void {
 const search = (h: Harness, text: string) =>
   typeInto(h.host.querySelector<HTMLInputElement>('input[type="search"]')!, text);
 const bodyRows = (h: Harness) => Array.from(h.host.querySelectorAll<HTMLTableRowElement>('tbody tr'));
-const rowFor = (h: Harness, mfr: string, designation: string) => bodyRows(h).find((tr) =>
-  tr.cells[1]?.textContent === mfr && (tr.cells[0]?.textContent ?? '').replace(/OOP$/, '').trim() === designation);
+const rowFor = (h: Harness, mfr: string, designation: string) => bodyRows(h).find((tr) => {
+  const motor = tr.cells[0]?.cloneNode(true) as HTMLTableCellElement | undefined;
+  motor?.querySelectorAll('.motor-oop, .motor-mass-note').forEach(note => note.remove());
+  return tr.cells[1]?.textContent === mfr && motor?.textContent?.trim() === designation;
+});
 const delaySelect = (h: Harness) => h.host.querySelector<HTMLSelectElement>('.motor-load-row select');
 const click = (el: Element) => act(() => { (el as HTMLElement).click(); });
 /** Lets pending promises (a lazy JSON chunk, a file read) settle inside act. */
@@ -543,7 +546,7 @@ describe('MotorBrowser — a motor refused on its catalogue weight but not its f
     expect(h.selected.map((s) => s.label)).toEqual(['1/2A6-2']);
   });
 
-  it('a motor with no weight anywhere stays locked', async () => {
+  it('S3a-g9 explains visibly why a motor with no weight anywhere stays locked', async () => {
     // KBA K1000S carries no catalogue weight and has no bundled file at all.
     h = openBrowser({ mountDiameterMm: 54, filters: { includeOOP: true } });
     search(h, 'K1000S');
@@ -551,6 +554,7 @@ describe('MotorBrowser — a motor refused on its catalogue weight but not its f
     const row = rowFor(h, 'KBA', 'K1000S');
     expect(row, 'KBA K1000S has left the catalogue').toBeTruthy();
     expect(row!.getAttribute('aria-disabled')).toBe('true');
+    expect(row!.textContent).toContain('no usable weight; import a motor file to simulate');
   });
 });
 

@@ -31,6 +31,14 @@ let seq = 0;
 /** The editor's own 4-point clipped delta, in metres. */
 const GOOD: FinPoint[] = [[0, 0], [0.020, 0.030], [0.045, 0.030], [0.060, 0]];
 
+it('S3b-g6 inserts a point on the leading edge from the coordinate table', () => {
+  render(GOOD);
+  const insert = host.querySelector<HTMLButtonElement>('button[aria-label="Insert after point 1"]');
+  expect(insert).not.toBeNull();
+  act(() => insert!.click());
+  expect(committed.at(-1)).toEqual([[0, 0], [0.01, 0.015], ...GOOD.slice(1)]);
+});
+
 it('explains a restored over-limit outline immediately', () => {
   render([[0, 0], [0.02, 3], [0.06, 0]]);
   expect(host.querySelector('.fin-points-alert[role="alert"]')?.textContent).toContain('2500 mm (98.425 in) coordinate limit');

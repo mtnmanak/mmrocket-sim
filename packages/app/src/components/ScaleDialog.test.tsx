@@ -8,6 +8,7 @@ import { loadPresets } from '../services/presets.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import type { ScaleResult } from '../tree/scaleRocket.js';
 import { findNode } from '../tree/treeModel.js';
+import * as scaleModel from '../tree/scaleRocket.js';
 
 /**
  * The dialog's own job is the FACTOR ↔ TARGET DIAMETER link — the pair desktop
@@ -634,6 +635,25 @@ describe('ScaleDialog', () => {
       expect(text()).toContain('the 38.5 mm (1.516 in) mount you chose');
       act(() => applyButton().click());
       expect((mountOf(applied!)['outerRadius'] as number) * 2).toBeCloseTo(0.0385 + 0.0032, 9);
+    });
+
+    it('S3b-2 converts an inch custom bore to stored millimetres', async () => {
+      localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { motorDimensions: 'in' } }));
+      await render(); pick(mountSelect(), 'custom');
+      expect(customBore().getAttribute('aria-label')).toContain(', in');
+      type(customBore(), '1.5');
+      expect(customBore().getAttribute('aria-invalid')).toBeNull();
+      act(() => applyButton().click());
+      expect((mountOf(applied!)['outerRadius'] as number) * 2).toBeCloseTo(0.0381 + 0.0032, 9);
+    });
+
+    it.each([9, 13, 18, 26, 36])('S3b-2 keeps an entered %i mm bore exact in the scale choices', async boreMm => {
+      const scale = vi.spyOn(scaleModel, 'scaleRocket');
+      try {
+        await render(); pick(mountSelect(), 'custom'); type(customBore(), String(boreMm));
+        act(() => applyButton().click());
+        expect(scale.mock.calls.at(-1)?.[2]?.mountChoices?.['m']).toEqual({ boreMm });
+      } finally { scale.mockRestore(); }
     });
 
     it('refuses a custom bore wider than the body tube it sits in', async () => {

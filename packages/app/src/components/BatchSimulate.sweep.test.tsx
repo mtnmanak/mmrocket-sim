@@ -259,6 +259,30 @@ it('141 opens the saved combination object and closes on the top saved row in ta
   type(field('Minimum apogee'), '100');
   await start();
   const opens = buttons().filter(b => b.textContent === 'Open');
+  const resultsRegion = host.querySelector<HTMLElement>('[role="region"][aria-label="Batch simulation results"]');
+  expect(resultsRegion?.tabIndex).toBe(0);
+  expect(opens).toHaveLength(2);
+  expect(opens[0]!.getAttribute('aria-label')).toBe('Open 2× A + 2× B in Results');
+  expect(opens[0]!.tabIndex).toBe(0);
+  expect(host.textContent).toContain('rejected, errored or unsaved rows cannot be opened');
+  act(() => opens[0]!.click());
+  expect(opened[0]).toBe(saved[0]!.find(run => run.id === 'top'));
+  expect(closes).toBe(1);
+  opened = [];
+  act(() => closeBtn().click());
+  expect(opened[0]).toBe(saved[0]!.find(run => run.id === 'top'));
+});
+
+it('S3a-g7 / 141 makes results scrollable and opens the top saved row in table order', async () => {
+  const low = row('low', 'Low', 200), top = { ...row('top', '2× A + 2× B', 400), combo: true };
+  const rejected = row('rejected', 'Too low', 1);
+  sweep.mockResolvedValue({ rows: [low, rejected, top, failedRow('error', 'Error')], stopped: false });
+  mount();
+  type(field('Minimum apogee'), '100');
+  await start();
+  const opens = buttons().filter(b => b.textContent === 'Open');
+  const resultsRegion = host.querySelector<HTMLElement>('[role="region"][aria-label="Batch simulation results"]');
+  expect(resultsRegion?.tabIndex).toBe(0);
   expect(opens).toHaveLength(2);
   expect(opens[0]!.getAttribute('aria-label')).toBe('Open 2× A + 2× B in Results');
   expect(opens[0]!.tabIndex).toBe(0);

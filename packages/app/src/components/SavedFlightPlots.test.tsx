@@ -19,7 +19,7 @@ const name = (value: string) => act(() => {
 beforeEach(() => { localStorage.clear(); apply.mockClear(); host = document.createElement('div'); document.body.append(host); root = createRoot(host); });
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-it('saves, reloads, recalls, renames and deletes a viewer layout with undo', () => {
+it('S3c-b3 saves, reloads, recalls, renames and deletes a viewer layout with undo and focus', () => {
   render(); name(' Coast '); click('Save current plots');
   expect(host.textContent).toContain('Saved Coast.');
   act(() => root.unmount()); root = createRoot(host); render();
@@ -28,7 +28,9 @@ it('saves, reloads, recalls, renames and deletes a viewer layout with undo', () 
   name('Landing'); click('Rename');
   expect(host.querySelector('option:last-child')!.textContent).toBe('Landing');
   click('Delete'); expect(host.querySelectorAll('option')).toHaveLength(1);
+  act(() => Array.from(host.querySelectorAll('button')).find(b => b.textContent === 'Undo delete')!.focus());
   click('Undo delete'); expect(host.querySelector('option:last-child')!.textContent).toBe('Landing');
+  expect(document.activeElement).toBe(host.querySelector('select'));
 });
 it.each(['randomUUID', 'crypto'])('saves distinct layouts, reloads and applies them without %s', missing => {
   vi.stubGlobal('crypto', missing === 'crypto' ? undefined : { getRandomValues: crypto.getRandomValues.bind(crypto) });

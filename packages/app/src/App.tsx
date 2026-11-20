@@ -233,6 +233,7 @@ import { useTreeHistory } from './hooks/useTreeHistory.js';
 import { DesignNotesPanel } from './components/DesignNotesPanel.js';
 import { togglePartVisibility } from './tree/partVisibility.js';
 import { useNozzleFollow } from './hooks/useNozzleFollow.js';
+import { useFlightHandleHold } from './hooks/useFlightHandleHold.js';
 import { useRelaunchLatch } from './hooks/useRelaunchLatch.js';
 import { useAfterMount } from './hooks/useAfterMount.js';
 import { useDesignDirty, type PreRankRestore } from './hooks/useDesignDirty.js';
@@ -1340,8 +1341,7 @@ export function App() {
    * close over a render — and the export, which has no state of its own in App,
    * counts itself in and out.
    */
-  const flightHoldsHandle = useRef(false);
-  flightHoldsHandle.current = simulating || reflying !== null;
+  const flightHoldsHandle = useFlightHandleHold(simulating || reflying !== null);
   const fullSeriesHolds = useRef(0);
 
   // ---- engine build + static analysis on every tree change ----
@@ -1742,6 +1742,17 @@ export function App() {
   const batchRetainedHardware = useMemo(() => built?.hardware.state === 'ok'
     ? { mountId: built.hardware.appliedTo, deltaKg: built.hardware.deltaKg }
     : undefined, [built]);
+
+  const batchAssignedMotors = useMemo(() => Object.fromEntries(
+    Object.entries(flightState.mountMotors).map(([id, mm]) => [id, flownSpec(id, mm.spec, built?.hardware)])),
+  [flightState.mountMotors, built]);
+  const batchAssignedMotorIds = useMemo(() => batchMotorIds(flightState.mountMotors), [flightState.mountMotors]);
+  const batchAssignedAutoDelays = useMemo(() => Object.fromEntries(assigned.map(([id, mm]) => [id, mm.meta.autoDelay === true])), [assigned]);
+  const flightIgnitionDefaults = (tree as FlightTree).ignitionDefaults;
+  const batchAssignedIgnitions = useMemo(() => Object.fromEntries(
+    mounts.map(m => [m.id!, overrideFor(activeOverrides.ignitions, m.id!)
+      ?? overrideFor(flightIgnitionDefaults, m.id!) ?? flightState.mountMotors[m.id!]?.ignition
+      ?? { event: 'automatic' as const, delay: 0 }])), [mounts, activeOverrides.ignitions, flightIgnitionDefaults, flightState.mountMotors]);
 
   /**
    * ONE component's own mass (kg), for the recovery-sizing panel's substitution:
@@ -2442,7 +2453,7 @@ export function App() {
     } finally {
       setReflying(null);
     }
-  }, [built, primaryMountId, assigned, refusedMountIds, launch, effectiveSupersonic, effectiveKbf, effectiveHybrid, cacheFlight, canShowCharts]);
+  }, [built, primaryMountId, assigned, refusedMountIds, launch, effectiveSupersonic, effectiveKbf, effectiveHybrid, cacheFlight, canShowCharts, flightHoldsHandle]);
 
   /**
    * Re-flies the LAST launch with `series: 'full'` for the flight-data CSV.
@@ -2492,7 +2503,7 @@ export function App() {
     } finally {
       fullSeriesHolds.current -= 1;
     }
-  }, [built, primaryMountId, lastRun, assigned, refusedMountIds, launch, effectiveSupersonic, effectiveKbf, effectiveHybrid, provenanceKey]);
+  }, [built, primaryMountId, lastRun, assigned, refusedMountIds, launch, effectiveSupersonic, effectiveKbf, effectiveHybrid, provenanceKey, flightHoldsHandle]);
 
   // ---- design file I/O (.ork native, .rkt RockSim) ----
   /**
@@ -2821,7 +2832,7 @@ export function App() {
     }, 500);
     return () => window.clearTimeout(timer);
   }, [designFile, designSnapshot, unmatchedRefs, runs, importedDocument, simulating, reflying, flightExportInput,
-    prefs.units.altitude, built, catalogue, exLibraryRevision]);
+    prefs.units.altitude, built, catalogue, exLibraryRevision, flightHoldsHandle]);
   // The Open, ✕ New and share confirms say what the .rkt or .CDX1 on disk does
   // not keep. Computed now, from the design on screen, while one is open: the
   // header's debounced preview may not have run yet (just after an Open or an
@@ -4364,8 +4375,7 @@ export function App() {
           // Flown specs, not catalogue: a weighed motor on a NON-target mount
           // keeps its hardware through the batch's applyOthers; the batch
           // itself shifts only the target mount's matching candidate (weighed).
-          assignedMotors={Object.fromEntries(
-            Object.entries(flightState.mountMotors).map(([id, mm]) => [id, flownSpec(id, mm.spec, built.hardware)]))}
+          assignedMotors={batchAssignedMotors}
           // The nozzle-database ids alongside the specs: the database is keyed
           // on the motor's id and a MotorSpec has none, so the sweep needs these
           // to resolve the published exit of every motor firing beside the
@@ -4373,17 +4383,14 @@ export function App() {
           // carries `exMotorId`, never `motorId`, and reading `motorId` alone
           // (as this did until audit 2026-09-22) left an imported motor out of
           // the sweep's stage sum and kept its row off the exit typed for it.
-          assignedMotorIds={batchMotorIds(flightState.mountMotors)}
+          assignedMotorIds={batchAssignedMotorIds}
           // …and their ignition settings, for the same reason: a MotorSpec
           // carries none, and every setMotorById resets the mount to
           // AUTOMATIC. An imported single-stage design can hold a `never` or
           // a delayed mount; every loaded motor shows its control, including on a
           // single-stage design.
-          assignedAutoDelays={Object.fromEntries(assigned.map(([id, mm]) => [id, mm.meta.autoDelay === true]))}
-          assignedIgnitions={Object.fromEntries(
-            mounts.map(m => [m.id!, overrideFor(activeOverrides.ignitions, m.id!)
-              ?? overrideFor((tree as FlightTree).ignitionDefaults, m.id!) ?? flightState.mountMotors[m.id!]?.ignition
-              ?? { event: 'automatic', delay: 0 }]))}
+          assignedAutoDelays={batchAssignedAutoDelays}
+          assignedIgnitions={batchAssignedIgnitions}
           weighed={batchWeighed}
           retainedHardware={batchRetainedHardware}
           launch={launch}

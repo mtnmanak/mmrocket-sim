@@ -4,7 +4,7 @@ import { CSV_APOSTROPHE_HELP } from '../services/csvUtil.js';
 import { flushSync } from 'react-dom';
 import { Modal } from './Modal.js';
 import { Note, type NoteTier } from './Note.js';
-import { readDecimal } from '../prefs/units.js';
+import { fmtFieldValue, readDecimal, siToUi, uiToSi } from '../prefs/units.js';
 import { useUserMaterials } from './useUserMaterials.js';
 import { MATERIAL_UNITS, type MaterialKind } from '../services/designMaterials.js';
 import {
@@ -18,6 +18,8 @@ export const MATERIAL_STORAGE_FAILURE = 'My materials could not be saved in this
 export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
   const { materials, note } = useUserMaterials();
   const { prefs } = usePrefs();
+  const densitySeed = (m: UserMaterial) => String(m.kind === 'bulk'
+    ? Number(siToUi('density', prefs.units.density, m.density).toPrecision(12)) : m.density);
   const [message, setMessageText] = useState('');
   const setMessage = (text: string, tier: NoteTier = 'caution') => { setMessageText(text); setMessageTier(tier); };
   const [messageTier, setMessageTier] = useState<NoteTier>('information');
@@ -94,20 +96,22 @@ export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
       </div>
       {materials.length === 0 && <p>No saved materials. Save a named material from a part, or Import CSV.</p>}
       {(['bulk', 'surface', 'line'] as MaterialKind[]).map(kind => <section key={kind} aria-label={`${kind} materials`}>
-        <h3>{kind === 'bulk' ? 'Bulk' : kind === 'surface' ? 'Surface' : 'Line'} ({MATERIAL_UNITS[kind]})</h3>
+        <h3>{kind === 'bulk' ? 'Bulk' : kind === 'surface' ? 'Surface' : 'Line'} ({kind === 'bulk' ? prefs.units.density : MATERIAL_UNITS[kind]})</h3>
         <ul style={{ paddingLeft: 20 }}>
           {materials.filter(m => m.kind === kind).map(m => {
             const key = userMaterialKey(m);
             return <li key={key} style={{ marginBottom: 12 }}>
               {editing?.key === key ? <form onSubmit={e => {
                 e.preventDefault();
-                const density = editing.density.trim() === String(editing.draft.density)
+                const unchanged = editing.density.trim() === densitySeed(editing.draft);
+                const density = unchanged
                   ? readDecimal(editing.density, false) : readDecimal(editing.density);
-                const draft = { ...editing.draft, density: density ?? NaN };
-                const problem = materialProblem(draft, prefs.units);
+                const draft = { ...editing.draft, density: unchanged ? editing.draft.density : density === null ? NaN : kind === 'bulk' ? uiToSi('density', prefs.units.density, density) : density };
+                const fieldUnits = kind === 'bulk' ? prefs.units : { ...prefs.units, density: 'kg/m³' };
+                const problem = materialProblem(draft, fieldUnits);
                 if (problem) {
                   setMessage(problem);
-                  const densityProblem = materialProblem({ ...m, density: draft.density }, prefs.units);
+                  const densityProblem = materialProblem({ ...m, density: draft.density }, fieldUnits);
                   flushSync(() => setDensityError(densityProblem ?? ''));
                   if (densityProblem) densityField.current?.focus();
                   return;
@@ -129,7 +133,7 @@ export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
                 <div className="field"><label htmlFor={`${uid}-name`}>Material name</label>
                   <input id={`${uid}-name`} maxLength={80} value={editing.draft.name}
                     onChange={e => setEditing({ ...editing, draft: { ...editing.draft, name: e.target.value } })} /></div>
-                <div className="field"><label htmlFor={`${uid}-density`}>Density ({MATERIAL_UNITS[kind]})</label>
+                <div className="field"><label htmlFor={`${uid}-density`}>Density ({kind === 'bulk' ? prefs.units.density : MATERIAL_UNITS[kind]})</label>
                   <input ref={densityField} id={`${uid}-density`} inputMode="decimal" value={editing.density}
                     aria-invalid={densityError ? true : undefined} aria-describedby={densityError ? `${uid}-density-error` : undefined}
                     onChange={e => { setDensityError(''); setEditing({ ...editing, density: e.target.value }); }} />
@@ -137,11 +141,11 @@ export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
                 <button className="file-btn" type="submit">Save material</button>{' '}
                 <button className="file-btn" type="button" onClick={() => { focusAfterEdit.current = key; setEditing(null); }}>Cancel</button>
               </form> : <>
-                <span>{m.name} ({m.density} {MATERIAL_UNITS[kind]})</span>{' '}
+                <span>{m.name} ({kind === 'bulk' ? fmtFieldValue(siToUi('density', prefs.units.density, m.density), prefs.fieldPrecision) : m.density} {kind === 'bulk' ? prefs.units.density : MATERIAL_UNITS[kind]})</span>{' '}
                 <button className="file-btn" type="button" aria-label={`Edit ${kind} material ${m.name}`} ref={el => {
                   if (el) editButtons.current.set(key, el);
                   else editButtons.current.delete(key);
-                }} onClick={() => { focusEditName.current = true; setDensityError(''); setEditing({ key, draft: { ...m }, density: String(m.density) }); setMessage(''); }}>Edit</button>{' '}
+                }} onClick={() => { focusEditName.current = true; setDensityError(''); setEditing({ key, draft: { ...m }, density: densitySeed(m) }); setMessage(''); }}>Edit</button>{' '}
                 <button className="file-btn" type="button" aria-label={`Delete ${kind} material ${m.name}`} onClick={() => { setMessage(''); setDeleting(m); }}>Delete</button>
               </>}
             </li>;

@@ -2070,8 +2070,8 @@ function readLaunchConditions(
   const launch: Partial<LaunchConditions> = {
     launchGuideAllowance: text(condEl, ':scope > launchguideallowance') !== 'false',
   };
-  const maxTime = num(condEl, 'maxtime', DEFAULT_MAX_FLIGHT_TIME_S, notes);
-  if (text(condEl, ':scope > maxtime')) launch.maxFlightTimeS = importLaunchValue(maxTime, MAX_FLIGHT_TIME_S_RANGE,
+  const maxTime = num(condEl, 'maxtime', DEFAULT_MAX_FLIGHT_TIME_S, notes, 'seconds');
+  if (condEl.querySelector(':scope > maxtime')) launch.maxFlightTimeS = importLaunchValue(maxTime, MAX_FLIGHT_TIME_S_RANGE,
     { what: 'maximum flight time', field: 'Maximum flight time', show: (x, against) =>
       against !== undefined && !noticeEqual(x, against) && noticeNumber(x, 6) === noticeNumber(against, 6)
         ? `just ${x < against ? 'below' : 'above'} ${noticeNumber(against, 6)} s` : `${noticeNumber(x, 6)} s` }, notes);
@@ -4493,11 +4493,12 @@ function invalidNumberNote(el: XmlElement, tag: string, notes: string[], action 
  * units, file degrees, or a sentinel that is never used. Without one the
  * fallback prints as the bare number (zero and unitless fallbacks).
  */
-type NumDefault = readonly ['length' | 'motorDimensions' | 'altitude' | 'mass', UnitSelection] | 'degrees' | 'unused';
+type NumDefault = readonly ['length' | 'motorDimensions' | 'altitude' | 'mass', UnitSelection] | 'degrees' | 'seconds' | 'unused';
 
 function fallbackAction(fallback: number, shown?: NumDefault, retained = false): string {
   if (Array.isArray(shown) && shown[0] === 'motorDimensions' && fallback === 0) return 'this dimension does not restrict the motor match. Check the matched motor before flying';
   if (!Number.isFinite(fallback) || shown === 'unused') return 'the value was not used';
+  if (shown === 'seconds') return `using the default (${noticeNumber(fallback)} s)`;
   if (shown === 'degrees') return `using the default (${noticeQuantity('angle', fallback * Math.PI / 180, '°')})`;
   return `${retained ? 'keeping the previous or default value' : 'using the default'} (${shown ? noticeQuantity(shown[0], fallback, shown[1], { parenthesized: true }) : fallback})`;
 }

@@ -5,12 +5,12 @@ import { Note, NoteLabel, noteClass } from './Note.js';
 const thrustWarnings = (warnings: readonly EngineWarning[]) => warnings.filter(w => w.key.startsWith('ASYMMETRIC_THRUST_'));
 
 export function ThrustBalanceNotes({ warnings }: { warnings: readonly EngineWarning[] }) {
-  return thrustWarnings(warnings).map((warning, i) => {
+  return <div role="status" aria-live="polite" aria-atomic="true">{thrustWarnings(warnings).map((warning, i) => {
     const shown = formatWarning(warning);
     return <Note key={`${warning.key}:${i}`} as="p" tier={shown.tier}>
       <strong>{shown.label}.</strong> {shown.detail}
     </Note>;
-  });
+  })}</div>;
 }
 
 /** A warning beside the verdict, independent of the row's acceptance grade. */

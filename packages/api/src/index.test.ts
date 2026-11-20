@@ -79,6 +79,15 @@ afterAll(async () => {
 });
 
 describe('S1 in real workerd', () => {
+  it('S1b-g8 refuses escaped CDATA growth as 413 FILE_TOO_LARGE', async () => {
+    const xml = '<RockSimDocument><DesignInformation><RocketDesign><Name><![CDATA['
+      + '&'.repeat(16 * 1024 * 1024 - 512)
+      + ']]></Name><Stage3Parts><BodyTube><OD>50</OD><Len>300</Len></BodyTube></Stage3Parts></RocketDesign></DesignInformation></RockSimDocument>';
+    const response = await normal!.fetch('http://local/experimental/fly?filename=cdata.rkt',
+      { method: 'POST', body: gzipSync(strToU8(xml)) });
+    expect(response.status).toBe(413);
+    expect(await response.json()).toMatchObject({ error: { code: 'FILE_TOO_LARGE' } });
+  }, 30_000);
   it.skipIf(!INCOMPLETE_FILE || !existsSync(INCOMPLETE_FILE))('marks a time-capped descent incomplete without inventing an abort event', async () => {
     const response = await normal!.fetch('http://local/experimental/fly?filename=slow-descent.rkt',
       { method: 'POST', body: new Uint8Array(readFileSync(INCOMPLETE_FILE!)) });

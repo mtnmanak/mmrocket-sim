@@ -964,7 +964,7 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
         const cd = appEnabled && (appDevice === 'Parachute' || appDevice === 'None')
           ? num(recovery, `CD${slot}`, NaN) : NaN;
         const fallback = appEnabled && (appDevice === 'Parachute' || appDevice === 'None')
-          ? `The app uses ${event !== 'Altitude' ? 'apogee' : `${noticeNumber(num(recovery, `Altitude${slot}`, 500))} ft`} deployment, a ${noticeNumber(appDevice === 'None' ? 0 : num(recovery, `Size${slot}`, 36))} inch diameter and ${Number.isFinite(cd) && cd !== 0 ? `Cd ${noticeNumber(cd)}` : 'automatic Cd 0.8'} for this slot.`
+          ? `The app uses ${event !== 'Altitude' ? 'apogee' : noticeQuantity('altitude', num(recovery, `Altitude${slot}`, 500) * 0.3048, units)} deployment, a ${noticeQuantity('length', (appDevice === 'None' ? 0 : num(recovery, `Size${slot}`, 36)) * 0.0254, units)} diameter and ${Number.isFinite(cd) && cd !== 0 ? `Cd ${noticeNumber(cd)}` : 'automatic Cd 0.8'} for this slot.`
           : 'This slot is ignored by the app; no recovery device is added for it.';
         const inputs = fields.map(field => `${field} (“${noteField(rawRecoveryValues(field).find(value => !javaDoubleText(value)) ?? rawRecovery(field) ?? '(missing)')}”)`).join(', ');
         cautionNote(notes, 'I04.recovery-event', `RASAero recovery ${inputs} missing or unreadable; desktop OpenRocket cannot import this file. ${fallback} Repair the named fields and check recovery before flying.`);

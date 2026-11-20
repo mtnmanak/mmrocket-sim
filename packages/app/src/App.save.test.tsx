@@ -11,6 +11,7 @@ import { flyBuiltDesign } from './services/simulateDesign.js';
 import { App } from './App.js';
 import * as exportAssembly from './services/exportAssembly.js';
 import * as bundleDialog from './components/FlightDataBundleDialog.js';
+import * as importApply from './services/importApply.js';
 import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
 import type { FlightTree, MountMotor, SavedConfig } from './model/design.js';
 import type { StageMassOverride } from './services/stageMassOverrides.js';
@@ -370,6 +371,36 @@ it('Save, share and bundle use the same prepared fields and Auto-delay notes', a
     dialog.mockRestore();
     delete (navigator as { clipboard?: unknown }).clipboard;
   }
+}, 30_000);
+
+it('S2-3 closes an old bundle snapshot after a motor-deferred replacement wins', async () => {
+  const tree = defaultTree(), mount = motorMounts(tree)[0]!.id!;
+  const db = MOTOR_DB.find(m => m.diameter === 18 && m.delays?.split(',').some(d => /^\d+$/.test(d)))!;
+  const motor = (await loadCatalogueMotor(db.manufacturerAbbrev, db.designation, 5))!;
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [mount]: motor },
+    launch: DEFAULT_CONDITIONS, savedAt: Date.now(), appVersion: APP_VERSION }));
+  const host = await mountApp();
+  const launch = host.querySelector<HTMLButtonElement>('.vitals-launch')!;
+  await waitFor(() => !launch.disabled, 'ready to fly');
+  await act(async () => launch.click());
+  await waitFor(() => !![...host.querySelectorAll('button')].find(b => b.textContent === 'Export flight-data bundle'), 'flown run');
+  const real = importApply.resolveImportMotors;
+  let release!: () => void, started = false;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const resolve = vi.spyOn(importApply, 'resolveImportMotors').mockImplementationOnce(async imported => {
+    started = true; await gate; return real(imported);
+  });
+  try {
+    await pick(host, new File([exportOrk({ name: 'Replacement bundle', tree: { ...tree, name: 'Replacement bundle' } })], 'Replacement.ork'));
+    const discard = [...host.querySelectorAll('button')].find(b => b.textContent === 'Open without saving');
+    if (discard) await act(async () => discard.click());
+    await waitFor(() => started, 'motor resolution held');
+    await act(async () => button(host, 'Export flight-data bundle').click());
+    expect(host.querySelector('[aria-label="Export flight-data bundle"]')).not.toBeNull();
+    await act(async () => release());
+    await waitFor(() => shownName(host) === 'Replacement bundle', 'replacement');
+    expect(host.querySelector('[aria-label="Export flight-data bundle"]')).toBeNull();
+  } finally { release(); resolve.mockRestore(); }
 }, 30_000);
 
 function button(host: ParentNode, text: string): HTMLButtonElement {
