@@ -58,7 +58,7 @@ describe('design file names', () => {
   it.each(['saved', 'downloaded'] as const)('follows a legacy default-name %s reference in every format', via => {
     for (const format of ['ork', 'rkt', 'cdx1'] as const) {
       const extension = format === 'cdx1' ? 'CDX1' : format;
-      for (const stem of [safeName('New Rocket')]) {
+      for (const stem of [safeName('New Rocket'), safeName('My Rocket')]) {
         const old = { name: `${stem}.${extension}`, via, format };
         const restored = validDesignFileRef(old);
         expect(restored).toEqual(old);

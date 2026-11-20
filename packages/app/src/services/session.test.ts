@@ -625,7 +625,7 @@ afterEach(() => {
 
 describe('storage hardening: session tree', () => {
   it.each(['opened', 'saved', 'downloaded'] as const)('restores v0.212 filename suggestions (%s)', via => {
-    for (const stem of [safeName('New Rocket'), 'New Rocket', 'Goblin']) {
+    for (const stem of [safeName('New Rocket'), safeName('My Rocket'), 'New Rocket', 'Goblin']) {
       const tree = { ...state().tree, name: 'Renamed Rocket' };
       const designFile = { name: `${stem}.ork`, via };
       localStorage.setItem('online-openrocket.session.v1', JSON.stringify({
@@ -634,7 +634,7 @@ describe('storage hardening: session tree', () => {
       const restored = loadSession()!;
       expect(restored.designFile).toEqual({ ...designFile, format: 'ork' });
       expect(designFileBase(restored.designFile ?? null, restored.tree.name))
-        .toBe(via !== 'opened' && stem === safeName('New Rocket') ? 'Renamed_Rocket' : stem);
+        .toBe(via !== 'opened' && (stem === safeName('New Rocket') || stem === safeName('My Rocket')) ? 'Renamed_Rocket' : stem);
     }
   });
 

@@ -14,9 +14,10 @@ function followsRocket(ref: DesignFileRef): boolean {
   if (ref.via === 'opened') return false;
   if (ref.followsRocket !== undefined) return ref.followsRocket;
   const stem = ref.name.replace(/\.(ork|rkt|cdx1)$/i, '');
-  // Only the app's own suggestion: v0.212 always wrote safeName('New Rocket'); a spaced
+  // Only the app's own suggestion for its two default names (New: 'New Rocket'; the
+  // first-visit starter: 'My Rocket'); v0.212 always wrote safeName(...) of them. A spaced
   // 'New Rocket' stem was typed or opened, so it keeps its name.
-  return stem === safeName('New Rocket');
+  return stem === safeName('New Rocket') || stem === safeName('My Rocket');
 }
 
 /** Compare with the name at the save snapshot, before the picker can await. */
