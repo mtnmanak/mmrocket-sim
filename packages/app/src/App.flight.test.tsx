@@ -641,6 +641,10 @@ describe('what a Launch computed lands only on the design it flew', () => {
       await act(async () => { button(host, '✕ New').click(); });
       await act(async () => { button(document.body, 'Discard & start new').click(); });
       await waitFor(() => shownName(host) === 'New Rocket', 'the new design');
+      // As with Open, New resets file-owned simulation controls. Re-select
+      // the fine step to exercise the measured-cost warning on this design.
+      await openTab(host, 'Motors & Configuration');
+      await type(input(host, 'Time step'), '0.025');
     }, false],
     ['⏏ Unload', async (host) => {
       await act(async () => { button(host, '⏏ Unload').click(); });
@@ -944,6 +948,10 @@ describe('the time-step caution’s measured cost', () => {
     await act(async () => { button(host, '✕ New').click(); });
     await act(async () => { button(document.body, 'Discard & start new').click(); });
     await waitFor(() => shownName(host) === 'New Rocket', 'the new design');
+    // New resets the old file's time step; choose a fine step on this new
+    // design before checking that the previous design's cost is not quoted.
+    await openTab(host, 'Motors & Configuration');
+    await type(input(host, 'Time step'), '0.025');
     expect(await quotesSeconds(host)).toBe(false);
   }, 30000);
 

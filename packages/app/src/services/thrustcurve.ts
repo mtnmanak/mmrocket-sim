@@ -336,7 +336,7 @@ export function impulseNote(motor: Pick<TcMotor, 'designation' | 'totImpulseNs'>
   return `${IMPULSE_NOTE_LEAD}${noteField(motor.designation)} integrates to ${actual} N·s, `
     + `${pct > 0 ? '+' : ''}${percent} % against the ${String(Number(ref.toPrecision(6)))} N·s it is certified for — `
     + `expect apogee to read ${pct > 0 ? 'high' : 'low'} by roughly that much. `
-    + 'thrustcurve.org publishes no closer file for it; import the motor\'s own .eng/.rse if you have one.';
+    + 'Check the selected curve against the motor\'s own .eng/.rse file before flying.';
 }
 
 /**

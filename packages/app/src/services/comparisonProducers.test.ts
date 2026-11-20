@@ -62,6 +62,13 @@
 // J1: BatchSimulate 19 -> 18 replaces the single-primary optimum formatter
 // with recorded per-group delay text. This changes display scope, no verdict
 // threshold or tolerance. Mixed-delay export and per-group regressions cover it.
+// J5 r5: census unchanged. The five-code list cap and omitted-code count bound
+// diagnostic text only. laneJ5.test covers 1/5/6 codes, 10,000 codes across
+// 256 configurations, and cache keys based on effective overridden serials.
+// J5 r4: census unchanged. Cached recovery diagnostics retain their existing
+// aggregate copy and tiers; caching sites changes no comparison boundary.
+// laneJ5.test covers linear XML query counts, partial/full serial overrides,
+// retained unknown-code/Pro cautions and legacy catalogue-mass recognition.
 // PRFL-1: census unchanged. The owner-defined 0.85–1.15 display band and
 // unity crossings describe the sampled flight, with no verdict or flight
 // threshold change. rollPitchResonance.test covers interval boundaries,
@@ -454,6 +461,30 @@ import { setXmlParser } from './xmlParse.js';
 import ts from 'typescript';
 import { join, relative } from 'node:path';
 import reviewedCensus from './comparisonCensus.testSupport.json';
+// J5 inventory review: added .ork size/reference/ignition notices, RockSim
+// integer-stage and removed-pod/motorless-recovery notices, and corrected the
+// impulse advice. laneJ5.test.ts pins those cases. XML's extra comparison is
+// quote scanning (scope exemption: syntax, no measured quantity). Existing
+// dimensional boundaries remain covered by the C cases and noticeUnits.
+// The note explanation additions describe these same substitutions (scope
+// exemption: explanatory advice; producer tests above own the behavior).
+// RockSim's additional two fragments count omitted attached parts and mark
+// a capped traversal as "at least"; laneJ5 tests flat and capped lists.
+// The final soft-material wording also names the selected/default fallback;
+// S1a-b4 covers each soft-material reader, including parachute lines.
+// S1b-2 now checks parsed recovery data/diagnostics instead of a DOM selector;
+// the removed selector fragment is syntax, not a physical comparison. An
+// empty-slot control proves the motorless-loss warning does not fire for it.
+// J5 r2: orkFile 550 -> 551 is the part-limit producer code literal;
+// noteExplanations 44 -> 46 describes that same opening limit and remedy.
+// laneJ5 and App.save cover its Caution tier and oversized share receipt.
+// rasaeroFile 275 -> 276 is an XML selector (scope exemption: syntax).
+// rocksimFile 295 -> 297 adds a selector and the same part-limit code.
+// Recovery tests cover the effective apogee
+// fallback; site-fold tests cover usable, unusable and numerically equal sites.
+// J5 r3: census unchanged. Site-only folding adds no numerical boundary;
+// per-tube saved-part version checks describe stored schema, not a measured
+// comparison. laneJ5 covers legacy and versioned storage/CSV picks and pod loss notes.
 import { readUserMaterials, USER_MATERIALS_KEY } from './userMaterials.js';
 import { unreadableBackupKey } from './storeBackup.js';
 

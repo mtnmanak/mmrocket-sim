@@ -136,8 +136,8 @@ export function screenEntry(m: Partial<MotorDbEntry>, units: UnitSelection = INI
     const [propellant, loaded] = noticeComparison('mass', (pw as number) / 1000, (tw as number) / 1000, units, { parenthesized: true });
     return propellant.startsWith('just ') ? `slightly more propellant than loaded mass (${loaded})` : `more propellant (${propellant}) than loaded mass (${loaded})`;
   }
-  if (m.totImpulseNs !== undefined && m.totImpulseNs !== null && !(Number.isFinite(m.totImpulseNs) && m.totImpulseNs > 0)) {
-    return `total impulse ${m.totImpulseNs} Ns`;
+  if (!(Number.isFinite(m.totImpulseNs) && m.totImpulseNs! > 0)) {
+    return m.totImpulseNs == null ? 'no total impulse' : `total impulse ${m.totImpulseNs} Ns`;
   }
   // Required too, for the same reason: the table draws `burnTimeS.toFixed(1)`.
   // Every one of the 1,156 shipped rows carries it; the weights, which 156 of

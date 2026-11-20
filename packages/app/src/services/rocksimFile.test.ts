@@ -1869,14 +1869,14 @@ describe('.rkt ignition delays — read and written for every event RockSim can 
     expect(notes).toEqual([expect.stringMatching(/which never comes on the stage that leaves the pad, so it does not light here either\. .* lights it 1 s after launch\./)]);
   });
 
-  it('38-54 2-stage.CDX1: the M1350W on automatic/12 s reopens from a .rkt still lit at 12 s', () => {
+  it('38-54 2-stage.CDX1: the launch-stage delay is ignored before the .rkt round trip', () => {
     const r = importCdx1(fixture('38-54 2-stage.CDX1'));
     const motors = Object.fromEntries(Object.entries(r.motors).map(([id, ref]) => [id, refToExportMotor(ref)]));
     const m1350 = Object.values(r.motors).find((m) => m.designation === 'M1350W')!;
-    expect([m1350.ignitionEvent, m1350.ignitionDelay]).toEqual(['automatic', 12]);
+    expect([m1350.ignitionEvent, m1350.ignitionDelay]).toEqual(['automatic', 0]);
     const back = reread(exportRkt({ name: '38-54', tree: r.tree, motors,
       overrides: r.configs.find(c => c.id === r.chosenConfigId) }));
-    expect([back['M1350W']!.ignitionEvent, back['M1350W']!.ignitionDelay]).toEqual(['launch', 12]);
+    expect([back['M1350W']!.ignitionEvent ?? 'automatic', back['M1350W']!.ignitionDelay ?? 0]).toEqual(['automatic', 0]);
     expect([back['K627LR']!.ignitionEvent, back['K627LR']!.ignitionDelay]).toEqual(['ejectioncharge', 22]);
   });
 

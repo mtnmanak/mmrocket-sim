@@ -73,7 +73,7 @@ export function componentTable(
   const fieldHeader = (f: FieldDef): string => {
     const label = f.radius === true && asDia
       ? f.label.replace(/radius/gi, (m) => (m[0] === 'R' ? 'Diameter' : 'diameter'))
-      : f.label;
+      : f.label === 'Mass' ? 'Mass as entered' : f.label;
     const q = QUANTITY[f.unit];
     const suffix = q ? ` (${prefs.units[q]})` : f.unit === 's' ? ' (s)' : '';
     return `${label}${suffix}`;
@@ -97,8 +97,9 @@ export function componentTable(
     // fields (separation etc.) would be permanently-empty columns.
     if (!present.has(type) || type === 'stage') continue;
     for (const f of fieldsFor(type)) {
-      if (f.key === 'length' || seen.has(f.key)) continue;
-      seen.add(f.key);
+      const column = `${f.key}\u0000${fieldHeader(f)}`;
+      if (f.key === 'length' || seen.has(column)) continue;
+      seen.add(column);
       fieldCols.push(f);
     }
   }
@@ -158,7 +159,7 @@ export function componentTable(
       const section = info && (n.children ?? []).length > 0 ? flownSection(n, mult) : null;
       const fieldCells = fieldCols.map((f): Cell => {
         if (f.key === 'filletDensity' && !((numOpt(n, 'filletRadius') ?? 0) > 0)) return '';
-        const own = fieldsFor(n.type).find((d) => d.key === f.key);
+        const own = fieldsFor(n.type).find((d) => d.key === f.key && fieldHeader(d) === fieldHeader(f));
         if (!own) return '';
         const raw = f.key === 'fairingForeShape' ? shroudEnds(n).fore
           : f.key === 'fairingAftShape' ? shroudEnds(n).aft

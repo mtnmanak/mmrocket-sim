@@ -3,6 +3,13 @@ import { expect, it } from 'vitest';
 import { explanationFor, importNoteCode, NOTE_EXPLANATIONS, staticWarningCode } from './noteExplanations.js';
 import { WARNING_LABEL } from './simWarnings.js';
 
+it('J5 r2 distinguishes an expanded foreign file from an oversized design', () => {
+  const help = explanationFor('I03.part-limit');
+  expect(help.meaning).toContain('exported file');
+  expect(help.meaning).toContain('when the design itself');
+  expect(help.remedy).toContain('which formats can reopen');
+});
+
 it('explains the retained recovery mass pin and how to correct it', () => {
   const explanation = explanationFor('I18.recovery-mass-pinned');
   expect(explanation.meaning).toContain('one tenth');

@@ -267,7 +267,7 @@ function labelEnts(geom: Ent[], lines: string[]): Ent[] {
     layer: 'TEXT' as const,
     at: { x: b.minX, y: b.minY - LABEL_GAP - (i + 1) * LINE_STEP },
     h: TEXT_H,
-    s: ascii(s),
+    s: ascii(s).slice(0, 255),
   }));
 }
 

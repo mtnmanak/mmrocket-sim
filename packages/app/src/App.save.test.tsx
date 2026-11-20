@@ -3657,6 +3657,26 @@ async function chooseConfiguration(host: HTMLElement, id: string) {
  * configuration panel still work.
  */
 describe('a hand-edited autosave', () => {
+  it('r2 S1d-1 an oversized share receipt cautions without promising to reopen', async () => {
+    const tree = { name: 'Large', components: [{ type: 'stage', id: 'stage', children: Array.from({ length: 2000 }, (_, i) => ({ type: 'bodytube', id: `b${i}`, length: 0.001, outerRadius: 0.01 })) }] };
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: {}, launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now() }));
+    const host = await mountApp();
+    const previous = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    try {
+      await saveAs(host, 'Copy share link');
+      await waitFor(() => writeText.mock.calls.length === 1, 'oversized share link');
+      await settle();
+      const notice = [...host.querySelectorAll('.notice-item')].find(n => n.textContent?.includes('Share link copied'))!;
+      expect(notice.textContent).toContain('cannot reopen');
+      expect(notice.textContent).not.toContain('opening it loads');
+      expect(notice.classList.contains('message-caution')).toBe(true);
+    } finally {
+      if (previous) Object.defineProperty(navigator, 'clipboard', previous);
+      else Reflect.deleteProperty(navigator, 'clipboard');
+    }
+  }, 60_000);
   it.each([
     ['Save .ork', true, false], ['Copy share link', true, false], ['Copy share link', true, true],
     ['Save .ork', false, false], ['Copy share link', false, false], ['Copy share link', false, true],
