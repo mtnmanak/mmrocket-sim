@@ -1,5 +1,5 @@
 import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
-import { MAX_DIMENSION_M } from './schema.js';
+import { MAX_DIMENSION_M, MAX_FIN_POINT_M } from './schema.js';
 
 /**
  * Freeform fin outline validation — the browser-side copy of the kernel's
@@ -43,7 +43,9 @@ const IGNORE_SMALLER_THAN = 1e-12;
  * FreeformFinSet.java:28 — `setPoints` pulls any x or y past this (metres)
  * back to it BEFORE it runs `intersects()`.
  */
-export const MAX_FIN_POINT_M = 2.5;
+export { MAX_FIN_POINT_M } from './schema.js';
+/** Same point ceiling as the file readers; retained data is never truncated. */
+export const MAX_FIN_OUTLINE_POINTS = 5000;
 
 /**
  * The outline as the kernel's `setPoints` hands it to `intersects()`
@@ -154,7 +156,8 @@ export function finOutlineIntersection(
  *    — whose last edge runs through the first edge's end — and the build died
  *    with "Unknown format conversion: g".
  */
-export function finOutlineProblem(
+/** Linear coordinate checks remain available even above the intersection budget. */
+export function finCoordinateProblem(
   points: readonly FinOutlinePoint[] | undefined | null, units: UnitSelection = INITIAL_UNITS,
 ): string | null {
   if (!points || points.length < 3) return 'A fin outline needs at least 3 points.';
@@ -167,6 +170,18 @@ export function finOutlineProblem(
       return `Point ${i + 1} exceeds the fin coordinate limit of ${noticeQuantity('length', MAX_DIMENSION_M, units)}; reduce it before flying or cutting the fin.`;
     }
   }
+  return null;
+}
+
+export function finOutlineProblem(
+  points: readonly FinOutlinePoint[] | undefined | null, units: UnitSelection = INITIAL_UNITS,
+): string | null {
+  if (points && points.length > MAX_FIN_OUTLINE_POINTS) {
+    return 'This outline has too many points to validate here (limit 5,000). The original points are kept. Simplify a copy before editing or cutting the fin.';
+  }
+  const coordinateProblem = finCoordinateProblem(points, units);
+  if (coordinateProblem) return coordinateProblem;
+  if (!points) return null; // The coordinate check above already explains absent points.
   for (let i = 1; i < points.length; i++) {
     const a = points[i - 1]!;
     const b = points[i]!;

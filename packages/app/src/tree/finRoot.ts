@@ -117,6 +117,7 @@ export interface MountedFin {
  */
 export function finOnMount(
   points: readonly (readonly [number, number])[], xFront: number, mount: MountSurface,
+  maxRootDivisions = MAX_ROOT_DIVISIONS,
 ): MountedFin {
   const r0 = mount.radiusAt(xFront);
   /** The body's surface at x in the fin's frame. */
@@ -135,7 +136,7 @@ export function finOnMount(
   const xs = [a];
   if (!mount.flat && b > a) {
     const divisions = mount.curved
-      ? Math.min(MAX_ROOT_DIVISIONS, Math.max(1, Math.ceil((b - a) / ROOT_STEP)))
+      ? Math.min(maxRootDivisions, Math.max(1, Math.ceil((b - a) / ROOT_STEP)))
       : 1;
     for (let i = 1; i < divisions; i++) xs.push(a + ((b - a) * i) / divisions);
     // getMountPoints adds the mount's own ends when the root runs past them.

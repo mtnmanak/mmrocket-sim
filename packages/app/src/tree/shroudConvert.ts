@@ -1,10 +1,11 @@
 import { noteField } from '../services/noteField.js';
 import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
-import { finOutlineIntersection } from './finOutline.js';
+import { finOutlineIntersection, MAX_FIN_OUTLINE_POINTS } from './finOutline.js';
 import { num, numOpt } from './nodeNum.js';
 import { signedArea } from './polygon.js';
 import { axialLength, positionOf } from './position.js';
+import { applyFieldLimit, fieldLimit } from './schema.js';
 
 /**
  * Hand-rolled camera shrouds (issue 2026-08-05e): RockSim has no shroud
@@ -34,7 +35,7 @@ export function findShroudCandidates(tree: RocketTree): ShroudCandidate[] {
         && n.id
         && NAME_RE.test(n.name ?? '')
       ) {
-        out.push({ id: n.id, name: n.name ?? 'Camera shroud' });
+        out.push({ id: n.id, name: n.name || 'Camera shroud' });
       }
       walk(n.children ?? []);
     }
@@ -90,6 +91,12 @@ function reach(pts: [number, number][], k: 0 | 1): number {
   return hi > 0 ? hi : hi - Math.min(...pts.map((p) => p[k]));
 }
 
+function nativeDimensions(pts: [number, number][]): { length: number; height: number } | null {
+  const dimensions = { length: pts.length ? reach(pts, 0) : 0.08, height: pts.length ? reach(pts, 1) : 0.02 };
+  return Object.entries(dimensions).every(([key, value]) => Number.isFinite(value)
+    && applyFieldLimit(fieldLimit('fairing', key)!, value) === value) ? dimensions : null;
+}
+
 /**
  * The position that puts a part of length `toLen` at the station a part of
  * length `fromLen` had — the method kept, the offset moved. 'bottom' and
@@ -119,8 +126,10 @@ function samePlace(pos: ComponentPosition, fromLen: number, toLen: number): Comp
  */
 export function shroudToFairing(n: ComponentNode): ComponentNode & { name: string } {
   const pts = (n['points'] as [number, number][] | undefined) ?? [];
-  const length = pts.length ? reach(pts, 0) : 0.08;
-  const height = pts.length ? reach(pts, 1) : 0.02;
+  if (pts.length > MAX_FIN_OUTLINE_POINTS) throw new Error('Too many outline points to convert; simplify a copy first.');
+  const dimensions = nativeDimensions(pts);
+  if (!dimensions) throw new Error('The outline dimensions exceed the native shroud limits.');
+  const { length, height } = dimensions;
   const width = num(n, 'thickness', 0.025);
   const override = numOpt(n, 'overrideMass');
   const mass = override !== undefined && override >= 0
@@ -129,7 +138,7 @@ export function shroudToFairing(n: ComponentNode): ComponentNode & { name: strin
   const out = {
     type: 'fairing',
     id: n.id,
-    name: n.name ?? 'Camera shroud',
+    name: n.name || 'Camera shroud',
     length,
     width,
     height,
@@ -182,6 +191,14 @@ export function convertShrouds(tree: RocketTree, ids: string[], units: UnitSelec
       const kids = n.children ? walk(n.children) : undefined;
       let next = kids === n.children ? n : ({ ...n, children: kids } as ComponentNode);
       if (n.id && wanted.has(n.id)) {
+        if (Array.isArray(n['points']) && n['points'].length > MAX_FIN_OUTLINE_POINTS) {
+          notes.push(`“${noteField(n.name || 'Camera shroud')}” has more than 5,000 points. Its original outline was kept; simplify a copy before converting it.`);
+          return next;
+        }
+        if (!nativeDimensions((n['points'] as [number, number][] | undefined) ?? [])) {
+          notes.push(`“${noteField(n.name || 'Camera shroud')}”: the original outline was kept because its dimensions cannot form a native shroud. Reduce its length to at most ${dim(2.5)} and its height to between ${dim(0.0001)} and ${dim(2.5)} before converting; check the shape before flying.`);
+          return next;
+        }
         const fairing = shroudToFairing(n);
         if (kids?.length) fairing.children = kids;
         notes.push(

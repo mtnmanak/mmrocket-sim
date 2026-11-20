@@ -6,10 +6,11 @@ import { sanitizeDocumentMaterials } from '../services/documentMaterials.js';
 import { ORK_PRESET_IMPORT_STATE, presetImportState } from '../services/orkPresetState.js';
 import { KERNEL_DEFAULT_FIN_POINTS } from './kernelDefaults.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { finOutlineProblem, kernelFinPoints, MAX_FIN_POINT_M, type FinOutlinePoint } from './finOutline.js';
+import { finCoordinateProblem, finOutlineProblem, kernelFinPoints, MAX_FIN_POINT_M, MAX_FIN_OUTLINE_POINTS, type FinOutlinePoint } from './finOutline.js';
 import { TUBE_HOLE_DEFAULTS } from './tubeHoles.js';
 import { num } from './nodeNum.js';
 import { clusterCount } from './cluster.js';
+import { ventLimit } from './canopyVent.js';
 import {
   applyFieldLimit, canonicalEnum, DISPLAY_NAME, ENUM_LIMITS, FIELDS, fieldLimit, MAX_DIMENSION_M, MAX_EXPANDED_INSTANCES, SEPARATION_EVENT_VALUES,
   type EnumLimit, type FieldDef, type FieldLimit, type LimitKind,
@@ -85,10 +86,12 @@ const sig = (v: number): string => String(Number(v.toPrecision(6)));
 
 function fmt(kind: LimitKind, v: number, units: UnitSelection = INITIAL_UNITS, key = '', against?: number): string {
   switch (kind) {
-    case 'count':
-    case 'scalar': return sig(v);
+    case 'count': return sig(v);
+    case 'scalar': return against !== undefined && !noticeEqual(v, against) && sig(v) === sig(against)
+      ? `just ${v > against ? 'above' : 'below'} ${sig(against)}` : sig(v);
     case 'length': return against === undefined ? noticeQuantity('length', v, units) : noticeComparison('length', v, against, units, { digits: units.length === 'mm' ? 4 : 6 })[0];
     case 'mass': return against === undefined ? noticeQuantity('mass', v, units) : noticeComparison('mass', v, against, units)[0];
+    case 'angle': return against === undefined ? noticeQuantity('angle', v, units) : noticeComparison('angle', v, against, units)[0];
     case 'density': return against === undefined ? noticeQuantity(key === 'surfaceDensity' || key === 'lineDensity' ? key : 'density', v, units) : noticeComparison(key === 'surfaceDensity' || key === 'lineDensity' ? key : 'density', v, against, units)[0];
   }
 }
@@ -153,7 +156,23 @@ const ENUM_LABEL: Record<string, string> = {
   airfoilSection: 'supersonic airfoil section',
   separationEvent: 'separation event',
   cluster: 'cluster pattern',
+  radiusMethod: 'radial reference',
 };
+
+/** Shape-specific bounds also govern presets and scale/patch writes. */
+function numericLimit(node: ComponentNode, key: string): FieldLimit | undefined {
+  const limit = fieldLimit(node.type, key);
+  if (key === 'shapeParameter' && (node.type === 'nosecone' || node.type === 'transition')
+    && String(node['shape']).toLowerCase() === 'haack') return { ...limit!, hmax: 1 / 3 };
+  return limit;
+}
+
+/** A binary32 file can store the Haack maximum as 0.33333334. The kernel
+ * already clamps it to 1/3; that serialization residue is not a repair notice. */
+function silentLimit(node: ComponentNode, key: string, raw: number, fixed: number): boolean {
+  return noticeEqual(raw, fixed) || (key === 'shapeParameter' && String(node['shape']).toLowerCase() === 'haack'
+    && fixed === 1 / 3 && Math.fround(raw) === Math.fround(fixed));
+}
 
 /**
  * One node's repairs, and the repaired node (the same object when nothing
@@ -165,8 +184,11 @@ function sanitizeOwn(n: ComponentNode, found: Finding[], units: UnitSelection = 
   if (n[ORK_PRESET_IMPORT_STATE] !== undefined && !presetImportState(n)) {
     delete edit()[ORK_PRESET_IMPORT_STATE];
   }
+  // Oversized restored data is retained for recovery, never substituted because
+  // the bounded validator cannot certify a repaired/proportional outline.
   if (n.type === 'freeformfinset' && Array.isArray(n['points'])) {
     let points = n['points'] as FinOutlinePoint[];
+    const oversized = points.length > MAX_FIN_OUTLINE_POINTS;
     const readable = points.every(p => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]));
     if (readable) {
       let bounded = points.map(([x, y]): FinOutlinePoint => [
@@ -177,7 +199,7 @@ function sanitizeOwn(n: ComponentNode, found: Finding[], units: UnitSelection = 
         // Retain their proportions when that yields a usable bounded outline;
         // when neither does, use the default outline, as the file readers do.
         let replaced = false;
-        if (finOutlineProblem(bounded)) {
+        if (!oversized && finOutlineProblem(bounded)) {
           const extent = points.reduce((max, [x, y]) => Math.max(max, Math.abs(x), Math.abs(y)), MAX_DIMENSION_M);
           const proportional = points.map(([x, y]): FinOutlinePoint => [
             (x / extent) * MAX_DIMENSION_M, (y / extent) * MAX_DIMENSION_M,
@@ -201,11 +223,11 @@ function sanitizeOwn(n: ComponentNode, found: Finding[], units: UnitSelection = 
     const move = x0 * x0 + y0 * y0 > 1e-12;
     // Origin-only translations retain repairTreeShape's Information note.
     if (readable && placed.some((p, i) => p[0] !== points[i]![0] - (move ? x0 : 0)
-      || p[1] !== points[i]![1] - (move ? y0 : 0)) && !finOutlineProblem(points)) {
+      || p[1] !== points[i]![1] - (move ? y0 : 0)) && (oversized || !finOutlineProblem(points))) {
       // setPoints' two-axis snap is not idempotent. Storing its first pass
       // would make the next build move the fin again, or refuse it entirely.
       const stable = kernelFinPoints(placed).every((p, i) => p[0] === placed[i]![0] && p[1] === placed[i]![1]);
-      const safe = stable && !finOutlineProblem(placed);
+      const safe = !oversized && stable && !finOutlineProblem(placed);
       if (safe) edit()['points'] = placed;
       const limitText = noticeQuantity('length', MAX_FIN_POINT_M, units);
       found.push({ problem: `${partName(n)}: the simulator adjusts the fin outline at its origin or ${limitText} limit`,
@@ -225,7 +247,9 @@ function sanitizeOwn(n: ComponentNode, found: Finding[], units: UnitSelection = 
   }
   for (const [key, raw] of Object.entries(next ?? n)) {
     if (typeof raw !== 'number') continue;
-    const limit = fieldLimit(n.type, key);
+    // The vent is bounded once below, against the repaired canopy diameter.
+    if (n.type === 'parachute' && key === 'spillHoleDiameter' && Number.isFinite(raw)) continue;
+    const limit = numericLimit(n, key);
     if (!limit) continue;
     if (raw === Infinity || raw === -Infinity) {
       delete edit()[key];
@@ -237,7 +261,7 @@ function sanitizeOwn(n: ComponentNode, found: Finding[], units: UnitSelection = 
     // NaN cannot be clamped and must not produce a repair (audit 2026-10-11, S4a-6).
     if (!Number.isFinite(raw) || fixed === raw) continue;
     edit()[key] = fixed;
-    if (limit.kind === 'count' || limit.kind === 'scalar' || !noticeEqual(raw, fixed)) found.push(limitFinding(n, key, limit, raw, fixed, units));
+    if (limit.kind === 'count' || !silentLimit(n, key, raw, fixed)) found.push(limitFinding(n, key, limit, raw, fixed, units));
   }
   const pos = n.position;
   if (pos !== undefined && (!pos || typeof pos !== 'object' || Array.isArray(pos)
@@ -268,6 +292,16 @@ function sanitizeOwn(n: ComponentNode, found: Finding[], units: UnitSelection = 
     if (canon !== null) { edit()[key] = canon; continue; } // same value, canonical spelling — nothing to say
     delete edit()[key];
     found.push(enumFinding(n, ENUM_LABEL[key] ?? key, raw, limit));
+  }
+  if (n.type === 'parachute') {
+    const raw = num(next ?? n, 'spillHoleDiameter', 0);
+    const maxHole = ventLimit(next ?? n)?.maxHole ?? 0;
+    const fixed = Math.max(0, Math.min(raw, maxHole));
+    if (raw !== fixed) {
+      edit()['spillHoleDiameter'] = fixed;
+      if (!noticeEqual(raw, fixed)) found.push(limitFinding(n, 'spillHoleDiameter', { kind: 'length', hmin: 0, hmax: maxHole,
+        why: 'a vent can be at most 95% of the canopy diameter' }, raw, fixed, units));
+    }
   }
   return next ?? n;
 }
@@ -458,15 +492,42 @@ export function limitPatch(
   }
   for (const [key, raw] of Object.entries(patch)) {
     if (typeof raw !== 'number') continue;
-    const limit = fieldLimit(after.type, key);
+    if (after.type === 'parachute' && key === 'spillHoleDiameter') continue;
+    const limit = numericLimit(after, key);
     if (!limit) continue;
     const fixed = applyFieldLimit(limit, raw);
     // Match the load boundary for unrepairable values (audit 2026-10-11, S4a-6).
     if (!Number.isFinite(raw) || fixed === raw) continue;
     (out ??= { ...patch })[key] = fixed;
-    if (notes && (limit.kind === 'count' || limit.kind === 'scalar' || !noticeEqual(raw, fixed))) {
+    if (notes && (limit.kind === 'count' || !silentLimit(after, key, raw, fixed))) {
       const f = limitFinding(after, key, limit, raw, fixed, units);
       notes.push(`${f.problem} — ${f.repair}.`);
+    }
+  }
+  if ('shape' in patch && !('shapeParameter' in patch)) {
+    const raw = num(after, 'shapeParameter', 0);
+    const limit = numericLimit(after, 'shapeParameter');
+    const fixed = limit ? applyFieldLimit(limit, raw) : raw;
+    if (fixed !== raw) {
+      (out ??= { ...patch })['shapeParameter'] = fixed;
+      if (notes && !silentLimit(after, 'shapeParameter', raw, fixed)) {
+        const f = limitFinding(after, 'shapeParameter', limit!, raw, fixed, units);
+        notes.push(`${f.problem} — ${f.repair}.`);
+      }
+    }
+  }
+  if (node.type === 'parachute' && ('diameter' in patch || 'spillHoleDiameter' in patch)) {
+    const limited = { ...node, ...(out ?? patch) };
+    const raw = num(limited, 'spillHoleDiameter', 0);
+    const maxHole = ventLimit(limited)?.maxHole ?? 0;
+    const fixed = Math.max(0, Math.min(raw, maxHole));
+    if (raw !== fixed) {
+      (out ??= { ...patch })['spillHoleDiameter'] = fixed;
+      if (notes && !noticeEqual(raw, fixed)) {
+        const f = limitFinding(limited, 'spillHoleDiameter', { kind: 'length', hmin: 0, hmax: maxHole,
+          why: 'a vent can be at most 95% of the canopy diameter' }, raw, fixed, units);
+        notes.push(`${f.problem} — ${f.repair}.`);
+      }
     }
   }
   return out ?? patch;
@@ -503,7 +564,10 @@ export function treeProblems(tree: RocketTree, units: UnitSelection = INITIAL_UN
       // Only a STATED outline: a freeform set with no points flies the
       // kernel's own default planform, which is not a problem.
       if (n.type === 'freeformfinset' && Array.isArray(n['points'])) {
-        const why = finOutlineProblem(n['points'] as FinOutlinePoint[], units);
+        const points = n['points'] as FinOutlinePoint[];
+        // An editor budget refusal is not evidence that the kernel cannot build it.
+        const why = points.length > MAX_FIN_OUTLINE_POINTS
+          ? finCoordinateProblem(points, units) : finOutlineProblem(points, units);
         if (why) outlines.push(`${partName(n)}: ${why.replace(/\.$/, '')}`);
       }
       visit(n.children ?? []);

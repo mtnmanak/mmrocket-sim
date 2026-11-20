@@ -1,5 +1,5 @@
 import { overrideFor } from '../services/flightState.js';
-import { resolveTransitionRadii } from './transitionRadii.js';
+import { displayTransitionEnds, resolveTransitionRadii } from './transitionRadii.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { lookupTable } from '../services/xmlUtil.js';
 import { clusterOffsets } from './cluster.js';
@@ -312,7 +312,8 @@ export function aftLayout(
       return { r, mount: profileMountOf(n, len, fore, aft) };
     }
     if (n.type === 'transition') {
-      return { r: drawnRadius(n), mount: profileMountOf(n, len, num(n, 'foreRadius', 0.012), num(n, 'aftRadius', 0.009)) };
+      const ends = displayTransitionEnds(n);
+      return { r: drawnRadius(n), mount: profileMountOf(n, len, ends.fore, ends.aft) };
     }
     const r = n.type === 'bodytube' ? drawnRadius(n)
       : Math.max(num(n, 'outerRadius', 0), num(n, 'aftRadius', 0), num(n, 'foreRadius', 0));

@@ -1,9 +1,9 @@
 import { overrideFor } from '../services/flightState.js';
-import { resolveTransitionRadii } from './transitionRadii.js';
+import { displayTransitionEnds, resolveTransitionRadii } from './transitionRadii.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { tubeHoleMarks } from './tubeHoles.js';
 import { axialLength, axialStart } from './position.js';
-import { finTabFront } from './finTab.js';
+import { finTabFront, finTabSpan } from './finTab.js';
 import { finOnMount, flatMount, profileMount, type MountSurface } from './finRoot.js';
 import { kernelDefault, kernelNum } from './kernelDefaults.js';
 import { clusterOffsets } from './cluster.js';
@@ -118,6 +118,7 @@ function collect<T>(nodes: ComponentNode[], f: (n: ComponentNode, parent?: Compo
   const out: T[] = [];
   const walk = (ns: ComponentNode[], parent?: ComponentNode) => {
     for (const n of ns) {
+      if (isAssembly(n.type)) continue;
       out.push(f(n, parent));
       walk(n.children ?? [], n);
     }
@@ -217,12 +218,16 @@ export function schematicFrame(tree: RocketTree, o: SchematicFrameOptions): Sche
       }
     }
     // Tube fins reach one tube diameter above the body surface.
-    if (n.type === 'tubefinset') return 2 * tubeFinRadius(n, maxR);
+    if (n.type === 'tubefinset') return 2 * tubeFinRadius(n, parent ? drawnRadius(parent) : maxR);
     // The kernel's height when absent; a freeform set with no points has none.
     return num(n, 'height', kernelDefault(n.type, 'height') ?? 0.03);
   };
-  const protuberanceSpan = (n: ComponentNode): number =>
-    (hasSurfaceSize(n) && (n.type === 'fairing' || (n.type as string) === 'protuberance') ? kernelNum(n, 'height') : 0);
+  const protuberanceSpan = (n: ComponentNode): number => {
+    if (!hasSurfaceSize(n)) return 0;
+    if (n.type === 'railbutton') return num(n, 'totalHeight', 0.0097);
+    if (n.type === 'launchlug') return 2 * kernelNum(n, 'outerRadius');
+    return n.type === 'fairing' || (n.type as string) === 'protuberance' ? kernelNum(n, 'height') : 0;
+  };
   const finH = Math.max(
     0,
     ...collect(tree.components, finSpan),
@@ -244,9 +249,10 @@ export function schematicFrame(tree: RocketTree, o: SchematicFrameOptions): Sche
   const scanRadial = (nodes: ComponentNode[], parentR: number, centre: number) => {
     for (const n of nodes) {
       if (isAssembly(n.type)) {
-        const podFin = Math.max(0, ...collect(n.children ?? [], finSpan));
-        const podCentre = centre + resolveAssemblyRadius(n, parentR);
-        vHalf = Math.max(vHalf, podCentre + assemblyBoundingRadius(n) + podFin);
+        const podFin = Math.max(0, ...collect(n.children ?? [], finSpan), ...collect(n.children ?? [], protuberanceSpan));
+        const podCentre = centre + Math.abs(resolveAssemblyRadius(n, parentR));
+        const hull = Math.max(assemblyBoundingRadius(n), ...(n.children ?? []).filter(c => CHAIN.has(c.type)).map(drawnRadius));
+        vHalf = Math.max(vHalf, podCentre + hull + podFin);
         scanRadial(n.children ?? [], assemblyBoundingRadius(n), podCentre);
       } else {
         const r = (CHAIN.has(n.type) ? drawnRadius(n)
@@ -783,8 +789,14 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
       // Through-the-wall fin tab: dashed rect from the body surface inward,
       // foreshortened with the fin instance it belongs to.
       const renderTab = (finStart: number, finLen: number, p: number, i: number) => {
-        const tabLen = num(child, 'tabLength', 0);
-        const front = finStart + finTabFront(child, finLen);
+        const tab = finTabSpan(child, finLen, undefined);
+        if (!tab) return;
+        const statedLength = num(child, 'tabLength', 0);
+        const statedFront = finTabFront(child, finLen);
+        // Preserve the stated length's last bits when no clipping happened.
+        const tabLen = statedFront >= 0 && statedFront + statedLength <= finLen
+          ? statedLength : tab.x1 - tab.x0;
+        const front = finStart + tab.x0;
         // The body under the tab: the smaller of its radii at the tab's two
         // ends, which is where the kernel puts the tab's floor and the deepest
         // it lets the tab reach (FinSet.getTabPoints, getMaxTabHeight). On a
@@ -1397,8 +1409,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         renderChildren(n, cx, len, r, baseY, scope, undefined, frameRoll, undefined, centre);
         cx += len;
       } else if (n.type === 'transition') {
-        const rf = num(n, 'foreRadius', 0.012);
-        const ra = num(n, 'aftRadius', 0.009);
+        const { fore: rf, aft: ra } = displayTransitionEnds(n);
         noteHover(n, ctx.x0 + cx * scale, baseY - Math.max(rf, ra) * scale,
           ctx.x0 + (cx + len) * scale, baseY + Math.max(rf, ra) * scale);
         shapes.push({
@@ -1451,7 +1462,8 @@ const CHAIN = new Set(['nosecone', 'bodytube', 'transition']);
 export function drawnRadius(n: ComponentNode): number {
   if (n.type === 'nosecone') return kernelNum(n, 'aftRadius');
   if (n.type === 'bodytube') return kernelNum(n, 'outerRadius');
-  return Math.max(num(n, 'foreRadius', 0.012), num(n, 'aftRadius', 0.009));
+  const ends = displayTransitionEnds(n);
+  return Math.max(ends.fore, ends.aft);
 }
 
 /** A nose cone's or transition's profile shape, with each type's kernel default. */

@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest';
 import { INITIAL_UNITS, IMPERIAL_UNITS } from '../prefs/units.js';
 
 it('prints a readable certified angle when rounding up six decimals misses the bed', () => {
-  const printer = { x: 0.2205, y: 0.2205, z: 0.389, margin: 0 };
+  const printer = { x: 0.2205, y: 0.06, z: 0.389, margin: 0 };
   const plan = planAxialSplit(0.4, 0.03, printer);
   expect(plan.segments).toBe(1);
   const printed = plan.reason.match(/leaned ([\d.]+)/)![1]!;
@@ -26,7 +26,7 @@ it('prints a readable certified angle when rounding up six decimals misses the b
 });
 
 it('prints a fractional lean that itself fits the usable box', () => {
-  const printer = { x: 0.221421066, y: 0.221421066, z: 0.388593035, margin: 0 };
+  const printer = { x: 0.221421066, y: 0.06, z: 0.388593035, margin: 0 };
   const plan = planAxialSplit(0.4, 0.03, printer);
   expect(plan.segments).toBe(1);
   const angle = Number(plan.reason.match(/leaned ([\d.]+)/)![1]) * Math.PI / 180;
@@ -35,7 +35,7 @@ it('prints a fractional lean that itself fits the usable box', () => {
 });
 
 it('finds a fractional lean inside a sub-degree fit window', () => {
-  const plan = planAxialSplit(0.4, 0.03, { x: 0.221066483, y: 0.221066483, z: 0.389059730, margin: 0 });
+  const plan = planAxialSplit(0.4, 0.03, { x: 0.221066483, y: 0.06, z: 0.389059730, margin: 0 });
   expect(plan.segments).toBe(1);
   expect(plan.leanDeg).toBeGreaterThan(24);
   expect(plan.leanDeg).toBeLessThan(25);
@@ -68,7 +68,7 @@ it.each(['square', 'rounded', 'airfoil'])('%s freeform fins remain outside the a
 });
 
 it('tries an intermediate lean when the maximum lean exceeds the bed', () => {
-  const plan = planAxialSplit(0.4, 0.03, { x: 0.236, y: 0.236, z: 0.398 });
+  const plan = planAxialSplit(0.4, 0.03, { x: 0.236, y: 0.076, z: 0.398 });
   expect(plan.fits).toBe(true);
   expect(plan.leanDeg).toBe(24);
   expect(plan.tallestPrint).toBeCloseTo(0.4 * Math.cos(24 * Math.PI / 180) + 0.06 * Math.sin(24 * Math.PI / 180), 12);
@@ -230,14 +230,13 @@ describe('planAxialSplit — the named 3" 4:1 ogive nose (381 mm printed)', () =
 
   it('counts the spigot toward print height — the off-by-one-segment bug', () => {
     // The spigot protrudes past the cut plane, so the usable span per segment
-    // is (usable Z - spigot), not usable Z. A 400 mm part on the MK4S is the
-    // case that separates them: 400/212 = 1.9 -> 2 if the spigot were free,
-    // but 400/192.95 = 2.07 -> 3 once it is counted.
-    expect(planAxialSplit(0.400, R3IN, { ...MK4S, spigot: 0 }).segments).toBe(2);
-    expect(planAxialSplit(0.400, R3IN, MK4S).segments).toBe(3);
+    // is (usable Z - spigot) on every piece before a cut, and full usable Z
+    // on the last. 420 > 192.95 + 212, so two pieces cannot fit.
+    expect(planAxialSplit(0.420, R3IN, { ...MK4S, spigot: 0 }).segments).toBe(2);
+    expect(planAxialSplit(0.420, R3IN, MK4S).segments).toBe(3);
     // ...and the reported tallest print is the segment PLUS its spigot.
-    const p = planAxialSplit(0.400, R3IN, MK4S);
-    expect(p.tallestPrint).toBeCloseTo(0.400 / 3 + 0.01905, 9);
+    const p = planAxialSplit(0.420, R3IN, MK4S);
+    expect(p.tallestPrint).toBeCloseTo(0.420 / 3 + 0.01905, 9);
     expect(p.tallestPrint).toBeLessThanOrEqual(UZ(MK4S) + 1e-9);
   });
 });
@@ -295,10 +294,10 @@ describe('planAxialSplit — the decisions before cutting', () => {
 describe('splitBodyLoop — a 600 mm 3" body tube', () => {
   const tube = node('bodytube', { outerRadius: R3IN, thickness: WALL, length: 0.6 });
 
-  it('splits into 3 watertight segments that each fit the machine', () => {
+  it('splits into 2 watertight segments that each fit the machine', () => {
     const s = splitComponent(tube, {}, H2D)!;
-    expect(s.plan.segments).toBe(3);
-    expect(s.loops).toHaveLength(3);
+    expect(s.plan.segments).toBe(2);
+    expect(s.loops).toHaveLength(2);
     for (const loop of s.loops) volumeOf(loop);
     expectFitsBuildVolume(s.loops, H2D);
   });
@@ -312,7 +311,7 @@ describe('splitBodyLoop — a 600 mm 3" body tube', () => {
     const S = R3IN - WALL - 0.00015;
     const ts = 0.0016;
     const Ls = 0.25 * 2 * R3IN;
-    const spigots = 2 * Math.PI * (S ** 2 - (S - ts) ** 2) * Ls;
+    const spigots = (s.loops.length - 1) * Math.PI * (S ** 2 - (S - ts) ** 2) * Ls;
     expect(sum).toBeGreaterThan(whole);
     expect(Math.abs(sum - spigots - whole) / whole).toBeLessThan(0.01);
   });
@@ -321,14 +320,11 @@ describe('splitBodyLoop — a 600 mm 3" body tube', () => {
     const s = splitComponent(tube, {}, H2D)!;
     const Ls = 0.25 * 2 * R3IN;
     const spans = s.loops.map(extentOf);
-    // Cut planes at 200 and 400 mm; each fore piece carries its spigot past
-    // the plane, each aft piece starts exactly ON it (the land is the datum).
+    // The fore piece carries its spigot past the cut; the last starts ON it.
     expect(spans[0]![0]).toBeCloseTo(0, 12);
-    expect(spans[0]![1]).toBeCloseTo(0.2 + Ls, 9);
-    expect(spans[1]![0]).toBeCloseTo(0.2, 12);
-    expect(spans[1]![1]).toBeCloseTo(0.4 + Ls, 9);
-    expect(spans[2]![0]).toBeCloseTo(0.4, 12);
-    expect(spans[2]![1]).toBeCloseTo(0.6, 12);
+    expect(spans[0]![1]).toBeCloseTo(s.plan.cuts[0]! + Ls, 9);
+    expect(spans[1]![0]).toBeCloseTo(s.plan.cuts[0]!, 12);
+    expect(spans[1]![1]).toBeCloseTo(0.6, 12);
     // The tallest print the plan promised is the tallest one actually built.
     const tallest = Math.max(...spans.map(([a, b]) => b - a));
     expect(tallest).toBeLessThanOrEqual(s.plan.tallestPrint + 1e-9);
@@ -338,7 +334,7 @@ describe('splitBodyLoop — a 600 mm 3" body tube', () => {
     const s = splitComponent(tube, {}, H2D)!;
     const bore = R3IN - WALL;
     // Nothing on the fore piece aft of the cut may reach the socket wall.
-    const past = s.loops[0]!.filter(([x]) => x > 0.2 + 1e-9);
+    const past = s.loops[0]!.filter(([x]) => x > s.plan.cuts[0]! + 1e-9);
     expect(past.length).toBeGreaterThan(0);
     for (const [, r] of past) expect(r).toBeLessThanOrEqual(bore - 0.00015 + 1e-12);
     expect(Math.max(...past.map((p) => p[1]))).toBeCloseTo(bore - 0.00015, 12);
@@ -734,7 +730,7 @@ describe('joint parameters are caller-overridable', () => {
  * it when it regresses.
  */
 describe('the lean is a real placement, not a diagonal (D1)', () => {
-  it('refuses to certify a 390 x 60 mm part on a 200 x 200 x 395 bed', () => {
+  it('refuses a diagonal whose full width cannot fit at any height-saving lean', () => {
     // The old test was `foot <= hypot(u.x, u.y)`, which certifies a placement
     // that does not exist: the minimal enclosing SQUARE of a 247 x 60 mm
     // rectangle is 247 mm, so tilting can never contain it in a 184 mm square,
@@ -746,8 +742,10 @@ describe('the lean is a real placement, not a diagonal (D1)', () => {
     // 395 - 8 = 387 < 390 keeps the part needing a lean or a cut, which is
     // what the test is here to watch. Nothing else about the case moves: the
     // bed is the same 184 x 184 mm square and the footprint the same 247 x 60.
-    const custom: PrinterVolume = { x: 0.200, y: 0.200, z: 0.395, margin: 0.008 };
-    expect(UZ(custom)).toBeCloseTo(0.387, 12);
+    // A 395 mm bed DOES fit at a smaller, diagonally placed lean. At 380 mm
+    // Z every lean that saves enough height is too wide, even when rotated.
+    const custom: PrinterVolume = { x: 0.200, y: 0.200, z: 0.380, margin: 0.008 };
+    expect(UZ(custom)).toBeCloseTo(0.372, 12);
     expect(0.390).toBeGreaterThan(UZ(custom));   // so the lean really is tried
     const p = planAxialSplit(0.390, 0.030, custom);
     const foot = 0.390 * Math.sin(Math.PI / 6) + 0.060 * Math.cos(Math.PI / 6);

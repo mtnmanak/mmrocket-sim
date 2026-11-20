@@ -90,7 +90,7 @@ function minClearance(rotA: number, countA: number, rotB: number, countB: number
   return best;
 }
 
-export function autoAlignFinSets(tree: RocketTree, units: UnitSelection = INITIAL_UNITS): FinAlignResult {
+export function autoAlignFinSets(tree: RocketTree, units: UnitSelection = INITIAL_UNITS, parentId?: string): FinAlignResult {
   const unit = units.angle;
   const angle = (rad: number) => `${fmtSi('angle', unit, rad, unit === '°' ? 1 : 3)}${unit === '°' ? '' : ' '}${unit}`;
   const patches = new Map<string, number>();
@@ -101,7 +101,8 @@ export function autoAlignFinSets(tree: RocketTree, units: UnitSelection = INITIA
   const visit = (parentNode: ComponentNode) => {
     if (limited) return;
     const kids = parentNode.children ?? [];
-    const finSets = kids.filter((k) => isFinSet(k, parentNode));
+    const finSets = parentId === undefined || parentNode.id === parentId
+      ? kids.filter((k) => isFinSet(k, parentNode)) : [];
     if (finSets.length >= 2) {
       // The kernel's length, as the stations it is compared with are built
       // from — a cleared tube is its type's default, not 0.2 m.

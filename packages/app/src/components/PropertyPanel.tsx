@@ -24,13 +24,16 @@ import {
 } from '../tree/schema.js';
 import {
   bodyDragReference, fairingCd, fairingDeliveredCd, fairingFrontalArea, findParent,
-  mountName, mountRadiusOf, nameOr, protuberanceCd, protuberanceClass, protuberanceDeliveredCd,
+  mountName, nameOr, protuberanceCd, protuberanceClass, protuberanceDeliveredCd,
   protuberanceExplicitCd, protuberanceFrontalArea, suppressingAncestor, updateNode,
 } from '../tree/treeModel.js';
 import { anchorStarts, axialLength, offsetForStart, positionOf, snapStart, startFromPosition } from '../tree/position.js';
 import { filletMaterialPatch, numericFieldRules } from '../tree/numericFieldRules.js';
 import { betweenFinAnglesAmong, finAnglesAmong, frameContaining, nearestAngle } from '../tree/mountAngle.js';
 import { shroudEnds } from '../tree/shroud.js';
+import { drawnRadius } from '../tree/schematicLayout.js';
+import { resolveTransitionRadii } from '../tree/transitionRadii.js';
+import { finMeshOmissionNotice, shroudWidthNotice } from '../services/meshExportNotes.js';
 import { finTabFit, shoulderFit } from '../tree/fitHelpers.js';
 import { ventLimit } from '../tree/canopyVent.js';
 import { num, numOpt } from '../tree/nodeNum.js';
@@ -49,7 +52,7 @@ const RESOLVE_SELECT: Record<string, (n: ComponentNode) => string | undefined> =
   fairingAftShape: (n) => shroudEnds(n).aft,
 };
 import { shapeUsesParameter } from '../tree/shapeProfile.js';
-import { centeringRingBore, componentSolid, finPrintShape, ringOuterRadius, type FinPrintFallback } from '../tree/solidMesh.js';
+import { centeringRingBore, componentSolid, finPrintShape, ringOuterRadius, unusableStatedRingBore, UNUSABLE_RING_BORE_NOTE, type FinPrintFallback } from '../tree/solidMesh.js';
 import { finSectionLaw, type FinSectionLaw } from '../tree/finSection.js';
 import { finSectionFlatReason } from '../tree/finChords.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
@@ -584,6 +587,8 @@ function FinPrintScope({ tree, node, lengthSym }: { tree: RocketTree; node: Comp
   const fillets = typeof node['filletRadius'] === 'number' && Number.isFinite(node['filletRadius']) && node['filletRadius'] > 0;
   const withTab = tab ? ' with its tab' : '';
   if (shape.kind === 'refused') {
+    const omitted = finMeshOmissionNotice(node);
+    if (omitted) return <p className="hint fin-print-scope">{omitted}</p>;
     return (
       <p className="hint fin-print-scope">
         <strong>This fin cannot be exported as an STL</strong>: its outline crosses itself or encloses no area, so
@@ -709,7 +714,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
   /** Applies a patch to every component carrying those fields (bulk finish). */
   onPatchAll?: (patch: Partial<ComponentNode>) => void;
   /** Rotates overlapping sibling fin sets apart (tree/finAlign.ts). */
-  onAutoAlignFins?: () => void;
+  onAutoAlignFins?: (parentId: string) => void;
 }) {
   const { prefs } = usePrefs();
   /**
@@ -1452,6 +1457,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
           // audit 2026-10-11, CR-3/CR-5: use the dialog label and drawing-unit word.
           title={`Flat 1:1 cut profile as R12 DXF in ${dxfUnitWord(dxfUnitFor(prefs.units.length))} — it follows your ${QUANTITY_LABEL.length} unit (Preferences → Units of measure): inches for in or ft, millimetres otherwise. For laser/router/waterjet CAM and Fusion 360 sketch import. Fin sets export ONE fin as a single closed contour with the through-the-wall tab merged into it (airfoil shaping, cant and sweep-into-the-tube are NOT represented); rings, bulkheads and couplers take their own stated diameter, else the bore of the tube, coupler, nose or transition they sit in (the label says so when neither can be found), and a centering ring's bore from its own stated ID, else the motor mount. Cut geometry is on the CUT layer only — REFERENCE (root chord, centre marks) and TEXT are guides; switch them off before cutting.`}
           onClick={() => {
+            const omitted = finMeshOmissionNotice(node);
+            if (omitted) { setExportNote(omitted); return; }
             const dxf = componentDxf(node, solidContextFor(tree, node), tree.name ?? 'Rocket',
               dxfUnitFor(prefs.units.length), tree);
             // Same reason as the STL button below: componentDxf returns null for
@@ -1459,7 +1466,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
             // button that silently does nothing reads as a broken button.
             if (!dxf) {
               const ctx = solidContextFor(tree, node);
-              setExportNote(node.type === 'centeringring' && centeringRingBore(node, ctx, ringOuterRadius(node, ctx).r) === null
+              setExportNote(unusableStatedRingBore(node, ctx) ? UNUSABLE_RING_BORE_NOTE
+                : node.type === 'centeringring' && centeringRingBore(node, ctx, ringOuterRadius(node, ctx).r) === null
                 ? ctx.mountCouplerTooWide
                   ? ctx.mountOuterRadius !== undefined
                     ? "No DXF: a tube held in a coupler is wider than the ring's direct mount tube. The app cannot lay out the holes for this ring. Lay out the holes by hand before cutting."
@@ -1487,6 +1495,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
               : `Watertight solid STL in millimetres, ready to slice. Hollow noses/transitions include shoulders and end caps at your wall thickness; fin sets export ONE fin with its tab — a rounded or airfoil fin carries its cross-section with sharp edges thickened to a printable ${noticeQuantity('length', 0.0004, prefs.units)} and a flat tab, except that an outline with more than one chord at some height (a W or hook, as drawn or as seated on the body), a step in its leading or trailing edge, or stock no thicker than ${noticeQuantity('length', 0.0004, prefs.units)} prints as the flat prism, as the note under this button says; a square fin is a flat prism, and neither bakes in cant or prints root fillets; rings, bulkheads and couplers take their own stated diameter, else the bore of the tube, coupler, nose or transition they sit in (a warning appears under this button when neither can be found). Verify fit before a long print.`}
             // eslint-disable-next-line @typescript-eslint/no-misused-promises -- every await is inside the try below, whose catch reports into exportNote, so the promise React drops cannot reject
             onClick={async () => {
+              const omitted = finMeshOmissionNotice(node);
+              if (omitted) { setExportNote(omitted); return; }
               // Every await below can reject — the mesher, the print-pack
               // builder, a lazily loaded chunk offline — and a rejection here
               // was unhandled: the same silently dead button the null case
@@ -1513,7 +1523,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
                   // unusable as well as for a type that is not printable, and a
                   // button that silently does nothing reads as a broken button.
                   if (!solid) {
-                    setExportNote(node.type === 'centeringring' && centeringRingBore(node, ctx, ringOuterRadius(node, ctx).r) === null
+                    setExportNote(unusableStatedRingBore(node, ctx) ? UNUSABLE_RING_BORE_NOTE
+                      : node.type === 'centeringring' && centeringRingBore(node, ctx, ringOuterRadius(node, ctx).r) === null
                       ? ctx.mountCouplerTooWide
                         ? ctx.mountOuterRadius !== undefined
                           ? "No STL: a tube held in a coupler is wider than the ring's direct mount tube. The app cannot lay out the holes for this ring. Lay out the holes by hand before printing."
@@ -1569,7 +1580,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
         && (parent.children ?? []).filter((c) => c.type.endsWith('finset')).length >= 2 && (
         <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
           title="Rotates this tube's overlapping fin sets so their fins interleave with the widest clearance — no manual rotation math needed"
-          onClick={onAutoAlignFins}>
+          onClick={() => onAutoAlignFins(parent.id!)}>
           🧭 Auto-align fin sets
         </button>
       )}
@@ -1627,6 +1638,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
       )}
       <div className="field-grid" style={{ marginTop: 8 }}>
         {fields.map((f) => {
+          const restoredRadial = (node.type === 'podset' || node.type === 'parallelstage')
+            && (node['radiusMethod'] === 'surface' || node['radiusMethod'] === 'coaxial');
+          if (f.key === 'radiusOffset' && restoredRadial) return null;
           if (f.key === 'maxMotorLength') {
             // Edited ONLY here, on the physical mount, with its Estimate
             // (CFG-SPEC A4); the motor card shows it read-only.
@@ -1729,8 +1743,15 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
                   // function the drawing, the physics and the writer use. The
                   // resolver exists so there is still exactly one declaration.
                   value={String(RESOLVE_SELECT[f.key]?.(node) ?? node[f.key] ?? f.dflt ?? f.options[0]![0])}
-                  onChange={(e) => onPatch({ [f.key]: e.target.value })}
+                  onChange={(e) => onPatch(f.key === 'shape'
+                    ? { shape: e.target.value, shapeParameter: undefined }
+                    : { [f.key]: e.target.value })}
                 >
+                  {f.key === 'radiusMethod' && restoredRadial && (
+                    <option value={String(node['radiusMethod'])} disabled>
+                      {node['radiusMethod'] === 'surface' ? 'Touching parent surface (restored)' : 'On parent centerline (restored)'}
+                    </option>
+                  )}
                   {f.options.map(([v, l]) => (
                     <option key={v} value={v}>{l}</option>
                   ))}
@@ -1925,7 +1946,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
         const H = num(node, 'height', 0.02);
         const area = fairingFrontalArea(tree, node);
         const flat = Math.max(0, W) * Math.max(0, H);
-        const bodyR = mountRadiusOf(parent === 'stage' ? null : (parent as ComponentNode | null));
+        const drawnParent = findParent(resolveTransitionRadii(tree), node.id!);
+        const bodyR = drawnParent && drawnParent !== 'stage' ? drawnRadius(drawnParent) : 0;
+        const widthNotice = shroudWidthNotice(node, bodyR, prefs.units);
         const crescent = area - flat;
         const body = bodyDragReference(tree);
         const followsBody = body.measured && Number.isFinite(body.withBase) && body.withBase > 1e-9;
@@ -1941,6 +1964,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
           : null;
         return (
           <p className="comp-stats" style={{ marginTop: 6 }}>
+            {widthNotice && <><strong>{widthNotice}</strong><br /></>}
             {noticeQuantity('area', area, prefs.units)} frontal
             {' × '}Cd {fairingCd(node).toFixed(3)}
             {' = '}<strong>+{fairingDeliveredCd(tree, node).toFixed(5)}</strong> on the

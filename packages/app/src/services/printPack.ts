@@ -1,7 +1,7 @@
 import { INITIAL_UNITS, noticeComparison, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import { strToU8, zipSync } from 'fflate';
 import type { ComponentNode } from '@online-openrocket/engine';
-import { componentLoop, revolveProfile, type SolidContext } from '../tree/solidMesh.js';
+import { componentLoop, revolveProfile, unusableStatedRingBore, UNUSABLE_RING_BORE_NOTE, type SolidContext } from '../tree/solidMesh.js';
 import {
   DEFAULT_CLEARANCE, DEFAULT_MARGIN, revolvedVolume, splitComponent,
   type ComponentSplit, type PrinterVolume,
@@ -202,6 +202,9 @@ export function printOffer(
   const dim = (si: number) => noticeQuantity('length', si, units);
   const single = (note: string | null, tone: PrintTone): PrintOffer =>
     ({ kind: 'single', button: SINGLE_BUTTON, note, tone, split: null });
+  if (unusableStatedRingBore(node, ctx)) return {
+    kind: 'refuse', button: SINGLE_BUTTON, note: UNUSABLE_RING_BORE_NOTE, tone: 'warn', split: null,
+  };
 
   // Fins are plates (a flat prism or a shaped section), not revolves —
   // componentLoop() returns null and the splitter has nothing to say about
@@ -252,7 +255,8 @@ export function printOffer(
     // by the part's own steepest wall, so a haack or ellipsoid nose that leans
     // at all leans by less than 30 (tree/splitSolid.ts, MAX_LEAN). The planner
     // certified this printed value, so it is quoted as is, in degrees.
-    const how = plan.leanUsed ? `leaned ${plan.leanDeg ?? 30}° off vertical` : 'upright';
+    const how = plan.leanUsed ? `leaned ${plan.leanDeg ?? 30}° off vertical`
+      + (plan.bedRotationDeg ? `, with the footprint rotated ${plan.bedRotationDeg}° on the bed` : '') : 'upright';
     return single(`${dim(total)} — fits your ${printerLabel} ${how}.`, 'info');
   }
 

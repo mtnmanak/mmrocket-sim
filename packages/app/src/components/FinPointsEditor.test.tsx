@@ -36,6 +36,22 @@ it('explains a restored over-limit outline immediately', () => {
   expect(host.querySelector('.fin-points-alert[role="alert"]')?.textContent).toContain('2500 mm (98.425 in) coordinate limit');
 });
 
+it('r2 S4b-b2 refuses oversized editing without mounting thousands of fields', () => {
+  render(Array.from({ length: 5001 }, (_, i): FinPoint => [i / 100000, Math.sin(Math.PI * i / 5000) * 0.02]));
+  expect(host.textContent).toMatch(/5,000/);
+  expect(host.querySelectorAll('input')).toHaveLength(0);
+  expect(host.querySelector('svg')).toBeNull();
+  expect(committed).toHaveLength(0);
+});
+
+it('r2 S4b-b2 cannot grow an already broken outline past the validation ceiling', () => {
+  render(Array.from({ length: 5000 }, (_, i): FinPoint => [i === 4999 ? 0.05 : 0, 0]));
+  const add = [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Add point'))!;
+  act(() => add.click());
+  expect(committed).toHaveLength(0);
+  expect(host.querySelector('.fin-points-alert')?.textContent).toContain('5,000');
+}, 30000); // Mounts 5,000 editable rows; allow for the full suite's worker load.
+
 const render = (points: FinPoint[]) => {
   committed = [];
   seq += 1;

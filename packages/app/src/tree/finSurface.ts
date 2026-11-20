@@ -41,11 +41,10 @@ import { chordOutline, chordRatioStations, sectionChordProblem } from './finChor
  *    each row. Where two slabs share a row, the two caps are the same
  *    triangles facing opposite ways and cancel; where the own chord jumps (a
  *    step in a freeform outline) the caps stay and draw the step.
- *  - Every row has the SAME number of samples (finSection's profile count is
- *    chord-independent for a fixed MAC), so row i sample j joins row i+1 sample
- *    j: a NACA nose or a rounded edge keeps its cosine/angle clustering at
- *    every station. Samples falling outside the seated loop at a station are
- *    clamped onto its boundary, and collapse.
+ *  - Rows share the section samples and every boundary station at that height.
+ *    Adjacent slabs therefore cancel precisely on their common span. Skins
+ *    join by chord fraction when a clipped row has fewer samples; a seated
+ *    extension widens the section chord instead of becoming a knife edge.
  *  - A loop a horizontal line crosses more than twice (a W- or hook-shaped
  *    freeform outline, as typed or as seated on the body) has no single chord
  *    at that height: such a fin is drawn as the flat prism. The decision is
@@ -224,7 +223,7 @@ export interface ShapedFin {
   reach: Reach;
 }
 
-interface Row { x: number[]; h: number[]; leRound: boolean; teRound: boolean }
+interface Row { x: number[]; h: number[]; u: number[]; leRound: boolean; teRound: boolean }
 
 /**
  * The shaped surface of one fin, or null when its section is square or the
@@ -233,14 +232,15 @@ interface Row { x: number[]; h: number[]; leRound: boolean; teRound: boolean }
  *
  * `own` is the fin's outline AS SEATED (finChords.ts's `seatedChordPoints`
  * for a freeform fin; the trapezoid or ellipse itself otherwise) — its chords
- * are read from `chordOutline(own)`, root closing edge left out, and its MAC
- * sets the chamfer fractions; `loops` the closed
+ * are read from `chordOutline(own)`, root closing edge left out. `macOutline`
+ * includes the sampled root for the chamfer fractions; `loops` are the closed
  * planform loops to cover, in the same frame (finRoot's seated `lobes`, or the
  * trapezoid / ellipse itself).
  */
 export function shapedFin(
   node: ComponentNode, own: readonly P2[], loops: readonly (readonly P2[])[], thickness: number,
   resolution = FIN_SURFACE_RESOLUTION,
+  macOutline: readonly P2[] = own,
 ): ShapedFin | null {
   if (finSectionLaw(node) === 'square' || !(thickness > 0) || !loops.length) return null;
   // The one decision every path shares (finChords.ts): no single chord at some
@@ -249,7 +249,7 @@ export function shapedFin(
   const chords = chordOutline(own);
   const ownSlabs = slabsOf(chords);
   if (!ownSlabs) return null;
-  const mac = finMacFromOutline(own);
+  const mac = finMacFromOutline(macOutline);
   const spec: FinSectionSpec = finSectionSpec(node, mac > 0 ? mac : undefined);
   // finSectionSpec reads the node's own thickness through kernelNum; pieces.ts
   // read the same field the same way, so the two agree — the override only
@@ -258,10 +258,39 @@ export function shapedFin(
   const ownYs = chords.map((p) => p[1]);
   const ownLo = ownSlabs[0]!.ya;
   const ownHi = ownSlabs[ownSlabs.length - 1]!.yb;
+  const loopSlabs = loops.map(loop => slabsOf(loop, ownYs));
+  if (loopSlabs.some(slabs => slabs === null)) return null;
+  // Widen only a seated extension. Ordinary outlines, including horizontal
+  // ledges, retain their slab's own section on each side of a step.
+  const extended = own.some(([, y]) => y < -SAME_Y) || loopSlabs.some(slabs => slabs!.some(s => {
+    const y = (s.ya + s.yb) / 2;
+    const yy = Math.min(ownHi, Math.max(ownLo, y));
+    const own = ownChord(ownSlabs, yy, yy);
+    return xAt(s.left, y) < own.lead - SAME_Y || xAt(s.right, y) > own.lead + own.chord + SAME_Y;
+  }));
+  // One station grid for both sides of every slab boundary. Include every
+  // boundary point so shared cap strips are exact reversed twins, even at a
+  // root step where the exposed chord and seated extension differ.
+  const stationChord = (y: number, hint = y): { lead: number; chord: number; boundaries: number[] } => {
+    const yy = Math.min(ownHi, Math.max(ownLo, y));
+    const own = ownChord(ownSlabs, yy, Math.min(ownHi, Math.max(ownLo, hint)));
+    if (!extended) return { ...own, boundaries: [] };
+    const boundaries: number[] = [];
+    for (const slabs of loopSlabs) for (const slab of slabs ?? []) {
+      if (y < slab.ya - SAME_Y || y > slab.yb + SAME_Y) continue;
+      const adjacent = ownChord(ownSlabs, yy, Math.min(ownHi, Math.max(ownLo, (slab.ya + slab.yb) / 2)));
+      // A real ledge has different own chords on either side. Its caps stay;
+      // only continuous sections share a boundary grid for seated extensions.
+      if (Math.abs(adjacent.lead - own.lead) <= SAME_Y && Math.abs(adjacent.chord - own.chord) <= SAME_Y) {
+        boundaries.push(xAt(slab.left, y), xAt(slab.right, y));
+      }
+    }
+    const lead = Math.min(own.lead, ...boundaries);
+    return { lead, chord: Math.max(own.lead + own.chord, ...boundaries) - lead, boundaries };
+  };
 
   const halfAt = (x: number, y: number): number => {
-    const yy = Math.min(ownHi, Math.max(ownLo, y));
-    const { lead, chord } = ownChord(ownSlabs, yy, yy);
+    const { lead, chord } = stationChord(y);
     if (!(chord > 1e-12)) return sectionHalfThickness(spec, 0, 0.5);
     return sectionHalfThickness(spec, chord, Math.min(1, Math.max(0, (x - lead) / chord)));
   };
@@ -288,7 +317,8 @@ export function shapedFin(
 
   let samples = -1;
   const rowAt = (y: number, ls: number, ts: number, hint: number): Row | null => {
-    const { lead, chord } = ownChord(ownSlabs, y, Math.min(ownHi, Math.max(ownLo, hint)));
+    const { lead, chord } = extended ? stationChord(y, hint)
+      : ownChord(ownSlabs, y, Math.min(ownHi, Math.max(ownLo, hint)));
     const base = sectionProfile(spec, chord, resolution);
     if (fill && fill.length !== base.xi.length - 1) return null;
     const prof = fill ? { ...base, xi: [] as number[], half: [] as number[] } : base;
@@ -304,20 +334,24 @@ export function shapedFin(
         }
       }
     }
-    const n = prof.xi.length;
-    if (samples < 0) samples = n;
-    if (n !== samples || n < 2) return null;
-    const x: number[] = [];
-    const h: number[] = [];
-    for (let j = 0; j < n; j++) {
-      const xr = lead + prof.xi[j]! * chord;
-      const xj = j === 0 ? ls : j === n - 1 ? ts : Math.min(ts, Math.max(ls, xr));
-      x.push(xj);
-      h.push(Math.abs(xj - xr) <= 1e-12 || !(chord > 1e-12)
-        ? prof.half[j]!
-        : sectionHalfThickness(spec, chord, Math.min(1, Math.max(0, (xj - lead) / chord))));
+    samples = Math.max(samples, prof.xi.length);
+    if (!extended) {
+      const x = prof.xi.map((xi, j) => j === 0 ? ls : j === prof.xi.length - 1 ? ts
+        : Math.min(ts, Math.max(ls, lead + xi * chord)));
+      const h = x.map((v, j) => Math.abs(v - (lead + prof.xi[j]! * chord)) <= 1e-12 || !(chord > 1e-12)
+        ? prof.half[j]! : sectionHalfThickness(spec, chord, Math.min(1, Math.max(0, (v - lead) / chord))));
+      return { x, h, u: x.map((_, j) => j / (x.length - 1)),
+        leRound: prof.le.kind === 'round', teRound: prof.te.kind === 'round' };
     }
-    return { x, h, leRound: prof.le.kind === 'round', teRound: prof.te.kind === 'round' };
+    const { boundaries } = stationChord(y, hint);
+    const x = uniqueSorted([ls, ts, ...boundaries, ...prof.xi.map(xi => lead + xi * chord)])
+      .filter(v => v >= ls - SAME_Y && v <= ts + SAME_Y).map(v => Math.min(ts, Math.max(ls, v)));
+    if (!x.length) return null;
+    const h = x.map(v => chord > 1e-12
+      ? sectionHalfThickness(spec, chord, Math.min(1, Math.max(0, (v - lead) / chord)))
+      : sectionHalfThickness(spec, 0, 0.5));
+    return { x, h, u: x.map(v => chord > 1e-12 ? (v - lead) / chord : 0.5),
+      leRound: prof.le.kind === 'round', teRound: prof.te.kind === 'round' };
   };
 
   /**
@@ -374,8 +408,7 @@ export function shapedFin(
   };
 
   const mesh = emptyMesh();
-  for (const loop of loops) {
-    const slabs = slabsOf(loop, ownYs);
+  for (const slabs of loopSlabs) {
     if (!slabs) return null;
     for (const s of slabs) {
       const hint = (s.ya + s.yb) / 2;
@@ -395,8 +428,7 @@ export function shapedFin(
   // Inside the own chord at a height (clamped into the outline's span, as
   // halfAt reads it): strictly, so a root corner reaches nothing.
   const inChord = (x: number, y: number): boolean => {
-    const yy = Math.min(ownHi, Math.max(ownLo, y));
-    const { lead, chord } = ownChord(ownSlabs, yy, yy);
+    const { lead, chord } = stationChord(y);
     return x > lead + INSIDE && x < lead + chord - INSIDE;
   };
   const reach = planformReach(loops, { outline: chords, inside: inChord });
@@ -485,36 +517,41 @@ export function planformReach(
 
 /** One slab as a closed shell (outward winding): skins, LE/TE walls, a cap at each row. */
 function slabShell(m: FinMesh, a: Row, ya: number, b: Row, yb: number, flipDiagonal: boolean): void {
-  const n = a.x.length;
   const verts = (r: Row, y: number, sign: number): number[] => r.x.map((x, j) =>
-    addVertex(m, x, y, sign * r.h[j]!, (j === 0 && r.leRound) || (j === n - 1 && r.teRound)));
+    addVertex(m, x, y, sign * r.h[j]!, (j === 0 && r.leRound) || (j === r.x.length - 1 && r.teRound)));
   const tA = verts(a, ya, 1);
   const bA = verts(a, ya, -1);
   const tB = verts(b, yb, 1);
   const bB = verts(b, yb, -1);
-  for (let j = 0; j + 1 < n; j++) {
-    if (flipDiagonal) {
-      addTri(m, tA[j]!, tA[j + 1]!, tB[j]!, SKIN);
-      addTri(m, tA[j + 1]!, tB[j + 1]!, tB[j]!, SKIN);
-      addTri(m, bA[j]!, bB[j]!, bA[j + 1]!, SKIN);
-      addTri(m, bA[j + 1]!, bB[j]!, bB[j + 1]!, SKIN);
+  let i = 0, j = 0;
+  while (i + 1 < a.x.length || j + 1 < b.x.length) {
+    const nextA = i + 1 < a.x.length ? a.u[i + 1]! : Infinity;
+    const nextB = j + 1 < b.x.length ? b.u[j + 1]! : Infinity;
+    const tied = Math.abs(nextA - nextB) < 1e-12;
+    const advanceA = tied ? flipDiagonal : nextA < nextB;
+    if (advanceA) {
+      addTri(m, tA[i]!, tA[i + 1]!, tB[j]!, SKIN);
+      addTri(m, bA[i]!, bB[j]!, bA[i + 1]!, SKIN);
+      i++;
     } else {
-      addTri(m, tA[j]!, tA[j + 1]!, tB[j + 1]!, SKIN);
-      addTri(m, tA[j]!, tB[j + 1]!, tB[j]!, SKIN);
-      addTri(m, bA[j]!, bB[j + 1]!, bA[j + 1]!, SKIN);
-      addTri(m, bA[j]!, bB[j]!, bB[j + 1]!, SKIN);
+      addTri(m, tA[i]!, tB[j + 1]!, tB[j]!, SKIN);
+      addTri(m, bA[i]!, bB[j]!, bB[j + 1]!, SKIN);
+      j++;
     }
-    // Cap at ya faces -y, cap at yb faces +y.
+  }
+  for (let j = 0; j + 1 < a.x.length; j++) {
     addTri(m, tA[j]!, bA[j + 1]!, tA[j + 1]!, CAP);
     addTri(m, tA[j]!, bA[j]!, bA[j + 1]!, CAP);
+  }
+  for (let j = 0; j + 1 < b.x.length; j++) {
     addTri(m, tB[j]!, tB[j + 1]!, bB[j + 1]!, CAP);
     addTri(m, tB[j]!, bB[j + 1]!, bB[j]!, CAP);
   }
-  const l = n - 1;
+  const l = a.x.length - 1, r = b.x.length - 1;
   addTri(m, bA[0]!, tA[0]!, tB[0]!, WALL);
   addTri(m, bA[0]!, tB[0]!, bB[0]!, WALL);
-  addTri(m, tA[l]!, bA[l]!, bB[l]!, WALL);
-  addTri(m, tA[l]!, bB[l]!, tB[l]!, WALL);
+  addTri(m, tA[l]!, bA[l]!, bB[r]!, WALL);
+  addTri(m, tA[l]!, bB[r]!, tB[r]!, WALL);
 }
 
 /* ------------------------------------------------------------------------ */

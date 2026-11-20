@@ -2,7 +2,7 @@ import { GlossaryHelp } from './GlossaryHelp.js';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { INITIAL_UNITS, niceStep, noticeQuantity, siToUi, uiToSi, type UnitSelection } from '../prefs/units.js';
-import { finOutlineProblem, kernelFinPoints, MAX_FIN_POINT_M } from '../tree/finOutline.js';
+import { finOutlineProblem, kernelFinPoints, MAX_FIN_POINT_M, MAX_FIN_OUTLINE_POINTS } from '../tree/finOutline.js';
 import { MAX_DIMENSION_M } from '../tree/schema.js';
 import { arrowPan, startsGesture, wheelZoomFactor } from '../chartPanZoom.js';
 import { FIN_VIEW_W as VIEW_W, FIN_VIEW_H as VIEW_H, fitFin as makeTransform,
@@ -108,6 +108,19 @@ export function FinPointsEditor({ points, onChange }: {
   points: FinPoint[];
   onChange: (next: FinPoint[]) => void;
 }) {
+  if (points.length > MAX_FIN_OUTLINE_POINTS) return (
+    <div style={{ marginTop: 10 }}>
+      <h2>Fin planform</h2>
+      <p className="fin-points-alert" role="alert">{finOutlineProblem(points)}</p>
+    </div>
+  );
+  return <EditableFinPoints points={points} onChange={onChange} />;
+}
+
+function EditableFinPoints({ points, onChange }: {
+  points: FinPoint[];
+  onChange: (next: FinPoint[]) => void;
+}) {
   const { prefs } = usePrefs();
   const committed: FinPoint[] = points.length >= 3 ? points : STARTER_OUTLINE;
 
@@ -188,6 +201,10 @@ export function FinPointsEditor({ points, onChange }: {
    * to edit their way out of. Then we let the edit through and just say so.
    */
   const commit = (next: FinPoint[]): boolean => {
+    if (next.length > MAX_FIN_OUTLINE_POINTS) {
+      setRefused(finOutlineProblem(next, prefs.units));
+      return false;
+    }
     // The coordinate limit holds even on an outline that arrived broken: the
     // legacy escape below must not admit a new point beyond it (overflow).
     const outside = (pts: FinPoint[]) => pts.some(p => Math.abs(p[0]!) > MAX_DIMENSION_M || Math.abs(p[1]!) > MAX_DIMENSION_M);

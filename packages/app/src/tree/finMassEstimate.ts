@@ -4,12 +4,14 @@ import { KERNEL_DEFAULT_MATERIALS, kernelNum } from './kernelDefaults.js';
 import { numOpt } from './nodeNum.js';
 import { signedArea } from './polygon.js';
 import { finPlanformPoints } from './solidMesh.js';
+import { finOnMount, type MountSurface } from './finRoot.js';
 
 /** Outline-only airfoil mass in kg; tabs and fillets are deliberately omitted. */
-export function airfoilFinMassEstimate(node: ComponentNode): number | undefined {
+export function airfoilFinMassEstimate(node: ComponentNode, mount?: MountSurface, front = 0): number | undefined {
   const points = finPlanformPoints(node);
   if (!points) return undefined;
-  const area = Math.abs(signedArea(points));
+  const lobes = node.type === 'freeformfinset' && mount ? finOnMount(points, front, mount, 100).lobes : [points];
+  const area = lobes.reduce((sum, lobe) => sum + Math.abs(signedArea(lobe)), 0);
   const thickness = kernelNum(node, 'thickness');
   const density = numOpt(node, 'density');
   const bulkDensity = density !== undefined && density > 0 ? density : KERNEL_DEFAULT_MATERIALS.bulk.density;

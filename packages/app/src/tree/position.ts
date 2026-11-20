@@ -2,6 +2,7 @@ import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openr
 import { isAssembly } from './assembly.js';
 import { kernelDefault, kernelNum } from './kernelDefaults.js';
 import { num } from './nodeNum.js';
+import { finRootChord, finTabSpan } from './finTab.js';
 
 /**
  * Axial-position math shared by the 2D schematic (drag) and the property
@@ -390,15 +391,10 @@ export function anchorStarts(parent: ComponentNode, child: ComponentNode): numbe
     anchors.add(sStart + sLen);        // butt behind the sibling
     // Fin tabs: centering rings butt against the tab's front/rear edges in
     // real builds (the tab passes through the wall between the rings).
-    const tabH = num(sib, 'tabHeight', 0);
-    const tabLen = num(sib, 'tabLength', 0);
-    if (sib.type.endsWith('finset') && tabH > 0 && tabLen > 0) {
-      const method = typeof sib['tabOffsetMethod'] === 'string'
-        ? (sib['tabOffsetMethod'] as string) : 'middle';
-      const off = num(sib, 'tabOffset', 0);
-      const tabFront = sStart + (method === 'top' ? off
-        : method === 'bottom' ? off + sLen - tabLen
-        : off + (sLen - tabLen) / 2);
+    const tab = sib.type.endsWith('finset') ? finTabSpan(sib, finRootChord(sib), undefined) : null;
+    if (tab) {
+      const tabFront = sStart + tab.x0;
+      const tabLen = tab.x1 - tab.x0;
       anchors.add(tabFront - cLen);          // butt in front of the tab
       anchors.add(tabFront + tabLen);        // butt behind the tab
       anchors.add(tabFront);                 // align with tab front

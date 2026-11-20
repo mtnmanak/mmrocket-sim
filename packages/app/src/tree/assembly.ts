@@ -47,9 +47,10 @@ export function assemblyBoundingRadius(pod: ComponentNode): number {
  */
 export function resolveAssemblyRadius(pod: ComponentNode, parentOuterRadius: number): number {
   const offset = num(pod, 'radiusOffset', 0);
-  const method = typeof pod['radiusMethod'] === 'string' ? (pod['radiusMethod'] as string) : 'relative';
+  const method = typeof pod['radiusMethod'] === 'string' ? pod['radiusMethod'].toLowerCase() : 'relative';
+  if (method === 'coaxial') return 0;
   if (method === 'free') return offset;
-  return offset + parentOuterRadius + assemblyBoundingRadius(pod);
+  return (method === 'surface' ? 0 : offset) + parentOuterRadius + assemblyBoundingRadius(pod);
 }
 
 export interface RingInstance { y: number; z: number; angle: number }

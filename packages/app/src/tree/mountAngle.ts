@@ -19,7 +19,7 @@ import { enclosesArea } from './polygon.js';
 import { finOnMount, flatMount, profileMount } from './finRoot.js';
 import { tubeFinRadius, tubeFinWall } from './tubefins.js';
 import { noseEnds } from './tailCone.js';
-import { resolveTransitionRadii } from './transitionRadii.js';
+import { displayTransitionEnds, resolveTransitionRadii } from './transitionRadii.js';
 
 /**
  * Clock angles around the airframe: where a surface-mounted part can SNAP to,
@@ -54,9 +54,10 @@ export const isFinSet = (n: ComponentNode, parent?: ComponentNode): boolean => {
     if (!parent) return enclosesArea(points);
     const length = axialLength(parent);
     const radius = mountRadiusOf(parent);
-    const ends = parent.type === 'nosecone' ? noseEnds(parent, radius) : null;
+    const ends = parent.type === 'nosecone' ? noseEnds(parent, radius)
+      : parent.type === 'transition' ? displayTransitionEnds(parent) : null;
     const mount = parent.type === 'transition' || ends
-      ? profileMount(typeof parent['shape'] === 'string' ? parent['shape'] : ends ? 'ogive' : 'conical',
+      ? profileMount(typeof parent['shape'] === 'string' ? parent['shape'] : parent.type === 'nosecone' ? 'ogive' : 'conical',
         numOpt(parent, 'shapeParameter'), length, ends?.fore ?? num(parent, 'foreRadius', radius),
         ends?.aft ?? num(parent, 'aftRadius', radius), parent['clipped'] as boolean | undefined)
       : flatMount(radius, length);

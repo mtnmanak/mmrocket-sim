@@ -324,6 +324,8 @@ const MAX_PROTUBERANCE_COUNT = 1000;
  * the load boundary protects the kernel's copy, which the app cannot bound.
  */
 export const MAX_DIMENSION_M = 1000;
+/** FreeformFinSet.SNAP_LARGER_THAN; generated shrouds share this coordinate limit. */
+export const MAX_FIN_POINT_M = 2.5;
 
 /**
  * The smallest value stored for a dimension where ZERO fails the kernel build.
@@ -342,7 +344,7 @@ export const MAX_DIMENSION_M = 1000;
 export const MIN_POSITIVE_DIMENSION_M = 0.0001;
 
 /** What a limit bounds, which decides how a note formats the number. */
-export type LimitKind = 'length' | 'mass' | 'density' | 'count' | 'scalar';
+export type LimitKind = 'length' | 'mass' | 'density' | 'count' | 'scalar' | 'angle';
 
 /**
  * A HARD limit on a stored SI value — not a slider range. `smin`/`smax` on a
@@ -424,6 +426,9 @@ const MAX_CLUSTER_SCALE = Math.sqrt(Number.MAX_VALUE / (16 * MAX_COMPONENT_MASS_
   / (8 * MAX_DIMENSION_M * MAX_EXPANDED_INSTANCES);
 
 const LIMITS_BY_KEY: Record<string, FieldLimit> = lookupTable<FieldLimit>({
+  cant: { kind: 'angle', hmin: -Math.PI / 12, hmax: Math.PI / 12, label: 'cant angle' },
+  plateAngle: { kind: 'angle', hmin: 0, hmax: Math.PI / 2 },
+  shapeParameter: { kind: 'scalar', hmin: 0, hmax: 1 },
   clusterScale: { kind: 'scalar', hmin: 0, hmax: MAX_CLUSTER_SCALE },
   length: LEN, rootChord: LEN, tipChord: LEN, height: LEN, thickness: LEN,
   outerRadius: LEN, innerRadius: LEN, aftRadius: LEN, foreRadius: LEN, radius: LEN,
@@ -464,7 +469,10 @@ const LIMITS_BY_TYPE: Record<string, Record<string, FieldLimit>> = lookupTable<R
   ellipticalfinset: { finCount: FINS },
   freeformfinset: { finCount: FINS },
   tubefinset: { finCount: FINS, length: POSITIVE_LEN },
-  fairing: { height: POSITIVE_LEN },
+  fairing: {
+    length: { ...LEN, hmax: MAX_FIN_POINT_M, why: 'the simulator represents a shroud as a strake limited to 2.5 m' },
+    height: { ...POSITIVE_LEN, hmax: MAX_FIN_POINT_M, why: 'the simulator represents a shroud as a strake limited to 2.5 m' },
+  },
   podset: {
     instanceCount: { kind: 'count', hmin: 1, hmax: MAX_ASSEMBLY_INSTANCES, why: 'the most this app draws or flies' },
   },
@@ -581,11 +589,13 @@ const SEPARATION: EnumLimit = {
  * wrote it, the way it always has.
  */
 export const ENUM_LIMITS: Record<string, Record<string, EnumLimit>> = lookupTable<Record<string, EnumLimit>>({
+  podset: { radiusMethod: { values: ['relative', 'free', 'surface', 'coaxial'], fallback: 'relative to the parent surface', match: 'lowercase' } },
   trapezoidfinset: { airfoilSection: AIRFOIL, crossSection: CROSS_SECTION },
   ellipticalfinset: { airfoilSection: AIRFOIL, crossSection: CROSS_SECTION },
   freeformfinset: { airfoilSection: AIRFOIL, crossSection: CROSS_SECTION },
   stage: { separationEvent: SEPARATION },
-  parallelstage: { separationEvent: SEPARATION },
+  parallelstage: { separationEvent: SEPARATION,
+    radiusMethod: { values: ['relative', 'free', 'surface', 'coaxial'], fallback: 'relative to the parent surface', match: 'lowercase' } },
   innertube: { cluster: { values: CLUSTER_OPTIONS.map(([v]) => v), fallback: 'a single tube' } },
 });
 

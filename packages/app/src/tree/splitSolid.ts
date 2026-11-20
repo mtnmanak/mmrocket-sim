@@ -46,11 +46,8 @@ export interface PrinterVolume {
   /** maximum Z (m) */
   z: number;
   /**
-   * Keep-out inset (m) applied at BOTH ends of all three axes, default 8 mm.
-   * On Z the top inset is gantry/fan-duct clearance and the bottom one is the
-   * brim-and-first-layer allowance; keeping it symmetric makes it one number a
-   * user can reason about ("keep 8 mm clear") and errs toward one more piece
-   * rather than a print that fails at layer 900.
+   * Keep-out inset (m), default 8 mm: both bed edges in X/Y and the top in Z.
+   * A part sits on the bed, so usableBox subtracts no bottom Z allowance.
    */
   margin?: number;
   /** joint clearance per side (m), default 0.15 mm */
@@ -83,6 +80,8 @@ export interface SplitPlan {
    * leaned 18 is the same class of lie the constant was.
    */
   leanDeg?: number;
+  /** Clockwise rotation of the leaned footprint on the bed, degrees. */
+  bedRotationDeg?: number;
 }
 
 export interface SplitJoint {
@@ -180,12 +179,31 @@ export function usableBox(printer: PrinterVolume): { x: number; y: number; z: nu
   return { x: printer.x - 2 * m, y: printer.y - 2 * m, z: printer.z - m };
 }
 
+/** Certify the full rectangular footprint, including rotations between the bed axes. */
+function bedRotation(length: number, width: number, x: number, y: number): number | undefined {
+  const r = Math.hypot(length, width);
+  const phi = Math.atan2(width, length);
+  const candidates = [0, Math.PI / 2];
+  for (const [limit, shift] of [[x, phi], [y, Math.PI / 2 - phi]] as const) {
+    if (limit >= r) continue;
+    const delta = Math.acos(Math.min(1, Math.max(0, limit / r)));
+    for (const angle of [shift - delta, shift + delta]) {
+      if (angle > 0 && angle < Math.PI / 2) candidates.push(angle);
+    }
+  }
+  candidates.sort((a, b) => a - b);
+  // Prefer an interval's interior over a just-fitting edge, leaving room for rounding.
+  const probes = [0, Math.PI / 2, ...candidates.slice(1).map((b, i) => (candidates[i]! + b) / 2), ...candidates];
+  return probes.find(angle => length * Math.cos(angle) + width * Math.sin(angle) <= x + EPS
+    && length * Math.sin(angle) + width * Math.cos(angle) <= y + EPS);
+}
+
 /**
  * How many pieces a part of `totalLength` and `maxRadius` needs, and where to
  * cut. Lengths in METERS.
  *
- * The load-bearing subtlety is the per-segment span: it is (usable Z - spigot
- * length), NOT usable Z, because the male spigot protrudes past the cut plane
+ * Every segment before a cut reserves (usable Z - spigot length); the final
+ * segment can use full usable Z. The male spigot protrudes past the cut plane
  * and is part of what the printer has to build. Forgetting it is the classic
  * off-by-one-segment bug — a 381 mm part on a 220 mm Prusa plans as 2 x 190.5
  * mm, then each half turns out to be 209.6 mm tall.
@@ -236,7 +254,15 @@ export function planAxialSplit(
     // Below a degree there is nothing to gain and the arithmetic is noise.
     // The bed-limited angle also covers fit windows narrower than a degree.
     const maxLean = Math.min(MAX_LEAN, Math.max(OVERHANG_LIMIT - slope, 0));
-    const bedLean = Math.asin(Math.min(1, Math.max(u.x, u.y) / Math.hypot(totalLength, dia)))
+    // Footprint length is monotone in this search: a shorter rectangle always fits.
+    let maxFoot = Math.max(u.x, u.y);
+    let upperFoot = Math.hypot(u.x, u.y);
+    for (let i = 0; i < 60; i++) {
+      const mid = (maxFoot + upperFoot) / 2;
+      if (bedRotation(mid, dia, u.x, u.y) !== undefined) maxFoot = mid;
+      else upperFoot = mid;
+    }
+    const bedLean = Math.asin(Math.min(1, maxFoot / Math.hypot(totalLength, dia)))
       - Math.atan2(dia, totalLength);
     const fractional = Math.min(maxLean, bedLean) * 180 / Math.PI;
     const candidates = Array.from({ length: maxLeanDeg }, (_, i) => maxLeanDeg - i);
@@ -257,21 +283,24 @@ export function planAxialSplit(
       // reports the upright answer.
       const h = totalLength * Math.cos(lean) + dia * Math.sin(lean);
       const foot = totalLength * Math.sin(lean) + dia * Math.cos(lean);
-      // The leaned part is a foot x dia RECTANGLE on the bed, and a rectangle
-      // goes in a rectangle one of two ways round. The old test was
-      // `foot <= hypot(u.x, u.y)`, which certified placements that do not
-      // exist: it never carried the part's width, and the minimal enclosing
-      // square of a 247 x 60 mm rectangle is 247 mm — tilting NEVER helps
-      // contain a rectangle in a square, and even a naive 45 deg placement of
-      // that one needs (247+60)/sqrt(2) = 217 mm. A 390 x 60 mm part on a
-      // 200 x 200 x 400 mm custom bed was told it fitted, and the 2-piece
-      // split that would really have printed was suppressed.
-      const onBed = (foot <= u.x + EPS && dia <= u.y + EPS)
-        || (foot <= u.y + EPS && dia <= u.x + EPS);
-      if (h <= u.z + EPS && onBed) {
+      const rotation = bedRotation(foot, dia, u.x, u.y);
+      if (h <= u.z + EPS && rotation !== undefined) {
+        // Round only the display instruction, and certify that exact angle too.
+        let bedDeg: number | undefined;
+        for (let digits = 0; digits <= 8; digits++) {
+          const rounded = Number((rotation * 180 / Math.PI).toFixed(digits));
+          const bedAngle = rounded * Math.PI / 180;
+          if (foot * Math.cos(bedAngle) + dia * Math.sin(bedAngle) <= u.x + EPS
+            && foot * Math.sin(bedAngle) + dia * Math.cos(bedAngle) <= u.y + EPS) {
+            bedDeg = rounded;
+            break;
+          }
+        }
+        if (bedDeg === undefined) continue;
         return {
           fits: true, cuts: [], segments: 1, tallestPrint: h, leanUsed: true, leanDeg,
-          reason: `Fits in one piece leaned ${leanDeg}° off vertical (${dim(h, true)} tall) — its `
+          bedRotationDeg: bedDeg,
+          reason: `Fits in one piece leaned ${leanDeg}° off vertical (${dim(h, true)} tall)${bedDeg > 0 ? `, with the footprint rotated ${bedDeg}° on the bed` : ''} — its `
             + `steepest wall is ${Math.round((slope * 180) / Math.PI)}° off axis, so nothing `
             + 'overhangs past 45°, and there is no joint to glue.',
         };
@@ -286,8 +315,8 @@ export function planAxialSplit(
       ? noticeComparison('length', spigot, u.z, units) : [dim(spigot), dim(u.z)];
     return none(actual === limit ? `The spigot fills the ${limit} usable Z — it leaves no usable height.` : actual.startsWith('just ') ? `Spigot is just over the ${limit} usable Z — it leaves no usable height.` : `A ${actual} spigot leaves no usable height in ${limit} of Z.`);
   }
-  // -EPS so an exact multiple does not round up to a spurious extra piece.
-  const n = Math.ceil(totalLength / span - 1e-9);
+  // Apply the same metre tolerance as the one-piece fit, before division.
+  const n = Math.max(2, Math.ceil((totalLength - spigot - EPS) / span));
   const cap = printer.maxSegments ?? DEFAULT_MAX_SEGMENTS;
   if (n > cap) {
     return none(
@@ -296,12 +325,14 @@ export function planAxialSplit(
   }
 
   const cuts: number[] = [];
-  for (let i = 1; i < n; i++) cuts.push((totalLength * i) / n);
-  const tallestPrint = totalLength / n + spigot;
+  const head = Math.min(totalLength / n, span);
+  for (let i = 1; i < n; i++) cuts.push(head * i);
+  const last = totalLength - head * (n - 1);
+  const tallestPrint = Math.max(head + spigot, last);
   return {
     fits: false, cuts, segments: n, tallestPrint,
     reason: `${dim(totalLength) === dim(u.z) ? 'Part is just over' : `${dim(totalLength)} does not fit`} ${dim(u.z)} of usable Z — `
-      + `${n} pieces of ${dim(totalLength / n)}, tallest print ${dim(tallestPrint)} with its spigot.`,
+      + `${n} pieces${dim(head) === dim(last) ? ` of ${dim(head)}` : ` of ${dim(head)}-${dim(last)}`}, tallest print ${dim(tallestPrint)} including any spigot.`,
   };
 }
 
@@ -810,19 +841,19 @@ export interface ComponentSplit {
  */
 function placeCuts(
   x0: number, x1: number, lo: number, hi: number,
-  n: number, span: number, minPiece: number, pushAft: boolean,
+  n: number, span: number, finalSpan: number, minPiece: number, pushAft: boolean,
 ): number[] | null {
   const cuts: number[] = [];
   let prev = x0;
   for (let i = 1; i < n; i++) {
     const cap = Math.min(hi, prev + span, x1 - minPiece);
-    const need = Math.max(lo, prev + minPiece, x1 - (n - i) * span);
+    const need = Math.max(lo, prev + minPiece, x1 - (n - i - 1) * span - finalSpan);
     if (need > cap + EPS) return null;
     const even = x0 + ((x1 - x0) * i) / n;
     cuts.push(pushAft ? cap : Math.min(Math.max(even, need), cap));
     prev = cuts[i - 1]!;
   }
-  if (x1 - prev > span + EPS) return null;
+  if (x1 - prev > finalSpan + EPS) return null;
   return cuts;
 }
 
@@ -883,8 +914,8 @@ export function splitComponent(
   let cuts: number[] | null = null;
   let n = plan.segments;
   for (; n <= cap; n++) {
-    cuts = placeCuts(x0, x1, lo, hi, n, span, minPiece, false)
-      ?? placeCuts(x0, x1, lo, hi, n, span, minPiece, true);
+    cuts = placeCuts(x0, x1, lo, hi, n, span, u.z, minPiece, false)
+      ?? placeCuts(x0, x1, lo, hi, n, span, u.z, minPiece, true);
     if (cuts) break;
   }
   if (!cuts) {
@@ -916,14 +947,17 @@ export function splitComponent(
   if (moved) {
     const ends = [x0, ...cuts, x1];
     const lens = ends.slice(1).map((e, i) => e - ends[i]!);
+    const shortest = dim(Math.min(...lens));
+    const longest = dim(Math.max(...lens));
+    const tallest = Math.max(...lens.map((len, i) => len + (i < lens.length - 1 ? spigot : 0)));
     used = {
       fits: false,
       cuts: cuts.map((c) => c - x0),
       segments: n,
-      tallestPrint: Math.max(...lens) + spigot,
+      tallestPrint: tallest,
       reason: `${noticeComparison('length', total, u.z, units)[0].startsWith('just ') ? 'Part is just over' : `${dim(total)} does not fit`} ${dim(u.z)} of usable Z — ${n} pieces of `
-        + `${dim(Math.min(...lens))}-${dim(Math.max(...lens))}, spaced to keep every cut out of `
-        + `the shoulders, tallest print ${dim(Math.max(...lens) + spigot)} with its spigot.`,
+        + `${shortest === longest ? shortest : `${shortest}-${longest}`}, spaced to keep every cut out of `
+        + `the shoulders, tallest print ${dim(tallest)} including any spigot.`,
     };
   }
 

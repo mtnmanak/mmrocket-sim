@@ -7,6 +7,10 @@ import { axialLength, positionOf, startFromPosition } from './position.js';
 
 /** SymmetricComponent.DEFAULT_RADIUS, when there is no neighbour on that side. */
 const DEFAULT_RADIUS = 0.025;
+/** Drawing/fabrication placeholder only; automatic engine radii stay automatic. */
+export function displayTransitionEnds(n: ComponentNode): { fore: number; aft: number } {
+  return { fore: num(n, 'foreRadius', DEFAULT_RADIUS), aft: num(n, 'aftRadius', DEFAULT_RADIUS) };
+}
 const symmetric = (n: ComponentNode) => ['bodytube', 'nosecone', 'transition'].includes(n.type);
 const assembly = (n: ComponentNode) => n.type === 'stage' || isAssembly(n.type);
 // MathUtil.equals(value, 0), including its near-zero half-epsilon rule.

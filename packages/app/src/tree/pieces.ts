@@ -19,13 +19,13 @@ import { isConformal, shroudEnds } from './shroud.js';
 import { shroudGeometry } from './shroudMesh.js';
 import { noseEnds } from './tailCone.js';
 import { axialLength, axialStart } from './position.js';
-import { resolveTransitionRadii } from './transitionRadii.js';
+import { displayTransitionEnds, resolveTransitionRadii } from './transitionRadii.js';
 import { hiddenPartIds } from './partVisibility.js';
 import {
   cantRootY, cantMesh, filletMesh, finGeometry, onRoot, planformReach, rootRuns, shapedFin,
   type FinPlacement,
 } from './finSurface.js';
-import { seatedChordPoints } from './finChords.js';
+import { seatedChordPoints, sectionMacPoints } from './finChords.js';
 
 /**
  * THE APP'S 3D GEOMETRY, and nothing else.
@@ -366,7 +366,8 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: Re
     // sectionChordProblem, the predicate the print and the panel's note
     // share) — keeps the flat prism below, unchanged.
     const own = child.type === 'freeformfinset' ? seatedChordPoints(ffPoints, start - pStart, mount) : loops[0]!;
-    const shaped = shapedFin(child, own, areaLoops, thickness);
+    const macPoints = mounted ? sectionMacPoints(ffPoints, start - pStart, mount) : own;
+    const shaped = shapedFin(child, own, areaLoops, thickness, undefined, macPoints);
     let geo: THREE.BufferGeometry;
     if (shaped) {
       cantMesh(shaped.mesh, placement);
@@ -500,6 +501,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: Re
         const len = axialLength(child);
         const r = kernelNum(child, 'outerRadius');
         if (!(len > 0 && r > 0)) continue;
+        reach(pRadius + 2 * r);
         const start = axialStart(child, len, pStart, pLen);
         const geo = new THREE.CylinderGeometry(r, r, len, 16);
         // Euler order XYZ gives Rx*Ry*Rz, so the -pi/2 about Z still lays the
@@ -605,9 +607,9 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: Re
         const podStart = axialStart(child, podLen, pStart, pLen);
         const count = assemblyInstanceCount(child);
         const angleOffset = num(child, 'angleOffset', 0);
-        reach(podRadius + assemblyBoundingRadius(child));
+        reach(Math.abs(podRadius) + assemblyBoundingRadius(child));
         const parentAxisR = axisR;
-        axisR = parentAxisR + podRadius;
+        axisR = parentAxisR + Math.abs(podRadius);
         for (const off of ringInstanceOffsets(count, podRadius, angleOffset)) {
           const m = new THREE.Matrix4().makeRotationX(off.angle)
             .multiply(new THREE.Matrix4().makeTranslation(podStart, podRadius, 0));
@@ -660,8 +662,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: Re
         addChildren(n, x, len, R, xform);
         x += len;
       } else if (n.type === 'transition') {
-        const rf = num(n, 'foreRadius', 0.012);
-        const ra = num(n, 'aftRadius', 0.009);
+        const { fore: rf, aft: ra } = displayTransitionEnds(n);
         const shapeName = typeof n['shape'] === 'string' ? (n['shape'] as string) : 'conical';
         // Same lathe pattern as the nose: profile y runs fore→aft, and after
         // rotation.z = -π/2 the lathe's +Y axis points along +X (aft).
