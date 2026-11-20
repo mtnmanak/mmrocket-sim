@@ -83,7 +83,7 @@ it.each([6, Infinity])('round 4 real kernel: J350W delay %s never dilutes a G80T
   expect(ignition!.time - burnout!.time).toBeCloseTo(1, 5);
   if (!Number.isFinite(delay)) expect(out.events.some(e => e.type === 'STAGE_SEPARATION')).toBe(false);
   for (const warnings of [out.warnings, asymmetricThrustWarnings(tree, Object.entries(motors))]) {
-    expect(warnings).toHaveLength(1);
+    expect(warnings.map(w => w.key)).toEqual(['ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_LONE']);
     expect(warnings[0]?.key).toBe('ASYMMETRIC_THRUST_DANGER');
     expect(warnings[0]?.message).toMatch(/^Stage Sustainer:/);
   }
@@ -102,6 +102,6 @@ it('round 4 real kernel: dropping a balanced ring does not reset the 1000 N core
   const out = await fly(tree, motors);
   expect(out.events.find(e => e.type === 'STAGE_SEPARATION' && e.sourceId === 'ring')?.time).toBeCloseTo(2.5, 5);
   expect(out.events.find(e => e.type === 'IGNITION' && e.motorMountId === 'air')?.time).toBeCloseTo(3, 5);
-  expect(out.warnings).toEqual([]);
+  expect(out.warnings).toEqual([]); // The 20 N airstart is below the owner's 10% gate.
   expect(asymmetricThrustWarnings(tree, Object.entries(motors))).toEqual([]);
 }, 60_000);

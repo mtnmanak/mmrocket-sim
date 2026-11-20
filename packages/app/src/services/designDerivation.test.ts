@@ -113,6 +113,14 @@ describe('physicsKeyOf', () => {
     return physicsKeyOf(walk(TWO_STAGE.components));
   };
 
+  it('J23 file-motor browser choices do not invalidate a recorded flight', () => {
+    expect(edit(n => ({ ...n, fileMotorIds: ['file-motor'] }))).toBe(base);
+  });
+
+  it('r5 bore provenance does not invalidate a recorded flight', () => {
+    for (const boreAssumed of [true, false]) expect(edit(n => ({ ...n, boreAssumed }))).toBe(base);
+  });
+
   it('a rename or a colour change keeps the key — a nested child’s name too', () => {
     expect(edit((n) => (n.id === 'bt1' ? { ...n, name: 'Renamed' } : n))).toBe(base);
     expect(edit((n) => (n.id === 'm-sus' ? { ...n, name: 'Renamed mount' } : n))).toBe(base);

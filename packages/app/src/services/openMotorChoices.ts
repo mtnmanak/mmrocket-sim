@@ -14,6 +14,8 @@ import { knownIgnitionEvent } from './ignitionEvent.js';
 import { lookupTable } from './xmlUtil.js';
 import type { DesignSnapshot } from './dirtyState.js';
 import type { MotorMatchResult } from './motorMatch.js';
+import { motorFitWarnings, refreshFileMotorIds } from './motorFitWarnings.js';
+import type { ImportNote } from './importNotes.js';
 
 export interface OpenMotorIdentity {
   key: string;
@@ -91,7 +93,7 @@ export function collectOpenMotorIdentities(
 export async function applyOpenMotorChoices(
   state: OpenMotorState & Pick<DesignSnapshot, 'tree'>, activeConfigId: string | null, groups: OpenMotorIdentity[],
   choices: Record<string, OpenMotorChoice>, fetchSpec?: NonNullable<MotorMatchDeps['fetchSpec']>, units: UnitSelection = INITIAL_UNITS,
-): Promise<OpenMotorState> {
+): Promise<OpenMotorState & Pick<DesignSnapshot, 'tree'> & { fitNotes: ImportNote[] }> {
   const loadSpec = fetchSpec ?? ((motor, delay, digest) => fetchSpecByDigest(motor, delay, digest, units));
   const mountMotors = Object.assign(Object.create(null) as Record<string, MountMotor>, state.mountMotors);
   const unmatchedRefs = { ...state.unmatchedRefs };
@@ -176,7 +178,11 @@ export async function applyOpenMotorChoices(
       }
     }
   }
-  return { mountMotors, savedConfigs, unmatchedRefs };
+  const changedMounts = new Set(groups.flatMap(g => g.locations.map(l => l.mountId)));
+  const tree = refreshFileMotorIds(state.tree, [mountMotors, ...savedConfigs.map(c => c.motors)], false, changedMounts);
+  const fitNotes: ImportNote[] = motorFitWarnings(tree, Object.entries(mountMotors), units)
+    .map(w => ({ kind: 'I12.motor-fit', tier: 'caution', text: w.message }));
+  return { mountMotors, savedConfigs, unmatchedRefs, tree, fitNotes };
 }
 
 /** @atestani TRF #162, Eric 2026-10-06: capture before writing, for one atomic undo step. */

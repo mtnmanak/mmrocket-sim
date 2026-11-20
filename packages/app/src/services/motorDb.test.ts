@@ -8,6 +8,22 @@ import {
   manufacturerMatches, manufacturersForMount, matchDbMotor, nearestCommonClass, PROPELLANT_CODES,
   propellantsForMount, rangesForMount, sortMotors,
 } from './motorDb.js';
+import type { MotorFilter } from './motorDb.js';
+
+it('r5 original file motors bypass bore only and obey every other filter', () => {
+  const motor = { ...MOTOR_DB[0]!, diameter: 54, length: 124, burnTimeS: 2, totImpulseNs: 100, impulseClass: 'G', availability: 'OOP' };
+  const base: MotorFilter = { manufacturers: new Set(), classes: new Set(), boreMm: 18,
+    includeOOP: true, text: '', fileMotorIds: [motor.motorId] };
+  expect(filterMotors(base, [motor])).toEqual([motor]);
+  const mismatches: Partial<MotorFilter>[] = [
+    { text: 'zzzz-no-such-motor' }, { manufacturers: new Set(['no-such-maker']) },
+    { classes: new Set([18]) }, { impulse: new Set(['A']) }, { propellants: new Set(['no-such-propellant']) },
+    { maxLengthM: 0.1 }, { burnS: { min: 3, max: null } }, { burnS: { min: null, max: 1 } },
+    { impulseNs: { min: 101, max: null } }, { impulseNs: { min: null, max: 99 } },
+    { includeOOP: false },
+  ];
+  for (const mismatch of mismatches) expect(filterMotors({ ...base, ...mismatch }, [motor]), JSON.stringify(mismatch)).toEqual([]);
+});
 
 it('CR-4 fits an EX motor even when its diameter class is absent from the catalogue', () => {
   expect(fitsMount(60, { diameter: 40 })).toBe(true);

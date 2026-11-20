@@ -189,7 +189,8 @@ import { addNewComponent } from './services/addComponent.js';
 import { convertShrouds, type ShroudCandidate } from './tree/shroudConvert.js';
 import { mountBore } from './tree/scaleRocket.js';
 import { designNotices, type HeldNote } from './services/notices.js';
-import { groupOf, highestTier, tierLines, withoutLines, noteFlags, type ImportNote, type NoteGroup } from './services/importNotes.js';
+import { groupOf, groupText, highestTier, tierLines, withoutLines, noteFlags, type ImportNote, type NoteGroup } from './services/importNotes.js';
+import { motorFitWarnings, refreshFileMotorIds } from './services/motorFitWarnings.js';
 import { dismissLegacyPositions, preserveLegacyPositionCheck } from './services/legacyPositionCheck.js';
 import {
   legacyPadMassWrite, restoredPadMassNote, typedPadMass, type PadMassText,
@@ -3101,7 +3102,7 @@ export function App() {
     setMotorLoadoutRepair(null);
     retireMotorChoice();
     const plan = planConfigSwitch(
-      { savedConfigs, activeConfigId, mountMotors, unmatchedRefs, tree }, requested, statedWeightText);
+      { savedConfigs, activeConfigId, mountMotors, unmatchedRefs, tree }, requested, statedWeightText, prefs.units);
     // The history starts over from the switched design (applyConfigSwitchPlan
     // says why): the stack holds the tree alone, and one Ctrl+Z used to put the
     // previous configuration's nozzle and recovery back under these motors.
@@ -4344,8 +4345,8 @@ export function App() {
             flightOverrides: recordFlightOverrides(tree, activeOverrides, mountMotors, targetId, targetIds),
           })}
           overrideSummaryForMount={(targetId, targetIds) => describeFlightOverrides(tree, activeOverrides,
-            Object.fromEntries(Object.entries(mountMotors).filter(([id]) => id !== targetId)),
-            overrideConfigLabel, prefs.units.altitude, targetIds)}
+            mountMotors,
+            overrideConfigLabel, prefs.units.altitude, targetIds ?? (targetId === undefined ? [] : [targetId]))}
           onShowOverride={showFlightOverride}
           // The Saved simulations export's key, so both exports agree on Status.
           provenance={provenanceKey}
@@ -4436,7 +4437,11 @@ export function App() {
             const next = await applyOpenMotorChoices({ tree, mountMotors, savedConfigs, unmatchedRefs }, activeConfigId, identities, choices, undefined, prefs.units);
             if (!openSeq.isCurrent(openId)) return;
             // The chosen motor and its back-out are one undo step (audit 2026-10-11, S2-2).
-            const spent = reconcileAllIncludedMotors(treeRef.current, attachedSet(next.mountMotors), statedWeightText);
+            const changedMounts = new Set(identities.flatMap(g => g.locations.map(l => l.mountId)));
+            const chosenTree = refreshFileMotorIds(treeRef.current, [next.mountMotors, ...next.savedConfigs.map(c => c.motors)], false, changedMounts);
+            const spent = reconcileAllIncludedMotors(chosenTree, attachedSet(next.mountMotors), statedWeightText);
+            const fitNotes: ImportNote[] = motorFitWarnings(spent.tree, Object.entries(next.mountMotors), prefs.units)
+              .map(w => ({ kind: 'I12.motor-fit', tier: 'caution', text: w.message }));
             commitOpenMotorChoices(next, {
               commitStep: () => {
                 commitTreeStep(spent.tree);
@@ -4446,19 +4451,19 @@ export function App() {
             });
             setOpenMotorQuestion(null);
             setFileNoteState(prev => {
-              if (!prev) return null;
+              if (!prev && !fitNotes.length) return null;
               // @atestani TRF #162, Eric 2026-10-06: edit the CURRENT notice,
               // preserving embedded-EX/storage lines and literal dollars in names.
               // Its group loses the same lines and gains the reconcile's, each
               // keeping its tier (D7 §4).
-              const group = withoutLines(groupOf(prev), new Set(openMotorQuestion.acceptedLines));
-              const lines = [...group.lines, ...tierLines(spent.notes, noteFlags(spent.notes))];
+              const group = withoutLines(prev ? groupOf(prev) : { lines: [] }, new Set(openMotorQuestion.acceptedLines));
+              const lines = [...group.lines.filter(line => line.kind !== 'I12.motor-fit'), ...fitNotes,
+                ...tierLines(spent.notes, noteFlags(spent.notes))];
               const severity = highestTier(lines) === 'information'
                 && !lines.some(line => line.text.startsWith('Warning: this file uses format ')) ? 'info' : 'warn';
               return {
-                ...prev, text: [...prev.text.split('\n').filter(line => !openMotorQuestion.acceptedLines.includes(line)),
-                  ...spent.notes].join('\n'),
-                severity: prev.severity === 'error' ? 'error' : severity,
+                ...prev, text: groupText({ ...group, lines }),
+                severity: prev?.severity === 'error' ? 'error' : severity,
                 group: { ...group, lines },
               };
             });
@@ -5211,6 +5216,7 @@ export function App() {
                       return knownUnlitIgnition(ignition?.event, !hasIgnitionSourceStage(flightTree, m.id!)) ? null : zeroDelayRecoveryAdvice(flightTree, m.id!, delay, auto);
                     }}
                     mountDiameterMm={mountDiaMm(mNode)}
+                    fileMotorIds={Array.isArray(mNode?.['fileMotorIds']) ? mNode['fileMotorIds'].filter((id): id is string => typeof id === 'string') : undefined}
                     maxMotorLengthM={motorLengthLimit(mNode)}
                     selectedLabel={mm?.label ?? ''}
                     beginSelection={() => beginMotorChoice(m.id!)}

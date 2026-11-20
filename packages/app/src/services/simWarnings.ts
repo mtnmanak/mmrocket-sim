@@ -49,6 +49,9 @@ const HIGH_SPEED_DEPLOYMENT = highSpeedDeployment(INITIAL_UNITS);
  * reaches it with a key it does not hold.
  */
 export const WARNING_LABEL: Record<string, string> = lookupTable({
+  MOTOR_TOO_LONG: 'Motor longer than available room',
+  MOTOR_TOO_WIDE: 'Motor wider than mount',
+  ASYMMETRIC_THRUST_LONE: 'One off-axis motor burns alone',
   ASYMMETRIC_THRUST_DANGER: 'Unbalanced thrust',
   ASYMMETRIC_THRUST_CAUTION: 'Unbalanced thrust',
   ASYMMETRIC_THRUST_UNKNOWN: 'Thrust balance unknown',
@@ -170,6 +173,7 @@ function warningLabel(key: string, units: UnitSelection): string | undefined {
 /** D7: classify stable event keys, never priority or translated English. The
  * fixed 20 m/s deployment flag is not the report's upper opening limit. */
 export function warningTier(key: string): NoteTier {
+  if (key === 'MOTOR_TOO_LONG' || key === 'MOTOR_TOO_WIDE' || key === 'ASYMMETRIC_THRUST_LONE') return 'caution';
   if (key === 'ASYMMETRIC_THRUST_DANGER') return 'danger';
   if (key === 'ASYMMETRIC_THRUST_CAUTION' || key === 'ASYMMETRIC_THRUST_UNKNOWN') return 'caution';
   if (['NO_RECOVERY_DEVICE', 'RECOVERY_LAUNCH_ROD', 'TUMBLE_UNDER_THRUST', 'SIM_ABORT', 'INCOMPLETE_FLIGHT'].includes(key)) return 'danger';

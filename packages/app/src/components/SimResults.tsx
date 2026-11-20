@@ -20,7 +20,7 @@ import { Modal } from './Modal.js';
 import { UnitChip } from './UnitChip.js';
 import {
   launchGuideExplanation, aeroModelLabel, commentsOf, deploymentVerdict, openingVerdict, descentVerdict, formatRunLabel, formatRunStability, formatRunWhen, formatRunWhenProse, describeRunChanges,
-  ROLL_RATE_MEANINGFUL_RAD_S, runLabelText, runStoppedEarly, SAFETY, stabilityState, WIND_BLOWS_TOWARD_DEG,
+  ROLL_RATE_MEANINGFUL_RAD_S, runLabelText, runHasDanger, runStoppedEarly, SAFETY, stabilityState, WIND_BLOWS_TOWARD_DEG,
   type DeploymentReport, type DeploymentVerdict, type SimRun,
 } from '../services/simReport.js';
 import { clearRuns, deleteRun, restoreRun, runsToCsv, runsToTable } from '../services/simStore.js';
@@ -231,7 +231,8 @@ export function SimRunDetails({ run, hasSeries, changedSince, mountOrder }: {
   const len = prefs.units.length;
   const mass = prefs.units.mass;
   const acc = prefs.units.acceleration;
-  const safeDeployment = deploymentVerdict(run);
+  const stoppedEarly = runStoppedEarly(run);
+  const safeDeployment = stoppedEarly ? null : deploymentVerdict(run);
   const limits = normalizeFlightAdvisories(run.advisoryLimits);
   const limitQuantity = (kind: 'velocity' | 'altitude', value: number) =>
     noticeQuantity(kind, value, prefs.units, { digits: 3, otherDigits: 3, grouped: true });
@@ -463,15 +464,15 @@ export function SimRunDetails({ run, hasSeries, changedSince, mountOrder }: {
           <h3>Checks &amp; motor</h3>
           <table className="fin-table">
             <tbody>
-              <Row label="Lift-off speed OK" {...(() => { const v = verdict(run.safeLiftoffSpeed); return { value: v.text, bad: v.bad }; })()} />
-              <Row label="Thrust : weight OK" {...(() => { const v = verdict(run.safeThrustToWeight); return { value: v.text, bad: v.bad }; })()} />
+              <Row label="Lift-off speed OK" {...(() => { const v = verdict(stoppedEarly ? null : run.safeLiftoffSpeed); return { value: v.text, bad: v.bad }; })()} />
+              <Row label="Thrust : weight OK" {...(() => { const v = verdict(stoppedEarly ? null : run.safeThrustToWeight); return { value: v.text, bad: v.bad }; })()} />
               <Row label="Safe deployment" good={safeDeployment === true} {...(() => { const v = verdict(safeDeployment); return { value: v.text, bad: v.bad, warn: v.warn }; })()} />
-              <Row label={`Landing rate OK (≤ ${noticeQuantity('velocity', SAFETY.maxLandingRate, prefs.units, { parenthesized: true, defined: { value: 20, symbol: 'ft/s' } })})`} {...(() => { const v = verdict(run.safeLandingRate ?? null); return { value: v.text, bad: v.bad }; })()} />
+              <Row label={`Landing rate OK (≤ ${noticeQuantity('velocity', SAFETY.maxLandingRate, prefs.units, { parenthesized: true, defined: { value: 20, symbol: 'ft/s' } })})`} {...(() => { const v = verdict(stoppedEarly ? null : run.safeLandingRate ?? null); return { value: v.text, bad: v.bad }; })()} />
               <Row label="Static margin" {...(() => {
                 // Tiered: under-stable is the red failure; over-stable is a
                 // yellow caution (weathercocks in wind), matching the design
                 // page (issue 2026-08-05a #4/#6).
-                const st = stabilityState(run.launchStaticMarginCal);
+                const st = stoppedEarly ? null : stabilityState(run.launchStaticMarginCal);
                 return st === null ? { value: '—' }
                   : st === 'under' ? { value: '⚠ under-stable', bad: true }
                   : st === 'over' ? { value: '△ over-stable (caution)', warn: true }
@@ -780,6 +781,8 @@ export function SimHistory({
                     <td className={r.importedSummary ? undefined : unsafe ? 'stability-bad' : caution ? 'stability-warn' : 'stability-good'}>
                       <span aria-hidden="true">{r.importedSummary ? '—' : unsafe ? '⚠' : caution ? '△' : '✓'}</span>
                       <span className="sr-only">{r.importedSummary ? 'Checks unavailable' : unsafe ? 'Failed checks' : caution ? 'Caution' : 'Passed checks'}</span>
+                      {!r.importedSummary && runHasDanger(r)
+                        && <span className="stability-bad"> ⚠ danger</span>}
                     </td>
                     <td title={status.title}>{status.label}</td>
                     <td>{r.windLevels?.length ? `${r.windLevels.length} levels` : r.importedSummary ? '—' : "No"}</td>

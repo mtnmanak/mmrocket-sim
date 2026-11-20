@@ -22,7 +22,8 @@ import { runExportContext, type RunExportContext } from './runExportContext.js';
 import type { WeatherSnapshot } from './weatherSnapshot.js';
 import { motorIdentity } from './hardwareMass.js';
 import { displayDesignation } from './motorDb.js';
-import { formatWarningText, staticWarningTier } from './simWarnings.js';
+import { formatWarningText, staticWarningTier, warningTier } from './simWarnings.js';
+import { motorFitWarnings } from './motorFitWarnings.js';
 import { asymmetricThrustWarnings } from './asymmetricThrust.js';
 import { AERO_NAME, aeroOptionLabel } from '../prefs/aeroChoice.js';
 import { densityAltitudeM, padFieldsAsFlown, usesGeopotentialIsa, type AtmosphereModel } from './atmosphere.js';
@@ -353,6 +354,12 @@ export function deploymentVerdict(run: Pick<SimRun, 'deployments' | 'branches' |
  */
 export function runStoppedEarly(run: Pick<SimRun, 'simWarnings'>): boolean {
   return run.simWarnings?.some((w) => w.key === 'SIM_ABORT' || w.key === 'INCOMPLETE_FLIGHT') ?? false;
+}
+
+/** Report checks also emit Danger without a corresponding engine warning key. */
+export function runHasDanger(run: Pick<SimRun, 'simWarnings' | 'comments' | 'commentLevels'>): boolean {
+  return (run.simWarnings?.some(w => warningTier(w.key) === 'danger') ?? false)
+    || commentsOf(run).some(comment => comment.level === 'warning');
 }
 
 /** One recovery-device deployment (dual deploy: drogue + main = two rows). */
@@ -2451,6 +2458,7 @@ export function buildSimRun(input: {
   // CSV/XLSX, where a raw "[Warning.DISCONTINUITY]" token is just noise. They
   // retain their design-note tier in the report and API notes too.
   for (const t of info.warningTexts) {
+    if (/^\[Warning\.MOTOR_TOO_(LONG|WIDE)\]/.test(t)) continue;
     const tier = staticWarningTier(t);
     say(formatWarningText(t, units), tier === 'danger' ? 'warning' : tier === 'caution' ? 'caution' : 'info');
   }
@@ -2655,6 +2663,8 @@ export function buildSimRun(input: {
 
   const maxFlightTimeS = flownMaxFlightTimeS({ maxFlightTimeS: input.maxFlightTimeS ?? launch.maxFlightTimeS });
   const stopWarnings = abortWarnings(result, maxFlightTimeS);
+  const fitWarnings = input.advisoryTree ? motorFitWarnings(input.advisoryTree,
+    (input.advisoryMotors ?? []).filter(([id]) => !input.refusedMountIds?.includes(id)), units) : [];
   const thrustWarnings = input.advisoryTree ? asymmetricThrustWarnings(input.advisoryTree,
     (input.advisoryMotors ?? []).filter(([id]) => !input.refusedMountIds?.includes(id)), result) : [];
   return {
@@ -2725,8 +2735,8 @@ export function buildSimRun(input: {
     // before this a design that never left the pad came back with apogee 0, an
     // empty warning list and nothing anywhere saying why. On the beta test
     // corpus 17 of the 72 flyable designs end this way, almost all .CDX1.
-    ...(result.warnings !== undefined || stopWarnings.length > 0 || thrustWarnings.length > 0
-      ? { simWarnings: storedWarnings([...stopWarnings, ...thrustWarnings, ...(result.warnings ?? []).filter(w =>
+    ...(result.warnings !== undefined || stopWarnings.length > 0 || thrustWarnings.length > 0 || fitWarnings.length > 0
+      ? { simWarnings: storedWarnings([...stopWarnings, ...thrustWarnings, ...fitWarnings, ...(result.warnings ?? []).filter(w =>
         w.key !== 'THICK_FIN' || keepWarning(w.message))]) }
       : {}),
     landingDistanceM: drift.distanceM,

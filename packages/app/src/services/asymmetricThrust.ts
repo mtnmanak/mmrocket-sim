@@ -69,6 +69,36 @@ export function thrustImbalance(sites: readonly ThrustSite[], peakFloor = 0, rad
 // Normalizing by radius makes even a lone motor 0.5 mm off-axis read 100%.
 const MIN_THRUST_OFFSET_M = 0.001;
 
+/** Curves are linear between samples: a midpoint identifies each lit interval. */
+export function longestLoneBurn(sites: readonly ThrustSite[], peak = thrustImbalance(sites).peak): { name: string; start: number; end: number } | null {
+  const grid = [...new Set(sites.filter(s => s.ignition !== null)
+    .flatMap(s => s.spec.times.map(t => t + s.ignition!)))].sort((a, b) => a - b);
+  let longest: { name: string; start: number; end: number } | null = null;
+  let current: { site: ThrustSite; start: number; end: number; impulse: number } | null = null;
+  const finish = () => {
+    if (!current) return;
+    const duration = current.end - current.start;
+    if (duration >= 0.5 && reaches(current.impulse / duration, peak * 0.05)
+      && (!longest || duration > longest.end - longest.start)) {
+      longest = { name: current.site.name, start: current.start, end: current.end };
+    }
+  };
+  for (let i = 1; i < grid.length; i++) {
+    const start = grid[i - 1]!, end = grid[i]!;
+    const lit = sites.filter(s => thrust(s, (start + end) / 2) > 0);
+    const site = lit.length === 1 && Math.hypot(lit[0]!.y, lit[0]!.z) >= MIN_THRUST_OFFSET_M ? lit[0]! : null;
+    if (site) {
+      const impulse = (thrust(site, start, 1) + thrust(site, end, -1)) * (end - start) / 2;
+      if (current && current.site === site && current.end === start) {
+        current.end = end;
+        current.impulse += impulse;
+      } else { finish(); current = { site, start, end, impulse }; }
+    } else { finish(); current = null; }
+  }
+  finish();
+  return longest;
+}
+
 /** Only absorb arithmetic roundoff at the defined inclusive thresholds. */
 const reaches = (fraction: number, threshold: number) => fraction >= threshold * (1 - 1e-12);
 
@@ -206,6 +236,7 @@ export function asymmetricThrustWarnings(
     // An unknown set still contributes to the group's possible peak and
     // radius. Use the same denominator for known and unknown-time advice.
     const peakFloor = Math.max(thrustImbalance(measured).peak, ...timedSets.map(copies => thrustImbalance(copies).peak));
+    const lone = measured.every(s => s.ignition !== null) ? longestLoneBurn(measured, peakFloor) : null;
     const radius = sites.reduce((r, s) => Math.max(r, Math.hypot(s.y, s.z)), 0);
     const measuredWorst = thrustImbalance(measured, peakFloor, radius);
     const unknownWorst = timedSets.map(copies => thrustImbalance(copies, peakFloor, radius));
@@ -218,7 +249,8 @@ export function asymmetricThrustWarnings(
     const { fraction, time, firing, offset } = measuredWorst;
     // Relative samples include each mount's event delay. Name the first
     // motor's ignition as the origin, rather than the unknown trigger time.
-    const displayTime = relative ? time - Math.min(...measured.map(s => s.ignition!)) : time;
+    const origin = relative ? Math.min(...measured.map(s => s.ignition!)) : 0;
+    const displayTime = time - origin;
     if (reaches(fraction, 0.05) && reaches(offset, MIN_THRUST_OFFSET_M)) {
       const danger = reaches(fraction, 0.20);
       // Round down within Caution rather than displaying Danger's 20% boundary.
@@ -237,6 +269,11 @@ export function asymmetricThrustWarnings(
         message: `${prefix}Thrust balance cannot be fully checked.${unknownText} A real rocket with unbalanced thrust can turn off course or cartwheel. The simulation does not show this turn: it treats all thrust as acting along the centreline.`,
       });
     }
+    if (lone) warnings.push({ key: 'ASYMMETRIC_THRUST_LONE', priority: 'NORMAL',
+      message: `${prefix}“${noteField(lone.name)}” burns alone off-axis for ${fmtSig(lone.end - lone.start, 3, 2)} s `
+        + `(${fmtSig(lone.start - origin, 3, 2)}–${fmtSig(lone.end - origin, 3, 2)} s after ${relative ? 'ignition' : 'launch'}). `
+        + 'A real rocket can turn off course during this lone-burn phase. The simulation does not show this turn; check motor burn times and ignition settings.',
+    });
   }
   return warnings;
 }

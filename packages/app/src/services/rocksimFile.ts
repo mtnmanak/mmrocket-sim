@@ -1,4 +1,5 @@
 import { noteField } from './noteField.js';
+import { recordCurrentPlacement } from './legacyPositionCheck.js';
 import { appendNotes, cautionNote, flagNote, noteFlags, tierLines, zeroBulkDensityNote } from './importNotes.js';
 import { KERNEL_DEFAULT_FIN_POINTS, KERNEL_DEFAULT_MATERIALS, kernelNum, kernelRecoveryCd } from '../tree/kernelDefaults.js';
 import { displayTransitionEnds, flownTransitionEnds } from '../tree/transitionRadii.js';
@@ -880,6 +881,8 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
         n['outerRadius'] = num(el, 'OD', 24) / RAD;
         const wall = tubeThickness(el);
         if (wall !== undefined) n['thickness'] = wall;
+        const boreAssumed = text(el, ':scope > mmrsim-bore-assumed');
+        if (boreAssumed === 'true' || boreAssumed === 'false') n['boreAssumed'] = boreAssumed === 'true';
         // Inner tube OR a min-diameter body tube — both are real mounts now
         // (kernel BodyTube implements MotorMount, same as the desktop).
         if (num(el, 'IsMotorMount', 0) === 1) {
@@ -2716,7 +2719,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
 
   // The part limit (board row 84): refused here, before a motor is matched or the kernel builds anything.
   refuseTooManyParts(components);
-  const tree: FlightTree = { ...sanitizeTree({ name, components }, notes, units),
+  const tree: FlightTree = { ...recordCurrentPlacement(sanitizeTree({ name, components }, notes, units)),
     ...(Object.keys(ignitionDefaults).length ? { ignitionDefaults } : {}) };
   const recoveryPinIds = new Set(recoveryNodes.filter(node => recoveryStatedMass.has(node)).map(node => node.id));
   const pinnedRecovery = recoveryIn(tree.components).filter(node => recoveryPinIds.has(node.id));
@@ -3522,6 +3525,10 @@ export function exportRkt(input: RktExportInput): string {
     },
   ) => {
     const { mode, xb: xbEnd } = rocksimXb(node, parent);
+    if ((node.type === 'bodytube' || node.type === 'innertube')
+      && (node['boreAssumed'] === true || node['boreAssumed'] === false)) {
+      emit(`<mmrsim-bore-assumed>${String(node['boreAssumed'])}</mmrsim-bore-assumed>`);
+    }
     // A point mass sits at its CG (audit 2026-09-22). RockSim reads a
     // <MassObject> as a point at <Xb>, and so does this app's importer (it pins
     // overrideCGX on that point), so the point must BE the CG. It was the fore

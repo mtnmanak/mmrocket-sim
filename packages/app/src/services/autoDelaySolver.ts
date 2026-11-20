@@ -123,7 +123,7 @@ function targetFor(result: FlightResult, mount: DelayMount): Omit<MountDelayReco
   const b = carriers[0]!;
   const ground = b.events.find((e) => e.type === 'GROUND_HIT')?.time;
   if (!finite(ground) || b.events.some((e) => e.type === 'SIM_ABORT' || e.type === 'EXCEPTION')) {
-    return refuse([mount], 'the carrier flight aborted or ended before landing');
+    return refuse([mount], 'the carrier flight aborted or ended before landing; check Maximum flight time and increase it if the flight reached that limit');
   }
   if (b.events.some((e) => e.type === 'RECOVERY_DEVICE_DEPLOYMENT')) return refuse([mount], 'recovery was active in the target probe');
   if ((branches.indexOf(b) > 0 && !b.parentId)

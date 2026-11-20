@@ -1,4 +1,5 @@
 import { noteField } from './noteField.js';
+import { recordCurrentPlacement } from './legacyPositionCheck.js';
 import { MAX_MACH_ALT_ROWS } from './machAltLimits.js';
 import { cautionNote, noteFlags } from './importNotes.js';
 import { cleanDesignProvenance } from './designProvenance.js';
@@ -606,6 +607,7 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
       length: num(el, 'Length', 12) / IN,
       outerRadius: num(el, 'Diameter', 4) / IN / 2,
       thickness: 0.002, // RASAero has no wall data — the desktop fakes 2 mm too
+      boreAssumed: true,
     };
     readFin(el, tube);
     const lugD = num(el, 'LaunchLugDiameter', 0);
@@ -1962,7 +1964,7 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
     || 'Imported RASAero rocket';
   // The part limit (board row 84): refused here, before a motor is matched or the kernel builds anything.
   refuseTooManyParts(stages);
-  const tree: FlightTree = { ...sanitizeTree({ name, components: stages, ...(comment ? { provenance: { comment } } : {}) }, notes, units),
+  const tree: FlightTree = { ...recordCurrentPlacement(sanitizeTree({ name, components: stages, ...(comment ? { provenance: { comment } } : {}) }, notes, units)),
     ...(Object.keys(ignitionDefaults).length ? { ignitionDefaults } : {}) };
   // Desktop SurfaceFinishHandler applies the global surface to every
   // ExternalComponent, including generated shoulders, boat tails and lugs.

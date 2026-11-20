@@ -440,13 +440,14 @@ describe('ask at open choices', () => {
     try {
       act(() => root.render(<Harness />));
       act(() => apply());
-      expect(current).toEqual(next);
+      const expected = { mountMotors: next.mountMotors, savedConfigs: next.savedConfigs, unmatchedRefs: next.unmatchedRefs };
+      expect(current).toEqual(expected);
       expect(canUndo).toBe(true);
       act(() => undo());
       expect(current).toEqual(historyState);
       expect(canUndo).toBe(false);
       act(() => redo());
-      expect(current).toEqual(next);
+      expect(current).toEqual(expected);
     } finally { act(() => root.unmount()); }
   });
 });

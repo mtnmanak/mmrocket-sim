@@ -3,7 +3,7 @@ import { afterEach, expect, it } from 'vitest';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ConfigPanel } from './ConfigPanel.js';
-import { ThrustBalanceMark } from './ThrustBalanceNotes.js';
+import { MotorFitMark, ThrustBalanceMark } from './ThrustBalanceNotes.js';
 import { asymmetricThrustWarnings } from '../services/asymmetricThrust.js';
 import { balanceMotor, balanceTree } from '../services/asymmetricThrust.testSupport.js';
 
@@ -73,5 +73,17 @@ it('round 2 batch marker is a keyboard control that expands visible warning text
   act(() => control.click());
   expect(mark.hasAttribute('open')).toBe(true);
   act(() => root.render(<ThrustBalanceMark warnings={[]} />));
+  expect(host.textContent).toBe('');
+});
+
+it('J23 marks a Batch row whose motor does not fit its mount, at Caution, beside the verdict', () => {
+  const long = { key: 'MOTOR_TOO_LONG', priority: 'NORMAL', message: 'MMT: F115: Motor length 123 mm exceeds estimated room 111.5 mm.' } as never;
+  act(() => root.render(<MotorFitMark warnings={[long]} />));
+  const mark = host.querySelector('details')!;
+  expect(mark).not.toBeNull();
+  expect(mark.className).toContain('caution');
+  expect(mark.querySelector('summary')?.textContent).toContain('motor fit');
+  expect(mark.querySelector('p')?.textContent).toContain('123 mm');
+  act(() => root.render(<MotorFitMark warnings={[]} />));
   expect(host.textContent).toBe('');
 });

@@ -15,7 +15,7 @@ import {
   candidateIdentity, mixedComboCount, runBatchSweep, type BatchMountOption, type BatchRow, type BatchSweepHooks, type BatchWeighed,
 } from '../services/batchSweep.js';
 import { downloadBlob } from '../services/saveFile.js';
-import { addRuns } from '../services/simStore.js';
+import { addRuns, loadRuns } from '../services/simStore.js';
 import { importedSummaryRuns } from '../services/orkFlightData.js';
 import { asymmetricThrustWarnings } from '../services/asymmetricThrust.js';
 import { balanceMotor, balanceTree } from '../services/asymmetricThrust.testSupport.js';
@@ -668,7 +668,22 @@ it('124/125 offers all matching empty tubes by default, restores defaults on pic
   expect(host.textContent).toContain('m2’s max motor length');
 });
 
-it('round 2 puts an expandable thrust mark only on the warned Batch row without changing its grade', async () => {
+it('r2 keeps the Danger mark when an explicit minimum accepts that guidance check', async () => {
+  localStorage.setItem('online-openrocket.batch-criteria.v1', JSON.stringify({ minRodExit: 12, minThrustToWeight: 3 }));
+  const warned = row('warned', 'Warning motor', 300);
+  Object.assign(warned.run!, { rodExitVelocity: 13, thrustToWeightAtRod: 4, simWarnings: [],
+    comments: 'Rod-exit speed 13 < guidance. | Thrust:weight 4:1 at rod exit < 5:1.', commentLevels: ['warning', 'warning'] });
+  sweep.mockResolvedValue({ rows: [warned], stopped: false });
+  mount();
+  await start();
+  const verdict = bodyRows()[0]!.querySelector('td:last-child')?.textContent;
+  expect(verdict).toContain('✓ accepted');
+  expect(verdict).toContain('⚠ danger');
+  expect(host.textContent).toContain('1 met your criteria');
+  expect(loadRuns().map(r => r.id)).toEqual(['warned']);
+});
+
+it('J23 puts an expandable thrust mark on a Danger row and excludes it from acceptance', async () => {
   const warned = row('warned', 'Unbalanced', 300), balanced = row('balanced', 'Balanced', 310);
   warned.run!.simWarnings = asymmetricThrustWarnings(balanceTree(2), [['m0', balanceMotor()]]);
   sweep.mockResolvedValue({ rows: [warned, balanced], stopped: false });
@@ -676,14 +691,57 @@ it('round 2 puts an expandable thrust mark only on the warned Batch row without 
   await start();
   const warnedRow = bodyRows().find(tr => tr.querySelector('td')?.textContent?.startsWith('Unbalanced'))!;
   const balancedRow = bodyRows().find(tr => tr.querySelector('td')?.textContent?.startsWith('Balanced'))!;
-  expect(warnedRow.querySelector('td:last-child')?.textContent).toContain('accepted');
+  expect(warnedRow.querySelector('td:last-child')?.textContent).toContain('⚠ danger');
+  expect(warnedRow.querySelector('td:last-child')?.textContent).not.toContain('accepted');
   expect(balancedRow.querySelector('td:last-child')?.textContent).toContain('accepted');
+  expect(host.textContent).toContain('1 met your criteria');
+  expect(loadRuns().map(r => r.id)).toEqual(['balanced']);
   const mark = warnedRow.querySelector('details.message-danger')!;
   expect(mark).not.toBeNull();
   expect(balancedRow.querySelector('details.message-danger')).toBeNull();
   act(() => mark.querySelector('summary')!.click());
   expect(mark.hasAttribute('open')).toBe(true);
   expect(mark.querySelector('p')?.textContent).toContain('simulation does not show this turn');
+});
+
+it.each(['NO_RECOVERY_DEVICE', 'TUMBLE_UNDER_THRUST', 'RECOVERY_LAUNCH_ROD'])(
+  'J23 excludes any stored Danger %s with default criteria', async key => {
+    const warned = row('warned', 'Warning motor', 300);
+    warned.run!.simWarnings = [{ key, message: `[Warning.${key}]` }];
+    sweep.mockResolvedValue({ rows: [warned], stopped: false });
+    mount();
+    await start();
+    expect(bodyRows()[0]!.querySelector('td:last-child')?.textContent).toContain('⚠ danger');
+    expect(host.textContent).toContain('0 met your criteria');
+    expect(loadRuns()).toEqual([]);
+  });
+
+it.each(['MOTOR_TOO_LONG', 'MOTOR_TOO_WIDE'])('J23 marks a %s Batch row at Caution beside the verdict without failing it', async key => {
+  const warned = row('warned', 'Long motor', 300);
+  warned.run!.simWarnings = [{ key, message: 'MMT: Long motor: does not fit the mount.' }];
+  sweep.mockResolvedValue({ rows: [warned], stopped: false });
+  mount();
+  await start();
+  const verdict = bodyRows()[0]!.querySelector('td:last-child')!;
+  expect(verdict.textContent).toContain('motor fit');
+  expect(verdict.querySelector('details.message-caution')).not.toBeNull();
+  expect(verdict.textContent).not.toContain('⚠ danger');
+});
+
+it.each([
+  { label: 'slow guide exit', patch: { rodExitVelocity: 7.8, safeLiftoffSpeed: false } },
+  { label: 'low thrust to weight', patch: { thrustToWeightAtRod: 4.1, safeThrustToWeight: false } },
+  { label: 'under-stable margin', patch: { launchStaticMarginCal: -0.74, staticMarginOk: false } },
+])('J23 excludes report Danger for $label without a Danger engine key', async ({ label, patch }) => {
+  const warned = row('warned', 'Warning motor', 300);
+  Object.assign(warned.run!, patch, { simWarnings: [{ key: 'LargeAOA', message: 'Large angle of attack' }],
+    comments: label, commentLevels: ['warning'] });
+  sweep.mockResolvedValue({ rows: [warned], stopped: false });
+  mount();
+  await start();
+  expect(bodyRows()[0]!.querySelector('td:last-child')?.textContent).toContain('⚠ danger');
+  expect(host.textContent).toContain('0 met your criteria');
+  expect(loadRuns()).toEqual([]);
 });
 
 describe('the candidates', () => {

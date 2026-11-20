@@ -69,7 +69,7 @@ it.each([[1000, 20, undefined], [300, 100, 'ASYMMETRIC_THRUST_DANGER']] as const
       const result = { events: [{ type: 'IGNITION', motorMountId: 'm0', time: 0 },
         { type: event, time: 2.0025 }], branches: [] } as unknown as FlightResult;
       const warnings = asymmetricThrustWarnings(axialCore(), motors, result);
-      expect(warnings.map(w => w.key)).toEqual(key ? [key] : []);
+      expect(warnings.map(w => w.key)).toEqual(key ? [key, 'ASYMMETRIC_THRUST_LONE'] : []);
       expect(warnings).toEqual(asymmetricThrustWarnings(axialCore(), motors));
     }
   },

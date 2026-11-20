@@ -40,7 +40,29 @@ const tree = { components: [{ type: 'stage', id: 's', name: 'Sustainer', childre
 const input = () => ({ tree, mountIds: ['m'], catalogue, catalogueDate: MOTOR_DB_DATE,
   params: { motorId: motor.motorId, delayHint: null, problems: [] } as MotorLinkParams });
 
+it('r5 motor links warn on estimated room without an explicit limit', () => {
+  const mount: ComponentNode = { ...tube('m', 0.029), length: 0.07 };
+  delete mount['maxMotorLength'];
+  const plan = planMotorLink({ ...input(), tree: { components: [{ type: 'stage', id: 's', children: [mount] }] },
+    catalogue: [{ ...motor, length: 124 }] });
+  expect(plan.notes).toContainEqual(expect.objectContaining({ tier: 'caution', text: expect.stringContaining('estimate') }));
+  // r7 (Gemini P4): an unset limit is never called the mount's limit.
+  const length = plan.notes.find(n => n.tier === 'caution')!.text;
+  expect(length).toContain('longer than the estimated motor room of');
+  expect(length).not.toContain("this mount's");
+});
+
 describe('motor link plan', () => {
+  it('r2 skips the width Caution for an importer-assumed bore', () => {
+    const check = input();
+    check.tree = { components: [{ type: 'stage', id: 's', children: [{ ...tube('m', 0.0127), boreAssumed: true }] }] };
+    expect(planMotorLink(check)).toMatchObject({ kind: 'fly', notes: [] });
+    check.tree.components[0]!.children![0]!['filled'] = true;
+    expect(planMotorLink(check).notes[0]?.text).toContain('real rocket could not be built this way');
+    delete check.tree.components[0]!.children![0]!['filled'];
+    delete check.tree.components[0]!.children![0]!['boreAssumed'];
+    expect(planMotorLink(check).notes[0]?.text).toContain('real rocket could not be built this way');
+  });
   it('carries Auto for a shipped motor with no prescribed delays', () => {
     const m = catalogue.find(m => delayOptions(m).length === 0)!;
     expect(planMotorLink({ ...input(), params: { motorId: m.motorId, delayHint: null, problems: [] } }))

@@ -160,11 +160,9 @@ export function describeRecordedOverride(record: RecordedFlightOverride, side: '
   return describeIgnitionTuple(flownIgnition(record[side]), 'warning');
 }
 
-/** Batch changes the swept mount's ignition; every other effective override stays. */
+/** Batch preserves the swept mount's ignition along with every other override. */
 export function recordFlightOverrides(tree: FlightTree, overrides: FlightOverrides,
   motors: Record<string, MountMotor>, sweptMountId?: string, ignitionMountIds: readonly string[] = []): RecordedFlightOverride[] {
-  const selected = sweptMountId === undefined ? overrides : { ...overrides,
-    ignitions: Object.fromEntries(Object.entries(overrides.ignitions ?? {}).filter(([id]) => id !== sweptMountId)),
-  };
-  return describeFlightOverrides(tree, selected, motors, null, 'm', ignitionMountIds)?.records ?? [];
+  const targets = sweptMountId === undefined ? ignitionMountIds : [...ignitionMountIds, sweptMountId];
+  return describeFlightOverrides(tree, overrides, motors, null, 'm', targets)?.records ?? [];
 }

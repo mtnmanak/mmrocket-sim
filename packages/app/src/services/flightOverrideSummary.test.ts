@@ -32,8 +32,21 @@ describe('launch override summary', () => {
       separations: { stage: { separationEvent: 'never', separationDelay: 0, separationAltitude: 0 } },
       ignitions: { mount: { event: 'never', delay: 0 }, other: { event: 'launch', delay: 2 } },
     }, { mount: motor, other: motor }, 'mount');
-    expect(records.map(r => r.partName)).toEqual(['Booster', 'Main', 'Other mount']);
-    expect(records.map(r => r.family)).toEqual(['separation', 'recovery', 'ignition']);
+    expect(records.map(r => r.partName)).toEqual(['Booster', 'Main', 'Motor mount', 'Other mount']);
+    expect(records.map(r => r.family)).toEqual(['separation', 'recovery', 'ignition', 'ignition']);
+    expect(recordFlightOverrides(tree, {}, {})).toEqual([]);
+  });
+
+  it('r3 Batch records the swept mount ignition and every other override family', () => {
+    const expanded: FlightTree = { ...tree, components: [...tree.components,
+      { type: 'innertube', id: 'other', name: 'Other mount', motorMount: true }] };
+    const records = recordFlightOverrides(expanded, {
+      deployments: { a: flown },
+      separations: { stage: { separationEvent: 'never', separationDelay: 0, separationAltitude: 0 } },
+      ignitions: { mount: { event: 'never', delay: 0 }, other: { event: 'launch', delay: 2 } },
+    }, { mount: motor, other: motor }, 'mount');
+    expect(records.map(r => r.partName)).toEqual(['Booster', 'Main', 'Motor mount', 'Other mount']);
+    expect(records.map(r => r.family)).toEqual(['separation', 'recovery', 'ignition', 'ignition']);
     expect(recordFlightOverrides(tree, {}, {})).toEqual([]);
   });
   it('RES-1 records detached SI tuples and names, never session component ids', () => {

@@ -86,6 +86,23 @@ async function sameAsNode(out: Described, node: DescribeFileResult) {
 }
 
 describe('V1 POST /describe in real workerd', () => {
+  it.each(['Body \u201cspoofed\u201d', 'Body ' + 'L'.repeat(1500)])('r7 shares warning string rules on both doors: %.30s', async name => {
+    const xml = strFromU8(unzipSync(bytesOf('reference.ork'))['rocket.ork']!)
+      .replace('<name>Body Tube</name>', `<name>${name}</name>`)
+      .replace('<radius>0.012</radius>', '<radius>0.014</radius>');
+    const body = orkOf(xml);
+    const out = await described(normal!, 'warning.ork', body);
+    const response = await normal!.fetch('http://local/experimental/fly?filename=warning.ork', { method: 'POST', body });
+    expect(response.status).toBe(200);
+    const fly = await response.json() as { notes: { flight: { text: string }[] } };
+    const warning = fly.notes.flight.find(w => w.text.includes('Airframe diameter steps abruptly'));
+    expect(warning).toBeDefined();
+    expect(out.notes.analysis).toContain(warning!.text);
+    expect(Array.from(warning!.text).length).toBeLessThanOrEqual(1000);
+    if (name.includes('spoofed')) expect(warning!.text).toContain('Body [U+201C]spoofed[U+201D]');
+    else expect(warning!.text).not.toContain('L'.repeat(200));
+  }, 60_000);
+
   it.each(FIXTURES)('%s: v1 schema, version stamps, SI basis and Node parity', async (name, format) => {
     const body = bytesOf(name);
     const out = await described(normal!, name, body);

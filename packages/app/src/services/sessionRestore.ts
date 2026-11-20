@@ -6,7 +6,7 @@ import { designFingerprint, legacyDesignFingerprint } from './dirtyState.js';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { legacyStageLimits, migrateMotorLengths } from '../tree/motorLength.js';
-import { defaultTree, motorMounts, normalizeTree, padMassOntoRankedPrimary, reserveNodeIds } from '../tree/treeModel.js';
+import { defaultTree, motorMounts, normalizeTree, padMassOntoRankedPrimary, reserveNodeIds, updateNode } from '../tree/treeModel.js';
 import { pruneStageMass } from './stageMassOverrides.js';
 import { parseSetIdentity } from './hardwareMass.js';
 import { migrateLegacyPadMass, restoreUnmatchedRefs } from './configSync.js';
@@ -18,6 +18,9 @@ import { restoreMotorLabels, restoreConfigLabels } from './motorLabels.js';
 import { checkLegacyPositions } from './legacyPositionCheck.js';
 import { isLoneEmptyConfig } from './emptyConfig.js';
 import { TOO_MANY_INSTANCES_ERROR_NAME } from '../tree/sanitize.js';
+import { fitsMount } from './motorDb.js';
+import { mountBore } from '../tree/scaleRocket.js';
+import { recoverAssumedBores } from './assumedBore.js';
 
 /**
  * A STORED SESSION, TURNED INTO THE DESIGN THE APP RESTORES (2026-10-01).
@@ -112,7 +115,11 @@ export function designStateFromSession(
   }
   const before = normalizeTree(checkLegacyPositions(storedTree, session !== null, restoreNotes), restoreNotes, { units: opts.units });
   const limits = legacyStageLimits(before, session, opts.legacyMaxMotorLengthM);
-  const tree = migrateMotorLengths(before, limits);
+  let tree = migrateMotorLengths(before, limits);
+  // Released RASAero imports invented a 2 mm wall without its provenance.
+  // Recover that assumption on restore; an explicitly measured wall is false.
+  tree = recoverAssumedBores(tree, (session?.designFile?.format === 'cdx1' && session.designFile.via === 'opened')
+    || !!session?.savedConfigs?.some(c => /^rasaero-sim-\d+$/.test(c.id)));
   const defaultMountId = session?.mountId ?? motorMounts(tree)[0]?.id;
 
   // Per-mount motors (Release C). Legacy sessions carried ONE motor + the
@@ -184,6 +191,20 @@ export function designStateFromSession(
     ? null : session?.activeConfigId ?? null;
   const labelledMotors = restoreMotorLabels(mountMotors);
   const labelledConfigs = savedConfigs.map(c => restoreConfigLabels(c));
+  // Older autosaves predate the browser's file-motor exceptions. Seed hidden
+  // oversized choices once; fitting motors need no exception or identity edit.
+  // later restores must retain the original choices after a replacement.
+  for (const mount of motorMounts(tree)) {
+    if (Array.isArray(mount['fileMotorIds'])) continue;
+    const ids = [...new Set([labelledMotors, ...labelledConfigs.map(c => c.motors)].flatMap(motors => {
+      const motor = Object.hasOwn(motors, mount.id!) ? motors[mount.id!] : undefined;
+      if (!motor?.spec || fitsMount(mountBore(mount) * 1000, { diameter: motor.spec.diameter * 1000 })) return [];
+      const meta = motor.meta;
+      const id = meta?.motorId ?? meta?.exMotorId;
+      return id ? [id] : [];
+    }))];
+    if (ids.length) tree = updateNode(tree, mount.id!, { fileMotorIds: ids });
+  }
   // Display-only migration must not turn a saved design into unsaved work.
   if (labelledMotors !== mountMotors || labelledConfigs.some((c, i) => c !== savedConfigs[i])) {
     preRankRestore = { motors: preRankRestore?.motors ?? mountMotors, configs: preRankRestore?.configs ?? stored };

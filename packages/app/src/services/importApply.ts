@@ -1,4 +1,5 @@
 import { noteField, noteText } from './noteField.js';
+import { motorFitWarnings, refreshFileMotorIds } from './motorFitWarnings.js';
 import { lookupTable } from './xmlUtil.js';
 import { noticeEqual, noticeNumber, type UnitSelection } from '../prefs/units.js';
 import { applyStageMass, pruneStageMass } from './stageMassOverrides.js';
@@ -35,7 +36,7 @@ import {
 import type { TreeHistory } from '../hooks/useTreeHistory.js';
 import { findShroudCandidates, type ShroudCandidate } from '../tree/shroudConvert.js';
 import {
-  applyStageNozzles, asStageNodes, emptyTree, findNode, motorMounts, mountName, mountsIn, normalizeTree, primaryMountOf,
+  applyStageNozzles, asStageNodes, emptyTree, findNode, motorMounts, mountName, mountsIn, normalizeTree, primaryMountOf, updateNode,
 } from '../tree/treeModel.js';
 
 /**
@@ -601,6 +602,10 @@ export function planImport(
       cautionNote(notes, 'I12.loadout-refused', noteText(config.motorLoadoutRefusal));
     }
   }
+  for (const warning of motorFitWarnings(importedTree, Object.entries(nextMotors), ctx.units)) {
+    cautionNote(notes, 'I12.motor-fit', warning.message);
+  }
+  importedTree = refreshFileMotorIds(importedTree, [nextMotors, ...nextConfigs.map(c => c.motors)]);
   const motorTrouble = pick !== null || notes.length > 1 + readerNotes.length
     || nextConfigs.some(c => !!c.motorLoadoutRefusal);
   // audit 2026-10-11, S7c-1: retained launch settings do not need motor attention.
@@ -751,6 +756,12 @@ export function applyImportPlan(plan: ImportPlan, sinks: ImportSinks): void {
     };
     plan.snapshot = { ...plan.snapshot, mountMotors: set(plan.snapshot.mountMotors, plan.unmatchedRefs),
       savedConfigs: plan.snapshot.savedConfigs.map(c => ({ ...c, motors: set(c.motors, c.unmatchedRefs) })) };
+    for (const mount of motorMounts(plan.snapshot.tree)) {
+      const choices = mount['fileMotorIds'];
+      if (Array.isArray(choices)) plan.snapshot.tree = updateNode(plan.snapshot.tree, mount.id!, {
+        fileMotorIds: choices.filter((id): id is string => typeof id === 'string').map(id => ids.get(id) ?? id),
+      });
+    }
     if (notes.length) {
       plan.note = { ...plan.note, text: [plan.note.text, ...notes].filter(Boolean).join('\n'),
         group: { ...plan.note.group, lines: [...plan.note.group.lines, ...tierLines(notes, noteFlags(notes))] } };
@@ -824,6 +835,7 @@ export function planConfigSwitch(
   },
   requested: SavedConfig,
   text: StatedWeightText,
+  units?: UnitSelection,
 ): ConfigSwitchPlan {
   const synced = pruneStageMass(syncActiveConfig(state.savedConfigs, state.activeConfigId,
     { motors: state.mountMotors, unmatchedRefs: state.unmatchedRefs, tree: state.tree }), state.tree);
@@ -845,6 +857,9 @@ export function planConfigSwitch(
   // the open path, folded into the same tree.
   const spent = reconcileAllIncludedMotors(next, attachedSet(cfg.motors), text);
   next = spent.tree;
+  next = refreshFileMotorIds(next, [cfg.motors, ...savedConfigs.map(c => c.motors)], true);
+  const fitNotes: ImportNote[] = motorFitWarnings(next, Object.entries(cfg.motors), units)
+    .map(w => ({ kind: 'I12.motor-fit', tier: 'caution', text: w.message }));
   // Always rewrite the note, never only on failure. Writing it solely when
   // `unmatched` was non-empty meant a clean switch left the PREVIOUS file's
   // note standing — the staleness Big Dog reported reads as arbitrary
@@ -856,12 +871,12 @@ export function planConfigSwitch(
     // These are the import's decisions, even if the user has since edited a
     // snapshot or resolved its motor (audit 2026-10-11, S1c-3). Preserve the
     // reader's code; older sessions only carried the I17 override notes.
-    const all = [...lines,
+    const all = [...lines, ...fitNotes,
       ...(cfg.stageMassNotes ?? []).map((n, i): ImportNote => ({ kind: cfg.stageMassNoteKinds?.[i] ?? 'I17.override-not-applied', tier: 'caution', text: `At file import: ${noteText(n)}` })),
       ...tierLines(spent.notes, noteFlags(spent.notes))];
     const group: NoteGroup = { lines: all };
     return { text: groupText(group), group,
-      severity: (spent.severity === 'warn' || cfg.stageMassNotes?.length) && sev === 'info' ? 'warn' as const : sev };
+      severity: (spent.severity === 'warn' || cfg.stageMassNotes?.length || fitNotes.length) && sev === 'info' ? 'warn' as const : sev };
   };
   const caution = (kind: string, text: string): ImportNote => ({ kind, tier: 'caution', text });
   // The loadout exactly as App will compute it once this is written: the

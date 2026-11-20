@@ -419,7 +419,7 @@ export interface BatchRow {
 export interface BatchSweepInput {
   units?: UnitSelection;
   advisoryLimits?: FlightAdvisories;
-  /** Base setup; a one-mount sweep excludes its ignition, while a matching-set sweep keeps every ignition. */
+  /** Base setup; every swept mount keeps its own ignition. */
   configuration?: Pick<SimRun, 'flightConfig' | 'flightConfigId' | 'flightOverrides'>;
   /** The editing tree — the sweep builds its OWN engine handles from it, so
    *  the design's shared handle is never touched. */
@@ -509,7 +509,8 @@ export async function runBatchSweep(
   const targetIds = targets.map(m => m.id);
   const multiple = targets.length > 1;
   const targetIgnition = (id: string) => batchTargetIgnition(tree, assignedIgnitions, id);
-  const unlitTarget = (id: string, t = tree) => multiple && knownUnlitIgnition(targetIgnition(id).event, !hasIgnitionSourceStage(t, id));
+  // Ruling 157: a one-mount sweep keeps its mount's ignition too; a split mount takes its source mount's.
+  const unlitTarget = (id: string, t = tree, source = id) => knownUnlitIgnition(targetIgnition(source).event, !hasIgnitionSourceStage(t, id));
   const targetMotorCount = targets.reduce((sum, m) => sum + m.motorCount, 0);
   const firingTargetCount = targets.reduce((sum, m) => sum + (unlitTarget(m.id) ? 0 : m.motorCount), 0);
   const refused = new Set((input.refusedMountIds ?? []).filter(id => !targetIds.includes(id)));
@@ -536,7 +537,7 @@ export async function runBatchSweep(
           // seam review of audit 2026-09-22). One write here covers the sweep
           // AND both combination passes, because every per-candidate write
           // below touches only the TARGET mounts, which this loop skips.
-          writeMountMotor(r, id, spec, overrideFor(assignedIgnitions, id) ?? { event: 'automatic', delay: 0 });
+          writeMountMotor(r, id, spec, targetIgnition(id));
         } catch { refused.add(id); }
       }
     }
@@ -665,7 +666,8 @@ export async function runBatchSweep(
   // Read the completed flight's installed vector, not the requested assignments:
   // a refused ignition was never installed. This changes no flight inputs.
   const batchMountsFor = (flownTree: RocketTree, candidateEntries: ReadonlyMap<string, MotorDbEntry>,
-    installedIds: readonly string[], displayNames = designMountNames, result?: import('@online-openrocket/engine').FlightResult): BatchMountRecord[] | undefined => {
+    installedIds: readonly string[], displayNames = designMountNames, result?: import('@online-openrocket/engine').FlightResult,
+    candidateIgnitionSourceId?: string): BatchMountRecord[] | undefined => {
     const motors: Parameters<typeof loadoutMotorNames>[0][number][] = [];
     const ignitionIds = new Set([...(result?.events ?? []), ...(result?.branches ?? []).flatMap(b => b.events)]
       .filter(e => e.type === 'IGNITION' && e.motorMountId).map(e => e.motorMountId));
@@ -684,7 +686,7 @@ export async function runBatchSweep(
         motor: candidate || loaded ? '' : null,
         count: mountMotorCount(flownTree, id),
         ...((kept || candidate !== undefined) && (ignitionIds.size > 0 ? !ignitionIds.has(id) : knownUnlitIgnition(
-          candidate !== undefined ? multiple ? targetIgnition(id).event : 'automatic' : overrideFor(assignedIgnitions, id)?.event,
+          targetIgnition(candidate !== undefined ? candidateIgnitionSourceId ?? id : id).event,
           !hasIgnitionSourceStage(flownTree, id)))
           ? { ignition: 'never' as const } : {}),
       };
@@ -721,7 +723,7 @@ export async function runBatchSweep(
         throw new Error(`Motor diameter does not fit ${noteText(displayNames.get(mount.id) ?? mount.label)}.`);
       }
     }
-    const litLegs = legs.filter(l => !unlitTarget(l.mountId, probeTree));
+    const litLegs = legs.filter(l => !unlitTarget(l.mountId, probeTree, replacedMountId ?? l.mountId));
     const onlyPlugged = (l: typeof litLegs[number]) => delayOptions(l.entry).every(d => !Number.isFinite(d)) && !l.noListedDelay;
     const pluggedLegs = new Set(litLegs.filter(l => (autoDelay || deploysOnCharge && litLegs.every(onlyPlugged))
       && onlyPlugged(l)).map(l => l.mountId));
@@ -743,14 +745,14 @@ export async function runBatchSweep(
             ...(overrideFor(assignedMotorIds, id)?.startsWith('ex:') ? { exMotorId: overrideFor(assignedMotorIds, id) } : {}),
             autoDelay: overrideFor(input.assignedAutoDelays, id) === true,
           },
-          ignition: overrideFor(assignedIgnitions, id) ?? { event: 'automatic', delay: 0 },
+          ignition: targetIgnition(id),
         }];
       });
     for (const l of legs) {
-      const ignition = multiple ? targetIgnition(l.mountId) : { event: 'automatic' as const, delay: 0 };
+      const ignition = targetIgnition(replacedMountId ?? l.mountId);
       // Batch is single-stage: burnout/ejection ignition needs a lower stage.
       // A never-lit target keeps the provisional fixed delay, as kept motors do.
-      const unlit = unlitTarget(l.mountId, probeTree);
+      const unlit = unlitTarget(l.mountId, probeTree, replacedMountId ?? l.mountId);
       const meta = {
         autoDelay: autoDelay || !!l.noListedDelay || pluggedLegs.has(l.mountId),
         ...l.meta,
@@ -785,12 +787,12 @@ export async function runBatchSweep(
       res: flight.result, execMs: flight.execMs, flownDelay: flight.flownDelayS,
       delayResolution: flight.delayResolution, primaryMountId: legs[0]!.mountId,
       optimumForPlugged, autoDelay: (autoDelay || !!legs[0]?.noListedDelay)
-        && (!multiple || assigned.find(([id]) => id === legs[0]!.mountId)?.[1].meta.autoDelay === true),
+        && assigned.find(([id]) => id === legs[0]!.mountId)?.[1].meta.autoDelay === true,
       aeroModel: aeroModelFor(aeroMode, flight.usedSupersonic),
       rogersKbf: rogersKbfFor(kbf, flight.usedSupersonic),
       // Provenance keys catalogue curves; hardware has its own motor-set term.
       assigned: assigned.map(([id, mm]): [string, MountMotor] => [id,
-        !legs.some((l) => l.mountId === id) ? { ...mm, ...overrideFor(input.assignedMountMotors, id) } : mm,
+        !legs.some((l) => l.mountId === id) ? { ...mm, ...overrideFor(input.assignedMountMotors, id), ignition: mm.ignition } : mm,
       ]),
       otherHardwareDeltaKg: retainedHardware && !targetIds.includes(retainedHardware.mountId)
         && flight.delayResolution.mounts.some((m) => m.mountId === retainedHardware.mountId)
@@ -1006,7 +1008,7 @@ export async function runBatchSweep(
          * answer for a mixed combination the database only half covers.
          */
         const comboParts = entries.map(async (e, k) => ({
-          count: groups[k]!.reduce((sum, id) => sum + (unlitTarget(id, split.tree) ? 0 : mountMotorCount(split.tree, id)), 0),
+          count: groups[k]!.reduce((sum, id) => sum + (unlitTarget(id, split.tree, split.mountGroups ? id : target.id) ? 0 : mountMotorCount(split.tree, id)), 0),
           exitDiameterM: (await nozzleFor(e.motorId))?.exitDiameterM ?? null,
         }));
         const matchesLoaded = split.mountGroups && groups.every((ids, k) =>
@@ -1051,7 +1053,7 @@ export async function runBatchSweep(
           aero,
         });
         const batchMounts = batchMountsFor(split.tree, new Map(groups.flatMap((ids, k) => ids.map(id => [id, entries[k]!] as const))),
-          f.delayResolution.mounts.map(m => m.mountId), splitMountNames, f.res);
+          f.delayResolution.mounts.map(m => m.mountId), splitMountNames, f.res, split.mountGroups ? undefined : target.id);
         const run = buildSimRun({
           maxFlightTimeS: flownMaxFlightTimeS(launch),
           units, advisoryLimits,

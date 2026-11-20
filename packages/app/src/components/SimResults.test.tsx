@@ -125,6 +125,52 @@ it('N046 opens a flight warning explanation from its unchanged code and keeps th
   expect(dialog.textContent).toContain('What to do');
   expect(dialog.textContent).toContain('ballistic');
 });
+
+it.each(['ASYMMETRIC_THRUST_DANGER', 'NO_RECOVERY_DEVICE', 'TUMBLE_UNDER_THRUST', 'RECOVERY_LAUNCH_ROD'])(
+  'J23 marks stored %s beside the unchanged history checks', key => {
+    const saved = run();
+    saved.simWarnings = [{ key, message: `[Warning.${key}]` }];
+    render(<SimHistory runs={[saved]} onRunsChange={() => {}} />);
+    act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Show')!.click());
+    expect(host.querySelector('tr.motor-row')?.textContent).toContain('⚠ danger');
+    expect(host.querySelector('tr.motor-row')?.textContent).toContain('Passed checks');
+    expect(gradeBatchRun(saved, { minRodExit: null, minThrustToWeight: null, minApogee: null, maxApogee: null,
+      autoDelay: false, includeOOP: false, manufacturers: [], classes: [], impulse: [] })).toContain('danger');
+  });
+
+it('J23 report checks cannot pass for an incomplete flight', () => {
+  const saved = run();
+  saved.simWarnings = [{ key: 'INCOMPLETE_FLIGHT', message: '[Warning.INCOMPLETE_FLIGHT]' }];
+  render(<SimRunDetails run={saved} />);
+  act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Show all details')!.click());
+  for (const label of ['Lift-off speed OK', 'Thrust : weight OK', 'Safe deployment', 'Static margin']) {
+    const cell = [...host.querySelectorAll('tr')].find(r => r.cells[0]?.textContent === label)!.cells[1]!;
+    expect(cell.textContent).not.toMatch(/✓|yes|ok/i);
+    expect(cell.textContent).toContain('—');
+  }
+});
+
+it('J23 marks a recorded report Danger beside unchanged history checks', () => {
+  const saved = { ...run(), simWarnings: [], comments: 'Recorded report danger', commentLevels: ['warning' as const] };
+  render(<SimHistory runs={[saved]} onRunsChange={() => {}} />);
+  act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Show')!.click());
+  expect(host.querySelector('tr.motor-row')?.textContent).toContain('⚠ danger');
+  expect(host.querySelector('tr.motor-row')?.textContent).toContain('Passed checks');
+});
+
+it('N046 opens a flight warning explanation from its unchanged code and keeps the tier', () => {
+  const saved = run();
+  saved.simWarnings = [{ key: 'NO_RECOVERY_DEVICE', message: '[Warning.NO_RECOVERY_DEVICE]' }];
+  render(<SimRunDetails run={saved} />);
+  const code = host.querySelector<HTMLButtonElement>('button[aria-label="Explain note NO_RECOVERY_DEVICE"]');
+  expect(code).not.toBeNull();
+  expect(code!.closest('.message-danger')).not.toBeNull();
+  act(() => code!.click());
+  const dialog = document.querySelector('[role="dialog"]')!;
+  expect(dialog.textContent).toContain('What it means');
+  expect(dialog.textContent).toContain('What to do');
+  expect(dialog.textContent).toContain('ballistic');
+});
 it('does not invent a recommendation for a legacy flight with no recommended delay', () => {
   const saved = { ...run(), delayResolution: undefined, optimumDelayS: 5, recommendedDelayS: undefined } as unknown as SimRun;
   render(<SimRunDetails run={saved} />);
@@ -1328,7 +1374,7 @@ describe('SimHistory — a flight the kernel stopped early', () => {
       expect(batchStopped, r.id).toBe(runStoppedEarly(r));
       // Nothing else is wrong with these runs, so the two verdicts coincide.
       expect(cells[i], r.id).toBe(batchStopped ? '⚠' : '✓');
-      expect(gradeBatchRun(r, NO_CRITERIA), r.id).toEqual(batchStopped ? ['flight stopped early'] : []);
+      expect(gradeBatchRun(r, NO_CRITERIA), r.id).toEqual(batchStopped ? ['danger', 'flight stopped early'] : []);
     });
   });
 });

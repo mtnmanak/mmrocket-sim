@@ -12,7 +12,7 @@ import { escapeXml } from './services/xmlUtil.js';
 import { num } from './tree/nodeNum.js';
 import { resolveImportMotors } from './services/importApply.js';
 import { sessionDebugLog } from './services/sessionDebugLog.js';
-import { defaultTree } from './tree/treeModel.js';
+import { defaultTree, motorMounts } from './tree/treeModel.js';
 import type { ComponentProps } from 'react';
 import type { BatchSimulate } from './components/BatchSimulate.js';
 
@@ -98,13 +98,13 @@ beforeEach(async () => {
 });
 afterEach(async () => { act(() => { flush(); }); await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
 
-async function open(name = 'Ask motor', extra = '', simulations = '') {
+async function open(name = 'Ask motor', extra = '', simulations = '', radius = 0.016) {
   const motor = (id: string) => `<motor configid="${id}"><manufacturer>Enerjet</manufacturer><designation>F67</designation><diameter>0.0286</diameter><length>0.127</length><delay>9</delay></motor>`;
   const xml = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket><name>${escapeXml(name)}</name>${extra}
     <motorconfiguration configid="a" default="true"><name>First</name></motorconfiguration>
     <motorconfiguration configid="b"><name>Second</name></motorconfiguration>
     <subcomponents><stage><name>Sustainer</name><subcomponents><bodytube><name>Motor tube</name>
-    <length>0.5</length><radius>0.016</radius><thickness>0.001</thickness>
+    <length>0.5</length><radius>${radius}</radius><thickness>0.001</thickness>
     <motormount><ignitionevent>automatic</ignitionevent>${motor('a')}${motor('b')}</motormount>
     </bodytube></subcomponents></stage></subcomponents></rocket>${simulations}</openrocket>`;
   const picker = host.querySelector<HTMLInputElement>('input[aria-label="Open a design file"]')!;
@@ -142,6 +142,27 @@ async function answerStatedMotor() {
   act(() => { flush(); });
   return before;
 }
+
+it.each(['empty', 'wide'] as const)('r7 dialog refreshes file motor ids and fit cautions for %s', async kind => {
+  await open('Fit choice', '', '', 0.01);
+  expect(host.querySelector('[aria-label="Notices"]')!.textContent).toContain('real rocket could not be built this way');
+  const dialog = host.querySelector('[aria-label="Choose motors for this file"]')!;
+  if (kind === 'empty') {
+    const empty = [...dialog.querySelectorAll<HTMLInputElement>('input[type="radio"]')].find(input => input.closest('label')?.textContent?.match(/empty/i))!;
+    await act(async () => empty.click());
+  }
+  await act(async () => button('Apply').click());
+  await waitFor(() => !host.querySelector('[aria-label="Choose motors for this file"]'));
+  act(() => { flush(); });
+  const state = stored(), ids = motorMounts(state.tree)[0]!['fileMotorIds'];
+  if (kind === 'empty') {
+    expect(ids).toEqual([]);
+    expect(host.querySelector('[aria-label="Notices"]')?.textContent ?? '').not.toContain('real rocket could not be built this way');
+  } else {
+    expect(ids).toContain(Object.values(state.mountMotors!)[0]!.meta.motorId);
+    expect(host.querySelector('[aria-label="Notices"]')!.textContent).toContain('real rocket could not be built this way');
+  }
+}, 30_000);
 
 it('S2-2 Apply backs the chosen EX motor out in the same history step and reports it', async () => {
   await answerStatedMotor();

@@ -355,7 +355,7 @@ describe('restore (session.ts, sessionRestore.ts, treeModel.ts, padMassReconcile
 describe('the open itself (importApply.ts: motor-match, pad mass, retained conditions)', () => {
   const text = { mass: (kg: number) => `${kg} kg`, length: (m: number) => `${m} m` };
   const tree: RocketTree = { name: 'R', components: [{ type: 'stage', id: 's', name: 'Sustainer', children: [
-    { type: 'bodytube', id: 'm1', name: 'MMT', length: 0.2, outerRadius: 0.015, thickness: 0.001, motorMount: true },
+    { type: 'bodytube', id: 'm1', name: 'MMT', length: 0.2, outerRadius: 0.016, thickness: 0.001, motorMount: true },
   ] } as ComponentNode] };
   const design = (over: Partial<ImportedDesign> = {}): ImportedDesign => ({
     name: 'x', tree, notes: [], launch: DEFAULT_CONDITIONS, motors: { m1: { designation: 'Z9', manufacturer: 'AeroTech', diameter: 0.029, length: 0.2, delay: 5 } },

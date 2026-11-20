@@ -26,7 +26,7 @@ it.each([20, 50])('round 3 keeps a delayed %s N motor with its attached core ove
   const core = balanceMotor(peak === 20 ? 1000 : 300);
   const air = { ...balanceMotor(peak), ignition: { event: 'launch' as const, delay: 3 } };
   const warnings = asymmetricThrustWarnings(tree, [['m0', core], ['m1', air]]);
-  expect(warnings.map(w => w.key)).toEqual(peak === 20 ? [] : ['ASYMMETRIC_THRUST_CAUTION']);
+  expect(warnings.map(w => w.key)).toEqual(peak === 20 ? [] : ['ASYMMETRIC_THRUST_CAUTION', 'ASYMMETRIC_THRUST_LONE']);
   if (peak === 50) expect(warnings[0]?.message).toContain('16.7 %');
   // A pod is part of its owning vehicle too.
   const mount = tree.components[0]!.children![0]!.children!.pop()!;
@@ -43,12 +43,12 @@ it('round 4 checks opposite serial motors independently with branch-only separat
   const result = flight(0, 1);
   result.branches = [{ name: 'Booster', events: result.events.splice(2), series: {} }] as FlightResult['branches'];
   const warnings = asymmetricThrustWarnings(tree, [['boost', motor], ['m0', motor]], result);
-  expect(warnings.map(w => w.key)).toEqual(['ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_DANGER']);
+  expect(warnings.map(w => w.key)).toEqual(['ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_LONE', 'ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_LONE']);
   expect(warnings.every(w => w.message.includes('after separation'))).toBe(false);
   expect(warnings.some(w => w.message.includes('Sustainer'))).toBe(true);
-  expect(warnings.every(w => w.message.includes('100 %'))).toBe(true);
+  expect(warnings.filter(w => w.key === 'ASYMMETRIC_THRUST_DANGER').every(w => w.message.includes('100 %'))).toBe(true);
   expect(asymmetricThrustWarnings(tree, [['boost', motor], ['m0', motor]], flight(0)).map(w => w.key))
-    .toEqual(['ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_DANGER']);
+    .toEqual(['ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_LONE', 'ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_LONE']);
 });
 
 it.each(['launch', 'ignition', 'burnout', 'ejection', 'upperignition'])('round 4 ignores %s separation in serial thrust grouping', event => {
@@ -67,7 +67,7 @@ it.each(['launch', 'ignition', 'burnout', 'ejection', 'upperignition'])('round 4
   expect(warnings.every(w => w.message.includes('after separation'))).toBe(false);
   tree.components[1]!.separationEvent = 'never';
   expect(asymmetricThrustWarnings(tree, [['boost', motor], ['m0', motor]]).map(w => w.key))
-    .toEqual(['ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_DANGER']);
+    .toEqual(['ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_LONE', 'ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_LONE']);
 });
 
 it('round 3 does not sum burns that only touch, and retains launch booster advice on the report', () => {
@@ -76,11 +76,11 @@ it('round 3 does not sum burns that only touch, and retains launch booster advic
   boost.spec = { ...boost.spec, times: [0, 2], thrusts: [1000, 1000] };
   upper.spec = { ...upper.spec, times: [0, 2], thrusts: [100, 100] };
   const warnings = asymmetricThrustWarnings(tree, [['boost', boost], ['m0', upper]], flight(2, 2));
-  expect(warnings.map(w => w.key)).toEqual(['ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_DANGER']);
-  expect(warnings.every(w => w.message.includes('100 %'))).toBe(true);
+  expect(warnings.map(w => w.key)).toEqual(['ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_LONE', 'ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_LONE']);
+  expect(warnings.filter(w => w.key === 'ASYMMETRIC_THRUST_DANGER').every(w => w.message.includes('100 %'))).toBe(true);
   tree.components[0]!.children![0]!.children![0]!.radialPosition = 0;
   expect(asymmetricThrustWarnings(tree, [['boost', boost], ['m0', upper]], flight(2, 2)))
-    .toHaveLength(1);
+    .toHaveLength(2);
   expect(thrustImbalance([
     { mountId: 'a', name: 'a', y: 0.06, z: 0, spec: upper.spec, ignition: 0 },
     { mountId: 'b', name: 'b', y: -0.06, z: 0, spec: upper.spec, ignition: 2 },

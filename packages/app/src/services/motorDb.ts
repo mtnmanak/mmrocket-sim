@@ -383,6 +383,8 @@ export interface MotorFilter {
   propellants?: Set<string>;
   /** Mount bore (mm) — motors above this never show. */
   boreMm: number;
+  /** Original file motors may bypass only the mount-bore exclusion. */
+  fileMotorIds?: readonly string[];
   includeOOP: boolean;
   /**
    * Longest motor the airframe has room for (m), when the filter is asked to
@@ -473,7 +475,7 @@ export function filterMotors(filter: MotorFilter, motors: MotorDbEntry[] = getCa
   const fitting = new Set(classesFittingMount(filter.boreMm, motors));
   return motors.filter((m) => {
     const cls = diameterClass(m.diameter);
-    if (!fitting.has(cls)) return false;
+    if (!fitting.has(cls) && !filter.fileMotorIds?.includes(m.motorId)) return false;
     if (filter.classes.size > 0 && !filter.classes.has(cls)) return false;
     if (filter.manufacturers.size > 0 && !filter.manufacturers.has(m.manufacturerAbbrev)) return false;
     if (!filter.includeOOP && !isAvailable(m)) return false;
