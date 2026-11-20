@@ -1,4 +1,5 @@
 import { MAX_DIMENSION_M, MAX_STATED_MASS_KG } from '../tree/schema.js';
+import { recoverAssumedBores } from './assumedBore.js';
 import { noteField } from './noteField.js';
 import { boundedWarningEvidence, readableWarning, restoredWarnings, storedWarnings, validStoredWarnings, storedWarningLimitNote } from './storedWarnings.js';
 import { finRootChord } from '../tree/finTab.js';
@@ -1107,6 +1108,8 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
           n['thickness'] = num(el, 'thickness', 0.002, notes, LENGTH);
         }
         readMotor(el, n);
+        const boreAssumed = text(el, ':scope > mmrsim-bore-assumed');
+        if (boreAssumed === 'true' || boreAssumed === 'false') n['boreAssumed'] = boreAssumed === 'true';
         const mml = num(el, 'maxmotorlength', -1, notes, 'unused');
         if (mml >= 0) n['maxMotorLength'] = mml;
         // Extension tag: sub-minimum flag (motor case is the airframe).
@@ -1816,8 +1819,9 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
   refuseTooManyParts(components);
   const provenance = readDesignProvenance(rocketEl, notes);
   const documentMaterials = readDocumentMaterials(root!, notes);
-  const importedTree = sanitizeTree({ name, components, ...(provenance ? { provenance } : {}),
-    ...(documentMaterials.length ? { documentMaterials } : {}) }, notes, units);
+  const importedTree = recoverAssumedBores(sanitizeTree({ name, components, ...(provenance ? { provenance } : {}),
+    ...(documentMaterials.length ? { documentMaterials } : {}) }, notes, units),
+  configs.some(c => /^rasaero-sim-\d+$/.test(c.id)));
   // Desktop/current imports retain their placement origin through autosave.
   // A clean unknown file needs no XML stamp, but its checked state must follow
   // future edits. Legacy writer versions never establish a clean origin.
@@ -3319,6 +3323,7 @@ export function exportOrk({
           emit(depth + 1, `<maxmotorlength>${maxMotorLength}</maxmotorlength>`);
         }
         // Min-diameter: the body tube itself is the motor mount.
+        if (node['boreAssumed'] === true || node['boreAssumed'] === false) emit(depth + 1, `<mmrsim-bore-assumed>${String(node['boreAssumed'])}</mmrsim-bore-assumed>`);
         if (node['motorMount'] === true || mountConfigs(node.id).length > 0) {
           motorMountXml(depth + 1, node.id, n(node, 'motorOverhang', 0));
         }

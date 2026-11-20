@@ -517,17 +517,17 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
     return cv('velocity', drogue?.descentRate ?? null);
   }],
   [`Landing rate (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.landingRate ?? (r.importedSummary ? null : r.groundHitVelocity))],
-  ['Landing rate OK', (r) => flag(r.safeLandingRate ?? null)],
+  ['Landing rate OK', (r) => runStoppedEarly(r) ? '' : flag(r.safeLandingRate ?? null)],
   [`Landing distance (${sym('distance', 'm')})`, (r) => cv('distance', r.landingDistanceM ?? null, 1)],
   ['Landing bearing (deg from N)', (r) => round(r.landingBearingDeg ?? null, 0)],
   [`Ground hit velocity (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.groundHitVelocity)],
   ['Total flight time (s)', (r) => round(r.totalFlightTime)],
   ['Optimal delay (s)', (r) => round(r.optimumDelayS)],
   ['Recommended delay (s)', (r) => round(r.recommendedDelayS)],
-  ['Lift-off speed OK', (r) => flag(r.safeLiftoffSpeed)],
-  ['Thrust:weight OK', (r) => flag(r.safeThrustToWeight)],
-  ['Safe deployment', (r) => { const v = deploymentVerdict(r); return v === 'caution' ? 'caution' : flag(v); }],
-  ['Static margin OK', (r) => flag(r.staticMarginOk)],
+  ['Lift-off speed OK', (r) => runStoppedEarly(r) ? '' : flag(r.safeLiftoffSpeed)],
+  ['Thrust:weight OK', (r) => runStoppedEarly(r) ? '' : flag(r.safeThrustToWeight)],
+  ['Safe deployment', (r) => { if (runStoppedEarly(r)) return ''; const v = deploymentVerdict(r); return v === 'caution' ? 'caution' : flag(v); }],
+  ['Static margin OK', (r) => runStoppedEarly(r) ? '' : flag(r.staticMarginOk)],
   ['Weathercock risk', (r) => r.weathercockRisk ?? ''],
   ['Motors (cluster)', (r) => r.motorCount === undefined ? (r.importedSummary ? '' : 1)
     : Number.isFinite(r.motorCount) ? r.motorCount : ''],
@@ -535,7 +535,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['Booster motors', (r) => (r.boosterMotors ?? []).join('; ')],
   [`Booster apogee (${sym('altitude', 'm')})`, (r) => cv('altitude', r.branches?.[0]?.apogee ?? null)],
   [`Booster landing rate (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.branches?.[0]?.landingRate ?? null)],
-  ['Booster landing OK', (r) => flag(r.branches?.[0]?.safeLandingRate ?? null)],
+  ['Booster landing OK', (r) => runStoppedEarly(r) ? '' : flag(r.branches?.[0]?.safeLandingRate ?? null)],
   [`Wind avg (${sym('windspeed', 'm/s')})`, (r) => cv('windspeed', r.windAvg, 1)],
   // Under Auto, different rows can have flown different models — without this
   // column the comparison table can't tell them apart.
@@ -546,7 +546,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   // Machine keys, not prose — greppable/filterable in a spreadsheet; the
   // report renders the plain-language version (simWarnings.ts).
   ['Sim warnings', (r) => warningKeysCell(r.simWarnings)],
-  ['Comments', (r) => r.comments],
+  ['Comments', (r) => runStoppedEarly(r) ? `${r.comments}${r.comments ? ' | ' : ''}Flight incomplete: results must not be read as safe; check Maximum flight time and flight warnings.` : r.comments],
   // Trailing on purpose (Stage B): existing spreadsheet imports keep their
   // column positions; runs stored before the field export an empty cell.
   // The table's own label, so a Batch row says "Batch · <label>" here too: a

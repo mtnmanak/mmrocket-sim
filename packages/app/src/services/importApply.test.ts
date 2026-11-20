@@ -370,8 +370,8 @@ describe('planImport — one plan, applied and marked', () => {
       components: [{
         type: 'stage', id: 's1', name: 'Sustainer', children: [{
           type: 'bodytube', id: 'b1', length: 0.4, outerRadius: 0.03, thickness: 0.001, children: [
-            { type: 'innertube', id: 'm1', length: 0.2, outerRadius: 0.012, thickness: 0.0005, motorMount: true } as ComponentNode,
-            { type: 'innertube', id: 'm2', length: 0.2, outerRadius: 0.012, thickness: 0.0005, motorMount: true } as ComponentNode,
+            { type: 'innertube', id: 'm1', length: 0.2, outerRadius: 0.0155, thickness: 0.0005, motorMount: true } as ComponentNode,
+            { type: 'innertube', id: 'm2', length: 0.2, outerRadius: 0.0155, thickness: 0.0005, motorMount: true } as ComponentNode,
           ],
         } as ComponentNode],
       } as ComponentNode],

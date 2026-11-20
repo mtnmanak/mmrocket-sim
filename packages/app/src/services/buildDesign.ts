@@ -11,6 +11,7 @@ import { writeMountMotor, type FlightHandle } from './flightRunner.js';
 import { flownSpec, hardwareMass, LEGACY_PAD_MASS_KEY, type HardwareMassResult } from './hardwareMass.js';
 import type { FlownRecoveryDevice } from './simReport.js';
 import { baseDragImportNotes } from './baseDragImportNotes.js';
+import { motorFitWarnings } from './motorFitWarnings.js';
 
 /**
  * THE DESIGN BUILD: the tree and the motors on it, handed to the kernel, and
@@ -223,6 +224,8 @@ export function buildDesign<R extends BuildHandle>(
     // Importers retain declarations on parts; this strip is the sole display.
     const baseDragWarnings = baseDragImportNotes(tree);
     if (baseDragWarnings.length) info.warningTexts = [...info.warningTexts, ...baseDragWarnings];
+    info.warningTexts = [...info.warningTexts, ...motorFitWarnings(tree, accepted, input.units)
+      .map(w => `[Warning.${w.key}] ${w.message}`)];
     return { rocket, info, motorFailures, flownRecovery, hardware };
   } catch (e) {
     // Named, not raw (audit 2026-09-22): the kernel's own text — "The number

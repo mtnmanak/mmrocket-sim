@@ -29,6 +29,7 @@ export interface FlightOverrides {
  * metadata is not lowered to kernel components. Keep removed ids for undo.
  */
 export interface FlightTree extends RocketTree {
+  legacyPositionCheck?: { pending: string[]; provenance?: 'current' } | true;
   ignitionDefaults?: Record<string, IgnitionTuple>;
   /** Reusable document metadata; parts retain their own flight densities. */
   documentMaterials?: DocumentMaterial[];

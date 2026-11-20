@@ -659,6 +659,8 @@ function scaleNode(n: ComponentNode, k: number, notes?: string[], units?: UnitSe
   const type = n.type as string;
   const fixed = FIXED_SIZE.has(type);
   const out: ComponentNode = { ...n };
+  delete out['fileMotorIds'];
+  if (n['motorMount'] === true) out['fileMotorIds'] = [];
   const marked = typeof n[OVERRIDE_INCLUDES_MOTOR] === 'string' && n[OVERRIDE_INCLUDES_MOTOR] !== '';
 
   // A key the part leaves to the kernel scales from the constant the kernel

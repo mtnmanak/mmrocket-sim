@@ -39,7 +39,7 @@ import * as batchSweep from './services/batchSweep.js';
 import * as flightRunner from './services/flightRunner.js';
 import { flightDataBundleContents } from './services/flightDataBundle.js';
 import type { FlightDataBundleInput } from './services/flightDataBundle.js';
-import { bundledSimFiles } from './services/thrustcurve.js';
+import { bundledOnlyFetchSpec, bundledSimFiles } from './services/thrustcurve.js';
 
 /**
  * THE LAUNCH BUTTON AND THE HEADLESS LAUNCH FLY THE SAME BYTES (2026-10-01;
@@ -248,6 +248,31 @@ const AUTO: AeroState = { aeroMode: 'auto', effectiveKbf: true, autoSupersonic: 
 const SUPERSONIC: AeroState = { aeroMode: 'supersonic', effectiveKbf: true, autoSupersonic: false };
 /** Extended Barrowman: the classic model with Rogers Kbf off. */
 const KBF_OFF: AeroState = { aeroMode: 'classic', effectiveKbf: false, autoSupersonic: false };
+
+it.each([true, false])('r4 one-mount Batch discloses and records ignition with loaded motor %s', async loaded => {
+  prefs(CLASSIC);
+  const tree = defaultTree(), mount = motorMounts(tree)[0]!.id!;
+  const motor = (await loadCatalogueMotor('Estes', 'C6', 5, { fetchSpec: bundledOnlyFetchSpec }))!;
+  // No tree default: the loaded motor is the mount's own ignition baseline.
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: loaded ? { [mount]: motor } : {},
+    launch: DEFAULT_CONDITIONS, measured: { massKg: null, cgM: null }, savedAt: 1,
+    appVersion: APP_VERSION, configLayers: 1, activeConfigId: null, savedConfigs: [],
+    detachedOverrides: { ignitions: { [mount]: { event: 'launch', delay: 1 } } } }));
+  const host = await mountApp();
+  const sweep = vi.spyOn(batchSweep, 'runBatchSweep').mockResolvedValue({ rows: [], stopped: false });
+  try {
+    await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Motors & Configuration')!.click());
+    await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Batch simulate motors'))!.click());
+    await waitFor(() => !!host.querySelector('[aria-label="Batch simulate motors"] .launch-btn'), 'Batch dialog');
+    expect(host.querySelector('#launch-override-batch')?.textContent).toContain('1 s');
+    const button = host.querySelector<HTMLButtonElement>('[aria-label="Batch simulate motors"] .launch-btn')!;
+    await waitFor(() => !button.disabled, 'Batch candidates');
+    await act(async () => button.click());
+    expect(sweep.mock.calls[0]![0].configuration?.flightOverrides).toContainEqual(expect.objectContaining({
+      family: 'ignition', flies: { event: 'launch', delay: 1 },
+    }));
+  } finally { sweep.mockRestore(); }
+}, 30000);
 
 it.each(['Fly', 'Batch'])('RES-1b %s counts override entries rather than empty categories', async surface => {
   prefs(CLASSIC);
@@ -937,7 +962,12 @@ it('141/143 opens a saved mixed row in Results and bundles that exact flown load
 
 it('bundle metadata retains scalar applied weather through Batch simulate and saved-run export', async () => {
   prefs(CLASSIC);
+  // This metadata test deliberately accepts the C6's slow guide departure;
+  // the separate Batch verdict tests cover guidance and explicit-minimum rules.
+  localStorage.setItem('online-openrocket.batch-criteria.v1', JSON.stringify({ minRodExit: 0, minThrustToWeight: 0 }));
   const tree = defaultTree();
+  // Keep this export fixture stable; Batch now rejects the starter's 0.83 cal margin.
+  tree.components[0]!.children!.find(n => n.type === 'nosecone')!['overrideMass'] = 0.02;
   const motor = await c6();
   const weather = {
     v: 1, provider: 'open-meteo', endpoint: 'forecast', model: 'best_match',
@@ -968,7 +998,9 @@ it('bundle metadata retains scalar applied weather through Batch simulate and sa
     const button = host.querySelector<HTMLButtonElement>('[aria-label="Batch simulate motors"] .launch-btn')!;
     await waitFor(() => !button.disabled, 'batch weather candidates');
     await act(async () => button.click());
-    await waitFor(() => runs() === 1, 'batch weather run persisted');
+    await waitFor(() => !!host.querySelector('[aria-label="Batch simulate motors"] .batch-finished'), 'batch weather finished');
+    const flownWeather = (await sweep.mock.results[0]!.value).rows[0]?.run;
+    expect(runs(), JSON.stringify({ comments: flownWeather?.comments, warnings: flownWeather?.simWarnings })).toBe(1);
     const saved = (JSON.parse(localStorage.getItem(RUNS_KEY)!) as FreshSimRun[])[0]!;
     expect(saved.batch).toBe(true);
     expect(saved.exportContext?.weather).toEqual(weather);
@@ -1824,7 +1856,7 @@ it.each([false, true])('LW4 ignition Show scrolls the affected card and focuses 
   }
 }, 30000);
 
-it('LW ignition Show reaches the motor editor; Batch excludes candidate ignition', async () => {
+it('LW ignition Show reaches the motor editor; Batch includes candidate ignition', async () => {
   prefs(CLASSIC);
   const tree = defaultTree();
   const mount = motorMounts(tree)[0]!.id!;
@@ -1840,7 +1872,7 @@ it('LW ignition Show reaches the motor editor; Batch excludes candidate ignition
   expect(host.querySelector<HTMLSelectElement>(`[id="ignition-${mount}"]`)?.value).toBe('never');
   await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Batch simulate motors'))!.click());
   await waitFor(() => !!host.querySelector('[aria-label="Batch simulate motors"]'), 'Batch dialog');
-  expect(host.querySelector('#launch-override-batch')).toBeNull();
+  expect(host.querySelector('#launch-override-batch')?.textContent).toContain('Never');
   const batchLaunch = host.querySelector('[aria-label="Batch simulate motors"] .launch-btn')!;
-  expect(batchLaunch.getAttribute('aria-describedby')).toBeNull();
+  expect(batchLaunch.getAttribute('aria-describedby')).toBe('launch-override-batch');
 }, 30000);

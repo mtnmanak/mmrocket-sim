@@ -22,6 +22,8 @@
  * Paths are relative to packages/app.
  */
 export const XML_JS_SUITES = [
+  'src/services/flightDisclosures.test.ts',
+  'src/services/motorFitWarnings.test.ts',
   // Row 129: selected-simulation maxtime, clamps and round trips under both parsers.
   'src/services/maxFlightTime.test.ts',
   'src/services/asymmetricThrust.tester.test.ts',

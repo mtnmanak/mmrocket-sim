@@ -23,11 +23,11 @@ const flight = (upper: number, separation?: number): FlightResult => ({ events: 
 it.each([undefined, 1])('round 4 never sums opposite serial motors, separation %s', separation => {
   const tree = serialTree(), motor = balanceMotor(100, 4);
   const warnings = asymmetricThrustWarnings(tree, [['boost', motor], ['m0', motor]], flight(0, separation));
-  expect(warnings.map(w => w.key)).toEqual(['ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_DANGER']);
+  expect(warnings.map(w => w.key)).toEqual(['ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_LONE', 'ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_LONE']);
   expect(warnings.every(w => w.message.includes('after separation'))).toBe(false);
   expect(warnings[0]?.message).toMatch(/^Stage Sustainer:/);
-  expect(warnings[1]?.message).toMatch(/^Stage Booster:/);
-  expect(warnings.every(w => w.message.includes('100 %'))).toBe(true);
+  expect(warnings[2]?.message).toMatch(/^Stage Booster:/);
+  expect(warnings.filter(w => w.key === 'ASYMMETRIC_THRUST_DANGER').every(w => w.message.includes('100 %'))).toBe(true);
 });
 
 it('round 4 keeps a sustainer load out of the spent booster peak', () => {
@@ -36,7 +36,7 @@ it('round 4 keeps a sustainer load out of the spent booster peak', () => {
   upper.ignition = { event: 'burnout', delay: 1 };
   for (const result of [undefined, flight(3)]) {
     const warnings = asymmetricThrustWarnings(tree, [['boost', boost], ['m0', upper]], result);
-    expect(warnings.map(w => w.key)).toEqual(['ASYMMETRIC_THRUST_DANGER']);
+    expect(warnings.map(w => w.key)).toEqual(['ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_LONE']);
     expect(warnings[0]?.message).toContain('Sustainer:');
     expect(warnings[0]?.message).toContain('100 %');
     expect(warnings[0]?.message).not.toContain('cannot tell');
@@ -75,7 +75,7 @@ it.each([1, 2])('round 4 keeps symmetric %s-instance strap-ons in one group afte
     ...motors.map(([id]) => ({ type: 'IGNITION', motorMountId: id, time: id === 'm1' ? 3 : 0 })),
     ...Array.from({ length: 2 / count }, (_, i) => ({ type: 'STAGE_SEPARATION', sourceId: `ring${i}`, time: 2.5 })),
   ], branches: [] } as unknown as FlightResult;
-  expect(asymmetricThrustWarnings(tree, motors)).toEqual([]);
+  expect(asymmetricThrustWarnings(tree, motors)).toEqual([]); // 20 N is below 10% of the group peak.
   expect(asymmetricThrustWarnings(tree, motors, result)).toEqual([]);
 });
 

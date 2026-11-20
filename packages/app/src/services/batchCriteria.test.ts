@@ -2,6 +2,21 @@ import { describe, it, expect } from 'vitest';
 import { timeStepCostFactor } from './launchConditions.js';
 import { mixedComboCount } from './batchSweep.js';
 import { MOTOR_DB } from './motorDb.js';
+import { gradeBatchRun, type Criteria } from './batchCriteria.js';
+import type { SimRun } from './simReport.js';
+
+it('r2 explicit Batch guidance criteria override only the matching Danger', () => {
+  const criteria: Criteria = { minRodExit: 12, minThrustToWeight: 3, minApogee: null, maxApogee: null,
+    autoDelay: false, includeOOP: false, manufacturers: [], classes: [], impulse: [] };
+  const run = { rodExitVelocity: 13, thrustToWeightAtRod: 4, comments: 'Rod-exit speed 13 < guidance. | Thrust:weight 4:1 at rod exit < 5:1.',
+    commentLevels: ['warning', 'warning'], simWarnings: [] } as unknown as SimRun;
+  expect(gradeBatchRun(run, criteria)).toEqual([]);
+  expect(gradeBatchRun(run, { ...criteria, minRodExit: null })).toContain('danger');
+  expect(gradeBatchRun(run, { ...criteria, minThrustToWeight: null })).toContain('danger');
+  expect(gradeBatchRun({ ...run, comments: run.comments + ' | Under-stable.', commentLevels: ['warning', 'warning', 'warning'] }, criteria)).toContain('danger');
+  expect(gradeBatchRun({ ...run, simWarnings: [{ key: 'NO_RECOVERY_DEVICE', priority: 'HIGH', message: 'No recovery' }] }, criteria)).toContain('danger');
+  expect(gradeBatchRun({ ...run, rodExitVelocity: 11 }, criteria)).toContain('danger');
+});
 import {
   BATCH_ESTIMATE_ABOVE_FLIGHTS, BATCH_FLIGHT_S, BATCH_MAX_FLIGHTS, batchButtonLabel, batchCandidates,
   batchConfirmWarning, batchDurationText, batchEstimate, batchFlightCount, batchMaxCandidates,

@@ -1,4 +1,6 @@
 import type { ComponentNode } from '@online-openrocket/engine';
+import { noteText } from './noteField.js';
+import { formatWarningText } from './simWarnings.js';
 import type { FlightOverrides, FlightTree, SavedConfig } from '../model/design.js';
 import type { NoticeSeverity } from '../components/NoticeBar.js';
 import { motorLengthLimit } from '../tree/motorLength.js';
@@ -184,6 +186,7 @@ export function motorFreeProjection(opened: OpenedDesign): MotorFreeProjection {
   const ids = new Map<string, string>();
   const visit = (nodes: ComponentNode[]) => {
     for (const node of nodes) {
+      delete node['fileMotorIds'];
       if (node.id) {
         const next = `n${ids.size + 1}`;
         ids.set(node.id, next);
@@ -206,6 +209,8 @@ export function motorFreeProjection(opened: OpenedDesign): MotorFreeProjection {
   };
   follow(clone);
   const tree: FlightTree = { ...clone.tree };
+  if (tree.legacyPositionCheck && typeof tree.legacyPositionCheck === 'object') tree.legacyPositionCheck = { ...tree.legacyPositionCheck,
+    pending: tree.legacyPositionCheck.pending.map(id => ids.get(id) ?? id) };
   if (tree.ignitionDefaults) tree.ignitionDefaults = remapKeys(tree.ignitionDefaults, ids)!;
   const removed = { configMotors: 0, unmatched: 0, refusals: 0 };
   const savedConfigs = clone.savedConfigs.map((c): MotorFreeConfig => {
@@ -317,7 +322,7 @@ export async function describeFile(
   const lengthM = essential(info.length, 'length');
   const referenceDiameterM = essential(info.refDiameter, 'reference diameter');
   const dryMassKg = essential(info.massEmpty, 'dry mass');
-  const notes: string[] = [];
+  const notes: string[] = info.warningTexts.map(text => noteText(formatWarningText(text)));
   const force = hasAerodynamicForce(info);
   if (!force) notes.push('No part of the design produces aerodynamic normal force, so it has no centre of pressure and no stability margin to report.');
   const cpM = force ? finiteOrNull(shownCp(info)) : null;

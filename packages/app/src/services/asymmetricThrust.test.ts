@@ -1,9 +1,33 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { FlightResult, RocketTree } from '@online-openrocket/engine';
 import { asymmetricThrustWarnings, thrustImbalance, type ThrustSite } from './asymmetricThrust.js';
 import { balanceMotor, balanceTree } from './asymmetricThrust.testSupport.js';
 import { aftLayout } from '../tree/aftLayout.js';
 import { mountMotorCount } from '../tree/treeModel.js';
+import { MOTOR_DB } from './motorDb.js';
+import { loadCatalogueMotor } from './motorMatch.js';
+import { bundleHasCurve, bundledOnlyFetchSpec } from './thrustcurve.js';
+
+it('r5 lone-burn producer needs no network when the bundled chunk fails', async () => {
+  const row = MOTOR_DB[0]!;
+  const fetch = vi.fn(() => { throw new Error('network forbidden'); });
+  vi.stubGlobal('fetch', fetch);
+  vi.resetModules();
+  vi.doMock('../data/motorCurves.json', () => { throw new Error('chunk failed'); });
+  try {
+    const { loadCatalogueMotor: load } = await import('./motorMatch.js');
+    const { bundledOnlyFetchSpec: fetchSpec } = await import('./thrustcurve.js');
+    await expect(load(row.manufacturerAbbrev, row.designation, 5, { fetchSpec })).rejects.toThrow(/bundled|network/);
+    // Exercise the changed producer with already-loaded flight inputs even
+    // when the catalogue chunk cannot provide another motor.
+    const { asymmetricThrustWarnings: warnings } = await import('./asymmetricThrust.js');
+    expect(warnings(balanceTree(2), [['m0', balanceMotor()]])).toContainEqual(
+      expect.objectContaining({ key: 'ASYMMETRIC_THRUST_LONE' }));
+    expect(fetch).not.toHaveBeenCalled();
+  } finally {
+    vi.doUnmock('../data/motorCurves.json'); vi.resetModules(); vi.unstubAllGlobals();
+  }
+});
 
 const entries = (motors = [balanceMotor(), balanceMotor(), balanceMotor(), balanceMotor()]) =>
   motors.map((m, i) => [`m${i}`, m] as const);
@@ -12,6 +36,72 @@ const site = (y: number, peak = 100, burn = 2): ThrustSite => ({
 });
 
 describe('row 127 thrust balance', () => {
+  it('r4 a qualifying shipped curve names a lone burn without pinning upstream motors', async () => {
+    // The exact owner examples are measurements in the opt-in corpus harness.
+    // CI selects from today's bundle; a refresh may change names and curves.
+    let checked = false;
+    for (const row of MOTOR_DB) {
+      if (row.burnTimeS < 0.5 || (await bundleHasCurve(row.motorId)) !== true) continue;
+      const motor = (await loadCatalogueMotor(row.manufacturerAbbrev, row.designation, 10,
+        { fetchSpec: bundledOnlyFetchSpec }))!;
+      const { times, thrusts } = motor.spec;
+      const duration = times.at(-1)! - times[0]!;
+      const impulse = times.slice(1).reduce((sum, t, i) => sum + (t - times[i]!) * (thrusts[i]! + thrusts[i + 1]!) / 2, 0);
+      if (duration < 0.5 || impulse / duration < Math.max(...thrusts) * 0.05) continue;
+      const warnings = asymmetricThrustWarnings(balanceTree(2), entries([motor]));
+      expect(warnings[0]?.key).toBe('ASYMMETRIC_THRUST_DANGER');
+      expect(warnings.some(w => w.key === 'ASYMMETRIC_THRUST_LONE')).toBe(true);
+      checked = true;
+      break;
+    }
+    expect(checked, 'a bundled curve qualifying for the owner lone-burn gate').toBe(true);
+  }, 60_000);
+  it('J23 names the whole lone burn when only one off-axis motor is loaded', () => {
+    const warnings = asymmetricThrustWarnings(balanceTree(2), entries([balanceMotor()]));
+    expect(warnings[0]!.key).toBe('ASYMMETRIC_THRUST_DANGER');
+    expect(warnings).toContainEqual(expect.objectContaining({ key: 'ASYMMETRIC_THRUST_LONE',
+      message: expect.stringContaining('burns alone off-axis for 2 s') }));
+  });
+  it('J23 adds the longest 2.8 s lone-burn Caution while keeping the peak rating', () => {
+    const motors = entries([balanceMotor(100, 4.4), balanceMotor(200, 1.6), balanceMotor(200, 1.6), balanceMotor(200, 1.6)]);
+    const warnings = asymmetricThrustWarnings(balanceTree(), motors);
+    expect(warnings[0]!.key).toBe('ASYMMETRIC_THRUST_CAUTION');
+    expect(warnings[0]!.message).toContain('14.3 %');
+    expect(warnings).toContainEqual(expect.objectContaining({ key: 'ASYMMETRIC_THRUST_LONE',
+      message: expect.stringContaining('“Mount 1” burns alone off-axis for 2.8 s') }));
+    const danger = asymmetricThrustWarnings(balanceTree(), entries([
+      balanceMotor(200, 4.4), balanceMotor(100, 1.6), balanceMotor(100, 1.6), balanceMotor(100, 1.6),
+    ]));
+    expect(danger[0]!.key).toBe('ASYMMETRIC_THRUST_DANGER');
+    expect(danger.some(w => w.key === 'ASYMMETRIC_THRUST_LONE')).toBe(true);
+  });
+  it('r2 gates lone burns by duration and average thrust, including threshold equality', () => {
+    const warnings = (burn: number, force: number) => {
+      const motors = [balanceMotor(force, burn), balanceMotor(100, 1)];
+      for (const m of motors) { m.spec.times = [0, m.spec.times.at(-1)!]; m.spec.thrusts = [m.spec.thrusts[1]!, m.spec.thrusts[1]!]; }
+      return asymmetricThrustWarnings(balanceTree(2), entries(motors)).filter(w => w.key === 'ASYMMETRIC_THRUST_LONE');
+    };
+    expect(warnings(1.49, 100)).toEqual([]);
+    expect(warnings(1.5, 100)).toHaveLength(1);
+    expect(warnings(4, 1)).toEqual([]);
+    expect(warnings(4, 100 / 19)).toHaveLength(1);
+    expect(warnings(4, 5)).toEqual([]);
+  });
+  it('r2 labels upper-stage lone endpoints relative to first ignition', () => {
+    const tree = balanceTree(2);
+    tree.components.push({ type: 'stage', id: 'booster', children: [] });
+    const motors = entries([balanceMotor(100, 4), balanceMotor(100, 1)]);
+    for (const [, motor] of motors) motor.ignition = { event: 'burnout', delay: 5 };
+    const lone = asymmetricThrustWarnings(tree, motors).find(w => w.key === 'ASYMMETRIC_THRUST_LONE');
+    expect(lone?.message).toContain('(1–4 s after ignition)');
+  });
+  it('r2 averages the whole continuous lone interval rather than a stronger prefix', () => {
+    const tail = balanceMotor(100, 20), other = balanceMotor(100, 1);
+    tail.spec.times = [0, 1, 1.6, 1.7, 20];
+    tail.spec.thrusts = [100, 100, 100, 1, 1];
+    const warnings = asymmetricThrustWarnings(balanceTree(2), entries([tail, other]));
+    expect(warnings.some(w => w.key === 'ASYMMETRIC_THRUST_LONE')).toBe(false);
+  });
   it('gives exact zero for identical symmetric motors and opposite pairs of different motors', () => {
     expect(thrustImbalance([site(1), site(-1)]).fraction).toBe(0);
     expect(asymmetricThrustWarnings(balanceTree(), entries())).toEqual([]);
@@ -140,11 +230,11 @@ describe('row 127 thrust balance', () => {
     const flight = { events: [{ type: 'IGNITION', motorMountId: 'm0', time: 0 },
       { type: 'IGNITION', motorMountId: 'upper', time: 0 }], branches: [] } as unknown as FlightResult;
     expect(asymmetricThrustWarnings(tree, motors, flight).map(w => w.key))
-      .toEqual(['ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_DANGER']);
+      .toEqual(['ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_LONE', 'ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_LONE']);
     flight.events[1]!.time = 3;
     flight.events.push({ type: 'STAGE_SEPARATION', sourceId: 'stage', time: 3 });
     expect(asymmetricThrustWarnings(tree, motors, flight).map(w => w.key))
-      .toEqual(['ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_DANGER']);
+      .toEqual(['ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_LONE', 'ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_LONE']);
   });
   it('round 6 retains uncertainty when the combined bound can imbalance thrust', () => {
     const tree = balanceTree(2);

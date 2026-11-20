@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import type { MountMotor } from '../model/design.js';
 import { withAuto, withDelay, withPlugged } from '../services/mountDelayEdits.js';
-import { MOTOR_DB, MOTOR_DB_DATE, setCatalogueOverlay } from '../services/motorDb.js';
+import { MOTOR_DB, MOTOR_DB_DATE, setCatalogueOverlay, displayDesignation, sortMotors } from '../services/motorDb.js';
 import { resetThrustcurveBackoffForTests } from '../services/thrustcurveTraffic.js';
 import { loadExMotors, parseEng } from '../services/exMotors.js';
 import * as thrustcurve from '../services/thrustcurve.js';
@@ -137,6 +137,7 @@ interface Harness {
 }
 
 function openBrowser(props: { mountDiameterMm: number; maxMotorLengthM?: number | null; filters?: Record<string, unknown>;
+  fileMotorIds?: string[];
   onClose?: () => void; recoveryAdviceFor?: (delay: number, auto: boolean) => string | null }): Harness {
   if (props.filters) localStorage.setItem(FILTERS_KEY, JSON.stringify(props.filters));
   const host = document.createElement('div');
@@ -148,6 +149,7 @@ function openBrowser(props: { mountDiameterMm: number; maxMotorLengthM?: number 
   act(() => root.render(
     <PrefsProvider>
       <MotorBrowser mountDiameterMm={props.mountDiameterMm} maxMotorLengthM={props.maxMotorLengthM ?? null}
+        fileMotorIds={props.fileMotorIds}
         recoveryAdviceFor={props.recoveryAdviceFor}
         onSelect={(label, spec, meta) => {
           selected.push({ label, ejectionDelay: spec.ejectionDelay });
@@ -192,6 +194,47 @@ const settle = async (ms = 0) => { await act(async () => {
 }); };
 const loadButton = (h: Harness) => Array.from(h.host.querySelectorAll('button'))
   .find((b) => /Load motor|Loading/.test(b.textContent ?? ''));
+
+it('J23 offers the opened file motor again even though it is wider than this mount', async () => {
+  let motor = MOTOR_DB.find(m => m.diameter > 38)!;
+  for (const candidate of MOTOR_DB.filter(m => m.diameter > 38)) {
+    if (await thrustcurve.bundleHasCurve(candidate.motorId)) { motor = candidate; break; }
+  }
+  const h = openBrowser({ mountDiameterMm: 18, fileMotorIds: [motor.motorId] });
+  onTestFinished(() => closeBrowser(h));
+  const row = bodyRows(h).find(r => r.textContent?.includes('file motor'));
+  expect(row).toBeDefined();
+  expect(row!.textContent).toContain(displayDesignation(motor.designation, motor.manufacturerAbbrev));
+  click(row!);
+  await settle();
+  expect(loadButton(h)).toBeDefined();
+  click(loadButton(h)!);
+  await settle();
+  expect(h.specs[0]?.diameter).toBeCloseTo(motor.diameter / 1000, 9);
+});
+
+it('J23 keeps the file motor visible past the browser row cap', () => {
+  const motor = sortMotors(MOTOR_DB, 'designation', 1).at(-1)!;
+  const h = openBrowser({ mountDiameterMm: 1000, fileMotorIds: [motor.motorId], filters: { sortKey: 'designation', sortDir: 1, includeOOP: true } });
+  onTestFinished(() => closeBrowser(h));
+  expect(bodyRows(h).find(r => r.textContent?.includes('file motor'))).toBeDefined();
+});
+
+it('r5 file motors obey search and the explicit length filter', async () => {
+  const motor = MOTOR_DB.find(m => m.diameter > 38 && m.length > 0)!;
+  const h = openBrowser({ mountDiameterMm: 18, fileMotorIds: [motor.motorId],
+    maxMotorLengthM: motor.length / 2000 });
+  onTestFinished(() => closeBrowser(h));
+  expect(bodyRows(h).some(r => r.textContent?.includes('file motor'))).toBe(true);
+  search(h, 'zzzz-no-such-motor');
+  await settle(300);
+  expect(bodyRows(h).some(r => r.textContent?.includes('file motor'))).toBe(false);
+  search(h, '');
+  await settle(300);
+  const fits = [...h.host.querySelectorAll('label')].find(l => /only motors that fit/i.test(l.textContent ?? ''))!;
+  click(fits.querySelector('input')!);
+  expect(bodyRows(h).some(r => r.textContent?.includes('file motor'))).toBe(false);
+});
 
 it('W2-WARN previews catalogue and custom zero-delay recovery as Caution while allowing selection', () => {
   const h = openBrowser({ mountDiameterMm: 24, recoveryAdviceFor: (delay, auto) => delay === 0 && !auto ? 'Zero delay triggers recovery at burnout.' : null });

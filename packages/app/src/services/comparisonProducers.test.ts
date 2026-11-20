@@ -1,4 +1,40 @@
 // @vitest-environment happy-dom
+// J23 r7: census unchanged. The existing fit comparison moves into the shared
+// file-choice refresh; mount quotes, API bounds and configuration note refresh
+// add no physical threshold. motorChanges.r7 and the real Worker tests cover it.
+// J23 r6: B-9 removed by owner ruling; NozzleField 7 -> 8 restores the
+// v0.211 published numeric placeholder and mount-time fill. Base field tests
+// cover it. No new comparison or threshold; all other lane producers remain.
+// J23 r5: NozzleField 8 -> 7 removes the numeric source placeholder;
+// blank explicitly means effects off, and spinners do not step from a source.
+// The existing fit dimensions/slack and lone-burn thresholds are unchanged.
+// MotorBrowser/motorDb tests cover every filter on original file choices;
+// motorLinkOpen covers the shared estimated-room fallback. Provenance and
+// configuration null checks are metadata/presence, not numeric thresholds.
+// J23 r4: rocksimFile 290 -> 292 reads/writes assumed-bore provenance.
+// These boolean marker comparisons add no numerical boundary or note text;
+// motorFitWarnings.test covers true/false RockSim and legacy ORK round trips.
+// The 2 mm RASAero recovery now shares assumedBore on open and restore.
+// J23 r3: census unchanged. Explicit false also preserves a measured bore;
+// sessionRestore migrates released RASAero assumptions without changing geometry.
+// The corrected lone-burn gate is 0.5 s / 5% of combined peak; threshold and
+// shipped-curve regressions cover it. No other threshold or tolerance changed.
+// J23 r2: orkFile 545 -> 547 recognizes and writes the assumed-bore
+// provenance tag. This is metadata, with no numerical threshold change;
+// motorFitWarnings.test covers real/assumed bores and save/reopen preservation.
+// Lone-burn duration/average gates follow the owner's corrected 0.5 s / 5% ruling;
+// asymmetricThrust.test covers below/equal thresholds and relative endpoints.
+// J23 r1b: motorFitWarnings adds 3 producers (preferred-unit dimension formatter,
+// length and bore comparisons). Tests cover both units, fit, explicit/estimated
+// room, equality and the existing 1e-9 m arithmetic slack. asymmetricThrust 2 -> 5
+// adds duration and interval endpoints for the longest off-axis lone burn;
+// synthetic and corpus checks retain the peak rating and cover contiguous tails.
+// autoDelaySolver adds 1 and simStore 5 -> 6 name the existing time-limit
+// consequence, without a new numerical threshold. simWarnings 7 -> 9 and
+// noteExplanations 41 -> 44 add fit/lone-burn labels and remedies; no flown
+// quantity or existing warning threshold changes. B-5 preserves ignition inputs.
+// PreflightAudit 5 -> 6 describes the same motor-fit check in its scope help;
+// this is static copy, covered by the preferred-unit fit and preflight tests.
 // PRFL-1: census unchanged. The owner-defined 0.85–1.15 display band and
 // unity crossings describe the sampled flight, with no verdict or flight
 // threshold change. rollPitchResonance.test covers interval boundaries,

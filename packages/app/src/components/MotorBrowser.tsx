@@ -186,7 +186,9 @@ function FilterChip({ on, onToggle, children }: {
   );
 }
 
-export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClose, loadedMotors, recoveryAdviceFor }: {
+export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClose, loadedMotors, recoveryAdviceFor, fileMotorIds }: {
+  /** Motors carried by the opened file on this mount, even when too wide. */
+  fileMotorIds?: readonly string[];
   recoveryAdviceFor?: (delay: number, auto: boolean) => string | null;
   mountDiameterMm: number;
   /** Mount max motor length (SI m); null = no limit. */
@@ -407,11 +409,12 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       burnS: { min: filters.burnMin, max: filters.burnMax },
       impulseNs: { min: filters.impulseMin, max: filters.impulseMax },
       boreMm: mountDiameterMm,
+      fileMotorIds,
       includeOOP: filters.includeOOP,
       text,
     }, allMotors);
     return sortMotors(filtered, filters.sortKey, filters.sortDir);
-  }, [filters, shown, text, mountDiameterMm, allMotors, maxMotorLengthM]);
+  }, [filters, shown, text, mountDiameterMm, allMotors, maxMotorLengthM, fileMotorIds]);
 
   // Single files or a whole EX-motor folder (2026-08-05e): every .eng/.rse
   // found is parsed and added to the persistent library; unreadable files are
@@ -573,7 +576,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
    * passing over a row should not. Shared with PresetPicker since the
    * 2026-09-30 audit found the same 300-stop table there (useRovingRows).
    */
-  const shownRows = rows.slice(0, ROW_CAP);
+  const shownRows = rows.filter((motor, index) => index < ROW_CAP || fileMotorIds?.includes(motor.motorId));
   const { bodyRef: tbodyRef, rove } = useRovingRows(shownRows.map((m) => m.motorId), picked?.motorId);
 
   const dialogRef = useDialog(close);
@@ -888,7 +891,9 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                         ? `Longer than your max motor length — may hit internal components. Still selectable.`
                         : undefined}
                   >
-                    <td>{flagged && '⚠ '}{displayDesignation(m.designation, m.manufacturerAbbrev)}{!isAvailable(m) && <span className="motor-oop">OOP</span>}</td>
+                    <td>{flagged && '⚠ '}{displayDesignation(m.designation, m.manufacturerAbbrev)}{!isAvailable(m) && <span className="motor-oop">OOP</span>}
+                      {fileMotorIds?.includes(m.motorId) && <span className="motor-db-meta"> · file motor</span>}
+                    </td>
                       <td>{displayMotorManufacturer(m)}</td>
                     <td>{dimUi(m.diameter).toFixed(motorSym === 'mm' ? 0 : 2)}</td>
                     <td>{dimUi(m.length).toFixed(motorSym === 'mm' ? 0 : 2)}</td>
@@ -904,7 +909,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
           )}
           {rows.length > ROW_CAP && (
             <p className="motor-db-meta" style={{ padding: '6px 8px' }}>
-              Showing {ROW_CAP} of {rows.length} — narrow the filters or sort to bring what you want to the top.
+              Showing {shownRows.length} of {rows.length} — narrow the filters or sort to bring what you want to the top.
             </p>
           )}
         </div>

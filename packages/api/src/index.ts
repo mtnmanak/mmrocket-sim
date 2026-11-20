@@ -115,7 +115,7 @@ function summary(out: TimedSimulateFileResult) {
 
 /** The /describe v1 contract (S5): the service's result, with the fragment's full app link; stampedJson adds the stamp. */
 function described(out: DescribeFileResult) {
-  const notes = noteStrings(out.notes);
+  const notes = noteStrings({ ...out.notes, analysis: out.notes.analysis.map(warningEcho) });
   const { group: _group, ...importNote } = notes.import;
   return {
     api: '1',

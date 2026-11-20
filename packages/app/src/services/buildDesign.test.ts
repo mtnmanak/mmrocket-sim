@@ -76,6 +76,20 @@ const SPEC: MotorSpec = {
   cgX: 0.035, ejectionDelay: 5,
 };
 
+it.each([null, 0.05])('J23 discloses loaded motor length and bore, limit %s', limit => {
+  const { input } = starter({ event: 'automatic', delay: 0 }, null);
+  const node = motorMounts(input.tree)[0]!;
+  if (limit !== null) node['maxMotorLength'] = limit;
+  input.assigned[0]![1].spec = { ...SPEC, length: 2, diameter: 0.1 };
+  const built = buildDesign(input, recordingFactory().handles);
+  expect(built).not.toHaveProperty('error');
+  if ('error' in built) return;
+  expect(built.info.warningTexts.join(' ')).toContain('Motor length');
+  expect(built.info.warningTexts.join(' ')).toContain(limit === null ? 'estimated room' : 'Max motor length');
+  expect(built.info.warningTexts.join(' ')).toContain('motor diameter');
+  expect(built.motorFailures).toEqual([]);
+});
+
 function starter(ignition: MountMotor['ignition'], padOverKg: number | null, massEmpty = 0.03) {
   const tree = defaultTree();
   const mount = motorMounts(tree)[0]!.id!;

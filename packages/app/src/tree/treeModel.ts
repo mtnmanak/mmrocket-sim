@@ -515,10 +515,19 @@ export function updateNode(
   id: string,
   patch: Partial<ComponentNode>,
 ): RocketTree {
+  const apply = (node: ComponentNode): ComponentNode => {
+    const next = { ...node, ...patch };
+    // An explicitly stated wall replaces the importer's assumed bore.
+    if (node['boreAssumed'] === true && Object.hasOwn(patch, 'thickness')
+      && numOpt(next, 'thickness') !== undefined && !Object.hasOwn(patch, 'boreAssumed')) {
+      next['boreAssumed'] = false;
+    }
+    return next;
+  };
   const walk = (nodes: ComponentNode[]): ComponentNode[] =>
     nodes.map((n) =>
       n.id === id
-        ? ({ ...n, ...patch } as ComponentNode)
+        ? apply(n)
         : n.children
           ? ({ ...n, children: walk(n.children) } as ComponentNode)
           : n,
@@ -2022,6 +2031,8 @@ export function cloneSubtree(node: ComponentNode): ComponentNode {
     id: freshId(),
     children: node.children?.map(cloneSubtree),
   } as ComponentNode;
+  delete next['fileMotorIds'];
+  if (node['motorMount'] === true) next['fileMotorIds'] = [];
   const pts = node['points'];
   if (Array.isArray(pts)) {
     next['points'] = pts.map((r) => (Array.isArray(r) ? [...r] : r));

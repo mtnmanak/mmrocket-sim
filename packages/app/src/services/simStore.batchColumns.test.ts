@@ -4,6 +4,15 @@ import { addRuns, loadRuns, runsToCsv, runsToTable } from './simStore.js';
 import type { BatchMountRecord, SimRun } from './simReport.js';
 
 afterEach(() => localStorage.clear());
+it.each(['INCOMPLETE_FLIGHT', 'SIM_ABORT'])('J23 exports no passing verdict for %s', key => {
+  const run = row('cutoff', { velocityAtDeployment: 5, safeLandingRate: true, safeLiftoffSpeed: true,
+    safeThrustToWeight: true, staticMarginOk: true, simWarnings: [{ key, message: key }] });
+  const table = runsToTable([run]);
+  for (const label of ['Safe deployment', 'Landing rate OK', 'Lift-off speed OK', 'Thrust:weight OK', 'Static margin OK']) {
+    expect(table.rows[0]![table.headers.indexOf(label)], label).toBe('');
+  }
+  expect(table.rows[0]![table.headers.indexOf('Comments')]).toMatch(/incomplete/i);
+});
 const mounts: BatchMountRecord[] = [
   { mountId: 'a', mountName: 'MMT 1', role: 'candidate', motor: 'M1780NT', count: 1 },
   { mountId: 'b', mountName: 'MMT 2', role: 'kept', motor: 'K1499N', count: 1 },

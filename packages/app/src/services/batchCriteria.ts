@@ -1,4 +1,5 @@
-import { runStoppedEarly, type SimRun } from './simReport.js';
+import { commentsOf, runStoppedEarly, type SimRun } from './simReport.js';
+import { warningTier } from './simWarnings.js';
 import { classesFittingMount, filterMotors, impulseClassesForMount, manufacturersForMount, sortMotors, type MotorDbEntry } from './motorDb.js';
 import { batchFlightCount, type BatchCombination } from './batchSweep.js';
 export { batchFlightCount } from './batchSweep.js';
@@ -30,6 +31,14 @@ export interface Criteria {
  */
 export function gradeBatchRun(run: SimRun, criteria: Criteria): string[] {
   const failed: string[] = [];
+  const rodPass = criteria.minRodExit !== null && run.rodExitVelocity !== null && run.rodExitVelocity >= criteria.minRodExit;
+  const thrustPass = criteria.minThrustToWeight !== null && run.thrustToWeightAtRod !== null
+    && run.thrustToWeightAtRod >= criteria.minThrustToWeight;
+  const danger = run.simWarnings?.some(w => warningTier(w.key) === 'danger')
+    || commentsOf(run).some(c => c.level === 'warning'
+      && !(rodPass && c.text.startsWith('Rod-exit speed '))
+      && !(thrustPass && c.text.startsWith('Thrust:weight ')));
+  if (danger) failed.push('danger');
   // An aborted flight can never be "accepted": the kernel stopped it early,
   // so its apogee is whatever height the rocket had reached when it gave up.
   // Before this, a tumbling design's 140 m truncated flight could sail past

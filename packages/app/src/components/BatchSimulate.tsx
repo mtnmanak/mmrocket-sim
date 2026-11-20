@@ -1,5 +1,5 @@
 import { Note } from './Note.js';
-import { ThrustBalanceMark } from './ThrustBalanceNotes.js';
+import { MotorFitMark, ThrustBalanceMark } from './ThrustBalanceNotes.js';
 import { LaunchOverrideWarning, type LaunchOverrideProps } from './LaunchOverrideWarning.js';
 import type { FlightOverrideSummary } from '../services/flightOverrideSummary.js';
 import {
@@ -24,7 +24,7 @@ import {
   classLabel, classesFittingMount, fitsMount, manufacturersForMount, impulseClassesForMount, impulseLetter, filterMotors,
 } from '../services/motorDb.js';
 import { exToDbEntry, loadExMotors } from '../services/exMotors.js';
-import { SAFETY, type DesignMatchKey, type SimRun } from '../services/simReport.js';
+import { runHasDanger, SAFETY, type DesignMatchKey, type SimRun } from '../services/simReport.js';
 import { railNeededCell, railNeededHeader } from '../services/railNeeded.js';
 import {
   addRuns, runCapNote, runsEvictedByLastWrite, runsToCsv, runsToTable, runsUnsavedByLastWrite,
@@ -203,7 +203,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
     ? targetChoice.on : batchTargetsDefault(matchingMounts, assignedMotors, assignedMountMotors, assignedMotorIds));
   const targets = useMemo(() => allMatching ? matchingMounts : [sel], [allMatching, matchingMounts, sel]);
   const targetIds = targets.map(m => m.id);
-  // One-mount sweeps use automatic ignition; matching sets keep every mount's own ignition.
+  // Every sweep keeps each mount's own ignition, including one-mount sweeps.
   const overrideSummary = overrideSummaryForMount?.(allMatching ? undefined : sel.id, allMatching ? targetIds : undefined);
   const mountDiameterMm = sel.diameterMm;
   // Diameter-class fit is monotonic: the smallest picker bore limits every target.
@@ -1007,8 +1007,10 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
                     <td>{run?.thrustToWeightAtRod != null ? run.thrustToWeightAtRod.toFixed(1) : '—'}</td>
                     <td>{typeof run?.optimumDelayS === 'number' && Number.isFinite(run.optimumDelayS) ? `${run.optimumDelayS.toFixed(1)}s` : '—'}</td>
                     <td className={failed.length ? 'stability-bad' : 'stability-good'}>
-                      {error ? `error: ${error}` : failed.length ? `✗ ${failed.join(', ')}` : '✓ accepted'}
+                      {error ? `error: ${error}` : failed.includes('danger') ? `⚠ ${failed.join(', ')}` : failed.length ? `✗ ${failed.join(', ')}` : '✓ accepted'}
+                      {run && !failed.includes('danger') && runHasDanger(run) && <span className="stability-bad"> · ⚠ danger</span>}
                       <ThrustBalanceMark warnings={run?.simWarnings ?? []} />
+                      <MotorFitMark warnings={run?.simWarnings ?? []} />
                     </td>
                   </tr>
                 ))}

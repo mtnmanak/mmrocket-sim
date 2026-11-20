@@ -22,7 +22,7 @@ export type AuditMasses = Readonly<Record<string, number | null | undefined>>;
 export interface AuditFinding {
   id: string;
   kind: 'mass-ratio' | 'whole-mass-without-cg' | 'covered-mass' | 'nested-mass' | 'material-density'
-    | 'no-recovery' | 'no-deployment' | 'existing-recovery-note';
+    | 'no-recovery' | 'no-deployment' | 'existing-recovery-note' | 'motor-fit';
   tier: NoteTier;
   part: AuditPart;
   reason: string;
@@ -119,6 +119,12 @@ export function preflightAudit(
 ): PreflightAuditResult {
   const result: PreflightAuditResult = { findings: [], uncheckedMassParts: [], unknownMaterialCount: 0 };
   const parts = allParts(tree);
+  for (const [index, text] of existingNotes.entries()) {
+    if (!/^\[Warning\.MOTOR_TOO_(LONG|WIDE)\]/.test(text)) continue;
+    result.findings.push({ id: `motor-fit:${index}`, kind: 'motor-fit', tier: 'caution',
+      part: { id: tree.components[0]?.id ?? '', name: 'Motor fit' }, target: 'design-notes',
+      reason: text.replace(/^\[Warning\.[^\]]+\]\s*/, '') });
+  }
   const add = (node: ComponentNode, finding: Omit<AuditFinding, 'id' | 'part'>) => {
     if (!node.id) return;
     result.findings.push({ ...finding, id: `${finding.kind}:${node.id}:${finding.density?.field ?? ''}`, part: namedPart(node) });

@@ -41,6 +41,8 @@ export function PreflightAudit({ result, onSelectPart }: {
         Custom or unnamed bulk and fillet materials are not checked.</p>
       <p>Recovery checks find no parachute or streamer in the design, or a device set to Never in the active flight settings.
         They do not check whether electronics, an ejection charge, every separated stage, or a real recovery system will work.</p>
+      <p>Motor-fit cautions compare loaded motor dimensions with the mount bore and its maximum length, or estimated room when no maximum is set.
+        Check the real clearance; the simulation does not model a motor hitting internal parts.</p>
     </details>
   </section>;
 }

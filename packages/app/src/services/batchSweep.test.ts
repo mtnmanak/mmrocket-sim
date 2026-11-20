@@ -224,6 +224,54 @@ function input(tree: RocketTree, over: Partial<BatchSweepInput> = {}): BatchSwee
 const sweep = (inp: BatchSweepInput, deps: Partial<BatchSweepDeps>, signal = new AbortController().signal) =>
   runBatchSweep(inp, { signal }, { yieldToUi: noYield, ...deps });
 
+it('J23 keeps the single-mount ignition delay and matches Launch', async () => {
+  const candidate = entry('a', 'Acme', 'E20', '5');
+  const fly = vi.spyOn(flightRunner, 'flyLaunch');
+  const result = await sweep(input(rocket(), { autoDelay: false, candidates: [candidate],
+    assignedIgnitions: { mount: { event: 'launch', delay: 1 } } }),
+  { fetchSpec: fetchFrom({ a: curve('E20') }), nozzleFor: nozzles({}) });
+  expect(result.rows[0]!.error).toBeUndefined();
+  const flown = result.rows[0]!.run!;
+  const assigned = Object.fromEntries(fly.mock.calls[0]![1].assigned);
+  expect(assigned['mount']!.ignition).toEqual({ event: 'launch', delay: 1 });
+  const ordinary = await simulateDesign(designState(rocket(), assigned), { aero: provenanceAero, yieldToUi: noYield });
+  expect(flown.maxAltitude).toBeCloseTo(ordinary.run.maxAltitude, 6);
+  const baseline = await sweep(input(rocket(), { autoDelay: false, candidates: [candidate] }),
+    { fetchSpec: fetchFrom({ a: curve('E20') }), nozzleFor: nozzles({}) });
+  expect(flown.maxAltitude).not.toBe(baseline.rows[0]!.run!.maxAltitude);
+  expect(flown.motorSetKey).toContain('launch');
+  expect(flown.motorSetKey).toContain('1');
+}, 60_000);
+
+it('J23 keeps tree ignition defaults on swept and background mounts', async () => {
+  const tree = rocket({ sideMount: true });
+  const ignitions = { mount: { event: 'launch' as const, delay: 0.3 }, side: { event: 'launch' as const, delay: 0.7 } };
+  const fly = vi.spyOn(flightRunner, 'flyLaunch');
+  const result = await sweep(input({ ...tree, ignitionDefaults: ignitions } as RocketTree, {
+    autoDelay: false, candidates: [entry('a', 'Acme', 'E20', '5')], mounts: [MOUNT, { ...MOUNT, id: 'side' }],
+    assignedMotors: { side: curve('Other') },
+  }), { fetchSpec: fetchFrom({ a: curve('E20') }), nozzleFor: nozzles({}) });
+  expect(result.rows[0]?.error).toBeUndefined();
+  expect(Object.fromEntries(fly.mock.calls[0]![1].assigned.map(([id, m]) => [id, m.ignition]))).toEqual(ignitions);
+}, 60_000);
+
+it('J23 split-cluster legs inherit the original target ignition', async () => {
+  const tree = clusterRocket('4-ring');
+  const fly = vi.spyOn(flightRunner, 'flyLaunch');
+  const ignition = { event: 'launch' as const, delay: 1 };
+  const result = await sweep(input(tree, { autoDelay: false, includeSingles: false,
+    assignedIgnitions: { mount: ignition }, splits: [splitClusterTree(tree, 'mount')!],
+    candidates: [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')],
+  }), { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }), nozzleFor: nozzles({}) });
+  expect(result.rows).toHaveLength(1);
+  expect(result.rows[0]!.error).toBeUndefined();
+  expect(fly.mock.calls[0]![1].assigned).toHaveLength(2);
+  for (const [id, motor] of fly.mock.calls[0]![1].assigned) {
+    expect(id).not.toBe('mount');
+    expect(motor.ignition).toEqual(ignition);
+  }
+}, 60_000);
+
 it('143 records flown loadouts for single and combination rows without claiming the design configuration', async () => {
   const tree = clusterRocket('4-ring', 'apogee');
   const candidates = [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')];
@@ -455,7 +503,7 @@ it('does not claim a background motor with a refused ignition event was kept', a
   expect(out.rows[0]?.run?.batchMounts?.find(m => m.mountId === 'side')).toMatchObject({ role: 'empty', motor: null });
 }, 60_000);
 
-it('row 127 warns from each candidate loadout without changing Batch acceptance', async () => {
+it('row 127 warns from each candidate loadout and Danger fails Batch acceptance', async () => {
   const tree = rocket({ sideMount: true });
   Object.assign(motorMounts(tree).find(m => m.id === 'mount')!, { radialPosition: 0.01, radialDirection: 0 });
   Object.assign(motorMounts(tree).find(m => m.id === 'side')!, { radialPosition: 0.01, radialDirection: Math.PI });
@@ -471,7 +519,8 @@ it('row 127 warns from each candidate loadout without changing Batch acceptance'
   expect(strong.simWarnings?.map(w => w.key)).toContain('ASYMMETRIC_THRUST_DANGER');
   const criteria = { minRodExit: null, minThrustToWeight: null, minApogee: null, maxApogee: null,
     autoDelay: false, includeOOP: false, manufacturers: [], classes: [], impulse: [] };
-  expect(gradeBatchRun(strong, criteria)).toEqual(gradeBatchRun({ ...strong, simWarnings: [] }, criteria));
+  expect(gradeBatchRun(strong, criteria)).toContain('danger');
+  expect(gradeBatchRun({ ...strong, simWarnings: [], comments: '', commentLevels: [] }, criteria)).not.toContain('danger');
 }, 60_000);
 it.each(['toString', 'constructor', '__proto__'])('flies a loaded legacy sibling without inherited motor metadata: %s', async id => {
   const tree = rocket({ sideMount: true });
@@ -1775,7 +1824,7 @@ it.each(['removed', 'refused', 'target'] as const)('R9: excludes retained hardwa
     candidates: [entry('a', 'Acme', 'E20', '5')], autoDelay: false,
     assignedMountMotors: { [mountId]: motor },
     assignedMotors: { [mountId]: { ...motor.spec, masses: motor.spec.masses.map((m) => m + 0.01) } },
-    assignedIgnitions: { [mountId]: { event: 'invalid' as MountMotor['ignition']['event'], delay: 0 } },
+    assignedIgnitions: { [mountId]: { event: (kind === 'target' ? 'launch' : 'invalid') as MountMotor['ignition']['event'], delay: 0 } },
   });
   const deps = { fetchSpec: fetchFrom({ a: motor.spec }), nozzleFor: nozzles({}) };
   const control = (await sweep(base, deps)).rows[0]!;

@@ -44,7 +44,8 @@ const QUICK_PICKS: ReadonlyArray<{ mfr: string; des: string; delay: number }> = 
 
 const pickLabel = (p: { mfr: string; des: string; delay: number }): string => `${p.mfr} ${p.des}-${p.delay}`;
 
-export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, onSelect, beginSelection, loadedMotors, showQuickPicks, primaryControlId, recoveryAdviceFor }: {
+export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, onSelect, beginSelection, loadedMotors, showQuickPicks, primaryControlId, recoveryAdviceFor, fileMotorIds }: {
+  fileMotorIds?: readonly string[];
   recoveryAdviceFor?: (delay: number, auto: boolean) => string | null;
   mountDiameterMm: number;
   /** Mount max motor length (SI m); null = no limit. */
@@ -180,6 +181,7 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
       </button>
       {browsing && (
         <MotorBrowser
+          fileMotorIds={fileMotorIds}
           mountDiameterMm={mountDiameterMm}
           maxMotorLengthM={maxMotorLengthM}
           onSelect={selectFromBrowser}

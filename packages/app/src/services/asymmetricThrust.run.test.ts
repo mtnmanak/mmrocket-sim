@@ -36,8 +36,9 @@ it('row 127 attaches the flown warning, stores it, renders its tier, exports its
   const baseline = buildSimRun({ ...input, advisoryMotors: [] });
   const run = buildSimRun(input);
   expect(run.simWarnings?.map(w => w.key)).toContain('ASYMMETRIC_THRUST_DANGER');
-  expect(gradeBatchRun(run, criteria)).toEqual(gradeBatchRun(baseline, criteria));
-  expect(gradeBatchRun(run, criteria)).toEqual([]);
+  expect(gradeBatchRun(baseline, criteria)).toEqual(['danger']); // The scalar report also records a Danger.
+  expect(gradeBatchRun({ ...baseline, comments: '', commentLevels: [] }, criteria)).toEqual([]);
+  expect(gradeBatchRun(run, criteria)).toEqual(['danger']);
   expect(run.maxAltitude).toBe(baseline.maxAltitude);
   addRun(run);
   // Editing today's assignments cannot rewrite the run's frozen warning.
