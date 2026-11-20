@@ -6,6 +6,7 @@ import { NozzleField } from './NozzleField.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { nozzleForMotorId } from '../services/nozzleDb.js';
 import { addExMotors, getExMotor } from '../services/exMotors.js';
+import { MOTOR_DB } from '../services/motorDb.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -338,6 +339,16 @@ describe('NozzleField — whose figure it is', () => {
 });
 
 describe('NozzleField — rule 4: a value cleared because the motor changed', () => {
+  it('J4 r4 does not blame the published first mount for an incomplete multi-mount exit', async () => {
+    const published = (await Promise.all(MOTOR_DB.map(async row =>
+      await nozzleForMotorId(row.motorId) ? row : null))).find(row => row !== null)!;
+    expect(published).toBeDefined();
+    await render({ motors: [{ motorId: published.motorId, count: 1 }, { motorId: 'no-such-motor', count: 1 }],
+      motorLabel: published.designation, clearedFor: { previousLabel: `${published.designation} + prior motor`, previousM: 0.02 } });
+    expect(text()).not.toContain(`No published exit diameter for ${published.designation}.`);
+    expect(text()).toContain('A published exit diameter is missing for at least one loaded motor');
+    expect(text()).toContain('pressure-thrust term');
+  });
   // Eric, 2026-09-13: "unloading the motor keeps the old exit diameter value —
   // there is no motor loaded, how can there be an exit diameter?" App clears
   // it; the user has to be TOLD, because a number that vanishes silently is

@@ -1,8 +1,18 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import { deployOverrideNote, describeDeployment, sameDeployment, type DeploySetting } from './deployOverrideNote.js';
+import { deployOverrideNote, describeDeployment, flightParameterOverrideNote, sameDeployment, type DeploySetting } from './deployOverrideNote.js';
 import { exportOrk, importOrk } from './orkFile.js';
 import { resolveFlightState } from './flightState.js';
+
+it('J4 S7b-g9 rounds separation and ignition note delays', () => {
+  for (const kind of ['separation', 'ignition'] as const) {
+    const tuple = kind === 'separation' ? { separationEvent: 'burnout', separationAltitude: 0, separationDelay: 0.1 + 0.2 }
+      : { event: 'burnout' as const, delay: 0.1 + 0.2 };
+    const note = flightParameterOverrideNote(kind, 'part', tuple, tuple, null);
+    expect(note).toContain('+ 0.3 s');
+    expect(note).not.toContain('000000000');
+  }
+});
 
 const effective = (r: ReturnType<typeof importOrk>) => resolveFlightState(r.tree,
   r.configs.map(c => ({ ...c, motors: {} })), r.chosenConfigId, {}, {}).tree;

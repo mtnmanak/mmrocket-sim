@@ -18,6 +18,17 @@ import { flushSession, loadSession, saveSessionDebounced } from './session.js';
 import { importedLaunch } from './importApply.js';
 import { applyProposal, beforeOf, undoApply } from './weatherSnapshot.js';
 
+it('J4 S7b-g1 refuses overflowing surface edits and oversized stored profiles', () => {
+  const before = { windAverage: 0.001, windStdDev: 1, windLevels: [
+    { altitude: 0, speed: 0.001, direction: 0 }, { altitude: 1, speed: 1e307, direction: 0 },
+  ] };
+  expect(editProfileSurface(before, { ...before, windAverage: 10 })).toBe(before);
+  expect(validWindLevels(Array.from({ length: 501 }, (_, altitude) => ({ altitude, speed: 1, direction: 0 })))).toBe(false);
+  expect(validWindLevels(Array.from({ length: 500 }, (_, altitude) => ({ altitude, speed: 1, direction: 0 })))).toBe(true);
+  expect(scaleWindSigma(0.0005, 1e307, 0.001)).toBeCloseTo(5e306, -294);
+  expect(() => scaleWindSigma(1e307, 1e307, 0.001)).toThrow('non-finite');
+});
+
 const sample: HourSample = { unix: 1, temperatureC: 20, pressureHPa: 900, windSpeedMs: 4,
   windGustMs: 6, windFromDeg: 350, windsAloft: [
     { altitude: 80, speed: 8, fromDeg: 10 }, { altitude: 200, speed: 12, fromDeg: 330 },
@@ -25,6 +36,30 @@ const sample: HourSample = { unix: 1, temperatureC: 20, pressureHPa: 900, windSp
 const profile: LaunchConditions = { ...DEFAULT_CONDITIONS, timeStepS: 0.05, windAverage: 4, windStdDev: 0.4,
   windLevels: buildWindProfile(sample, 0.4), windProfileSource: { kind: 'open-meteo', place: 'Pad & field', validUnix: 1, surfaceFromDeg: 350 } };
 afterEach(() => localStorage.clear());
+
+it('J4 r3 interpolates maximum finite wind without overflowing import or save', () => {
+  const tree: RocketTree = { components: [{ type: 'bodytube', length: 0.3, outerRadius: 0.012, thickness: 0.001 }] };
+  const max = Number.MAX_VALUE;
+  const levels = [{ altitude: -1, speed: max, direction: Math.PI / 4, standardDeviation: max },
+    { altitude: 6, speed: max, direction: Math.PI / 4, standardDeviation: max }];
+  expect(profileSurface(levels)).toEqual({ windAverage: max, windStdDev: max, direction: Math.PI / 4 });
+  const source = exportOrk({ tree, name: 'T', launch: profile }).replace(/<wind model="multilevel"[\s\S]*?<\/wind>/,
+    `<wind model="multilevel" altituderef="agl">${levels.map(l => `<windlevel altitude="${l.altitude}" speed="${l.speed}" direction="${l.direction}" standarddeviation="${l.standardDeviation}"/>`).join('')}</wind>`);
+  const launch = importOrk(source).launch!;
+  expect(Number.isFinite(launch.windAverage)).toBe(true);
+  expect(Number.isFinite(launch.windStdDev)).toBe(true);
+  expect(exportOrk({ tree, name: 'T', launch: { ...DEFAULT_CONDITIONS, ...launch } })).not.toContain('Infinity');
+});
+
+it('J4 r3 leaves unrepresentable forecast gust scaling unavailable without throwing', () => {
+  const forecast = { ...sample, windSpeedMs: 0.1, windsAloft: [{ altitude: 80, speed: 5, fromDeg: 0 }] };
+  expect(buildWindProfile(forecast, 1e307)).toEqual([]);
+});
+
+it('J4 r3 interpolates opposite extreme heights with bounded weights', () => {
+  expect(profileSurface([{ altitude: -Number.MAX_VALUE, speed: 2, direction: 0 },
+    { altitude: Number.MAX_VALUE, speed: 4, direction: 0 }]).windAverage).toBe(3);
+});
 
 describe('weather wind profile', () => {
   it.each([0, Number.MIN_VALUE, 5e-10])('restores speed ratios after repeated edits through %s and sigma changes', (speed) => {

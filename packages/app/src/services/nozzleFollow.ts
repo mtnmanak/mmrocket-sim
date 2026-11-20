@@ -1,6 +1,6 @@
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
-import { kernelStageIdByNode, nozzleMotorCount, nozzleStages } from '../tree/treeModel.js';
+import { kernelStageIdByNode, nameOr, nozzleMotorCount, nozzleStages } from '../tree/treeModel.js';
 import { getExMotor } from './exMotors.js';
 
 /**
@@ -85,13 +85,15 @@ export function stageMotors(
     byStage.set(stageId, list);
   }
   const out: StageMotors[] = [];
-  nozzleStages(tree).forEach((s, i) => {
+  let axial = 0;
+  nozzleStages(tree).forEach((s) => {
+    if (s.type === 'stage') axial++;
     // A stage with no id cannot be named on either side of the join, and
     // `applyStageNozzles` could not write to it either.
     if (!s.id) return;
     out.push({
       stageId: s.id,
-      stageName: s.name ?? `Stage ${i + 1}`,
+      stageName: nameOr(s, s.type === 'parallelstage' ? 'Strap-on' : `Stage ${axial}`),
       motors: (byStage.get(s.id) ?? []).sort((a, b) => a.mountId.localeCompare(b.mountId)),
     });
   });

@@ -2426,6 +2426,13 @@ describe('per-configuration stage separation', () => {
     </subcomponents>
   </rocket></openrocket>`;
 
+  it('keeps existing blank imported stage normalization before separation notes (baseline)', () => {
+    const result = importOrk(TWO_STAGE.replace('<name>Booster</name>', '<name>   </name>'), { configId: 'cfg-b' });
+    expect(result.tree.components[1]!.name).toBe('Booster 1');
+    expect(result.notes.join('\n')).toContain('separation for Booster 1:');
+    expect(result.notes.join('\n')).not.toContain('“   ”');
+  });
+
   it('records every configuration’s separation, not just the opened one', () => {
     const r = importOrk(TWO_STAGE);
     const boosterId = r.tree.components[1]!.id!;

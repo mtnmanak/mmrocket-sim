@@ -1,4 +1,4 @@
-import { MAX_STATED_MASS_KG } from '../tree/schema.js';
+import { MAX_DIMENSION_M, MAX_STATED_MASS_KG } from '../tree/schema.js';
 import { Note } from './Note.js';
 import type { ReactNode } from 'react';
 import { NumField } from './NumField.js';
@@ -8,6 +8,7 @@ import { usePrefs } from '../prefs/PrefsContext.js';
 import { noticeQuantity, fmtSi, niceStep, siToUi, uiToSi } from '../prefs/units.js';
 import { solveBallast, type BallastSolution } from '../services/buildAllowance.js';
 import type { MeasuredFigures } from '../services/orkFile.js';
+import { nameOr } from '../tree/treeModel.js';
 
 /**
  * "Measured mass & CG" (issues-2026-08-23a.md §5).
@@ -119,10 +120,12 @@ export function MeasuredMassBox({
           </label>
           <NumField
             id="measured-cg"
+            max={siToUi('length', lenSym, MAX_DIMENSION_M)}
+            clampToMax
             value={cgM === null ? undefined : siToUi('length', lenSym, cgM)}
             onCommit={(v) => onChange({
               ...measured,
-              cgM: v === null ? null : uiToSi('length', lenSym, v),
+              cgM: v === null ? null : Math.min(MAX_DIMENSION_M, uiToSi('length', lenSym, v)),
             })}
             nullable
             step={niceStep(siToUi('length', lenSym, 0.005))}
@@ -209,7 +212,7 @@ function verdict({ solution, hasAllowance, onApply, mass, len, blockedBy, onPinS
       // of offering a button that would do nothing. Same wording as the
       // Overrides rows in the property panel, so the two read as one rule.
       if (blockedBy) {
-        const who = blockedBy.name || 'A stage above it';
+        const who = nameOr({ type: 'stage', name: blockedBy.name }, 'Stage');
         if (blockedBy.kind === 'cg') return {
           text: <Note as="p" tier="caution" className="measured-verdict measured-bad">
             <strong>{who}</strong> has a CG override covering everything inside it. A Build allowance

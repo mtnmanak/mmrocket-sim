@@ -4,7 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { calloutLayout, TreeSchematic } from './TreeSchematic.js';
-import { EXPORT_VARS } from '../services/schematicExport.js';
+import { EXPORT_VARS, schematicSvg } from '../services/schematicExport.js';
+import { INITIAL_UNITS } from '../prefs/units.js';
 
 /**
  * CG/CP leader-line callouts (S2): dashed leaders from the centerline markers
@@ -45,6 +46,27 @@ type Props = Parameters<typeof TreeSchematic>[0];
 const mount = (info: StaticInfo | null, extra: Partial<Props> = {}) => act(() => root.render(
   <TreeSchematic tree={tree} info={info} {...extra} />,
 ));
+
+it('J4 r2 S2-b1 withholds reduced-loadout callouts from the drawing used for image exports', () => {
+  mount(infoOf(2), { exportData: { name: 'Omitted', info: infoOf(2), withMotors: true,
+    units: INITIAL_UNITS, omittedMotors: ['Mount'], appVersion: 'test' } });
+  expect(host.textContent).not.toContain('2.00 cal');
+  expect(host.textContent).not.toContain('stable');
+});
+
+it('J4 r4 keeps unresolved live figures while stripping them from the exported drawing', () => {
+  const data = { name: 'Unresolved', info: infoOf(2), withMotors: true, units: INITIAL_UNITS,
+    unresolvedMotors: ['Mount'], appVersion: 'test' };
+  mount(infoOf(2), { exportData: data });
+  expect(host.textContent).toContain('2.00 cal');
+  const svg = host.querySelector('svg')!;
+  expect(svg.querySelectorAll('[data-loadout-figures]').length).toBe(3);
+  const exported = schematicSvg(svg, 100, 400, 200, data);
+  expect(exported).toContain('Unresolved motor mount: Mount');
+  expect(exported).not.toContain('2.00 cal');
+  expect(exported).not.toContain('data-loadout-figures');
+  expect(svg.querySelectorAll('[data-loadout-figures]').length).toBe(3);
+});
 
 /**
  * The leader-line callout group. Selected by CONTENT, not just by

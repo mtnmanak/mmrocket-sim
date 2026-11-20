@@ -7,7 +7,7 @@ import {
 import { OVERRIDE_INCLUDES_MOTOR, STATED_STAGE_FIGURES } from '../services/statedLaunchWeight.js';
 import { kernelDefault, kernelNum, KERNEL_DEFAULT_FIN_POINTS } from './kernelDefaults.js';
 import { finOutlineProblem, kernelFinPoints, MAX_FIN_POINT_M, type FinOutlinePoint } from './finOutline.js';
-import { ancestorsOf, findParent, motorMounts, mountName } from './treeModel.js';
+import { ancestorsOf, findParent, motorMounts, mountName, nameOr } from './treeModel.js';
 import { axialLength, positionOf, startFromPosition } from './position.js';
 import { lookupTable } from '../services/xmlUtil.js';
 import { TUBE_HOLE_DEFAULTS } from './tubeHoles.js';
@@ -800,7 +800,7 @@ export function scaleRocket(
     const scaled = scaleNode(n, k, limitNotes, units);
     if (n[STATED_STAGE_FIGURES] !== undefined) {
       delete scaled[STATED_STAGE_FIGURES];
-      if (!marked) limitNotes.push(`${noteField(n.name ?? 'Stage')}: original stated launch figures were discarded. They describe the unscaled rocket; weigh the scaled stage before flying.`);
+      if (!marked) limitNotes.push(`${noteField(nameOr(n, 'Stage'))}: original stated launch figures were discarded. They describe the unscaled rocket; weigh the scaled stage before flying.`);
     }
     for (const key of defaultEnds.get(n) ?? []) {
       Object.assign(scaled, limitPatch(n, { [key]: round(0.025 * k) }, limitNotes, units));
@@ -820,7 +820,7 @@ export function scaleRocket(
     // below names it. (Missed when the mark shipped in v0.120.)
     if (marked) {
       statedLaunch.push({
-        name: n.name ?? 'Stage',
+        name: nameOr(n, 'Stage'),
         motor: n[OVERRIDE_INCLUDES_MOTOR] as string,
         hadMass: num(n, 'overrideMass') !== null, // a finite one (audit row 522)
       });

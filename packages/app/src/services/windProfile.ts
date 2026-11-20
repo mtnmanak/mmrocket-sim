@@ -46,7 +46,14 @@ export function kernelWindProfile(l: WindProfileConditions) {
 }
 
 export function scaleWindSigma(surfaceSigma: number, speed: number, surfaceSpeed: number): number {
-  return surfaceSigma === 0 ? 0 : isCalmWind(surfaceSpeed) ? surfaceSigma : surfaceSigma * (speed / surfaceSpeed);
+  return surfaceSigma === 0 ? 0 : isCalmWind(surfaceSpeed) ? surfaceSigma : finiteWindScale(surfaceSigma, speed, surfaceSpeed);
+}
+
+function finiteWindScale(value: number, numerator: number, denominator: number): number {
+  // A ratio may overflow even when the final product is finite.
+  for (const result of [value * (numerator / denominator), (value / denominator) * numerator,
+    (value * numerator) / denominator]) if (Number.isFinite(result)) return result;
+  throw new RangeError('Wind profile scaling would produce a non-finite speed or gust value; the edit was not applied.');
 }
 
 /** Vector cancellation leaves roundoff even when opposing winds cancel at the pad. */
@@ -62,13 +69,28 @@ export function profileSurface(levels: readonly RelativeWindLevel[]) {
   // A clamped endpoint (including an exact pad row) already has its magnitude
   // and bearing. Rebuilding them with trig loses orientation-dependent low bits.
   if (lo === hi) return { windAverage: lo.speed, windStdDev: lo.standardDeviation ?? 0, direction: lo.direction };
-  const f = hi.altitude > lo.altitude ? -lo.altitude / (hi.altitude - lo.altitude) : 0;
-  const x = lo.speed * Math.sin(lo.direction) * (1 - f) + hi.speed * Math.sin(hi.direction) * f;
-  const y = lo.speed * Math.cos(lo.direction) * (1 - f) + hi.speed * Math.cos(hi.direction) * f;
-  const windAverage = Math.hypot(x, y);
+  const gap = hi.altitude - lo.altitude;
+  const heightScale = Math.max(Math.abs(lo.altitude), Math.abs(hi.altitude));
+  const f = hi.altitude > lo.altitude ? Number.isFinite(gap) ? -lo.altitude / gap
+    : (-lo.altitude / heightScale) / (hi.altitude / heightScale - lo.altitude / heightScale) : 0;
+  let x = lo.speed * Math.sin(lo.direction) * (1 - f) + hi.speed * Math.sin(hi.direction) * f;
+  let y = lo.speed * Math.cos(lo.direction) * (1 - f) + hi.speed * Math.cos(hi.direction) * f;
+  let windAverage = Math.hypot(x, y);
+  // A convex combination cannot exceed the larger input magnitude. Normalize
+  // only on overflow, keeping ordinary profile round trips byte-for-byte.
+  if (!Number.isFinite(windAverage)) {
+    const scale = Math.max(lo.speed, hi.speed);
+    const nx = (lo.speed / scale) * Math.sin(lo.direction) * (1 - f) + (hi.speed / scale) * Math.sin(hi.direction) * f;
+    const ny = (lo.speed / scale) * Math.cos(lo.direction) * (1 - f) + (hi.speed / scale) * Math.cos(hi.direction) * f;
+    windAverage = Math.min(1, Math.hypot(nx, ny)) * scale;
+    x = nx;
+    y = ny;
+  }
+  const a = lo.standardDeviation ?? 0, b = hi.standardDeviation ?? 0;
+  const sigma = a * (1 - f) + b * f;
   return {
     windAverage,
-    windStdDev: (lo.standardDeviation ?? 0) * (1 - f) + (hi.standardDeviation ?? 0) * f,
+    windStdDev: Number.isFinite(sigma) ? sigma : a + (b - a) * f,
     direction: isCalmWind(windAverage) ? lo.direction : Math.atan2(x, y),
   };
 }
@@ -92,6 +114,14 @@ export function reconcileProfileSurface<T extends WindProfileConditions & { wind
 
 /** Editing the surface fields keeps the speed ratios and the chosen intensity. */
 export function editProfileSurface<T extends WindProfileConditions & { windAverage: number; windStdDev: number }>(before: T, after: T): T {
+  try { return rescaleProfileSurface(before, after); }
+  catch (error) {
+    if (error instanceof RangeError) return before;
+    throw error;
+  }
+}
+
+function rescaleProfileSurface<T extends WindProfileConditions & { windAverage: number; windStdDev: number }>(before: T, after: T): T {
   if (!before.windLevels?.length || (before.windAverage === after.windAverage && before.windStdDev === after.windStdDev)) return after;
   const padSpeedChanged = before.windAverage !== after.windAverage;
   const calm = isCalmWind(before.windAverage);
@@ -99,7 +129,7 @@ export function editProfileSurface<T extends WindProfileConditions & { windAvera
   const levels = [...before.windLevels].sort((a, b) => a.altitude - b.altitude).map((l, i) => {
     const speed = retained ? l.calmSpeedRatio! * after.windAverage
       : calm ? (padSpeedChanged && i === 0 && l.altitude >= 0 ? after.windAverage : l.speed)
-      : l.speed * (after.windAverage / before.windAverage);
+      : finiteWindScale(l.speed, after.windAverage, before.windAverage);
     const next = { ...l, speed, standardDeviation: scaleWindSigma(after.windStdDev, speed, after.windAverage) };
     // NumField commits each valid keystroke (including the 0 in 0.5).
     // Keep ratios in the profile itself: autosave, receipts and Clear/Undo
@@ -115,6 +145,7 @@ export function editProfileSurface<T extends WindProfileConditions & { windAvera
   if (calm && !retained && padSpeedChanged && levels[0]!.altitude < 0) {
     const aboveAndBelow = levels.filter((l) => l.altitude !== 0);
     aboveAndBelow.push({ altitude: 0, speed: after.windAverage, direction: 0, standardDeviation: after.windStdDev });
+    if (!validWindLevels(aboveAndBelow)) return before;
     return { ...after, windLevels: aboveAndBelow.sort((a, b) => a.altitude - b.altitude) };
   }
   // Below-pad desktop levels may veer: their interpolated speed magnitudes
@@ -123,7 +154,9 @@ export function editProfileSurface<T extends WindProfileConditions & { windAvera
   if (surfaceSigma > 0 && surfaceSigma !== after.windStdDev) {
     for (const l of levels) l.standardDeviation *= after.windStdDev / surfaceSigma;
   }
-  return { ...after, windLevels: levels };
+  // Refuse the edit as a whole: retaining old levels under new surface fields
+  // would misstate the wind the kernel receives.
+  return validWindLevels(levels) ? { ...after, windLevels: levels } : before;
 }
 
 export function validWindProfileSource(x: unknown): x is WindProfileSource {
@@ -136,7 +169,7 @@ export function validWindProfileSource(x: unknown): x is WindProfileSource {
 
 /** Used for stored weather receipts as well as imported app metadata. */
 export function validWindLevels(x: unknown): x is RelativeWindLevel[] {
-  if (!Array.isArray(x)) return false;
+  if (!Array.isArray(x) || x.length > 500) return false;
   const heights = new Set<number>();
   return x.every((v: unknown) => {
     if (typeof v !== 'object' || v === null) return false;
@@ -152,7 +185,7 @@ export function validWindLevels(x: unknown): x is RelativeWindLevel[] {
 }
 
 export function windProfileSummary(levels: readonly RelativeWindLevel[], altitudeUnit = 'm'): string {
-  const top = Math.max(...levels.map((l) => l.altitude));
+  const top = levels.reduce((max, l) => Math.max(max, l.altitude), -Infinity);
   return `${levels.length} levels to ${noticeQuantity('altitude', top, altitudeUnit, { grouped: true })} above ground`;
 }
 

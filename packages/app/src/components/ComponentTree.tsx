@@ -5,7 +5,7 @@ import type { ComponentNode, ComponentType, RocketTree } from '@online-openrocke
 import { allowedChildren, DISPLAY_NAME } from '../tree/schema.js';
 import { Icon } from './Icon.js';
 import { Note } from './Note.js';
-import { findParent, stageIndexOf, type ParentId } from '../tree/treeModel.js';
+import { findParent, nameOr, stageIndexOf, type ParentId } from '../tree/treeModel.js';
 import { lookupTable } from '../services/xmlUtil.js';
 import { hiddenPartIds } from '../tree/partVisibility.js';
 
@@ -48,7 +48,7 @@ function NodeRow({ node, depth, selectedId, soleStageId, rove, hidden, visibilit
 }) {
   const selected = node.id === selectedId;
   const isHidden = !!node.id && hidden.has(node.id);
-  const label = node.name ?? DISPLAY_NAME[node.type];
+  const label = nameOr(node, DISPLAY_NAME[node.type]);
   // Named by its label and badges, not by its content (audit 2026-09-22): a
   // treeitem takes its name from everything inside it, so the selected row
   // was announced as "Nose Move Nose up Move Nose down Duplicate Nose …".
@@ -193,7 +193,7 @@ export function ComponentTree({
     if (selAddable.length > 0) {
       targets.push({
         id: selectedNode.id!,
-        label: selectedNode.name ?? DISPLAY_NAME[selectedNode.type],
+        label: nameOr(selectedNode, DISPLAY_NAME[selectedNode.type]),
         types: selAddable,
       });
     }
@@ -202,7 +202,7 @@ export function ComponentTree({
       if (parent && parent !== 'stage' && parent.type !== 'stage' && parent.id) {
         targets.push({
           id: parent.id,
-          label: parent.name ?? DISPLAY_NAME[parent.type],
+          label: nameOr(parent, DISPLAY_NAME[parent.type]),
           types: allowedChildren(parent.type),
         });
       }
@@ -210,7 +210,7 @@ export function ComponentTree({
       if (stage?.id) {
         targets.push({
           id: stage.id,
-          label: stage.name ?? 'Stage',
+          label: nameOr(stage, 'Stage'),
           types: allowedChildren('stage'),
         });
       }
@@ -381,7 +381,7 @@ export function ComponentTree({
           .filter((t) => t.id !== 'stage' && t.types.includes(clipboard.type))
           .map((t) => (
             <button key={`paste-${t.id}`} className="file-btn"
-              title={`Paste ${clipboard.name ?? DISPLAY_NAME[clipboard.type]} into ${t.label}`}
+              title={`Paste ${nameOr(clipboard, DISPLAY_NAME[clipboard.type])} into ${t.label}`}
               onClick={() => { setAddOpen(null); onPaste(t.id as string); }}>
               ⎗ Paste into {t.label}
             </button>
@@ -389,7 +389,7 @@ export function ComponentTree({
       </div>
       {clipboard && (
         <p className="comp-stats" style={{ margin: '6px 0 0' }}>
-          Clipboard: {TYPE_ICON[clipboard.type] ?? '·'} {clipboard.name ?? DISPLAY_NAME[clipboard.type]}
+          Clipboard: {TYPE_ICON[clipboard.type] ?? '·'} {nameOr(clipboard, DISPLAY_NAME[clipboard.type])}
           {' '}— select a destination component, then Paste.
         </p>
       )}

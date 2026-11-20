@@ -549,6 +549,10 @@ describe('calloutGadget — the offset CG/CP gadget', () => {
     expect(g.margin!.pos[2]).toBeCloseTo(g.off, 12);
   });
 
+  it('J4 r2 S2-b1 withholds the reduced-loadout stability verdict when motors are omitted', () => {
+    expect(calloutGadget(infoOf(), MAX_R, LEN, 'cal', ['Mount'])).toBeNull();
+  });
+
   it('labels CG in neutral ink and CP in the brand orange', () => {
     const g = calloutGadget(infoOf(), MAX_R, LEN)!;
     expect(g.cg).toMatchObject({ text: 'CG', color: '#f6faff' });

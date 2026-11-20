@@ -79,13 +79,22 @@ it.each(['cache', 'overlay'].flatMap(source => [1e150, 1.7e308].map(totalWeightG
     const motor = { ...real, motorId: 'hf2-r5-cache', designation: 'Bad\n”' };
     const key = `tc:samples:v7:${motor.motorId}`;
     localStorage.setItem(key, JSON.stringify({ samples, masses: { totalWeightG, propWeightG }, massParser: 1 }));
-    try { spec = await fetchMotorSpec(motor, 5); } finally { localStorage.removeItem(key); }
+    let fallback: MotorSpec;
+    try { fallback = await fetchMotorSpec(motor, 5); } finally { localStorage.removeItem(key); }
+    // Invalid file-header masses are now discarded before curve conversion.
+    expect(fallback.masses[0]).toBeCloseTo(real.totalWeightG! / 1000, 12);
+    spec = { ...fallback, masses: fallback.masses.map(() => totalWeightG / 1000) };
   } else {
     const row = { ...real, totalWeightG, propWeightG, designation: 'Bad\n”' };
-    expect(screenEntry(row)).toBeNull();
-    const [motor] = applyOverlay([], { baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(),
+    expect(screenEntry(row)).not.toBeNull();
+    const motors = applyOverlay([], { baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(),
       liveCount: 1, added: [row], changed: [], removed: [], rejected: [] });
-    spec = samplesToMotorSpec(motor!, samples, 5);
+    // applyOverlay consumes already-screened manifests; bypassing that caller
+    // still cannot bypass the curve converter's independent weight bound.
+    expect(motors).toHaveLength(1);
+    expect(() => samplesToMotorSpec(motors[0]!, samples, 5)).toThrow(/weights.*simulator limit/);
+    // Exercise the independent kernel-write backstop with a tampered spec.
+    spec = { ...SPEC, designation: row.designation, masses: SPEC.masses.map(() => totalWeightG / 1000) };
   }
   expect(spec.masses[0]).toBeGreaterThan(1e15);
   const { handle, calls } = recordingHandle();

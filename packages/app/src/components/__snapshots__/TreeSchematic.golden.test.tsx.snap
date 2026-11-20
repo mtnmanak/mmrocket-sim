@@ -23,14 +23,14 @@ exports[`real files > FinsOnTransitions.rkt, at rest 1`] = `
     <polygon fill="#b9b7b0" points="82,209.83333333333334 191.66666666666669,115.83333333333337 309.1666666666667,115.83333333333337 317,170.66666666666669" stroke-width="1" stroke="#7a786f" style="cursor: grab;">
     <polygon fill="#b9b7b0" points="317,288.16666666666663 395.3333333333333,342.99999999999994 473.66666666666663,335.16666666666663 505,272.5" stroke-width="1" stroke="#7a786f" style="cursor: grab;">
     <polygon fill="#b9b7b0" points="317,170.66666666666669 395.3333333333333,61 473.66666666666663,76.66666666666669 505,202" stroke-width="1" stroke="#7a786f" style="cursor: grab;">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <circle cx="1116" cy="249" fill="var(--surface-1)" r="9" stroke-width="1.5" stroke="var(--text-primary)">
       <path d="M 1116 249 L 1125 249 A 9 9 0 0 1 1116 258 Z" fill="var(--text-primary)">
       <path d="M 1116 249 L 1107 249 A 9 9 0 0 1 1116 240 Z" fill="var(--text-primary)">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <circle cx="1492" cy="249" fill="none" r="9" stroke-width="2" stroke="var(--accent-graphic)">
       <circle cx="1492" cy="249" fill="var(--accent-graphic)" r="3.5">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--text-primary)" x1="1116" x2="1116" y1="240" y2="48">
       <circle cx="1116" cy="48" fill="var(--text-primary)" r="4">
       <text dominant-baseline="central" fill="var(--text-primary)" font-size="11" font-weight="bold" x="1124" y="48">
@@ -109,14 +109,14 @@ exports[`real files > Three-stage rocket.CDX1, at rest 1`] = `
     <polygon fill="#b9b7b0" points="461.98621190130626,122.87155297532657 485.72931785195937,151.36810595065313 555.1006894049347,151.36810595065313 537.9931059506531,122.87155297532657" stroke-width="1" stroke="#7a786f" style="cursor: grab;">
     <polygon aria-label="Select Fins" fill="#b9b7b0" points="537.9931059506532,99.12844702467343 561.7362119013063,61.125 590.2327648766329,61.125 614.0000000000001,99.12844702467343" role="button" stroke-width="1" stroke="#7a786f" style="cursor: grab;" tabindex="0">
     <polygon fill="#b9b7b0" points="537.9931059506532,122.87155297532657 561.7362119013063,160.875 590.2327648766329,160.875 614.0000000000001,122.87155297532657" stroke-width="1" stroke="#7a786f" style="cursor: grab;">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <circle cx="395.48862481857765" cy="111" fill="var(--surface-1)" r="9" stroke-width="1.5" stroke="var(--text-primary)">
       <path d="M 395.48862481857765 111 L 404.48862481857765 111 A 9 9 0 0 1 395.48862481857765 120 Z" fill="var(--text-primary)">
       <path d="M 395.48862481857765 111 L 386.48862481857765 111 A 9 9 0 0 1 395.48862481857765 102 Z" fill="var(--text-primary)">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <circle cx="509.48448838896957" cy="111" fill="none" r="9" stroke-width="2" stroke="var(--accent-graphic)">
       <circle cx="509.48448838896957" cy="111" fill="var(--accent-graphic)" r="3.5">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--text-primary)" x1="395.48862481857765" x2="395.48862481857765" y1="102" y2="48.125">
       <circle cx="395.48862481857765" cy="48.125" fill="var(--text-primary)" r="4">
       <text dominant-baseline="central" fill="var(--text-primary)" font-size="11" font-weight="bold" x="403.48862481857765" y="48.125">
@@ -232,14 +232,14 @@ exports[`real files > TubeFins2.rkt, at rest 1`] = `
         "Rear Engine Mount Centering Ring"
     <rect fill-opacity="0.6" fill="#c8c5be" height="24.179856561386092" rx="2" stroke-width="1" stroke="#7a786f" style="cursor: grab;" width="61.79296676798669" x="450.1143055283831" y="84.5284165319468">
     <line stroke-dasharray="4 3" stroke-width="0.8" stroke="#7a786f" style="pointer-events: none;" x1="450.1143055283831" x2="511.9072722963698" y1="96.61834481263985" y2="96.61834481263985">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <circle cx="361.242437979262" cy="109" fill="var(--surface-1)" r="9" stroke-width="1.5" stroke="var(--text-primary)">
       <path d="M 361.242437979262 109 L 370.242437979262 109 A 9 9 0 0 1 361.242437979262 118 Z" fill="var(--text-primary)">
       <path d="M 361.242437979262 109 L 352.242437979262 109 A 9 9 0 0 1 361.242437979262 100 Z" fill="var(--text-primary)">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <circle cx="462.78514269899364" cy="109" fill="none" r="9" stroke-width="2" stroke="var(--accent-graphic)">
       <circle cx="462.78514269899364" cy="109" fill="var(--accent-graphic)" r="3.5">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--text-primary)" x1="361.242437979262" x2="361.242437979262" y1="100" y2="59.13915199753143">
       <circle cx="361.242437979262" cy="59.13915199753143" fill="var(--text-primary)" r="4">
       <text dominant-baseline="central" fill="var(--text-primary)" font-size="11" font-weight="bold" x="369.242437979262" y="59.13915199753143">
@@ -379,14 +379,14 @@ exports[`real files > kitchensink.ork, at rest 1`] = `
     <line stroke-dasharray="4 3" stroke-width="0.8" stroke="#7a786f" style="pointer-events: none;" x1="503.1311324959736" x2="567.9205374953541" y1="299.374448177051" y2="299.374448177051">
     <rect fill-opacity="0.6" fill="#c8c5be" height="174.5022072917957" rx="2" stroke-width="1" stroke="#7a786f" style="cursor: grab;" width="64.78940499938055" x="503.1311324959736" y="60.999999999999986">
     <line stroke-dasharray="4 3" stroke-width="0.8" stroke="#7a786f" style="pointer-events: none;" x1="503.1311324959736" x2="567.9205374953541" y1="148.25110364589784" y2="148.25110364589784">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <circle cx="438.341727496593" cy="249" fill="var(--surface-1)" r="9" stroke-width="1.5" stroke="var(--text-primary)">
       <path d="M 438.341727496593 249 L 447.341727496593 249 A 9 9 0 0 1 438.341727496593 258 Z" fill="var(--text-primary)">
       <path d="M 438.341727496593 249 L 429.341727496593 249 A 9 9 0 0 1 438.341727496593 240 Z" fill="var(--text-primary)">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <circle cx="567.9205374953542" cy="249" fill="none" r="9" stroke-width="2" stroke="var(--accent-graphic)">
       <circle cx="567.9205374953542" cy="249" fill="var(--accent-graphic)" r="3.5">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--text-primary)" x1="438.341727496593" x2="438.341727496593" y1="240" y2="47.99999999999997">
       <circle cx="438.341727496593" cy="47.99999999999997" fill="var(--text-primary)" r="4">
       <text dominant-baseline="central" fill="var(--text-primary)" font-size="11" font-weight="bold" x="446.341727496593" y="47.99999999999997">
@@ -510,14 +510,14 @@ exports[`real files > reference.ork, at rest 1`] = `
     <g fill="none" stroke-width="1.2" stroke="#b06a35" style="pointer-events: none;">
       <path d="M 190.35545945945944 121.5 A 10.266162162162162 10.266162162162162 0 0 1 210.8877837837838 121.5">
       <path d="M 190.35545945945944 121.5 L 200.6216216216216 131.76616216216217 L 210.8877837837838 121.5 M 196.00184864864863 114.8269945945946 L 200.6216216216216 131.76616216216217 M 205.2413945945946 114.8269945945946 L 200.6216216216216 131.76616216216217">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <circle cx="556.4864864864865" cy="121.5" fill="var(--surface-1)" r="9" stroke-width="1.5" stroke="var(--text-primary)">
       <path d="M 556.4864864864865 121.5 L 565.4864864864865 121.5 A 9 9 0 0 1 556.4864864864865 130.5 Z" fill="var(--text-primary)">
       <path d="M 556.4864864864865 121.5 L 547.4864864864865 121.5 A 9 9 0 0 1 556.4864864864865 112.5 Z" fill="var(--text-primary)">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <circle cx="729.0270270270271" cy="121.5" fill="none" r="9" stroke-width="2" stroke="var(--accent-graphic)">
       <circle cx="729.0270270270271" cy="121.5" fill="var(--accent-graphic)" r="3.5">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--text-primary)" x1="556.4864864864865" x2="556.4864864864865" y1="112.5" y2="48.11081081081081">
       <circle cx="556.4864864864865" cy="48.11081081081081" fill="var(--text-primary)" r="4">
       <text dominant-baseline="central" fill="var(--text-primary)" font-size="11" font-weight="bold" x="564.4864864864865" y="48.11081081081081">
@@ -943,14 +943,14 @@ exports[`the side view draws what it drew before the layout extraction > every p
     <rect data-fin="wire" fill="none" height="26.198473282442745" rx="2" stroke-width="1.4" stroke="#7a786f" width="39.69465648854962" x="455.1297709923664" y="123.52294515168829">
     <rect clip-path="url(#r1-outside-1)" data-fin-hit="" fill="transparent" height="26.198473282442745" rx="2" stroke="none" width="39.69465648854962" x="455.1297709923664" y="123.52294515168829">
     <line stroke-dasharray="4 3" stroke-width="0.8" stroke="#7a786f" style="pointer-events: none;" x1="455.1297709923664" x2="494.82442748091603" y1="136.62218179290966" y2="136.62218179290966">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <circle cx="343.9847328244275" cy="113" fill="var(--surface-1)" r="9" stroke-width="1.5" stroke="var(--text-primary)">
       <path d="M 343.9847328244275 113 L 352.9847328244275 113 A 9 9 0 0 1 343.9847328244275 122 Z" fill="var(--text-primary)">
       <path d="M 343.9847328244275 113 L 334.9847328244275 113 A 9 9 0 0 1 343.9847328244275 104 Z" fill="var(--text-primary)">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <circle cx="439.2519083969466" cy="113" fill="none" r="9" stroke-width="2" stroke="var(--accent-graphic)">
       <circle cx="439.2519083969466" cy="113" fill="var(--accent-graphic)" r="3.5">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--text-primary)" x1="343.9847328244275" x2="343.9847328244275" y1="104" y2="48">
       <circle cx="343.9847328244275" cy="48" fill="var(--text-primary)" r="4">
       <text dominant-baseline="central" fill="var(--text-primary)" font-size="11" font-weight="bold" x="351.9847328244275" y="48">
@@ -1203,14 +1203,14 @@ exports[`the side view draws what it drew before the layout extraction > interac
     <rect aria-label="Select Coupler" fill="rgba(127,127,127,0.001)" height="22.268702290076337" role="button" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" style="cursor: grab;" tabindex="0" width="39.69465648854962" x="423.3740458015267" y="101.86564885496183">
       <title>
         "Coupler"
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <circle cx="343.9847328244275" cy="113" fill="var(--surface-1)" r="9" stroke-width="1.5" stroke="var(--text-primary)">
       <path d="M 343.9847328244275 113 L 352.9847328244275 113 A 9 9 0 0 1 343.9847328244275 122 Z" fill="var(--text-primary)">
       <path d="M 343.9847328244275 113 L 334.9847328244275 113 A 9 9 0 0 1 343.9847328244275 104 Z" fill="var(--text-primary)">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <circle cx="439.2519083969466" cy="113" fill="none" r="9" stroke-width="2" stroke="var(--accent-graphic)">
       <circle cx="439.2519083969466" cy="113" fill="var(--accent-graphic)" r="3.5">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--text-primary)" x1="343.9847328244275" x2="343.9847328244275" y1="104" y2="48">
       <circle cx="343.9847328244275" cy="48" fill="var(--text-primary)" r="4">
       <text dominant-baseline="central" fill="var(--text-primary)" font-size="11" font-weight="bold" x="351.9847328244275" y="48">
@@ -1338,14 +1338,14 @@ exports[`the side view draws what it drew before the layout extraction > motors 
     <rect fill="rgba(127,127,127,0.001)" height="22.268702290076337" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" width="39.69465648854962" x="423.3740458015267" y="101.86564885496183">
       <title>
         "Coupler"
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <circle cx="343.9847328244275" cy="113" fill="var(--surface-1)" r="9" stroke-width="1.5" stroke="var(--text-primary)">
       <path d="M 343.9847328244275 113 L 352.9847328244275 113 A 9 9 0 0 1 343.9847328244275 122 Z" fill="var(--text-primary)">
       <path d="M 343.9847328244275 113 L 334.9847328244275 113 A 9 9 0 0 1 343.9847328244275 104 Z" fill="var(--text-primary)">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <circle cx="439.2519083969466" cy="113" fill="none" r="9" stroke-width="2" stroke="var(--accent-graphic)">
       <circle cx="439.2519083969466" cy="113" fill="var(--accent-graphic)" r="3.5">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--text-primary)" x1="343.9847328244275" x2="343.9847328244275" y1="104" y2="48">
       <circle cx="343.9847328244275" cy="48" fill="var(--text-primary)" r="4">
       <text dominant-baseline="central" fill="var(--text-primary)" font-size="11" font-weight="bold" x="351.9847328244275" y="48">
@@ -1468,14 +1468,14 @@ exports[`the side view draws what it drew before the layout extraction > nose-up
     <rect aria-label="Select Coupler" fill="rgba(127,127,127,0.001)" height="16.66253731343284" role="button" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" style="cursor: pointer;" tabindex="0" width="29.701492537313438" x="281.43283582089555" y="91.66873134328358">
       <title>
         "Coupler"
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <circle cx="222.0298507462687" cy="100" fill="var(--surface-1)" r="9" stroke-width="1.5" stroke="var(--text-primary)">
       <path d="M 222.0298507462687 100 L 231.0298507462687 100 A 9 9 0 0 1 222.0298507462687 109 Z" fill="var(--text-primary)">
       <path d="M 222.0298507462687 100 L 213.0298507462687 100 A 9 9 0 0 1 222.0298507462687 91 Z" fill="var(--text-primary)">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <circle cx="293.31343283582095" cy="100" fill="none" r="9" stroke-width="2" stroke="var(--accent-graphic)">
       <circle cx="293.31343283582095" cy="100" fill="var(--accent-graphic)" r="3.5">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--text-primary)" x1="222.0298507462687" x2="222.0298507462687" y1="91" y2="48.091044776119396">
       <circle cx="222.0298507462687" cy="48.091044776119396" fill="var(--text-primary)" r="4">
       <text dominant-baseline="central" fill="var(--text-primary)" font-size="11" font-weight="bold" transform="rotate(-90 230.0298507462687 48.091044776119396)" x="230.0298507462687" y="48.091044776119396">
@@ -1727,14 +1727,14 @@ exports[`the side view draws what it drew before the layout extraction > the her
     <rect fill="rgba(127,127,127,0.001)" height="22.27253731343284" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" width="39.70149253731344" x="423.43283582089555" y="237.86373134328358">
       <title>
         "Coupler"
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <circle cx="344.02985074626866" cy="249" fill="var(--surface-1)" r="9" stroke-width="1.5" stroke="var(--text-primary)">
       <path d="M 344.02985074626866 249 L 353.02985074626866 249 A 9 9 0 0 1 344.02985074626866 258 Z" fill="var(--text-primary)">
       <path d="M 344.02985074626866 249 L 335.02985074626866 249 A 9 9 0 0 1 344.02985074626866 240 Z" fill="var(--text-primary)">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <circle cx="439.31343283582095" cy="249" fill="none" r="9" stroke-width="2" stroke="var(--accent-graphic)">
       <circle cx="439.31343283582095" cy="249" fill="var(--accent-graphic)" r="3.5">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--text-primary)" x1="344.02985074626866" x2="344.02985074626866" y1="240" y2="183.9910447761194">
       <circle cx="344.02985074626866" cy="183.9910447761194" fill="var(--text-primary)" r="4">
       <text dominant-baseline="central" fill="var(--text-primary)" font-size="11" font-weight="bold" x="352.02985074626866" y="183.9910447761194">
@@ -1856,14 +1856,14 @@ exports[`the side view draws what it drew before the layout extraction > zoomed 
     <rect aria-label="Select Coupler" fill="rgba(127,127,127,0.001)" height="22.268702290076337" role="button" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" style="cursor: grab;" tabindex="0" width="39.69465648854962" x="423.3740458015267" y="101.86564885496183">
       <title>
         "Coupler"
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <circle cx="343.9847328244275" cy="113" fill="var(--surface-1)" r="9" stroke-width="1.5" stroke="var(--text-primary)">
       <path d="M 343.9847328244275 113 L 352.9847328244275 113 A 9 9 0 0 1 343.9847328244275 122 Z" fill="var(--text-primary)">
       <path d="M 343.9847328244275 113 L 334.9847328244275 113 A 9 9 0 0 1 343.9847328244275 104 Z" fill="var(--text-primary)">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <circle cx="439.2519083969466" cy="113" fill="none" r="9" stroke-width="2" stroke="var(--accent-graphic)">
       <circle cx="439.2519083969466" cy="113" fill="var(--accent-graphic)" r="3.5">
-    <g pointer-events="none">
+    <g data-loadout-figures="" pointer-events="none">
       <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--text-primary)" x1="343.9847328244275" x2="343.9847328244275" y1="104" y2="48">
       <circle cx="343.9847328244275" cy="48" fill="var(--text-primary)" r="4">
       <text dominant-baseline="central" fill="var(--text-primary)" font-size="11" font-weight="bold" x="351.9847328244275" y="48">

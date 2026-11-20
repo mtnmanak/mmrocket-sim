@@ -96,7 +96,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkAdvisories } from './upstream-advisories.mjs';
 import { markupAttributes, markupTagEnd } from './markup-scan.mjs';
-import { childElements, elementBlocks } from '../packages/app/scripts/fetch-component-presets.mjs';
+import { childElements, convertLength, convertMass, elementBlocks, round } from '../packages/app/scripts/fetch-component-presets.mjs';
 
 import { CORRECTIONS, UPSTREAM_WATCH } from '../packages/app/scripts/apply-preset-corrections.mjs';
 import { MOTOR_CORRECTIONS } from '../packages/app/scripts/motor-corrections.mjs';
@@ -186,7 +186,10 @@ export function rowsByPart(xml, element) {
   const out = new Map();
   for (const { body } of elementBlocks(xml, element)) {
     const fields = childElements(body);
-    const field = tag => fields.find(child => child.tag === tag)?.text;
+    const field = (tag, attribute) => {
+      const child = fields.find(child => child.tag === tag);
+      return attribute === undefined ? child?.text : child?.attrs[attribute]?.trim();
+    };
     const pn = field('PartNumber');
     if (pn === undefined) continue;
     out.set(pn, field);
@@ -255,31 +258,48 @@ export async function checkCorrections(getOrc = orc, corrections = CORRECTIONS) 
     for (const [tag, { bad, good }] of Object.entries(u.fields)) {
       checked++;
       const cur = row(tag);
-      if (cur === bad) {
-        say(`  ok   ${u.file} ${u.partNo} ${tag} = ${cur} (still the known-bad value; our correction is still needed)`);
-      } else if (cur === good) {
-        flag(`${u.file} ${u.partNo} ${tag} = ${cur} — UPSTREAM HAS FIXED THIS. Our correction is now a no-op and should be RETIRED from apply-preset-corrections.mjs (it will still pass: the contract accepts the corrected value). A mass correction moves to RETIRED_MASS_CORRECTIONS there, so saved designs still read its old mass as a catalogue one.`);
+      const unit = row(tag, 'Unit');
+      // Compare the value the preset pipeline would actually generate. Unit
+      // changes can repair a nose block or invalidate an unchanged ring value.
+      const convert = tag === 'Mass' ? convertMass
+        : ['OutsideDiameter', 'InsideDiameter', 'Length'].includes(tag) ? convertLength : undefined;
+      const target = c.fields[tag.charAt(0).toLowerCase() + tag.slice(1)];
+      let knownBad = cur === bad, corrected = cur === good;
+      if (convert && target) {
+        let si;
+        try { si = round(convert(Number.parseFloat(cur), unit, `${u.file} ${u.partNo} ${tag}`)); }
+        catch { /* Unknown units cannot match either pipeline input. */ }
+        knownBad = Number.isFinite(si) && si === target.bad;
+        corrected = Number.isFinite(si) && si === target.good;
+      }
+      const units = convert ? ` Unit=${unit ?? '(absent)'}` : '';
+      if (knownBad) {
+        say(`  ok   ${u.file} ${u.partNo} ${tag} = ${cur}${units} (still the known-bad value; our correction is still needed)`);
+      } else if (corrected) {
+        flag(`${u.file} ${u.partNo} ${tag} = ${cur}${units} — UPSTREAM HAS FIXED THIS. Our correction is now a no-op and should be RETIRED from apply-preset-corrections.mjs (it will still pass: the contract accepts the corrected value). A mass correction moves to RETIRED_MASS_CORRECTIONS there, so saved designs still read its old mass as a catalogue one.`);
         notes.push(`retire correction ${c.key} ${tag}`);
       } else {
-        flag(`${u.file} ${u.partNo} ${tag} = ${cur} — expected the known-bad ${bad} or the corrected ${good}. A regeneration WILL abort here.`);
+        flag(`${u.file} ${u.partNo} ${tag} = ${cur}${units} — upstream changed; expected the known-bad ${bad} or the corrected ${good}. A regeneration WILL abort here.`);
         notes.push(`investigate ${c.key} ${tag}`);
       }
     }
   }
 }
 
-async function checkWatch() {
+export async function checkWatch(getOrc = orc, watches = UPSTREAM_WATCH) {
   say('');
   say('2. openrocket-database rows we watch but do NOT correct');
-  for (const w of UPSTREAM_WATCH) {
-    const rows = rowsByPart(await orc(w.file), w.element);
+  for (const w of watches) {
+    const rows = rowsByPart(await getOrc(w.file), w.element);
     for (const pn of w.partNos) {
       checked++;
       const row = rows.get(pn);
       if (!row) { flag(`${w.file} ${pn}: row is GONE from upstream.`); continue; }
       const cur = row(w.field);
-      if (cur === w.expect) say(`  ok   ${w.file} ${pn} ${w.field} = ${cur} (unchanged; ${w.why})`);
-      else { flag(`${w.file} ${pn} ${w.field} = ${cur}, was ${w.expect} — upstream moved a row we watch. Re-read the corrected rows in the same file.`); notes.push(`upstream moved ${w.file} ${pn}`); }
+      const unit = row(w.field, 'Unit');
+      const units = w.unit === undefined ? '' : ` Unit=${unit ?? '(absent)'}`;
+      if (cur === w.expect && (w.unit === undefined || unit === w.unit)) say(`  ok   ${w.file} ${pn} ${w.field} = ${cur}${units} (unchanged; ${w.why})`);
+      else { flag(`${w.file} ${pn} ${w.field} = ${cur}${units}, was ${w.expect}${w.unit === undefined ? '' : ` Unit=${w.unit}`} — upstream moved a row we watch. Re-read the corrected rows in the same file.`); notes.push(`upstream moved ${w.file} ${pn}`); }
     }
   }
 }

@@ -58,6 +58,25 @@ afterEach(() => {
 
 const rootRow = () => host.querySelector('.tree-row-root') as HTMLElement;
 
+it.each(['', '   '])('J4 r4 names blank tree rows and add targets (%j)', name => {
+  const tree: RocketTree = { components: [{ type: 'stage', id: 's', name, children: [
+    { type: 'parallelstage', id: 'p', name, children: [{ type: 'bodytube', id: 'b', name }] },
+  ] }, { type: 'stage', id: 's2' }] };
+  const draw = (selectedId: string) => act(() => root.render(<ComponentTree tree={tree} selectedId={selectedId}
+    onSelect={() => {}} onMove={() => {}} onDelete={() => {}} onDuplicate={() => {}} onAdd={() => {}}
+    onAddStage={() => {}} clipboard={tree.components[0]!.children![0]!} onCopy={() => {}} onCut={() => {}} onPaste={() => {}} />));
+  draw('p');
+  expect([...host.querySelectorAll('.tree-label')].map(el => el.textContent)).toContain('Booster (parallel stage)');
+  expect(host.querySelector('[aria-label="Move Booster (parallel stage) up"]')).not.toBeNull();
+  expect(host.querySelector('[aria-label="Delete Booster (parallel stage)"]')).not.toBeNull();
+  expect(host.textContent).toContain('Add to Booster (parallel stage)');
+  expect(host.querySelector('.clipboard-status')?.textContent ?? host.textContent).toMatch(/Clipboard:.*Booster \(parallel stage\)/);
+  draw('b');
+  expect(host.querySelector('[title="Paste Booster (parallel stage) into Body tube"]')).not.toBeNull();
+  expect(host.textContent).toContain('Add to Body tube');
+  expect(host.textContent).toContain('Add to Booster (parallel stage)');
+});
+
 it('S3c-5 closes the add menu across selection changes', () => {
   show('n1');
   const add = () => [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Add to Nose'))!;

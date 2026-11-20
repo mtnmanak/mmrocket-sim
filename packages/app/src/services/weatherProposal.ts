@@ -173,12 +173,17 @@ export function buildWindProfile(sample: HourSample, sigma: number): RelativeWin
   const from = sample.windFromDeg;
   if (speed === null || !Number.isFinite(speed) || speed < 0 || from === null || !Number.isFinite(from)
     || !sample.windsAloft?.length) return [];
-  return [{ altitude: 10, speed, direction: 0, standardDeviation: sigma },
+  try { return [{ altitude: 10, speed, direction: 0, standardDeviation: sigma },
     ...sample.windsAloft.map((l) => ({
       altitude: l.altitude, speed: l.speed,
       direction: relativeWindDirection((l.fromDeg - from) * Math.PI / 180),
       standardDeviation: scaleWindSigma(sigma, l.speed, speed),
-    }))];
+    }))]; }
+  catch (error) {
+    // An unavailable sounding already has an explicit surface-only UI state.
+    if (error instanceof RangeError) return [];
+    throw error;
+  }
 }
 
 /** The rows that may be ticked — every row with a value inside its field's bounds. */

@@ -12,6 +12,12 @@ it.each([NaN, undefined])('HF2 final leaves unreadable dimensions to finite vali
 });
 
 const good = 'Good 29 100 P 0.05 0.1 Home\n0 0\n0.5 40\n1 0';
+it('J4 r2 leaves an unrecoverable rising snapshot for refusal when inferred propellant is zero', () => {
+  const spec = exToMotorSpec(parseEng(good)[0]!, Infinity);
+  const snapshot = { ...spec, exDefinition: undefined, masses: [0.1, 0.1004, 0.1] };
+  expect(validFlightSnapshot(snapshot)).toBe(false);
+  expect(repairFlightSnapshot(snapshot)).toBe(snapshot);
+});
 it('HF2 refuses an RSE motor with oversized point mass instead of substituting burn-off', () => {
   const notes: string[] = [];
   expect(() => parseRse('<engine-database><engine-list><engine code="Huge" mfg="Home" dia="29" len="100" initWt="100" propWt="50" auto-calc-mass="0"><data><eng-data t="0" f="0" m="1e25"/><eng-data t="0.5" f="40" m="50"/><eng-data t="1" f="0" m="0"/></data></engine></engine-list></engine-database>', notes)).toThrow(/mass/);
@@ -47,15 +53,15 @@ it('drops overflowing optional source masses even when the gram header is finite
     propWeightG: 1e307, sampleMassesKg: [1.7976931348623156e305, 1.797693134862316e305, 1.797693134862316e305] };
   expect(validExMotor(motor)).toBe(false); // HF2 refuses before gram-conversion repair.
   expect(repairStoredExMotor(motor).sampleMassesKg).toBeUndefined();
-  expect(exToMotorSpec(motor, Infinity).masses.every(m => Number.isFinite(m * 1000))).toBe(true);
+  expect(() => exToMotorSpec(motor, Infinity)).toThrow(/weights.*simulator limit/);
 });
-it('repairs every snapshot mass whose gram conversion overflows independently of tolerant ordering', () => {
+it('refuses overflowing snapshots without attempting an out-of-range burn-off repair', () => {
   const spec = exToMotorSpec(parseEng(good)[0]!, Infinity);
   const snapshot = { ...spec, masses: [1.7976931348623156e305, 1.797693134862316e305, 1.797693134862316e305] };
   expect(Number.isFinite(snapshot.masses[0]! * 1000)).toBe(true);
   expect(validFlightSnapshot(snapshot)).toBe(false);
   const repaired = repairFlightSnapshot(snapshot);
-  expect(repaired.masses.every(m => Number.isFinite(m * 1000))).toBe(true);
+  expect(repaired).toBe(snapshot);
   expect(validFlightSnapshot(repaired)).toBe(false); // HF2 refuses the whole oversized motor.
   const saved = archiveExMotors([{ designation: 'Good', diameter: spec.diameter,
     length: spec.length, exMotorSpec: snapshot, delay: Infinity }], []);

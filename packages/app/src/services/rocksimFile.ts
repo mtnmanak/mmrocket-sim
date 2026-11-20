@@ -10,7 +10,7 @@ import { filletExportNotes } from './filletExport.js';
 import { simulationExtensionLossNotes } from './orkExtensions.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
 import { repairImportedFinOutline } from './importFinOutline.js';
-import { asStageNodes, flownInstanceCount, freshId, mountsIn } from '../tree/treeModel.js';
+import { asStageNodes, flownInstanceCount, freshId, mountsIn, nameOr } from '../tree/treeModel.js';
 import { mountBore } from '../tree/scaleRocket.js';
 import { CLUSTER_POINTS, clusterCount, clusterOffsets } from '../tree/cluster.js';
 import { resolveAssemblyRadius } from '../tree/assembly.js';
@@ -485,7 +485,11 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
       + 'masses counting.)');
   }
 
+  const importedPartElements = new Set<XmlElement>();
+  const elementByNode = new Map<ComponentNode, XmlElement>();
   const readCommon = (el: XmlElement, node: ComponentNode) => {
+    importedPartElements.add(el);
+    elementByNode.set(node, el);
     const nm = text(el, ':scope > Name');
     if (nm) node.name = nm;
     // RockSim names the catalogue part on every component - <PartMfg> is
@@ -1493,7 +1497,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
   });
   const acceptedSets = new Set(allEngineSets);
   const simulationSets = new Map(simEls.map(s => [s, Array.from(s.querySelectorAll('EngineSet')).filter(e => acceptedSets.has(e))]));
-  const motorIndex = indexRocksimMotors(doc, design, simulationSets, notes);
+  const motorIndex = indexRocksimMotors(doc, design, simulationSets, notes, importedPartElements);
   const designRecoveryNotes: string[] = [];
   const designRecovery = readDeploymentEvents(design, serialToNode, designRecoveryNotes, num);
   const simulationRecoveryNotes = simEls.map(() => [] as string[]);
@@ -2106,7 +2110,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
     // RockSim's two negative <EjectionDelay> codes are sentinels, not delays —
     // see rktEjectionDelay. Resolved here, so no negative delay leaves the reader.
     const read = rktEjectionDelay(engineSet, num);
-    const matchContext = rocksimMotorEvidence(engineSet, motorIndex);
+    const matchContext = rocksimMotorEvidence(engineSet, motorIndex, elementByNode.get(mount) ?? null);
     const every = read === 'every' ? rktEveryDelay(code, manufacturer, matchContext, opts?.catalogue) : null;
     const rawDelay = text(engineSet, ':scope > EjectionDelay');
     const statedDelay = parseDecimal(rawDelay);
@@ -4053,14 +4057,14 @@ export function exportRkt(input: RktExportInput): string {
     // changes: stageKnown above still owns exactly what goes into the XML.
     if (numOpt(s, 'overrideMass') === undefined && numOpt(s, 'overrideCGX') === undefined) return;
     if (!(nnum(s, 'overrideMass', 0) > 0)) {
-      notes?.push(`“${noteField(s.name ?? `Stage ${i + 1}`)}”: Stage mass/CG overrides are not preserved as editable stage settings.`
+      notes?.push(`“${noteField(nameOr(s, `Stage ${i + 1}`))}”: Stage mass/CG overrides are not preserved as editable stage settings.`
         + ' Any computed stage weight reopens here as Measured mass & CG (multi-stage weights as a note only),'
         + ' so the reopened design flies its parts until you apply it. Save a .ork file to keep the overrides.');
       return;
     }
     const mass = numOpt(s, 'overrideMass') !== undefined;
     const both = mass && numOpt(s, 'overrideCGX') !== undefined;
-    notes?.push(`“${noteField(s.name ?? `Stage ${i + 1}`)}”: its ${both ? 'mass and CG overrides go' : `${mass ? 'mass' : 'CG'} override goes`}`
+      notes?.push(`“${noteField(nameOr(s, `Stage ${i + 1}`))}”: its ${both ? 'mass and CG overrides go' : `${mass ? 'mass' : 'CG'} override goes`}`
       + " out as RockSim's known mass for the stage, which RockSim and desktop OpenRocket fly in place of its parts. "
       + (stagesIn.length === 1
         ? 'This app opens that into Measured mass & CG on the Design tab instead of pinning the stage, so the design '

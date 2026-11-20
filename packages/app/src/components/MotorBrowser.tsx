@@ -381,7 +381,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const shown = useMemo(() => {
     const makers = new Set(manufacturers.map((m) => m.abbrev));
     const letters = new Set(impulseClasses.map((c) => c.letter));
-    const props = new Set(propellants.slice(0, 14).map((p) => p.name));
+    const props = new Set(propellants.map((p) => p.name));
     return {
       manufacturers: filters.manufacturers.filter((m) => makers.has(m)),
       classes: filters.classes.filter((c) => fittingClasses.includes(c)),
@@ -518,6 +518,8 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   };
 
   const load = async () => {
+    const invalid = dialogRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+    if (invalid) { invalid.focus(); return; }
     if (!picked) return;
     loadAbort.current?.abort();
     const ctrl = new AbortController();
@@ -766,7 +768,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
             <>
               <div className="motor-chip-row" role="group" aria-label="Propellants">
                 <span className="motor-chip-caption">Propellant</span>
-                {propellants.slice(0, 14).map(({ name, count }) => (
+                {propellants.map(({ name, count }) => (
                   <FilterChip key={name} on={filters.propellants.includes(name)}
                     onToggle={() => setFilters({ ...filters, propellants: toggle(filters.propellants, name) })}>
                     {name} <span className="motor-chip-count">{count}</span>
@@ -969,11 +971,16 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
               </label>
               {delay === 'custom' && (
                 <span className="inline-numfield" style={{ width: 70 }}>
-                  <NumField value={customDelay} step={1} max={60} ariaLabel="Custom delay (s)"
+                  <NumField value={customDelay} step={1} max={60} clampToMax ariaLabel="Custom delay (s)"
                     onCommit={(v) => { if (v !== null) setCustomDelay(v); }} />
                 </span>
               )}
               <button className="launch-btn" style={{ width: 'auto', marginTop: 0, padding: '6px 16px' }}
+                onMouseDown={e => {
+                  // Keep NumField's invalid draft until load() can refuse it;
+                  // the browser otherwise blurs it before dispatching click.
+                  if (dialogRef.current?.querySelector('[aria-invalid="true"]')) e.preventDefault();
+                }}
                 onClick={() => { void load(); }} disabled={busy}>
                 {busy ? 'Loading…' : 'Load motor'}
               </button>

@@ -25,7 +25,7 @@ import { designFingerprint } from './dirtyState.js';
 import { sanitizeSessionFlightLayers } from './sessionFlightLayers.js';
 import { boundedNozzleDiameter } from '../tree/nozzles.js';
 import { repairFlightSnapshot, massesDoNotRise, validExMotor, validStoredExDefinition, motorWithinRepresentabilityLimits } from './exMotors.js';
-import { MAX_STATED_MASS_KG } from '../tree/schema.js';
+import { MAX_DIMENSION_M, MAX_STATED_MASS_KG } from '../tree/schema.js';
 import type { RepairedMotorSpec } from './thrustcurve.js';
 import { STATED_STAGE_FIGURES, statedFiguresOf } from './statedLaunchWeight.js';
 
@@ -560,7 +560,12 @@ function readSession(restoreRoot: boolean): SessionState | null {
           && spec[key].every(v => Number.isFinite(v)))
         && ['diameter', 'length'].every(key => Number.isFinite(spec[key]) && (spec[key] as number) > 0)
         && Number.isFinite(spec['cgX'])
-        && ['motorId', 'exMotorId', 'manufacturer', 'orkType', 'orkManufacturer', 'orkMotorId', 'orkDigest'].every(key => meta[key] === undefined || typeof meta[key] === 'string')
+        && (spec['ejectionDelay'] === Infinity || spec['ejectionDelay'] === 'Infinity' || spec['ejectionDelay'] === null
+          || (typeof spec['ejectionDelay'] === 'number' && Number.isFinite(spec['ejectionDelay'])))
+        && ['motorId', 'exMotorId', 'manufacturer', 'orkType', 'orkManufacturer', 'orkMotorId', 'orkDigest', 'label'].every(key => meta[key] === undefined || typeof meta[key] === 'string')
+        && ['type', 'propellant', 'motorCase'].every(key => meta[key] == null || typeof meta[key] === 'string')
+        && ['autoDelay', 'highPower'].every(key => meta[key] === undefined || typeof meta[key] === 'boolean')
+        && (meta['motorCount'] === undefined || (Number.isSafeInteger(meta['motorCount']) && (meta['motorCount'] as number) > 0))
         && (meta['availableDelays'] === undefined || (Array.isArray(meta['availableDelays'])
           && meta['availableDelays'].every(d => Number.isFinite(d) || d === Infinity || d === 'Infinity')))
         && typeof mm['label'] === 'string'
@@ -745,6 +750,7 @@ function readSession(restoreRoot: boolean): SessionState | null {
     // Infinity literal; a plain stringify would have stored null). The
     // Stage B config presets carry the same MountMotor shape.
     const motorSets = [
+      ...(s.motor ? [{ legacy: { spec: s.motor, meta: s.motorMeta ?? {} as MotorMeta, label: s.motorLabel ?? '' } }] : []),
       s.mountMotors ?? {},
       ...(s.savedConfigs ?? []).map((c) => c.motors ?? {}),
     ];
@@ -815,6 +821,11 @@ function readSession(restoreRoot: boolean): SessionState | null {
       let repaired = false;
       for (const key of ['massKg', 'cgM'] as const) {
         const value = s.measured[key];
+        if (key === 'cgM' && Number.isFinite(value) && value !== null && value > MAX_DIMENSION_M) {
+          s.measured[key] = MAX_DIMENSION_M;
+          cautionNote(s.treeRestoreNotes ??= [], 'G04.measurements-reset', 'Stored measured CG was above the length limit and was reduced; check the measurement before flying.');
+          continue;
+        }
         if (key === 'massKg' && Number.isFinite(value) && value !== null && value > MAX_STATED_MASS_KG) {
           s.measured[key] = MAX_STATED_MASS_KG;
           cautionNote(s.treeRestoreNotes ??= [], 'G04.measurements-reset', 'Stored measured mass was above the simulator limit and was reduced; check the measurement before flying.');

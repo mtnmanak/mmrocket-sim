@@ -1,4 +1,5 @@
 import { noteField } from './noteField.js';
+import { usableMotorMasses } from './motorMass.js';
 import { INITIAL_UNITS, fmtSig, noticeEqual, noticeNumber, noticeComparison, type UnitSelection } from '../prefs/units.js';
 import { parseDecimal } from './xmlUtil.js';
 import type { MotorSpec } from '@online-openrocket/engine';
@@ -194,10 +195,7 @@ async function readJsonCapped(res: Response, designation: string): Promise<unkno
 export function isHeaderMasses(m: unknown): m is TcHeaderMasses {
   if (typeof m !== 'object' || m === null) return false;
   const { totalWeightG: t, propWeightG: p } = m as Record<string, unknown>;
-  return typeof t === 'number' && typeof p === 'number'
-    // Number.isFinite, not just typeof: JSON.parse('1e999') yields Infinity.
-    && Number.isFinite(t) && Number.isFinite(p)
-    && t > 0 && p > 0 && (p <= t || noticeEqual(p / 1000, t / 1000));
+  return usableMotorMasses(t, p);
 }
 
 /**
@@ -1004,7 +1002,8 @@ export function samplesToMotorSpec(
   // rows with no usable weight, 14 of them in production (Estes 1/2A6,
   // Cesaroni 320H565-14A, Klima B2, ...), all of which desktop flies.
   const file = isHeaderMasses(fromFile) ? fromFile : null;
-  if (!file && (!Number.isFinite(motor.totalWeightG) || !Number.isFinite(motor.propWeightG))) {
+  if (!file && (!Number.isFinite(motor.totalWeightG) || !Number.isFinite(motor.propWeightG)
+    || motor.totalWeightG <= 0 || motor.propWeightG <= 0)) {
     throw new Error(
       `thrustcurve.org publishes no loaded/propellant weight for ${noteField(motor.designation)}, ` +
         'so it cannot be simulated. Pick another motor, or import its .rse/.eng file.',
@@ -1021,6 +1020,9 @@ export function samplesToMotorSpec(
   }
 
   const totalMass = (file?.totalWeightG ?? motor.totalWeightG) / 1000;
+  if (!usableMotorMasses(file?.totalWeightG ?? motor.totalWeightG, file?.propWeightG ?? motor.propWeightG)) {
+    throw new Error(`Motor weights for ${noteField(motor.designation)} exceed the simulator limit; check the loaded and propellant weights.`);
+  }
   const propMass = Math.min(totalMass, (file?.propWeightG ?? motor.propWeightG) / 1000);
 
   // Cumulative impulse via trapezoid rule.
@@ -1385,6 +1387,10 @@ export interface CurveFiles {
   cacheFallback?: 'offline' | 'failed';
 }
 
+const specCurveReads = new WeakMap<MotorSpec, CurveFiles>();
+/** The actual read that produced this spec, even across concurrent imports. */
+export const motorCurveFiles = (spec: MotorSpec): CurveFiles | undefined => specCurveReads.get(spec);
+
 /** How many motors' last reads lastCurveFiles keeps for the page session. */
 const MAX_REMEMBERED_READS = 64;
 const rememberedReads = new Map<string, CurveFiles>();
@@ -1718,7 +1724,8 @@ export async function fetchMotorSpec(
   }
 
   // The files it flies from, and which one: curveFiles has the order and why.
-  const { flown } = await curveFiles(motor, { bundleOnly, digest, signal });
+  const read = await curveFiles(motor, { bundleOnly, digest, signal });
+  const { flown } = read;
   const spec = samplesToMotorSpec(motor, flown.samples!, ejectionDelay, headerMasses(flown), opts.units);
   // Say when the curve flown disagrees with the motor's certification, in the
   // list the app already shows curve repairs from (services/notices.ts, which
@@ -1729,7 +1736,9 @@ export async function fetchMotorSpec(
   // (docs/research/metra-flights-2026-09-06.md). Measured on the spec, the
   // curve that flies, not on `samples` (audit 2026-09-30; see impulseNote).
   const note = impulseNote(motor, spec.times.map((time, i) => ({ time, thrust: spec.thrusts[i]! })));
-  return note ? { ...spec, curveRepairs: [...(spec.curveRepairs ?? []), note] } : spec;
+  const result = note ? { ...spec, curveRepairs: [...(spec.curveRepairs ?? []), note] } : spec;
+  specCurveReads.set(result, read);
+  return result;
 }
 
 /**

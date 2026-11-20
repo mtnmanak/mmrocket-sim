@@ -168,7 +168,7 @@ import { offlineStatusText, useOfflineStatus } from './services/offlineStatus.js
 import {
   addChild, addStage, nozzleStages, nozzleEditableStageIds, applyStageNozzles, autoDelayBox, cloneSubtree, duplicateNode, findNode,
   hasParallelStage, motorMounts, moveNode,
-  isPristineDefault, mountCountNote, mountMotorCount, mountName, removeNode, stageIndexOf, stages,
+  isPristineDefault, mountCountNote, mountMotorCount, mountName, nameOr, removeNode, stageIndexOf, stages,
   suppressingAncestor, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
 import { num, numOpt, numOrNull } from './tree/nodeNum.js';
@@ -1946,7 +1946,7 @@ export function App() {
       [STATED_STAGE_FIGURES]: undefined,
     } as Partial<ComponentNode>, repairs, prefs.units);
     setTree(updateNode(tree, blocker.id, patch));
-    setFileNote(`“${noteField(blocker.name ?? 'Stage')}” is now pinned to your measured `
+    setFileNote(`“${noteField(nameOr(blocker, 'Stage'))}” is now pinned to your measured `
       + noticeQuantity('mass', num(patch, 'overrideMass', measured.massKg), prefs.units)
       + ` and CG ${noticeQuantity('length', num(patch, 'overrideCGX', measured.cgM), prefs.units)}. `
       + 'Clear it under Overrides to go back to the computed geometry.'
@@ -3519,10 +3519,10 @@ export function App() {
   // Loaded motor dimensions per mount — the 2D schematic draws each motor
   // to scale inside its mount tube (the owner's request: real case length).
   const motorDims = useMemo(
-    () => Object.fromEntries(assigned.map(([id, mm]) => [
+    () => Object.fromEntries(installedMounts(assigned, refusedMountIds).map(([id, mm]) => [
       id, { length: mm.spec.length, diameter: mm.spec.diameter, label: mm.label },
     ])),
-    [assigned],
+    [assigned, refusedMountIds],
   );
 
   // Flight evidence is sticky for this page load, even after New or an edit
@@ -3552,12 +3552,16 @@ export function App() {
 
   // Data header for the 2D/3D image exports (issue 2026-08-11a) — name,
   // dimensions, mass, CG/CP/margin in the user's units.
+  const unresolvedMounts = mounts.filter(mount => mount.id && overrideFor(unmatchedRefs, mount.id)
+    && !assigned.some(([id]) => id === mount.id));
   const viewExportData = {
     name: tree.name ?? 'Rocket',
     info: built?.info ?? null,
     units: prefs.units,
     withMotors: assigned.length > 0,
     appVersion: APP_VERSION,
+    omittedMotors: motorFailures.map(f => noteField(mountName(findNode(tree, f.mountId)))),
+    unresolvedMotors: unresolvedMounts.map(mount => noteField(mountName(mount))),
   };
 
   // Memoized: a `findNode` walk per render, and the dep of the `selectedInfo`
@@ -3631,7 +3635,7 @@ export function App() {
     return {
       id: m.id!,
       size: classLabel(diameterClass(mountDiaMm(node))),
-      stage: stageList[stIdx]?.name ?? `Stage ${stIdx + 1}`,
+      stage: nameOr(stageList[stIdx], `Stage ${stIdx + 1}`),
       // Every motor the mount fires, pods and strap-ons included (audit
       // 2026-09-22, row 351) — the same count the mass figures carry.
       count: mountMotorCount(tree, m.id!),
@@ -3692,10 +3696,9 @@ export function App() {
   );
   const preparePrintReport = () => {
     // C-A6: imported references never reach installation, but still make the intended loadout incomplete.
-    const unresolved = mounts.flatMap(mount => {
-      const ref = mount.id ? overrideFor(unmatchedRefs, mount.id) : undefined;
-      return ref && !assigned.some(([id]) => id === mount.id)
-        ? [{ mount, identity: [ref.manufacturer, ref.designation].filter(Boolean).join(' ') }] : [];
+    const unresolved = unresolvedMounts.map(mount => {
+      const ref = overrideFor(unmatchedRefs, mount.id!)!;
+      return { mount, identity: [ref.manufacturer, ref.designation].filter(Boolean).join(' ') };
     });
     const loadout = [
       ...assigned.map(([id, mm]) => `${mountName(mounts.find(m => m.id === id)!)}: ${mm.label} ×${mountMotorCount(tree, id)} (${!built ? 'build unavailable' : refusedMountIds.includes(id) ? 'omitted from build' : 'installed in build'})`),
@@ -4714,7 +4717,7 @@ export function App() {
                 setTree(removeNode(tree, allowanceNode.id));
                 if (selectedId === allowanceNode.id) setSelectedId(null);
               }}
-              blockedBy={allowanceBlocker ? { name: allowanceBlocker.name,
+              blockedBy={allowanceBlocker ? { name: nameOr(allowanceBlocker, 'Stage'),
                 kind: allowanceBlocker['overrideSubcomponentsMass'] === true && numOpt(allowanceBlocker, 'overrideMass') !== undefined ? 'mass' : 'cg' } : null}
               onPinStage={allowanceBlocker && canPinBlocker ? pinBlockerToMeasured : undefined}
             />
@@ -5021,7 +5024,7 @@ export function App() {
               // A stage with no mount still lists a nozzle value it carries, so
               // its one editor can clear it (CFG-SPEC A4).
               if (stMounts.length === 0 && stNozzles.length === 0) return null;
-              const stName = st.name ?? `Stage ${stIdx + 1}`;
+              const stName = nameOr(st, `Stage ${stIdx + 1}`);
               return (
                 <div key={st.id}>
                   {isStaged && <div className="motor-stage-header">{stName}</div>}
@@ -5034,15 +5037,16 @@ export function App() {
                         drawings with the provenance shown. */}
                     {stNozzles.map((nozzleStage) => {
                       const loadout = stageMotorLoadout.find((s) => s.stageId === nozzleStage.id)?.motors ?? [];
+                      const nozzleStageName = nameOr(nozzleStage, nozzleStage.type === 'parallelstage' ? 'Strap-on' : stName);
                       return <div key={nozzleStage.id}
                         onFocus={() => holdNozzle(nozzleStage.id!, true)}
                         onBlur={(e) => {
                           if (!e.currentTarget.contains(e.relatedTarget as Node | null)) holdNozzle(nozzleStage.id!, false);
                         }}>
-                        {nozzleStage.type === 'parallelstage' && <div className="motor-stage-header">{nozzleStage.name ?? 'Strap-on'}</div>}
+                        {nozzleStage.type === 'parallelstage' && <div className="motor-stage-header">{nozzleStageName}</div>}
                         <NozzleField
                           inputId={`cfg-nozzle-${nozzleStage.id!}`}
-                          stageName={nozzleStage.name ?? stName}
+                          stageName={nozzleStageName}
                           parallel={nozzleStage.type === 'parallelstage'}
                           exitDiameterM={numOrNull(nozzleStage, 'nozzleExitDiameter')}
                           motors={loadout}

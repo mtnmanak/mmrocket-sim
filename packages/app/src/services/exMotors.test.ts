@@ -17,6 +17,26 @@ K550W 54 410 0 0.919744 1.48736 AT
    3.4 0.0
 `;
 
+it('J4 r3 does not call different slug-colliding names duplicates in one selection', () => {
+  const motors = ['X+1', 'X-1'].map(name => parseEng(`${name} 29 100 5 0.05 0.1 Home\n0 0\n0.5 40\n1 0`)[0]!);
+  expect(addExMotors(motors).duplicates).toEqual([]);
+  expect(loadExMotors().map(m => m.designation)).toEqual(['X+1', 'X-1']);
+});
+
+it('J4 S1c-1 retains different raw identities across separate slug-colliding imports', () => {
+  localStorage.clear();
+  const one = parseEng('X+1 29 100 5 0.05 0.1 Home\n0 0\n0.5 20\n1 0')[0]!;
+  const two = parseEng('X-1 29 100 5 0.05 0.1 Home\n0 0\n0.5 40\n1 0')[0]!;
+  addExMotors([one]);
+  expect(addExMotors([two]).replaced).toEqual([]);
+  const motors = loadExMotors();
+  expect(motors.map(m => m.designation).sort()).toEqual(['X+1', 'X-1']);
+  expect(new Set(motors.map(m => m.motorId)).size).toBe(2);
+  expect(addExMotors([two]).replaced).toEqual(['X-1']);
+  expect(loadExMotors()).toHaveLength(2);
+  localStorage.clear();
+});
+
 const ENG_MULTI = `; two little motors
 A8 18 70 3-5-7 0.00312 0.01624 Estes
 0.05 8.2

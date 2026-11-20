@@ -214,7 +214,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose: notif
       if (file.size > MAX_PRESET_CSV_BYTES) cautions.push(PRESET_CSV_SIZE_CAUTION);
       const parsed = cautions.length ? [] : csvToPresets(await file.text(), cautions);
       if (generation !== importGeneration.current) return;
-      if (cautions.length) {
+      if (cautions.length && parsed.length === 0) {
         sessionDebugLog.record('import-failed', new Error(cautions[0]));
         setNoteTier('caution');
         setNote(cautions.join('\n'));
@@ -227,11 +227,11 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose: notif
       }
       const good = parsed.filter(rowIsSound);
       const dropped = parsed.length - good.length;
-      const droppedNote = dropped > 0
+      const droppedNote = (dropped > 0
         ? ` ${dropped} row(s) skipped — a material needs a name, a plain positive density and the type its part`
           + ' takes (SURFACE for a parachute or streamer, BULK for anything else)'
           + ` (first: ${parsed.find((p) => !rowIsSound(p))!.partNo}).`
-        : '';
+        : '') + (cautions.length ? ` ${cautions.join('\n')}` : '');
       if (good.length === 0) {
         sessionDebugLog.record('import-failed', new Error('No valid preset rows found.'));
         setNote(`Nothing imported.${droppedNote}`);
@@ -269,7 +269,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose: notif
       const missing = written ? good.filter((p) => !stored.has(JSON.stringify(p))).length : good.length;
       sessionDebugLog.record(missing > 0 ? 'import-failed' : 'import-complete',
         missing > 0 ? new Error('Preset storage refused the import.') : undefined);
-      setNoteTier(dropped > 0 || missing > 0 || next.backedUp ? 'caution' : 'information');
+      setNoteTier(dropped > 0 || cautions.length > 0 || missing > 0 || next.backedUp ? 'caution' : 'information');
       const imported = missing > 0
         ? `Could not store ${missing} of ${good.length} preset(s) — this browser's storage`
           + ` is full or blocked, so the new values were not saved.${droppedNote}${next.backedUp ? ` ${CUSTOM_PRESETS_BACKUP_FAILED}` : ''}`

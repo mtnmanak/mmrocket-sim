@@ -74,6 +74,48 @@ function harness(initial: RocketTree, look: NozzleLookup = lookup) {
 
 const exitOf = (t: RocketTree) => t.components[0]!['nozzleExitDiameter'];
 
+it('J4 S7e-b1 caches a first-sight EX exit for deletion followed by clustering', async () => {
+  localStorage.clear();
+  const ex = { ...parseEng('G100 38 150 P 0.1 0.2 Home\n0 0\n0.5 200\n1 0')[0]!, exitDiameterM: 0.015 };
+  addExMotors([ex]);
+  const h = harness(tree(0.019), nozzleForMotorId);
+  await h.show(loadout(ex.motorId));
+  expect(h.writes).toHaveLength(0);
+  await act(async () => { deleteExMotor(ex.motorId); });
+  const four = loadout(ex.motorId); four[0]!.motors[0]!.count = 4;
+  await h.show(four);
+  expect(exitOf(h.treeRef.current)).toBeCloseTo(0.030, 12);
+});
+
+it('J4 S7e-g1 prunes cleared cautions on seed, manual entry and stage removal', async () => {
+  const h = harness(tree(0.012));
+  await h.show(loadout('J1'));
+  await h.show(loadout('unknown'));
+  expect(h.out.cleared.s1).toBeDefined();
+  await act(async () => { h.out.seed(loadout('unknown')); });
+  expect(h.out.cleared.s1).toBeUndefined();
+  await h.show(loadout('J1'));
+  await h.show(loadout('unknown'));
+  h.treeRef.current = tree(0.024);
+  await h.show(loadout('unknown'));
+  h.treeRef.current = tree();
+  await h.show(loadout('unknown'));
+  expect(h.out.cleared.s1).toBeUndefined();
+  await h.show(loadout('J1'));
+  await h.show(loadout('unknown'));
+  expect(h.out.cleared.s1).toBeDefined();
+  await h.show([]);
+  expect(h.out.cleared.s1).toBeUndefined();
+});
+
+it('J4 S7e-g2 names all mounts and cluster counts in a cleared equivalent exit', async () => {
+  const h = harness(tree(0.03));
+  const loaded = loadout('J1', 'K1'); loaded[0]!.motors[0]!.count = 4;
+  await h.show(loaded);
+  await h.show(loadout('unknown'));
+  expect(h.out.cleared.s1?.previousLabel).toBe('4 × J1-label + K1-label');
+});
+
 it.each(['constructor', 'toString', '__proto__'])('has no inherited cleared-nozzle caution for %s', async id => {
   const t = tree();
   t.components[0]!.id = id;

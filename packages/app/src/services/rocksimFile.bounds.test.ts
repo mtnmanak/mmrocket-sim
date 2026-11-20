@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { exportRkt, importRkt, MAX_RKT_SIMULATION_RECORDS } from './rocksimFile.js';
 import { exportOrk, importOrk } from './orkFile.js';
 import type { ComponentNode } from '@online-openrocket/engine';
-import { indexRocksimMotors, MAX_RKT_SERIAL_CHARACTERS, MAX_RKT_SERIAL_LENGTH, MAX_RKT_SERIAL_RECORDS } from './rocksimMotorEvidence.js';
+import { indexRocksimMotors, rocksimMotorEvidence, MAX_RKT_SERIAL_CHARACTERS, MAX_RKT_SERIAL_LENGTH, MAX_RKT_SERIAL_RECORDS } from './rocksimMotorEvidence.js';
 import { noteFlags } from './importNotes.js';
 import { parseXml } from './xmlParse.js';
 import * as nodeNumbers from '../tree/nodeNum.js';
@@ -346,7 +346,7 @@ describe('S1b-g2 bounds raw RockSim simulation work before folding', () => {
       matchContext: { physical: { loadedMassG: 200, dryMassG: 100, motorMassG: 100, burnTimeS: 2 } } });
   });
 
-  it.each([true, false])('memoises a padded serial target with ID present=%s across 300 simulations', present => {
+  it.each([true, false])('ignores an unimported padded serial target with ID present=%s across 300 simulations', present => {
     const parser = currentXmlParser();
     const measure = (count: number) => {
       let queries = 0;
@@ -366,17 +366,30 @@ describe('S1b-g2 bounds raw RockSim simulation work before folding', () => {
       const ring = `<Ring><SerialNo>9</SerialNo>${'<Pad/>'.repeat(1500)}${present ? '<ID>18</ID>' : ''}<IsMotorMount>1</IsMotorMount></Ring>`;
       const result = importRkt(file(sim(engine.replace('<MountSerialNo>7', '<MountSerialNo>9')).repeat(count), ring));
       expect(result.configs).toHaveLength(1);
-      expect(Object.values(result.motors)[0]!.matchContext?.mountBoreMm).toBeUndefined();
+      // The refused Ring is not an imported mount; evidence follows the
+      // resolved active BodyTube instead of that stale raw serial.
+      expect(Object.values(result.motors)[0]!.matchContext?.mountBoreMm).toBe(18);
       return { queries, scans };
     };
     try {
-      expect(measure(300)).toEqual({ queries: 0, scans: 1 });
-      expect(measure(1)).toEqual({ queries: 0, scans: 1 });
+      expect(measure(300)).toEqual({ queries: 0, scans: 0 });
+      expect(measure(1)).toEqual({ queries: 0, scans: 0 });
     } finally {
       setXmlParser(parser);
       vi.restoreAllMocks();
     }
   }, 30_000);
+
+  it.each([true, false])('J4 r3 memoises active mount facts with ID present=%s', present => {
+    const doc = parseXml(`<Design><BodyTube><SerialNo>7</SerialNo>${'<Pad/>'.repeat(1500)}${present ? '<ID>54</ID>' : ''}<IsMotorMount>1</IsMotorMount></BodyTube><EngineSet><MountSerialNo>7</MountSerialNo></EngineSet></Design>`, 'bad');
+    const mount = doc.querySelector('BodyTube')!;
+    const index = indexRocksimMotors(doc, doc.documentElement, new Map(), [], new Set([mount]));
+    let scans = 0;
+    const children = mount.children;
+    Object.defineProperty(mount, 'children', { configurable: true, get: () => { scans++; return children; } });
+    for (let i = 0; i < 300; i++) expect(rocksimMotorEvidence(doc.querySelector('EngineSet')!, index).mountBoreMm).toBe(present ? 54 : undefined);
+    expect(scans).toBe(1);
+  });
 
   it('counts motor-bearing sets per stage once before checking stale serials', () => {
     const parser = currentXmlParser();
@@ -436,8 +449,9 @@ describe('S1b-g2 bounds raw RockSim simulation work before folding', () => {
     }
   }, 30_000);
 
-  it('does not infer motor dimensions or dry-mass evidence from a duplicated serial', () => {
+  it('ignores an unimported duplicate serial when resolving active-mount evidence', () => {
     const result = importRkt(file(sim(), '<SerialNo>7</SerialNo>'));
-    expect(Object.values(result.motors)[0]!.matchContext).toEqual({ source: 'rocksim' });
+    expect(Object.values(result.motors)[0]!.matchContext).toMatchObject({ source: 'rocksim', mountBoreMm: 18,
+      physical: { loadedMassG: 200, dryMassG: 100 } });
   });
 });

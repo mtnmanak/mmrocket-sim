@@ -71,16 +71,18 @@ describe('row 148 recovery and tube corrections', () => {
     ...['14', '18', '24', '30', '36'].map(s => `Parachute|semroc|pn${s}`),
     ...['036', '048', '060', '072', '084', '096', '120'].map(s => `Parachute|fruitychutes|ifc${s}n`),
   ];
-  it.each(keys)('ships the sourced correction for %s', key => {
-    // Pin the correction contract, rather than another literal shipped density:
-    // a future source refresh must agree with the reviewed correction table.
+  it.each(keys)('J4 V211-13 ships the sourced correction for %s', key => {
+    // Independent owner/source targets: changing the applying table must fail.
     const c = CORRECTIONS.find(c => c.key === key);
     expect(c, key).toBeDefined();
     const p = rows.find(p => presetKey(p) === key);
     expect(p, key).toBeDefined();
-    for (const [field, { good }] of Object.entries(c.fields)) {
-      expect(field.split('.').reduce((o, k) => o?.[k], p), `${key} ${field}`).toBe(good);
-    }
+    const field = key.startsWith('Parachute|fruitychutes|') ? 'lineMaterial.density' : 'material.density';
+    const expected = field === 'lineMaterial.density' ? 0.003718285
+      : key === 'Streamer|publicmissiles|pmltbd123' ? 0.046952679179544
+        : key.startsWith('Parachute|semroc|pn') ? 0.06685 : 0.0235;
+    expect(c.fields, `${key} correction target`).toEqual({ [field]: { bad: undefined, good: expected } });
+    expect(field.split('.').reduce((o, k) => o?.[k], p), `${key} ${field}`).toBe(expected);
   });
 
   it.each([
@@ -100,6 +102,23 @@ describe('row 148 recovery and tube corrections', () => {
     expect(correction).toBeDefined();
     expect(correction.fields.mass.bad).toBeGreaterThan(mass);
     expect(correction.fields.mass.good).toBeUndefined();
+  });
+});
+
+describe('J4 S10b-g1 BMS nose-block geometry', () => {
+  // BMS CONES1.asp OD column, inches; independent of CORRECTIONS.
+  it.each([
+    ['NB20-2', 0.710], ['NB50-2', 0.950], ['NB55-2', 1.283], ['NB55-3', 1.283],
+    ['NB60-4', 1.595], ['NB70-4', 2.180], ['NB80-4', 2.558],
+  ])('ships %s at its maker’s diameter', (partNo, inches) => {
+    const p = rows.find(p => p.manufacturer === 'BalsaMachining' && p.partNo === partNo);
+    expect(p.outsideDiameter).toBeCloseTo(inches * 0.0254, 12);
+    expect(p.mass).toBeUndefined();
+  });
+
+  it('screens BT-sized bulkheads for inch-as-mm slips', () => {
+    expect(rows.filter(p => p.kind === 'BulkHead' && /\bBT(?:20|50|55|60|70|80)\b/i.test(p.description)
+      && !(p.outsideDiameter >= 0.005)).map(presetKey)).toEqual([]);
   });
 });
 

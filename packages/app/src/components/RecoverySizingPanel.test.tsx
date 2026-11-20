@@ -84,6 +84,31 @@ describe('RecoverySizingPanel', () => {
   const headingReading = (el: Element) => [...el.childNodes]
     .map((n) => n.nodeType === 3 ? n.textContent : n instanceof HTMLSelectElement ? `[${n.value}]` : '').join('');
 
+  it('J4 S7b-b1 discloses co-deployed mains without naming either as an existing drogue', async () => {
+    await mount({ tree: tree([
+      { name: 'First main', diameter: 1, cd: 1, deployEvent: 'apogee' },
+      { name: 'Second main', diameter: 0.5, cd: 0.8, deployEvent: 'apogee' },
+    ]) });
+    expect(host.textContent).toContain('landing parachutes deploy together');
+    expect(host.textContent).toContain('combined drag');
+    const drogue = host.querySelectorAll('.recovery-band')[1]!;
+    expect(drogue.textContent).toContain('there is no drogue parachute');
+    expect(drogue.querySelector('.recovery-size-note')!.textContent).not.toContain('Second main');
+  });
+
+  it('J4 r3 counts physical co-deployed canopies and describes the selected main group', async () => {
+    const t = tree([{ name: 'Core main', diameter: 0.5, deployEvent: 'apogee' }]);
+    t.components[0]!.children![0]!.children!.push({ type: 'podset', id: 'pods', instanceCount: 2, children: [
+      { type: 'bodytube', id: 'pod-bay', outerRadius: 0.05, length: 0.5, children: [
+        { type: 'parachute', id: 'pod-main', diameter: 1, deployEvent: 'apogee' },
+      ] },
+    ] });
+    await mount({ tree: t });
+    expect(host.textContent).toContain('3 landing parachutes deploy together');
+    expect(host.textContent).toContain('considers all 2 instances of the selected main');
+    expect(host.textContent).not.toContain('considers one canopy');
+  });
+
   it.each(['ft/s', 'm/s', 'km/h', 'mph', 'kt'])('S7-2 names the band\'s unit once, in its chip (%s)', async (unit) => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { velocity: unit } }));
     await mount();

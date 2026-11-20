@@ -13,6 +13,28 @@ import {
   DROGUE_BAND, MAIN_BAND, recoveryBayBore, recoveryFit, recoverySizing, SEA_LEVEL_DENSITY, siteAirDensity,
 } from './recoverySizing.js';
 import { sustainerScope } from './recoveryMass.js';
+import { exportOrk, importOrk } from './orkFile.js';
+import { setXmlParser } from './xmlParse.js';
+import { jsXmlParser } from './xmlParseJs.js';
+
+it.each<ComponentType>(['nosecone', 'transition'])('J4 S7b-b2 keeps a blank %s shoulder-wall verdict after saving and reopening', type => {
+  const chute: ComponentNode = { type: 'parachute', id: 'chute' };
+  const prefix = type === 'nosecone' ? 'shoulder' : 'aftShoulder';
+  const parent: ComponentNode = { type, id: 'bay', length: 0.4, foreRadius: 0.03, aftRadius: 0.03,
+    thickness: 0.006, shape: 'conical', [prefix + 'Radius']: 0.025, [prefix + 'Length']: 0.15, children: [chute] };
+  if (type === 'transition') Object.assign(parent, { foreShoulderRadius: 0.025, foreShoulderLength: 0.01, foreShoulderCapped: true });
+  const tree: RocketTree = { components: [{ type: 'stage', children: [parent] }] };
+  const preset: Preset = { kind: 'Parachute', manufacturer: 'Home', partNo: 'P', description: '', packedDiameter: 0.04, packedLength: 0.1 };
+  const before = recoveryFit(tree, chute, preset);
+  setXmlParser(jsXmlParser);
+  let reopened: RocketTree;
+  try { reopened = importOrk(exportOrk({ name: 'T', tree })).tree; }
+  finally { setXmlParser(null); }
+  const reopenedChute = reopened.components[0]!.children![0]!.children![0]!;
+  const after = recoveryFit(reopened, reopenedChute, preset);
+  expect(before).toMatchObject({ fits: true, known: false });
+  expect(after).toMatchObject({ fits: before.fits, known: before.known });
+});
 
 const db = (presetsJson as { presets: Preset[] }).presets;
 it('H1 excludes Never chutes from both advice roles', () => {
@@ -30,6 +52,76 @@ it.each([false, true])('H1 reports the accessible fore opening with aft capped=%
   expect(recoveryBayBore(tree, device)).toBeCloseTo(0.156, 12);
 });
 const canopies = db.filter((p) => p.kind === 'Parachute');
+
+it.each(['nosecone', 'transition'] as const)('J4 r4 tolerates decimal aft boundary residue for %s', type => {
+  for (const length of [0.3, 0.45]) {
+    const chute: ComponentNode = { type: 'parachute', id: 'chute' };
+    const prefix = type === 'nosecone' ? 'shoulder' : 'aftShoulder';
+    const bay: ComponentNode = { type, length, id: 'bay', foreRadius: 0.01, aftRadius: 0.02,
+      thickness: 0.005, shape: 'conical', [prefix + 'Radius']: 0.019,
+      [prefix + 'Thickness']: 0.001, [prefix + 'Length']: 0.15, children: [chute] };
+    const tree: RocketTree = { components: [{ type: 'stage', children: [bay] }] };
+    const preset: Preset = { kind: 'Parachute', manufacturer: 'Home', partNo: 'P', description: '',
+      packedDiameter: 0.034, packedLength: 0.15 };
+    expect(recoveryFit(tree, chute, preset)).toMatchObject({ fits: true, known: true });
+    expect(recoveryFit(tree, chute, { ...preset, packedLength: 0.150001 })).toMatchObject({ fits: false, known: true });
+  }
+});
+
+it('J4 r4 tolerates decimal body-end residue without entering a capped aft shoulder', () => {
+  const chute: ComponentNode = { type: 'parachute', id: 'chute' };
+  const bay: ComponentNode = { type: 'transition', id: 'bay', length: 0.3, foreRadius: 0.02, aftRadius: 0.02,
+    thickness: 0.001, shape: 'conical', foreShoulderRadius: 0.019, foreShoulderThickness: 0.001,
+    foreShoulderLength: 0.1, aftShoulderRadius: 0.019, aftShoulderLength: 0.1, aftShoulderCapped: true,
+    children: [chute] };
+  const tree: RocketTree = { components: [{ type: 'stage', children: [bay] }] };
+  const preset: Preset = { kind: 'Parachute', manufacturer: 'Home', partNo: 'P', description: '',
+    packedDiameter: 0.034, packedLength: 0.4 };
+  expect(recoveryFit(tree, chute, preset)).toMatchObject({ fits: true, known: true });
+  expect(recoveryFit(tree, chute, { ...preset, packedLength: 0.400001 })).toMatchObject({ fits: false, known: true });
+});
+
+it('J4 S7b-b1 treats identical deployment tuples as landing canopies, not a drogue', () => {
+  const t = tube(0.3, [{ diameter: 0.4, deployEvent: 'altitude', deployAltitude: 200, deployDelay: 1 },
+    { diameter: 0.9, deployEvent: 'altitude', deployAltitude: 200, deployDelay: 1 }]);
+  const roles = classifyRecoveryDevices(t);
+  expect(roles.main?.id).toBe('p1');
+  expect(roles.drogue).toBeNull();
+  expect(roles.coDeployedMains?.map(n => n.id)).toEqual(['p0']);
+});
+
+it.each<ComponentType>(['nosecone', 'transition'])('J4 S7b-g3 packs a bundle wholly inside the wider %s shoulder', type => {
+  const p: ComponentNode = { type: 'parachute', id: 'chute' };
+  const prefix = type === 'nosecone' ? 'shoulder' : 'aftShoulder';
+  const parent: ComponentNode = { type, id: 'bay', length: 0.4, foreRadius: 0.01, aftRadius: 0.020,
+    thickness: 0.005, shape: 'conical', [prefix + 'Radius']: 0.019, [prefix + 'Thickness']: 0.001,
+    [prefix + 'Length']: 0.100, children: [p] };
+  const t: RocketTree = { components: [{ type: 'stage', children: [parent] }] };
+  const preset: Preset = { kind: 'Parachute', manufacturer: 'Home', partNo: 'P', description: '', packedDiameter: 0.034, packedLength: 0.100 };
+  expect(recoveryBayBore(t, p)).toBeCloseTo(0.036, 12);
+  expect(recoveryFit(t, p, preset)).toMatchObject({ fits: true, known: true });
+  expect(recoveryFit(t, p, { ...preset, packedLength: 0.1001 })).toMatchObject({ fits: false, known: true });
+});
+
+it.each<ComponentType>(['nosecone', 'transition'])('J4 r3 packs exactly to the %s fore shoulder boundary', type => {
+  const chute: ComponentNode = { type: 'parachute', id: 'chute' };
+  const prefix = type === 'nosecone' ? 'shoulder' : 'foreShoulder';
+  const bay: ComponentNode = { type, id: 'bay', length: 0.4, foreRadius: 0.020, aftRadius: type === 'nosecone' ? 0.020 : 0.01,
+    flipped: type === 'nosecone', thickness: 0.005, shape: 'conical', [prefix + 'Radius']: 0.019,
+    [prefix + 'Thickness']: 0.001, [prefix + 'Length']: 0.1, children: [chute] };
+  const tree: RocketTree = { components: [{ type: 'stage', children: [bay] }] };
+  const preset: Preset = { kind: 'Parachute', manufacturer: 'Home', partNo: 'P', description: '', packedDiameter: 0.034, packedLength: 0.1 };
+  expect(recoveryFit(tree, chute, preset)).toMatchObject({ fits: true, known: true });
+  expect(recoveryFit(tree, chute, { ...preset, packedLength: 0.1001 })).toMatchObject({ fits: false, known: true });
+});
+
+it('J4 S7b-g10 uses a readable fallback for blank packing-item names', () => {
+  const chute: ComponentNode = { type: 'parachute', id: 'p' };
+  const t: RocketTree = { components: [{ type: 'stage', children: [{ type: 'bodytube', id: 'bay',
+    outerRadius: 0.05, length: 0.5, children: [chute, { type: 'shockcord', id: 'cord', name: '   ', length: 0.2, position: { method: 'top', offset: 0 } }] }] }] };
+  const fit = recoveryFit(t, chute, { kind: 'Parachute', manufacturer: 'Home', partNo: 'P', description: '', packedDiameter: 0.02, packedLength: 0.1 });
+  expect(fit.packingNote).toContain('shock cord');
+});
 
 /** The owner's Wildman: 8.786 kg comes down, which is where this feature started. */
 const WILDMAN_KG = 8.786;
@@ -667,6 +759,16 @@ describe('dedupe — five canopies, not six spellings of one', () => {
 });
 
 describe('classifyRecoveryDevices', () => {
+  it('J4 r2 S7b-b1 keeps pod and core ejection charges independent', () => {
+    const t = tube(0.3, [{ diameter: 0.9, deployEvent: 'ejection' }]);
+    const podChute: ComponentNode = { type: 'parachute', id: 'pod-chute', diameter: 0.4, deployEvent: 'ejection' };
+    t.components[0]!.children!.push({ type: 'podset', id: 'pod', children: [podChute] });
+    expect(classifyRecoveryDevices(t)).toMatchObject({ main: { id: 'p0' }, drogue: { id: 'pod-chute' } });
+    expect(classifyRecoveryDevices(t).coDeployedMains).toBeUndefined();
+    podChute['deployEvent'] = 'apogee';
+    t.components[0]!.children![0]!.children![0]!['deployEvent'] = 'apogee';
+    expect(classifyRecoveryDevices(t).coDeployedMains).toEqual([podChute]);
+  });
   it('calls a lone apogee chute the MAIN — it is what lands the rocket', () => {
     const t = tube(0.3, [{ diameter: 0.9, cd: 1.5, deployEvent: 'apogee' }]);
     const { main, drogue } = classifyRecoveryDevices(t);
@@ -704,7 +806,7 @@ describe('classifyRecoveryDevices', () => {
     const t = tube(0.3, [{ diameter: 0.4 }, { diameter: 0.9 }]);
     const { main, drogue } = classifyRecoveryDevices(t);
     expect(main?.id).toBe('p1');
-    expect(drogue?.id).toBe('p0');
+    expect(drogue).toBeNull(); // J4: both use the same ejection trigger.
   });
 
   it('ranks a chute with no diameter at the 0.3 m the kernel flies it at, not at 0', () => {
@@ -716,7 +818,7 @@ describe('classifyRecoveryDevices', () => {
     const t = tube(0.3, [{ diameter: 0.2, cd: 0.8 }, { cd: 0.8 }]);
     const { main, drogue } = classifyRecoveryDevices(t);
     expect(main?.id).toBe('p1');
-    expect(drogue?.id).toBe('p0');
+    expect(drogue).toBeNull(); // J4: both are co-deployed landing devices.
     // A NaN or infinite diameter reads as absent the same way — it is flown at
     // 0.3 m too (JSON sends a non-finite number as null).
     for (const bad of [NaN, Infinity]) {
@@ -812,7 +914,7 @@ describe('classifyRecoveryDevices', () => {
     };
     const { main, drogue } = classifyRecoveryDevices(bolted, sustainerScope(bolted));
     expect(main?.id).toBe('sustainerMain');
-    expect(drogue?.id).toBe('boosterChute');
+    expect(drogue?.id).toBe('boosterChute'); // Ejection on another stage is a different trigger.
   });
 
   /**
@@ -855,7 +957,7 @@ describe('classifyRecoveryDevices', () => {
     const bolted = withStrapOn('never');
     const kept = classifyRecoveryDevices(bolted, sustainerScope(bolted));
     expect(kept.main?.id).toBe('strapChute');
-    expect(kept.drogue?.id).toBe('coreChute');
+    expect(kept.drogue?.id).toBe('coreChute'); // Parallel stages have independent ejection events.
     expect(recoveryBayBore(bolted, null, sustainerScope(bolted))).toBeCloseTo(0.16, 9);
   });
 
@@ -1170,7 +1272,7 @@ it.each(['nosecone', 'transition'])('ROUND2 S7bg-7: clamps the %s shoulder and c
   expect.soft(recoveryBayBore(t, chute)).toBeCloseTo(0.028, 9);
   parent[prefix + 'Thickness'] = 0.001;
   parent['thickness'] = 0.005;
-  expect.soft(recoveryBayBore(t, chute)).toBeCloseTo(0.03, 9);
+  expect.soft(recoveryBayBore(t, chute)).toBeCloseTo(0.038, 9); // J4: the mouth is the shoulder bore.
   parent[prefix + 'Thickness'] = 0.05;
   expect.soft(recoveryBayBore(t, chute)).toBe(type === 'transition' ? 0.01 : null);
   parent[prefix + 'Thickness'] = 0.001;
@@ -1205,6 +1307,35 @@ describe('K5 packed bay fit', () => {
     const bay = tree.components[0]!.children![0]!;
     return { tree, bay, chute: bay.children![0]! };
   };
+  it.each(['fore', 'aft'])('J4 r2 S7b-b2 uses a known %s entrance without crossing the unknown opposite shoulder', side => {
+    const { tree, chute } = setup();
+    const bay: ComponentNode = { type: 'transition', id: 'cavity', length: 0.3, shape: 'conical',
+      foreRadius: 0.05, aftRadius: 0.05, thickness: 0.002,
+      foreShoulderRadius: 0.048, aftShoulderRadius: 0.048, foreShoulderLength: 0.05, aftShoulderLength: 0.05,
+      [side + 'ShoulderThickness']: 0.001, children: [chute] };
+    tree.components[0]!.children = [bay];
+    expect(recoveryFit(tree, chute, preset())).toMatchObject({ fits: true, known: true });
+    delete bay[side + 'ShoulderThickness'];
+    expect(recoveryFit(tree, chute, preset())).toMatchObject({ fits: true, known: false });
+  });
+  it.each(['nosecone', 'transition', 'tailcone'])('J4 r2 S7b-b2 verifies spans clear of an unknown %s shoulder', type => {
+    const { tree, bay, chute } = setup();
+    bay['length'] = 0.2;
+    const prefix = type === 'transition' ? 'aftShoulder' : 'shoulder';
+    const adjacent: ComponentNode = { type: type === 'transition' ? 'transition' : 'nosecone', id: 'adjacent',
+      length: 0.1, foreRadius: 0.05, aftRadius: 0.05, flipped: type === 'tailcone',
+      [prefix + 'Radius']: 0.048, [prefix + 'Length']: 0.05 };
+    if (type === 'tailcone') tree.components[0]!.children!.push(adjacent);
+    else tree.components[0]!.children!.unshift(adjacent);
+    for (const wall of [undefined, 0]) {
+      adjacent[prefix + 'Thickness'] = wall;
+      expect(recoveryFit(tree, chute, preset())).toMatchObject({ fits: true, known: true });
+      // A bundle that must cross that same opening still needs measurement.
+      adjacent[prefix + 'Length'] = 0.2;
+      expect(recoveryFit(tree, chute, preset())).toMatchObject({ fits: true, known: false });
+      adjacent[prefix + 'Length'] = 0.05;
+    }
+  });
   it.each(['empty', 'stage', 'podset'])('ROUND-F3 tries all body bays for a %s slot', (placement) => {
     const { tree, bay, chute } = setup();
     bay['length'] = 0.12;
@@ -1277,7 +1408,7 @@ describe('K5 packed bay fit', () => {
     tree.components[0]!.children = [];
     expect(recoveryFit(tree, chute, bundle, [booster])).toMatchObject({ fits: true, known: true });
   });
-  it.each<ComponentType>(['nosecone', 'transition'])('ROUND-F3 uses the %s wall for an unstated shoulder wall', (type) => {
+  it.each<ComponentType>(['nosecone', 'transition'])('J4 S7b-b2 gives absent and zero %s shoulder walls the same unverified fit', (type) => {
     const { tree, bay, chute } = setup();
     bay['length'] = 0.08;
     const prefix = type === 'nosecone' ? 'shoulder' : 'aftShoulder';
@@ -1285,20 +1416,20 @@ describe('K5 packed bay fit', () => {
       thickness: 0.006, shape: 'conical', [prefix + 'Radius']: 0.025, [prefix + 'Length']: 0.08 };
     tree.components[0]!.children!.unshift(forward);
     const bundle = preset({ packedDiameter: 0.04, packedLength: 0.1 });
-    expect(recoveryFit(tree, chute, bundle)).toMatchObject({ fits: false, known: true });
+    expect(recoveryFit(tree, chute, bundle)).toMatchObject({ fits: true, known: false });
     forward[prefix + 'Thickness'] = 0;
-    expect(recoveryFit(tree, chute, bundle)).toMatchObject({ fits: true, known: true });
+    expect(recoveryFit(tree, chute, bundle)).toMatchObject({ fits: true, known: false });
     delete forward[prefix + 'Thickness'];
     // A bundle wholly within the body still crosses the full-length shoulder.
-    expect(recoveryFit(tree, chute, { ...bundle, packedLength: 0.04 })).toMatchObject({ fits: false, known: true });
+    expect(recoveryFit(tree, chute, { ...bundle, packedLength: 0.04 })).toMatchObject({ fits: true, known: false });
     forward.children = [chute];
     bay.children = [];
     forward['foreShoulderRadius'] = 0.025;
     forward['foreShoulderLength'] = 0.08;
-    expect(recoveryBayBore(tree, chute)).toBeCloseTo(0.038, 9);
-    expect(recoveryFit(tree, chute, bundle)).toMatchObject({ fits: false, known: true });
+    expect(recoveryBayBore(tree, chute)).toBeNull();
+    expect(recoveryFit(tree, chute, bundle)).toMatchObject({ fits: true, known: false });
     forward[prefix + 'Thickness'] = 0;
-    expect(recoveryFit(tree, chute, bundle)).toMatchObject({ fits: true, known: true });
+    expect(recoveryFit(tree, chute, bundle)).toMatchObject({ fits: true, known: false });
   });
   it.each<ComponentType>(['podset', 'parallelstage'])('ROUND-F2 ignores a %s motor mount outside the core bay', (type) => {
     const { tree, bay, chute } = setup();
@@ -1500,7 +1631,7 @@ describe('K5 packed bay fit', () => {
         foreShoulderLength: 0.01, aftShoulderLength: 0.01, foreShoulderRadius: 0.075, aftShoulderRadius: 0.075 });
       delete bay[field];
       expect(recoveryFit(tree, chute, preset())).toMatchObject({
-        fits: true, known: field === 'foreShoulderRadius' || field === 'aftShoulderRadius',
+        fits: true, known: field.endsWith('ShoulderRadius'), // An absent shoulder leaves a known body entrance.
       });
     },
   );
@@ -1655,6 +1786,8 @@ describe('K5 packed bay fit', () => {
     tree.components[0]!.children!.unshift(nose);
     expect(recoveryFit(tree, chute, preset())).toMatchObject({ fits: false, known: true });
     nose['shoulderLength'] = 0.05;
+    expect(recoveryFit(tree, chute, preset())).toMatchObject({ fits: true, known: true });
+    nose['shoulderThickness'] = 0;
     expect(recoveryFit(tree, chute, preset())).toMatchObject({ fits: true, known: true });
   });
   it.each(['bulkhead', 'centeringring', 'engineblock', 'innertube'] as const)('ROUND3 keeps %s a hard obstacle even with an inner opening', (type) => {

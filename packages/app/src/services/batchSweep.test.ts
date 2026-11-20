@@ -1650,6 +1650,16 @@ it('K7: a batch database nozzle does not match a design with no nozzle', async (
   expect(changedSinceRun(run, cur)).toEqual(['the design']);
 }, 30000);
 
+it('J4 r2 S7b-g2 S7b-g4 names a blank batch nozzle stage as Motors & Configuration does', async () => {
+  const tree = rocket();
+  tree.components[0]!.name = '   ';
+  const { rows } = await sweep(input(tree, {
+    candidates: [entry('a', 'Acme', 'E20', '5')], autoDelay: false,
+  }), { fetchSpec: fetchFrom({ a: curve('E20') }), nozzleFor: nozzles({ a: 0.012 }) });
+  expect(rows[0]!.error).toBeUndefined();
+  expect(rows[0]!.run!.nozzleStages).toEqual(['Stage 1']);
+}, 30000);
+
 it.each([0.016, null])('K7: a batch candidate matches the design after following its nozzle %s', async (exitB) => {
   const exitA = 0.012;
   const tree = rocket({ nozzleExitDiameter: exitA });

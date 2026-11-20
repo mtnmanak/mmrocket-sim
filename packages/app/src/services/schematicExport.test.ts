@@ -6,6 +6,13 @@ import type { UnitSelection } from '../prefs/units.js';
 import { dataHeaderLines, EXPORT_VARS, IMAGE_FORMAT_EXT, IMAGE_WIDTHS } from './schematicExport.js';
 import { shownCp } from './simReport.js';
 
+it('J4 r2 S2-b1 supplies only installed motor silhouettes to the live export drawings', () => {
+  const app = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
+  const dimensions = app.slice(app.indexOf('const motorDims = useMemo('), app.indexOf('// Flight evidence is sticky'));
+  expect(dimensions).toContain('installedMounts(assigned, refusedMountIds).map(');
+  expect(dimensions).toContain('refusedMountIds]');
+});
+
 /**
  * EXPORT_VARS IS A HAND-MAINTAINED MIRROR OF ANOTHER FILE, AND A MISS IS
  * INVISIBLE.
@@ -139,6 +146,14 @@ describe('dataHeaderLines — CP and margin, real kernel', () => {
   const nose = { type: 'nosecone', length: 0.07, aftRadius: 0.012, thickness: 0.002, shape: 'ogive' };
   const tube = (kids: unknown[]) =>
     ({ type: 'bodytube', length: 0.3, outerRadius: 0.012, thickness: 0.0003, children: kids });
+
+  it('J4 S2-b1 marks reduced-build figures unavailable when a motor is omitted', async () => {
+    const info = await staticOf(nose, tube([twoFins(0)]));
+    const lines = dataHeaderLines({ name: 'T', info, units, withMotors: true, appVersion: 'x', omittedMotors: ['Mount A'] });
+    expect(lines.join('\n')).toContain('Complete-loadout mass, CG and stability unavailable');
+    expect(lines.join('\n')).toContain('Omitted motor mount: Mount A');
+    expect(lines.some(line => /^Launch mass|^CG /.test(line))).toBe(false);
+  }, 30000);
 
   it('two fins clocked 90 degrees: the forward CP, not the fins\' plane', async () => {
     const info = await staticOf(nose, tube([twoFins(Math.PI / 2)]));

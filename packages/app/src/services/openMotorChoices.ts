@@ -111,11 +111,10 @@ export async function applyOpenMotorChoices(
     }
     const liveRow = (motor: MotorDbEntry) => getCatalogue().find(m => m.motorId === motor.motorId) ?? motor;
     let db = choice.kind === 'ex' ? exToDbEntry(choice.motor) : liveRow(choice.motor);
-    const previousDelay = old?.spec.ejectionDelay ?? ref.delay;
+    const previousDelay = old?.meta.autoDelay ? defaultDelay(db) ?? 0 : old?.spec.ejectionDelay ?? ref.delay;
     // The chosen EX motor owns its every-delay list, just as it does on open
     // (audit 2026-10-11, S7a-2). Explicit Auto survives the choice as well.
-    const exAuto = choice.kind === 'ex' && (ref.rktEveryDelay ? defaultDelay(db) === null : ref.autoDelay);
-    const delayFor = () => choice.kind === 'ex' && ref.rktEveryDelay ? defaultDelay(db) ?? 0
+    const delayFor = () => ref.rktEveryDelay ? defaultDelay(db) ?? 0
       : choice.kind === 'ex' || delayOptions(db).includes(previousDelay) ? previousDelay : defaultDelay(db) ?? 0;
     let delay = delayFor();
     // The file's <digest> goes along: on the motor the file named, it is the
@@ -133,6 +132,9 @@ export async function applyOpenMotorChoices(
     // Catalogue replacements bind retained fields to the old row. A matching
     // EX choice is the file's motor, just as for a single EX match on open.
     const sameEx = choice.kind === 'ex' && matchingExMotors(ref, [choice.motor]).length === 1;
+    // The catalogue may have refreshed while loading the curve. Delay and
+    // Auto must describe the same final row.
+    const exAuto = ref.rktEveryDelay ? defaultDelay(db) === null : ref.autoDelay;
     const identity = { ...fileMotorIdentity(ref),
       orkMotorId: choice.kind === 'ex' ? sameEx ? db.motorId : '' : old?.meta.motorId ?? '' };
     if (choice.kind === 'catalogue' && namesOtherMaker(ref, db)) delete identity.orkManufacturer;

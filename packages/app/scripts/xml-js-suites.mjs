@@ -22,6 +22,9 @@
  * Paths are relative to packages/app.
  */
 export const XML_JS_SUITES = [
+  // J4: resolved mount evidence and shoulder-wall save/reopen parity.
+  'src/services/rocksimMotorEvidence.test.ts',
+  'src/services/recoverySizing.test.ts',
   // Row 129: selected-simulation maxtime, clamps and round trips under both parsers.
   'src/services/maxFlightTime.test.ts',
   'src/services/asymmetricThrust.tester.test.ts',

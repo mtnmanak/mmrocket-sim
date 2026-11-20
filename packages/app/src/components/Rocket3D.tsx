@@ -156,8 +156,9 @@ export function calloutGadget(
   maxR: number,
   totalLen: number,
   stabilityUnit: StabilityUnit = 'cal',
+  omittedMotors?: readonly string[],
 ): CalloutGadget | null {
-  if (!info || !Number.isFinite(info.cg) || !Number.isFinite(info.cp)) return null;
+  if (omittedMotors?.length || !info || !Number.isFinite(info.cg) || !Number.isFinite(info.cp)) return null;
   const markerR = markerRadius(totalLen, maxR);
   const off = maxR + markerR * 2.2;
   // No aerodynamic normal force -> no meaningful CP to mark, and no margin.
@@ -510,12 +511,16 @@ export function Rocket3D({ tree, info, motors, hiddenIds, exportData, onError }:
     // the 2D image menu reports its own, and the renderer is still put back.
     try {
       let encoding: Promise<Blob>;
+      const figures = st.scene.getObjectByName('loadout-figures');
+      const figuresVisible = figures?.visible;
       try {
+        if (figures && (exportData.omittedMotors?.length || exportData.unresolvedMotors?.length)) figures.visible = false;
         st.gl.setPixelRatio(1);
         st.gl.setSize(widthPx, outH, false);
         st.gl.render(st.scene, cam);
         encoding = snapshotWithHeader(el, { ...exportData, spanM: 2 * maxR }, format);
       } finally {
+        if (figures && figuresVisible !== undefined) figures.visible = figuresVisible;
         st.gl.setPixelRatio(pr);
         st.gl.setSize(cssW, cssH, false);
         st.gl.render(st.scene, st.camera);
@@ -538,8 +543,8 @@ export function Rocket3D({ tree, info, motors, hiddenIds, exportData, onError }:
   const center = totalLen / 2;
   const camDist = Math.max(totalLen * 1.1, maxR * 6, 0.25);
   const markerR = markerRadius(totalLen, maxR);
-  const gadget = markers.callout ? calloutGadget(info, maxR, totalLen, prefs.stabilityUnit) : null;
-  const axis = axisMarkers(info);
+  const gadget = markers.callout ? calloutGadget(info, maxR, totalLen, prefs.stabilityUnit, exportData?.omittedMotors) : null;
+  const axis = axisMarkers(exportData?.omittedMotors?.length ? null : info);
 
   // View presets + recovery (batch 08-21d): a pan or deep zoom could lose the
   // rocket with no way back — these jump the camera to known-good stations.
@@ -681,6 +686,7 @@ export function Rocket3D({ tree, info, motors, hiddenIds, exportData, onError }:
               would wash over them. */}
           {/* 0.45× the shared size rule (batch 08-21d): full-size axis balls
               overwhelmed small rockets; the gadget keeps the size rule. */}
+          <group name="loadout-figures">
           {markers.axis && axis.cg !== null && (
             <MarkerBall position={[axis.cg, 0, 0]} r={markerR * 0.45} color={CG_COLOR} glow={CG_GLOW} order={10} />
           )}
@@ -716,6 +722,7 @@ export function Rocket3D({ tree, info, motors, hiddenIds, exportData, onError }:
               )}
             </group>
           )}
+          </group>
         </group>
         {/* Distance limits (batch 08-21d): an unbounded zoom could bury the
             camera inside the hull or fling it to where the rocket is a pixel;

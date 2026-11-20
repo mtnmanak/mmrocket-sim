@@ -8,7 +8,7 @@ import { describeFlownDeployment, describeFlownSeparation, overrideFliesDifferen
 import { Note } from './Note.js';
 import { overrideFor } from '../services/flightState.js';
 import { separationTuple, type ComponentFlightTuple } from '../services/flightOverrideText.js';
-import { hasParallelStage, stages } from '../tree/treeModel.js';
+import { hasParallelStage, nameOr, stages } from '../tree/treeModel.js';
 import { DEPLOY_EVENTS, SEPARATION_EVENTS } from '../tree/schema.js';
 import { flownDeployEvent } from '../tree/deployEvent.js';
 import { configurationParts } from './ConfigOverview.js';
@@ -59,7 +59,7 @@ function enclosingStages(tree: FlightTree): Map<string, string> {
   const names = new Map<string, string>();
   const visit = (nodes: ComponentNode[], stage: string | null) => {
     for (const node of nodes) {
-      const own = node.type === 'stage' || node.type === 'parallelstage' ? node.name || (node.type === 'stage' ? 'Stage' : 'Strap-on') : stage;
+      const own = node.type === 'stage' || node.type === 'parallelstage' ? nameOr(node, node.type === 'stage' ? 'Stage' : 'Strap-on') : stage;
       if (node.id && stage !== null) names.set(node.id, stage);
       visit(node.children ?? [], own);
     }
@@ -128,7 +128,7 @@ function PartRow({ node, family, stageName, override, configLabel, overrideLabel
   const recovery = family === 'recovery';
   const own: ComponentFlightTuple = recovery ? deploymentTuple(node) : separationTuple(node);
   const describe = (t: ComponentFlightTuple) => 'deployEvent' in t ? describeFlownDeployment(t, unit) : describeFlownSeparation(t, unit);
-  const name = node.name || (recovery ? node.type : 'Stage');
+  const name = nameOr(node, recovery ? node.type : node.type === 'parallelstage' ? 'Strap-on' : 'Stage');
   const shown: ComponentFlightTuple = scope === 'override' && override ? override : own;
   const values = 'deployEvent' in shown
     ? { event: shown.deployEvent, altitude: shown.deployAltitude, delay: shown.deployDelay }

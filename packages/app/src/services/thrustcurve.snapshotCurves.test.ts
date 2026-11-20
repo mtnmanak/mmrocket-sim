@@ -656,6 +656,21 @@ describe('A: a warm cache does not beat the file a desktop digest names (no bund
   const usualFile = () => file(40, { simfileId: 'sf-usual', samples: [[0, 0], [0.1, 40], [0.5, 20], [1, 0], [1.2, 0]], digests: ['a'.repeat(32)] });
   const namedFile = () => file(77, { simfileId: 'sf-named', source: 'user', digests: ['b'.repeat(32)] });
   const NAMED = 'b'.repeat(32);
+  it('J4 S1c-2 an offline file open discloses its actual cached substitute', async () => {
+    await install({ [addedMotor.motorId]: [usualFile()] }, { added: [addedMotor] });
+    await thrusts(addedMotor);
+    await install({}, { added: [addedMotor], generated: daysAfter(db.MOTOR_DB_DATE, 3) });
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    const { matchImportedMotor } = await import('./motorMatch.js');
+    const result = await matchImportedMotor({ manufacturer: addedMotor.manufacturerAbbrev, designation: addedMotor.designation,
+      diameter: addedMotor.diameter / 1000, length: addedMotor.length / 1000, delay: 5, digest: NAMED },
+    { findDb: () => addedMotor, exMotors: [] });
+    expect(result.motor).toBeDefined();
+    expect(result.openNote).toContain('flies the cached curve');
+    expect(result.openNote).toContain('offline');
+    expect(Math.max(...result.motor!.spec.thrusts)).toBeCloseTo(40, 9);
+    expect(tc.motorCurveFiles(result.motor!.spec)?.digest?.named).toBe('unknown');
+  });
   const cases = (): [string, MotorDbEntry, { added?: MotorDbEntry[] }][] =>
     [['an added motor', addedMotor, { added: [addedMotor] }], ['a curveless shipped motor', curveless, {}]];
 

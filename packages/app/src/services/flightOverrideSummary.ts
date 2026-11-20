@@ -1,7 +1,7 @@
 import { noteField } from './noteField.js';
 import type { ComponentNode } from '@online-openrocket/engine';
 import type { DeploymentTuple, FlightOverrides, FlightTree, IgnitionTuple, MountMotor, SeparationTuple } from '../model/design.js';
-import { motorMounts, stages } from '../tree/treeModel.js';
+import { motorMounts, nameOr, stages } from '../tree/treeModel.js';
 import { flownDeployEvent } from '../tree/deployEvent.js';
 import { deploymentTuple } from './foreignConfigLayers.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
@@ -97,7 +97,7 @@ export function describeFlightOverrides(
     first ??= { id: node.id!, family };
     const key = JSON.stringify([family, kind, flown, own]);
     const group = groups.get(key) ?? { family, kind, names: [], flown, own };
-    group.names.push(node.name || kind);
+    group.names.push(nameOr(node, kind));
     groups.set(key, group);
   };
   const visit = (nodes: ComponentNode[]) => {
@@ -107,7 +107,7 @@ export function describeFlightOverrides(
         const tuple = overrideFor(overrides.deployments, id);
         const own = deploymentTuple(node);
         if (tuple && sparsify(flownDeployment(own), flownDeployment(tuple))) {
-          records.push({ family: 'recovery', kind: node.type, partName: node.name || node.type,
+          records.push({ family: 'recovery', kind: node.type, partName: nameOr(node, node.type),
             flies: { ...tuple }, own: { ...own } });
           add(node, 'recovery', node.type, describeFlownDeployment(tuple, distanceUnit), describeFlownDeployment(own, distanceUnit));
         }
@@ -117,7 +117,7 @@ export function describeFlightOverrides(
         const tuple = overrideFor(overrides.separations, id);
         const own = separationTuple(node);
         if (tuple && sparsify(flownSeparation(own), flownSeparation(tuple))) {
-          records.push({ family: 'separation', kind: 'stage', partName: node.name || 'stage',
+          records.push({ family: 'separation', kind: 'stage', partName: nameOr(node, 'stage'),
             flies: { ...tuple }, own: { ...own } });
           add(node, 'separation', 'stage',
             describeFlownSeparation(tuple, distanceUnit), describeFlownSeparation(own, distanceUnit));
@@ -128,7 +128,7 @@ export function describeFlightOverrides(
         const tuple = overrideFor(overrides.ignitions, id);
         const own = overrideFor(tree.ignitionDefaults, id) ?? motor?.ignition ?? { event: 'automatic' as const, delay: 0 };
         if (tuple && sparsify(flownIgnition(own), flownIgnition(tuple))) {
-          records.push({ family: 'ignition', kind: 'motor mount', partName: node.name || 'motor mount',
+          records.push({ family: 'ignition', kind: 'motor mount', partName: nameOr(node, 'motor mount'),
             flies: { ...tuple }, own: { ...own } });
           add(node, 'ignition', 'motor mount', describeFlownIgnition(tuple), describeFlownIgnition(own));
         }

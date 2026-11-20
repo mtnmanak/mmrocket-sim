@@ -10,7 +10,7 @@ import type { OrkExportMotor, OrkMotorRef } from './orkFile.js';
 import type { MotorMeta } from './simReport.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 import { namedMotorManufacturer } from './motorManufacturer.js';
-import { bundledDigestOwners, knownNoPublishedCurve, defaultDelay, delayOptions, fetchMotorSpec, NoPublishedCurveError } from './thrustcurve.js';
+import { bundledDigestOwners, knownNoPublishedCurve, defaultDelay, delayOptions, fetchMotorSpec, motorCurveFiles, NoPublishedCurveError } from './thrustcurve.js';
 import { looseDesignation } from './designationText.js';
 import { rocksimCurveNote } from './rocksimCurveNote.js';
 import { digestCurveNote } from './digestCurveNote.js';
@@ -412,7 +412,7 @@ async function matchImportedMotorOnce(
       const motor = mountMotorFromDb(dbMatch, spec, matchedDelay, ignition,
         ref.autoDelay ? { ...identity, autoDelay: true } : identity);
       const openNote = [(unconfirmedMatchNote(ref, dbMatch, how, deps.units) ?? '') + exCandidatesNote, await rocksimCurveNote(ref, dbMatch, spec),
-        await digestCurveNote(ref, dbMatch)]
+        await digestCurveNote(ref, dbMatch, undefined, motorCurveFiles(spec))]
         .filter(Boolean).join('\n') || undefined;
       return {
         motor: openNote ? { ...motor, openNote } : motor,

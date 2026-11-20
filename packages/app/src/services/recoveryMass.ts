@@ -1,7 +1,7 @@
 import type { ComponentNode, FlightEvent, FlightResult, IgnitionEvent, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { num } from '../tree/nodeNum.js';
 import { noticeQuantity } from '../prefs/units.js';
-import { hasSeparatingParallelStage, mountMotorCount, stageIndexOf, stages } from '../tree/treeModel.js';
+import { hasSeparatingParallelStage, mountMotorCount, nameOr, stageIndexOf, stages } from '../tree/treeModel.js';
 
 /**
  * RECOVERY WEIGHT — the mass that actually comes down under the recovery
@@ -375,8 +375,8 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
   const assumptions = separating.map((s) => {
     const trigger = s['separationEvent'];
     return trigger === 'altitudeascending' || trigger === 'altitudedescending'
-      ? `${noteField(s.name ?? 'Booster')} separation at ${noticeQuantity('altitude', num(s, 'separationAltitude', 200), input.distanceUnit ?? 'm')} above the pad (${trigger === 'altitudeascending' ? 'ascending' : 'descending'})`
-      : `${noteField(s.name ?? 'Booster')} separation on its configured trigger and delay`;
+      ? `${noteField(nameOr(s, 'Booster'))} separation at ${noticeQuantity('altitude', num(s, 'separationAltitude', 200), input.distanceUnit ?? 'm')} above the pad (${trigger === 'altitudeascending' ? 'ascending' : 'descending'})`
+      : `${noteField(nameOr(s, 'Booster'))} separation on its configured trigger and delay`;
   });
   const estimate = !flightEvents && separating.length > 0;
   const note = separating.length === 0 ? undefined : flightEvents
@@ -437,14 +437,14 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
       && !lit.some(([, mm]) => trigger !== 'ejection' || Number.isFinite(mm.spec.ejectionDelay));
     if (impossible) {
       return { state: 'unavailable', reason:
-        `the ${noteField(stage.name ?? 'booster')} ${trigger} separation cannot fire with these motors; the attached stack needs a recovery weight` };
+        `the ${noteField(nameOr(stage, 'booster'))} ${trigger} separation cannot fire with these motors; the attached stack needs a recovery weight` };
     }
   }
 
   const groups = recoveryGroups(tree, flightEvents);
   const label = (g: ComponentNode[]): Pick<StageRecovery, 'stageIds' | 'stageNames'> => ({
     stageIds: g.map((s) => s.id ?? ''),
-    stageNames: g.map((s) => s.name ?? ''),
+    stageNames: g.map((s) => nameOr(s, `Stage ${stages(tree).indexOf(s) + 1}`)),
   });
 
   if (groups.length <= 1) {

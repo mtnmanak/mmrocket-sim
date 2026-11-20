@@ -19,6 +19,7 @@ import { stageMotorInfo } from './flightPipeline.js';
 import type { MountMotor } from '../model/design.js';
 import { densityAltitudeM } from './atmosphere.js';
 import { INITIAL_UNITS, IMPERIAL_UNITS, uiToSi } from '../prefs/units.js';
+import { classifyRecoveryDevices } from './recoverySizing.js';
 
 const info: StaticInfo = {
   length: 0.37, lengthAerodynamic: 0.37, mass: 0.051, massEmpty: 0.027, cgEmpty: 0.19, cg: 0.26,
@@ -387,7 +388,7 @@ describe('W2-WARN personal limits and frozen flight evidence', () => {
     assigned[0]![1].ignition.event = 'never';
     expect(warning(make(0))).toBe(false);
   });
-  it('N027 records inferred drogue/main roles per opening group and retains the raw warning', () => {
+  it('J4 S7b-b1 N027 agrees with sizing on simultaneous mains and retains the raw warning', () => {
     const result = dualDeployResult(19.5, 5);
     result.warnings = [{ key: 'HighSpeedDeployment', message: 'raw 22 m/s', priority: 'HIGH' }];
     const run = build({ result });
@@ -396,6 +397,12 @@ describe('W2-WARN personal limits and frozen flight evidence', () => {
     const simultaneous = fakeResult();
     simultaneous.events.push({ type: 'RECOVERY_DEVICE_DEPLOYMENT', time: 7, source: 'Second main' });
     expect(build({ result: simultaneous }).deployments.map(d => d.role)).toEqual(['main', 'main']);
+    const devices = classifyRecoveryDevices({ components: [{ type: 'stage', children: [
+      { type: 'parachute', id: 'first', diameter: 0.9, deployEvent: 'apogee', deployDelay: 0 },
+      { type: 'parachute', id: 'second', diameter: 0.4, deployEvent: 'apogee', deployDelay: 0 },
+    ] }] });
+    expect(devices.drogue).toBeNull();
+    expect([devices.main, ...devices.coDeployedMains ?? []]).toHaveLength(2);
   });
   it('N027 describes role order honestly and keeps shared unknown/old-run opening limits', () => {
     for (const role of ['drogue', 'main'] as const) {

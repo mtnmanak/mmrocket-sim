@@ -41,6 +41,15 @@ function setup(props: Partial<Parameters<typeof ConfigPartEditors>[0]> = {}) {
 }
 
 describe('CFG-2 Recovery and Stages rows', () => {
+  it('J4 r2 S7b-g4 gives whitespace-only stage rows and their recovery labels a name', () => {
+    const blank = structuredClone(tree);
+    blank.components[1]!.name = '   ';
+    const { row, cleanup } = setup({ tree: blank });
+    try {
+      expect(row('lower').querySelector('strong')!.textContent).toBe('Stage');
+      expect(row('drogue').querySelector('strong')!.textContent).toBe('Drogue (in Stage)');
+    } finally { cleanup(); }
+  });
   it('row 142: Recovery and Stages share separate radio and wrapping text cells', () => {
     const { row, click, buttonIn, cleanup } = setup();
     try {

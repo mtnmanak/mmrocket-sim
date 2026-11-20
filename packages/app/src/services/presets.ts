@@ -108,6 +108,8 @@ function screenCustomPreset(p: unknown): { preset: Preset; materialRemoved: bool
     && ['kind', 'partNo', 'manufacturer', 'description'].every((key) => typeof (p as Record<string, unknown>)[key] === 'string'))) return null;
   const row = p as Preset;
   const repaired = { ...row };
+  if (Array.isArray(repaired['altPartNos'])) repaired['altPartNos'] = repaired['altPartNos'].filter((v): v is string => typeof v === 'string');
+  else delete repaired['altPartNos'];
   let materialRemoved = false;
   for (const key of ['material', 'lineMaterial'] as const) {
     const m = repaired[key];
@@ -736,6 +738,7 @@ function parseCsv(csv: string, notes: string[]): string[][] {
   let row: string[] = [];
   let cur = '';
   let quoted = false;
+  let closed = false;
   const addRow = () => {
     if (row.some(c => c.trim() !== '')) rows.push(row);
     row = [];
@@ -747,16 +750,21 @@ function parseCsv(csv: string, notes: string[]): string[][] {
     const ch = csv[i]!;
     if (quoted) {
       if (ch === '"' && csv[i + 1] === '"') { cur += '"'; i++; }
-      else if (ch === '"') quoted = false;
+      else if (ch === '"') { quoted = false; closed = true; }
       else cur += ch;
-    } else if (ch === '"') quoted = true;
-    else if (ch === ',') { row.push(cur); cur = ''; }
+    } else if (closed && ch !== ',' && ch !== '\n' && ch !== '\r') {
+      if (/\s/.test(ch)) continue;
+      notes.push('Preset CSV has text after a closing quote; no parts were imported. Fix the quoted cell and try again.');
+      return [];
+    } else if (ch === '"' && cur.trim() === '') { cur = ''; quoted = true; }
+    else if (ch === ',') { row.push(cur); cur = ''; closed = false; }
     else if (ch === '\n' || ch === '\r') {
       if (ch === '\r' && csv[i + 1] === '\n') i++;
-      row.push(cur); cur = '';
+      row.push(cur); cur = ''; closed = false;
       if (!addRow()) return [];
     } else cur += ch;
   }
+  if (quoted) { notes.push('Preset CSV has an unclosed quoted cell; no parts were imported. Close the quote and try again.'); return []; }
   if (cur !== '' || row.length > 0) { row.push(cur); if (!addRow()) return []; }
   return rows;
 }
@@ -767,7 +775,7 @@ export function csvToPresets(csv: string, notes: string[] = []): Preset[] {
   if (records.length < 2) return [];
   const header = records[0]!.map((h) => h.trim());
   const out: Preset[] = [];
-  for (const cells of records.slice(1)) {
+  for (const [rowIndex, cells] of records.slice(1).entries()) {
     const row: Record<string, string> = {};
     // csvCell prefixes ONE apostrophe to a cell a spreadsheet would read as a
     // formula (see csvUtil.ts). Strip exactly one back off, or a preset this app
@@ -819,6 +827,7 @@ export function csvToPresets(csv: string, notes: string[] = []): Preset[] {
         density: parseDecimal(row['lineMaterialDensity']),
       };
     }
+    let invalidNumber = false;
     for (const c of CSV_COLS) {
       if (['kind', 'manufacturer', 'partNo', 'description', 'materialName', 'materialType', 'materialDensity', 'shape', 'filled', 'lineMaterialName', 'lineMaterialDensity', 'savedComponent', 'clipped'].includes(c)) continue;
       // TRIM BEFORE TESTING. `Number(' ')` is 0 and `' ' !== ''`, so a cell a
@@ -827,11 +836,16 @@ export function csvToPresets(csv: string, notes: string[] = []): Preset[] {
       // a zero length — rather than being skipped as the blank it is.
       // DECIMAL ONLY (seam review of audit 2026-09-22): `Number` also read
       // "0x10" as 16 and "0b110" as 6 — a 16 m canopy from a typo — where every
-      // design-file reader refuses them (parseDecimal). A refused cell is blank.
+      // design-file reader refuses them (parseDecimal). Refuse the affected row.
       const raw = (row[c] ?? '').trim();
       const v = parseDecimal(raw);
       if (raw !== '' && Number.isFinite(v)) p[c] = v;
+      else if (raw !== '') {
+        notes.push(`Preset CSV row ${rowIndex + 2}, ${noteField(p.partNo)}: ${c} must be a dot-decimal number. This row was skipped; correct it and import it again.`);
+        invalidNumber = true;
+      }
     }
+    if (invalidNumber) continue;
     // The shape and the solid flag the same way (audit 2026-09-30). A
     // spreadsheet saves a `true` cell back as `TRUE` (Excel does), and an exact
     // match read every solid nose cone and balsa transition in an edited export
@@ -872,7 +886,7 @@ const linkKey = (kind: string, manufacturer: unknown, partNo: unknown): string =
 
 /** Every part number a row answers to: its own, and those of the duplicates it absorbed. */
 const partNumbersOf = (p: Preset): unknown[] =>
-  [p.partNo, ...(Array.isArray(p['altPartNos']) ? (p['altPartNos'] as unknown[]) : [])];
+  [p.partNo, ...(Array.isArray(p['altPartNos']) ? p['altPartNos'].filter((v): v is string => typeof v === 'string') : [])];
 
 const retiredMasses: Readonly<Record<string, readonly number[]>> = retiredPresetMasses;
 const matchesMass = (held: number, mass: unknown): boolean =>
@@ -1360,6 +1374,7 @@ export function applyPresetLinks(
     const alts = p['altPartNos'];
     if (Array.isArray(alts)) {
       for (const alt of alts) {
+        if (typeof alt !== 'string') continue;
         const ak = linkKey(p.kind, p.manufacturer, alt);
         if (!byKey.has(ak)) byKey.set(ak, p);
       }

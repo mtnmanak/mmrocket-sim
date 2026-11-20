@@ -31,6 +31,18 @@ const infoFor = (id: string): ComponentInfo | null => (id === 'n' ? {
 const prefs = { units: INITIAL_UNITS, radiusMode: 'diameter' as const };
 
 describe('componentTable', () => {
+  it('J4 r2 S7b-g4 gives parts of blank stages and strap-ons readable stage cells', () => {
+    const input: RocketTree = { components: [{ type: 'stage', id: 's', name: '   ', children: [
+      { type: 'bodytube', id: 'core', name: 'Core' },
+      { type: 'parallelstage', id: 'p', name: '', children: [{ type: 'bodytube', id: 'side', name: 'Side' }] },
+    ] }] };
+    const table = componentTable(input, prefs);
+    const column = table.headers.indexOf('Stage');
+    expect(table.rows.find(row => row[0] === 'Core')![column]).toBe('Stage');
+    expect(table.rows.find(row => row[0] === 'Side')![column]).toBe('Strap-on');
+    expect(table.rows.find(row => row[1] === 'Booster (parallel stage)')![0]).toBe('Booster (parallel stage)');
+    expect(table.rows.find(row => row[0] === 'Side')![table.headers.indexOf('Parent')]).toBe('Booster (parallel stage)');
+  });
   it.each(['trapezoidfinset', 'ellipticalfinset', 'freeformfinset'] as const)('exports the fillet material for %s', type => {
     const table = componentTable({ components: [{ type: 'stage', children: [
       { type, materialName: 'Balsa', filletRadius: 0.003, filletMaterialName: 'Epoxy', filletDensity: 1100 },

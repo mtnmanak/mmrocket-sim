@@ -99,13 +99,13 @@ export function flightParameterOverrideNote(
       const event = tuple.separationEvent;
       return (labels.get(event) ?? event)
         + (event.startsWith('altitude') ? `, ${noticeQuantity('altitude', tuple.separationAltitude, altitudeUnit ?? INITIAL_UNITS.altitude, { digits: 3, parenthesized })}` : '')
-        + (tuple.separationDelay ? ` + ${tuple.separationDelay} s` : '');
+        + (tuple.separationDelay ? ` + ${Number(tuple.separationDelay.toFixed(2))} s` : '');
     }
     const labels: Record<IgnitionTuple['event'], string> = {
       automatic: "Automatic (launch / lower stage's ejection)", burnout: 'Lower stage burnout + delay (electronics)',
       launch: 'Launch + delay (timer)', ejectioncharge: 'Lower stage ejection charge + delay', never: 'Never',
     };
-    return `${labels[tuple.event]}${tuple.delay ? ` + ${tuple.delay} s` : ''}`;
+    return `${Object.hasOwn(labels, tuple.event) ? labels[tuple.event] : noteField(tuple.event)}${tuple.delay ? ` + ${Number(tuple.delay.toFixed(2))} s` : ''}`;
   };
   const where = configName ? `Flight configuration “${noteField(configName)}”` : 'The flight configuration this file opens with';
   const component = kind === 'separation' ? 'stage' : 'mount';

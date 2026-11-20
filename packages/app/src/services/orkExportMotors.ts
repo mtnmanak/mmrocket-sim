@@ -234,6 +234,7 @@ export function orkMotorSet(input: OrkMotorSetInput): Record<string, OrkExportMo
   };
   if (first === 'refs') addRefs();
   for (const [id, mm] of Object.entries(records)) {
+    if (!mountIds.has(id)) continue;
     motors[id] = toOrkMotor(mm, flownDelay(flown, configKey, id), exLibrary);
   }
   if (first !== 'refs') addRefs();

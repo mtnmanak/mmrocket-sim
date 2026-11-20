@@ -12,6 +12,18 @@ import { PrefsProvider } from '../prefs/PrefsContext.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const noop = () => {};
+it.each(['', '   '])('J4 r4 names blank configuration headers and navigation (%j)', name => {
+  const host = document.createElement('div'), root = createRoot(host);
+  const tree: FlightTree = { components: [{ type: 'stage', id: 's', children: [
+    { type: 'parallelstage', id: 'p', name },
+  ] }] };
+  try {
+    act(() => root.render(<ConfigOverview tree={tree} configs={[{ id: 'a', name: 'A', isDefault: true, motors: {} }]}
+      activeConfigId="a" onApply={noop} onShowPart={noop} />));
+    expect(host.querySelector('thead')?.textContent).toContain('Booster (parallel stage)');
+    expect(host.querySelector('tbody td button')?.getAttribute('aria-label')).toContain('Show Booster (parallel stage):');
+  } finally { act(() => root.unmount()); }
+});
 it.each(['toString', 'constructor', '__proto__'])('ignores inherited entries for component id %s', id => {
   const host = document.createElement('div'), root = createRoot(host);
   const ownTree: FlightTree = { components: [{ type: 'stage', children: [
