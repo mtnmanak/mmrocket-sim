@@ -11,7 +11,7 @@ import { fmtSi } from '../prefs/units.js';
 import * as units from '../prefs/units.js';
 import { buildSimRun, changedSinceRun, type DesignMatchKey, type DeploymentReport, type SimRun, formatRunWhenProse, runStoppedEarly,
 } from '../services/simReport.js';
-import { testResolution } from '../services/autoDelay.testSupport.js';
+import { testMotor, testResolution } from '../services/autoDelay.testSupport.js';
 import { asymmetricThrustWarnings } from '../services/asymmetricThrust.js';
 import { balanceMotor, balanceTree } from '../services/asymmetricThrust.testSupport.js';
 import { delayMountsOf } from '../services/autoDelaySolver.js';
@@ -40,6 +40,16 @@ const info: StaticInfo = {
   cp: 0.29, cna: 8, stabilityCalibers: 1.3, refDiameter: 0.024,
   warnings: 0, warningTexts: [],
 };
+
+it('r2 shows both mixed groups in the saved-history flown delay cell', () => {
+  const saved = { ...run(), motorConfig: 'mixed 2+2', batchMounts: [
+    { mountId: 'a', mountName: 'Pair A', role: 'candidate' as const, motor: 'A', count: 2 },
+    { mountId: 'b', mountName: 'Pair B', role: 'candidate' as const, motor: 'B', count: 2 },
+  ], delayResolution: testResolution([['a', testMotor()], ['b', testMotor()]], [9, 10]) } as SimRun;
+  render(<SimHistory runs={[saved]} onRunsChange={() => {}} />);
+  act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Show')!.click());
+  expect(host.querySelector('tbody tr')!.querySelectorAll('td')[3]!.textContent).toBe('Pair A: 9s; Pair B: 10s');
+});
 
 it.each(['G80T in Inner Tube', 'E30T in Tube 1, Tube 3; E20 in Tube 2, Tube 4', 'Batch loadout not recorded'])(
   'r4-1 uses the same batch loadout wording in history and the report: %s', flightConfig => {
@@ -631,9 +641,9 @@ describe('SimRunDetails — the Motors row (audit 2026-09-22, row 351)', () => {
     // with one motor in each of three pods used to read "3 (cluster)".
     render(<SimRunDetails run={{ ...run(), motorCount: 3 }} />);
     showAll();
-    expect(motorsCell()).toBe('3 firing together');
+    expect(motorsCell()).toBe('3 in primary mount/group');
     render(<SimRunDetails run={{ ...run(), motorCount: 1 }} />);
-    expect(motorsCell()).toBe('1');
+    expect(motorsCell()).toBe('1 in primary mount/group');
   });
 
   it('Round 2 reports multi-mount candidate counts as installed motors', () => {
@@ -652,7 +662,7 @@ describe('SimRunDetails — the Motors row (audit 2026-09-22, row 351)', () => {
       { mountId: 'core', mountName: 'Core', motor: 'G80', role: 'kept', count: 1 },
     ] }} />);
     showAll();
-    expect(motorsCell()).toBe('4 firing together');
+    expect(motorsCell()).toBe('4 in candidate group');
   });
 });
 

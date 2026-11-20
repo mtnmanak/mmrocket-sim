@@ -9,6 +9,7 @@ import { FlyScreen } from './FlyScreen.js';
 import type { SimRun } from '../services/simReport.js';
 import { addRun, loadRuns, runsToTable } from '../services/simStore.js';
 import { layoutSchematic } from '../tree/schematicLayout.js';
+import { testMotor, testResolution } from '../services/autoDelay.testSupport.js';
 
 // The real layout, counted: how often the drawing walks the design.
 vi.mock('../tree/schematicLayout.js', async (importOriginal) => {
@@ -52,6 +53,22 @@ const RUN = {
 } as SimRun;
 
 describe('FlyScreen', () => {
+  it('r3 shows both recorded mixed optimum delays on Fly', () => {
+    mount({ run: { ...RUN, motorConfig: 'mixed 2+2', batchMounts: [
+      { mountId: 'a', mountName: 'Pair A', motor: 'A', role: 'candidate', count: 2 },
+      { mountId: 'b', mountName: 'Pair B', motor: 'B', role: 'candidate', count: 2 },
+    ], delayResolution: testResolution([['a', testMotor()], ['b', testMotor()]], [4, 7]) } });
+    expect(host.textContent).toContain('Pair A: 4.0 s; Pair B: 7.0 s');
+    const optimum = [...host.querySelectorAll('.fly-stat')].find(el => el.querySelector('.stat-label')?.textContent === 'Optimum delay');
+    expect(optimum?.querySelector('.stat-unit')).toBeNull();
+  });
+  it('r3 names the complete recorded Launch loadout in the stale-flight banner', () => {
+    mount({ run: { ...RUN, rocket: 'Rocket', motor: 'Core motor', batchMounts: [
+      { mountId: 'a', mountName: 'Core', motor: 'Core motor', role: 'candidate', count: 1 },
+      { mountId: 'b', mountName: 'Ring', motor: 'Ring motor', role: 'kept', count: 4 },
+    ] }, changedSince: ['motor'] });
+    expect(host.querySelector('.fly-stale')?.textContent).toContain('Core motor in Core; Ring motor ×4 in Ring');
+  });
   let host: HTMLDivElement;
   let root: Root;
 

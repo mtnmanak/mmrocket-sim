@@ -1,7 +1,8 @@
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
-import { kernelStageIdByNode, nozzleMotorCount, nozzleStages } from '../tree/treeModel.js';
-import { getExMotor } from './exMotors.js';
+import { hasIgnitionSourceStage, kernelStageIdByNode, nozzleMotorCount, nozzleStages  } from '../tree/treeModel.js';
+import { knownIgnitionEvent, knownUnlitIgnition } from './ignitionEvent.js';
+import { getExMotor, motorWithinRepresentabilityLimits } from './exMotors.js';
 
 /**
  * THE NOZZLE EXIT DIAMETER FOLLOWS THE MOTOR.
@@ -43,7 +44,7 @@ export interface StageMotors {
   stageId: string;
   stageName: string;
   /** In mount order. A cluster, or a mount inside a pod set, is ONE entry with `count` above 1. */
-  motors: { mountId: string; motorId: string; count: number; label: string }[];
+  motors: { mountId: string; motorId: string; count: number; label: string; identity?: string }[];
 }
 
 /**
@@ -59,13 +60,16 @@ export interface StageMotors {
 export function stageMotors(
   tree: RocketTree,
   assigned: readonly (readonly [string, MountMotor])[],
+  refusedMountIds: readonly string[] = [],
 ): StageMotors[] {
   // The nearest serial or parallel stage owns the per-instance exit budget.
   const stageOfNode = kernelStageIdByNode(tree);
   const byStage = new Map<string, StageMotors['motors']>();
   for (const [mountId, mm] of assigned) {
+    if (refusedMountIds.includes(mountId)) continue;
     const stageId = stageOfNode.get(mountId);
-    if (stageId === undefined) continue;
+    if (stageId === undefined || knownUnlitIgnition(mm.ignition?.event, !hasIgnitionSourceStage(tree, mountId))) continue;
+    if (mm.ignition && knownIgnitionEvent(mm.ignition.event) === null || !motorWithinRepresentabilityLimits(mm.spec)) continue;
     // An EX motor carries `exMotorId`, never `motorId` (MotorBrowser pins the
     // library entry that way so an .ork export names the right vendor). Reading
     // only `motorId` made every imported motor INVISIBLE here: the stage read
@@ -73,11 +77,11 @@ export function stageMotors(
     // exit diameter could never reach the field. Since 2026-09-21 an EX motor
     // can publish an exit of its own, so it has to be in this list to do it.
     const motorId = mm.meta.motorId ?? mm.meta.exMotorId;
-    if (typeof motorId !== 'string' || !motorId) continue;
     const list = byStage.get(stageId) ?? [];
     list.push({
       mountId,
-      motorId,
+      motorId: motorId || '',
+      ...(!motorId ? { identity: JSON.stringify([mm.meta.manufacturer ?? '', mm.spec.designation]) } : {}),
       // Multiplicities strictly below the owning stage only.
       count: nozzleMotorCount(tree, mountId),
       label: mm.label,
@@ -111,7 +115,7 @@ export function stageMotors(
 export function stageMotorKey(s: StageMotors, capturedNozzleKeys?: ReadonlyMap<string, string>): string {
   // A captured source key must stay fixed across a later library write
   // (audit 2026-10-11, S3c-2 integration); only uncaptured motors need a read.
-  return s.motors.map((m) => `${m.mountId}:${capturedNozzleKeys?.get(m.motorId) ?? motorNozzleKey(m.motorId)}x${m.count}`).join('|');
+  return s.motors.map((m) => `${m.mountId}:${capturedNozzleKeys?.get(m.motorId) ?? motorNozzleKey(m.motorId)}x${m.count}${m.identity ? `:${m.identity}` : ''}`).join('|');
 }
 
 /** Same-id EX re-imports can change or remove their exit (audit 2026-10-11, S3c-2). */

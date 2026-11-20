@@ -1,5 +1,5 @@
 import { recordedConfiguration, runConfigurationHeading, runConfigurationLabel, runStatus } from '../services/runConfiguration.js';
-import { batchLoadoutText } from '../services/batchLoadout.js';
+import { batchLoadoutText, candidateDelayText, flownLoadoutText } from '../services/batchLoadout.js';
 import type { DesignMatchKey } from '../services/simReport.js';
 import { deploymentRole, openingPolicy } from '../services/simReport.js';
 import { normalizeFlightAdvisories } from '../prefs/flightAdvisories.js';
@@ -496,11 +496,13 @@ export function SimRunDetails({ run, hasSeries, changedSince, mountOrder }: {
                   every motor firing together — a cluster times any pod set or
                   strap-on ring (mountMotorCount). "(cluster)" read wrong once
                   the count took in the pods (audit 2026-09-22, row 351). */}
-              <Row label="Motors" value={run.motorCount === undefined ? (run.importedSummary ? '—' : '1')
+              <Row label="Motors" value={run.motorCount === undefined ? (run.importedSummary ? '—' : '1 in primary mount/group')
                 : !Number.isFinite(run.motorCount) ? '—'
                 : run.batch === true && Array.isArray(run.batchTargetMountIds) && run.batchTargetMountIds.length > 1
                   ? `${run.motorCount} installed in candidate mounts`
-                  : run.motorCount > 1 ? `${run.motorCount} firing together` : '1'} />
+                  : run.batch === true || run.motorConfig ? `${run.motorCount} in candidate group`
+                    : run.batchMounts ? `${run.motorCount} installed in complete flight`
+                      : `${run.motorCount} in primary mount/group`} />
             </tbody>
           </table>
           </div>
@@ -519,7 +521,9 @@ export function SimRunDetails({ run, hasSeries, changedSince, mountOrder }: {
  * ("3× H128W + 3× H255-14A") names none of them and keeps its prefix.
  * @internal Exported for services/batchSweep.test.ts; no other module imports it.
  */
-export function historyMotorLabel(r: Pick<SimRun, 'manufacturer' | 'motor' | 'motorConfig'>): string {
+export function historyMotorLabel(r: Pick<SimRun, 'manufacturer' | 'motor' | 'motorConfig' | 'batch' | 'batchMounts' | 'delayResolution'>): string {
+  const frozen = flownLoadoutText(r);
+  if (frozen) return frozen;
   // A run with no motor reads as the run label does (formatRunLabel): "Unknown
   // motor", with its maker when one is recorded (owner ruling 113-10(a)).
   if (!runLabelText(r.motor)) {
@@ -752,8 +756,8 @@ export function SimHistory({
                     <td>{r.rocket || '—'}</td>
                     <td>{historyMotorLabel(r)}</td>
                     <td title={recordedConfiguration(r) === undefined && batchLoadoutText(r) === null ? 'Not recorded' : undefined}>{runConfigurationLabel(r)}</td>
-                    <td>{Number.isFinite(r.delayS) ? `${r.delayS}s`
-                      : r.delayS === Infinity ? 'P' : '—'}</td>
+                    <td>{candidateDelayText(r, 'flownDelay', v => `${v}s`) ?? (Number.isFinite(r.delayS) ? `${r.delayS}s`
+                      : r.delayS === Infinity ? 'P' : '—')}</td>
                     {columns.map(column => <td key={column.id}>{summaryCell(column, r, prefs.units)}</td>)}
                     <td className={r.importedSummary ? undefined : unsafe ? 'stability-bad' : caution ? 'stability-warn' : 'stability-good'}>
                       <span aria-hidden="true">{r.importedSummary ? '—' : unsafe ? '⚠' : caution ? '△' : '✓'}</span>

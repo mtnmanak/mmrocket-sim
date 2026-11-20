@@ -12,6 +12,56 @@ const site = (y: number, peak = 100, burn = 2): ThrustSite => ({
 });
 
 describe('row 127 thrust balance', () => {
+  it('r3 names an asymmetric firing mount with the same number as its card', () => {
+    const tree = balanceTree();
+    tree.components[0]!.children![0]!.children!.forEach(m => { m.name = 'Inner Tube'; });
+    expect(asymmetricThrustWarnings(tree, entries([balanceMotor()]))[0]?.message).toContain('Firing then: Inner Tube 1.');
+  });
+  it('J1 detects one-sided attached thrust after an opposite strap-on separates', () => {
+    const tree = balanceTree(1);
+    const body = tree.components[0]!.children![0]!;
+    body.children = [0, Math.PI].map((angle, i) => ({ type: 'parallelstage', id: `p${i}`, instanceCount: 1,
+      radiusMethod: 'free', radiusOffset: 0.2, angleOffset: angle, children: [
+        { type: 'bodytube', id: `strap${i}`, name: `Strap ${i}`, motorMount: true, length: 0.3, outerRadius: 0.02 },
+      ] }));
+    const motors = [['strap0', balanceMotor(100, 3)], ['strap1', balanceMotor(100, 3)]] as const;
+    const result = { events: [
+      { type: 'IGNITION', motorMountId: 'strap0', time: 0 }, { type: 'IGNITION', motorMountId: 'strap1', time: 0 },
+      { type: 'STAGE_SEPARATION', sourceId: 'p0', time: 1 },
+    ] } as unknown as FlightResult;
+    expect(asymmetricThrustWarnings(tree, motors, result)[0]?.key).toBe('ASYMMETRIC_THRUST_DANGER');
+    result.events.pop();
+    expect(asymmetricThrustWarnings(tree, motors, result)).toEqual([]);
+  });
+  it('r6 stops a nested strap-on balancing the core when its carrying strap-on separates', () => {
+    const tree = balanceTree(1);
+    const body = tree.components[0]!.children![0]!;
+    body.children = [0, Math.PI].map((angle, i) => ({ type: 'parallelstage', id: `p${i}`, instanceCount: 1,
+      radiusMethod: 'free', radiusOffset: 0.2, angleOffset: angle, children: [
+        { type: 'bodytube', id: `strap${i}`, name: `Strap ${i}`, motorMount: i === 1,
+          length: 0.3, outerRadius: 0.02, children: i === 0 ? [
+            { type: 'parallelstage', id: 'nested', instanceCount: 1, radiusMethod: 'free', radiusOffset: 0,
+              children: [{ type: 'bodytube', id: 'nestedMotor', name: 'Nested motor', motorMount: true,
+                length: 0.3, outerRadius: 0.02 }] },
+          ] : [] },
+      ] }));
+    const motors = [['nestedMotor', balanceMotor(100, 3)], ['strap1', balanceMotor(100, 3)]] as const;
+    const result = { events: [
+      { type: 'IGNITION', motorMountId: 'nestedMotor', time: 0 }, { type: 'IGNITION', motorMountId: 'strap1', time: 0 },
+      { type: 'STAGE_SEPARATION', sourceId: 'p0', time: 1 },
+    ] } as unknown as FlightResult;
+    const warning = asymmetricThrustWarnings(tree, motors, result);
+    expect(warning).toHaveLength(1);
+    expect(warning[0]?.key).toBe('ASYMMETRIC_THRUST_DANGER');
+    expect(warning[0]?.message).toContain('Firing then: Strap 1.');
+    // A later separation of the nested stage cannot postpone its parent's cutoff.
+    result.events.push({ type: 'STAGE_SEPARATION', sourceId: 'nested', time: 3 });
+    expect(asymmetricThrustWarnings(tree, motors, result)).toEqual(warning);
+    // Without separation the opposite burns still balance, including before flight.
+    result.events.splice(2);
+    expect(asymmetricThrustWarnings(tree, motors, result)).toEqual([]);
+    expect(asymmetricThrustWarnings(tree, motors)).toEqual([]);
+  });
   it('gives exact zero for identical symmetric motors and opposite pairs of different motors', () => {
     expect(thrustImbalance([site(1), site(-1)]).fraction).toBe(0);
     expect(asymmetricThrustWarnings(balanceTree(), entries())).toEqual([]);

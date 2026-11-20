@@ -11,7 +11,22 @@ import { resolveFlightState } from './flightState.js';
 const effective = (r: ReturnType<typeof importOrk>) => resolveFlightState(r.tree,
   r.configs.map(c => ({ ...c, motors: {} })), r.chosenConfigId, {}, {}).tree;
 import { designFingerprint, type DesignSnapshot } from './dirtyState.js';
-import { exportOrk, flightDataAttrs, importOrk, MIN_IMPORTED_TIME_STEP_S, ORK_CREATOR, type OrkExportConfig, type OrkExportMotor, type OrkMotorRef } from './orkFile.js';
+import { autoDelaySaveNote, exportOrk, flightDataAttrs, importOrk, MIN_IMPORTED_TIME_STEP_S, ORK_CREATOR, type OrkExportConfig, type OrkExportMotor, type OrkMotorRef } from './orkFile.js';
+
+it.each(['save', 'share', 'recovery'] as const)('r2 names provisional plugged Auto and its recovery consequence on %s', action => {
+  for (const format of ['.ork', '.rkt'] as const) {
+    for (const autoDelayFrom of ['provisional', 'flown'] as const) {
+      const text = autoDelaySaveNote({ designation: 'Test', manufacturer: 'Test', diameter: 0.029, length: 0.1,
+        delay: Infinity, autoDelay: true, autoDelayFrom }, format, action)!;
+      expect(text).not.toContain('Infinity');
+      expect(text).toContain('plugged');
+      expect(text).toContain('no ejection charge');
+      expect(text).toMatch(/recovery/i);
+      expect(text).toMatch(/launch/i);
+      if (autoDelayFrom === 'flown') expect(text).not.toContain('no flight');
+    }
+  }
+});
 import {
   CATALOGUE_LINK_KEYS, catalogueDifferences, detachPatch, linkedPreset, loadPresets, ORK_PRESET_KEYS, presetPatch,
   type Preset,

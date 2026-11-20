@@ -3,12 +3,12 @@ import {
   OrkRocket, type ComponentNode, type IgnitionEvent, type MotorSpec, type RocketTree,
   type StaticInfo,
 } from '@online-openrocket/engine';
-import {
+import { hasIgnitionSourceStage,
   applyStageNozzles, clearStageNozzles, engineTree, findNode, isOnLaunchStage, mountMotorCount, motorMounts, stageIdByNode,
   stagesWithRecoveryDevice, mountName,
   stageRecoveryById,
   type ClusterSplit,
-} from '../tree/treeModel.js';
+ } from '../tree/treeModel.js';
 import { equivalentExitDiameterM } from './nozzleFollow.js';
 import { numOrNull } from '../tree/nodeNum.js';
 import { noteText } from './noteField.js';
@@ -30,7 +30,7 @@ import { flownMaxFlightTimeS, kernelSimOptions, type LaunchConditions } from './
 import { physicsKeyOf, provenanceKeyOf } from './designDerivation.js';
 import type { WeatherSnapshot } from './weatherSnapshot.js';
 import { batchMatchingMounts } from './batchMountDisclosure.js';
-import { knownIgnitionEvent } from './ignitionEvent.js';
+import { knownUnlitIgnition } from './ignitionEvent.js';
 
 /**
  * THE BATCH SWEEP — every flight Batch Simulate flies, out of the component.
@@ -194,7 +194,7 @@ export function batchStageExit(input: {
   if (typedStageExitM !== null && loadedIdOnTarget && candidateId === loadedIdOnTarget) {
     return typedStageExitM;
   }
-  return equivalentExitDiameterM([{ count, exitDiameterM: ownExitM }, ...otherParts]);
+  return equivalentExitDiameterM([...(count > 0 ? [{ count, exitDiameterM: ownExitM }] : []), ...otherParts]);
 }
 
 /**
@@ -292,40 +292,18 @@ export function batchRowKey(configTag: string, motorIds: readonly string[]): str
 }
 
 /**
- * The delay a candidate flies before any optimum is known — the SAME first
- * flight the motor browser gives the design page in the same mode, because a
- * motor must read the same in both places (v0.135, Eric 2026-09-18). Its
- * longest PRESCRIBED delay when it has one; for a motor with none:
- *
- *  - "optimal delay per motor" ticked: 0, as the browser's auto load flies it
- *    (MotorBrowser `load()`, `finite[finite.length - 1] ?? 0`) before App
- *    re-flies it at the rounded optimum. NOT plugged, even for a motor sold
- *    plugged only: the kernel takes its optimum from a coast probe when the
- *    recovery deploys before apogee, and from the flight's own apogee when
- *    nothing has deployed by then (BasicEventSimulationEngine, the APOGEE and
- *    RECOVERY_DEVICE_DEPLOYMENT cases), and the two sit a few hundredths of a
- *    second apart — enough to round to a different whole second. Flown
- *    plugged here, an Ellis I160 in a 50 mm test airframe took 10 s /
- *    1595.2 m against the design page's 9 s / 1594.9 m (measured 2026-09-22,
- *    in review of the row-407 fix below).
- *  - unticked: plugged (Infinity) when plugged is all it is sold as, the
- *    browser's default pick for such a motor. This used to be `?? 0` as well,
- *    so each plugged-only motor (604 of the catalogue's 1,156 as delayOptions
- *    reads them, 374 of those in production — measured 2026-09-22) flew with
- *    a charge at burnout that the motor does not have (audit 2026-09-22);
- *    flyLaunch resolves the explicit per-leg Auto policies.
- *
- * A motor that lists NO delay at all (delayOptions returns [] since the
- * row-363 fix; it used to read as [0]) starts at 0 in both modes. That is
- * what the browser flies too: its default pick for such a motor is "Auto
- * (optimal)" (`defaultDelay(picked) ?? 'auto'`), whose first flight is
- * `finite[finite.length - 1] ?? 0` before App re-flies at the optimum. So
- * the sweep re-flies such a candidate at its optimum even unticked — see
- * `listsNoDelay` and flyLegs.
+ * The same provisional setting as the motor browser: the longest numeric
+ * listed delay, otherwise plugged when P is listed, otherwise 0 for an
+ * unlisted-delay Auto motor. A plugged-only Auto selection must remain
+ * plugged when saved before its first Launch. The solver chooses the actual
+ * per-mount Auto delay from a recovery-free probe; this placeholder is not
+ * evidence of a flown charge. Unticked, the explicit charge-recovery exception
+ * is applied only to lit plugged candidate legs by flyLegs.
  */
 export function provisionalDelay(entry: TcMotor, autoDelay: boolean): number {
-  const finite = delayOptions(entry).filter((d) => Number.isFinite(d));
-  return autoDelay ? finite[finite.length - 1] ?? 0 : defaultDelay(entry) ?? 0;
+  const options = delayOptions(entry);
+  const finite = options.filter((d) => Number.isFinite(d));
+  return autoDelay ? finite[finite.length - 1] ?? (options.includes(Infinity) ? Infinity : 0) : defaultDelay(entry) ?? 0;
 }
 
 /**
@@ -397,18 +375,23 @@ export function deploysOnEjectionCharge(tree: RocketTree): boolean {
  * the comments are stored joined on " | " and split back on it.
  */
 export function notePluggedAtOptimum(run: SimRun, legs: number): void {
-  const them = legs > 1 ? 'them' : 'it';
   const flown = run.delayResolution?.mounts.filter((m) => m.exception === 'plugged-on-charge');
-  const delays = legs > 1 && flown?.length
+  const partial = flown?.length && run.delayResolution && flown.length < run.delayResolution.mounts.length;
+  const many = flown?.length ? flown.length > 1 : legs > 1;
+  const them = many ? 'them' : 'it';
+  const delays = flown?.length && (partial || legs > 1 || !Number.isFinite(run.delayS))
     ? `per-mount optimum delays (${flown.map((m) => `${noteText(m.mountName).replace(/\|/g, '/')}: ${m.flownDelay} s`).join(', ')})`
     : `the optimum delay of ${run.delayS} s`;
-  const note = `${legs > 1 ? 'Every motor in this combination is' : 'This motor is'} sold plugged `
-    + `(no ejection charge), and this design deploys its recovery on the motor’s charge, so the `
+  const note = `${partial ? many ? 'The named motors in this loadout are' : 'The named motor in this loadout is' : legs > 1 ? 'Every motor in this combination is' : 'This motor is'} sold plugged `
+    + `(no ejection charge), so the `
     // "hypothetical charge" in the exported words too (D7 §5, L20): the run's
     // comments reach history, CSV and XLSX, where "plugged" must never read as
     // hardware that supplies the simulated charge.
-    + `batch flew ${them} with a hypothetical charge at ${delays} rather than with no deployment at `
-    + `all. To fly ${them} as sold, set the recovery to deploy at apogee or altitude.`;
+    + `batch flew ${them} with a hypothetical charge at ${delays}. `
+    + `Recovery follows the design's deployment settings; other motors may also supply charges. `
+    + `To fly ${them} as sold, untick optimal delay per motor and use apogee or altitude electronics wherever recovery would otherwise depend on those charges.`
+    + (run.batchMounts?.some(m => m.role === 'kept' && flown?.some(d => d.mountId === m.mountId))
+      ? ' For a kept Auto motor, choose Plugged on its mount card before running the batch again.' : '');
   run.comments = run.comments === '' ? note : `${run.comments} | ${note}`;
   if (run.commentLevels) run.commentLevels = [...run.commentLevels, 'info'];
 }
@@ -462,6 +445,7 @@ export interface BatchSweepInput {
   /** Their ignition settings — a MotorSpec carries none. */
   assignedIgnitions: Record<string, { event: IgnitionEvent; delay: number }>;
   assignedAutoDelays?: Record<string, boolean>;
+  refusedMountIds?: readonly string[];
   weighed?: BatchWeighed;
   /** Hardware already in assignedMotors, including an accepted legacy weighing. Provenance only. */
   retainedHardware?: Pick<BatchWeighed, 'mountId' | 'deltaKg'>;
@@ -480,7 +464,7 @@ export interface BatchSweepHooks {
    */
   signal: AbortSignal;
   onProgress?: (p: { done: number; total: number; current: string }) => void;
-  /** After every flight, with every row so far (a fresh array). */
+  /** After at least eight new rows and 250 ms, plus the complete final snapshot. */
   onRows?: (rows: BatchRow[]) => void;
 }
 
@@ -525,17 +509,21 @@ export async function runBatchSweep(
   const targetIds = targets.map(m => m.id);
   const multiple = targets.length > 1;
   const targetIgnition = (id: string) => batchTargetIgnition(tree, assignedIgnitions, id);
+  const unlitTarget = (id: string, t = tree) => multiple && knownUnlitIgnition(targetIgnition(id).event, !hasIgnitionSourceStage(t, id));
   const targetMotorCount = targets.reduce((sum, m) => sum + m.motorCount, 0);
+  const firingTargetCount = targets.reduce((sum, m) => sum + (unlitTarget(m.id) ? 0 : m.motorCount), 0);
+  const refused = new Set((input.refusedMountIds ?? []).filter(id => !targetIds.includes(id)));
   const { signal } = hooks;
   if (candidates.some((m) => !m.motorId.startsWith('ex:')) && !deps.fetchSpec) await requireCurveBundle(candidates);
   const retainedHardware = input.retainedHardware ?? weighed;
+  const designMountIds = new Set(motorMounts(tree).map(m => m.id));
   const kbf = model !== 'eb';
   const aeroMode: AeroMode = model === 'eb' || model === 'kbf' ? 'classic' : model;
 
   // Mounts other than the target keep their assigned motors for every flight.
   const applyOthers = (r: OrkRocket, targetIds: string[]) => {
     for (const [id, spec] of Object.entries(assignedMotors)) {
-      if (!targetIds.includes(id)) {
+      if (!targetIds.includes(id) && !refused.has(id) && designMountIds.has(id)) {
         try {
           // THE DESIGN PAGE'S OWN WRITE (flightRunner.writeMountMotor). It
           // puts the ignition back after the motor — `setMotorById` installs a
@@ -549,7 +537,7 @@ export async function runBatchSweep(
           // AND both combination passes, because every per-candidate write
           // below touches only the TARGET mounts, which this loop skips.
           writeMountMotor(r, id, spec, overrideFor(assignedIgnitions, id) ?? { event: 'automatic', delay: 0 });
-        } catch { /* mount absent in variant, or refused as on the design page (reported there) */ }
+        } catch { refused.add(id); }
       }
     }
   };
@@ -607,6 +595,8 @@ export async function runBatchSweep(
     };
   };
   const sweepHandle = handlePool(sweepTree, targetIds);
+  // Discover retained build refusals before calculating their nozzle contribution.
+  sweepHandle(null);
 
   /*
    * The motors firing BESIDE the candidate, on the same stage. A batch refuses
@@ -617,8 +607,8 @@ export async function runBatchSweep(
    * silently dropped out of the sum.
    */
   const otherParts = await Promise.all(mounts
-    .filter((m) => !targetIds.includes(m.id) && typeof overrideFor(assignedMotorIds, m.id) === 'string'
-      && overrideFor(assignedMotorIds, m.id) !== '')
+    .filter((m) => !targetIds.includes(m.id) && overrideFor(assignedMotors, m.id) !== undefined && !refused.has(m.id)
+      && !knownUnlitIgnition(overrideFor(assignedIgnitions, m.id)?.event, !hasIgnitionSourceStage(tree, m.id)))
     .map(async (m) => ({
       count: m.motorCount ?? 1,
       exitDiameterM: (await nozzleFor(overrideFor(assignedMotorIds, m.id)))?.exitDiameterM ?? null,
@@ -663,12 +653,21 @@ export async function runBatchSweep(
   const storedNames = batchMotorNames(candidates, false);
   const designMountNames = new Map(namedBatchMounts(motorMounts(tree).map(m => ({ id: m.id!, mountName: mountName(m) })))
     .map(m => [m.id, m.mountName]));
+  const noteRefused = (run: SimRun) => {
+    if (!refused.size) return;
+    const omission = `Build-refused mounts were left off this flight: ${[...refused].map(id => noteText(designMountNames.get(id) ?? id)).join(', ')}.`;
+    run.comments = [run.comments, omission.replace(/\|/g, '/')].filter(Boolean).join(' | ');
+    if (run.commentLevels) run.commentLevels.push('info');
+    run.refusedMountIds = [...refused];
+  };
 
   // Read the completed flight's installed vector, not the requested assignments:
   // a refused ignition was never installed. This changes no flight inputs.
   const batchMountsFor = (flownTree: RocketTree, candidateEntries: ReadonlyMap<string, MotorDbEntry>,
-    installedIds: readonly string[], displayNames = designMountNames): BatchMountRecord[] | undefined => {
+    installedIds: readonly string[], displayNames = designMountNames, result?: import('@online-openrocket/engine').FlightResult): BatchMountRecord[] | undefined => {
     const motors: Parameters<typeof loadoutMotorNames>[0][number][] = [];
+    const ignitionIds = new Set([...(result?.events ?? []), ...(result?.branches ?? []).flatMap(b => b.events)]
+      .filter(e => e.type === 'IGNITION' && e.motorMountId).map(e => e.motorMountId));
     const records = motorMounts(flownTree).map(m => {
       const id = m.id!;
       const candidate = installedIds.includes(id) ? candidateEntries.get(id) : undefined;
@@ -683,7 +682,9 @@ export async function runBatchSweep(
         role: candidate !== undefined ? 'candidate' as const : kept ? 'kept' as const : 'empty' as const,
         motor: candidate || loaded ? '' : null,
         count: mountMotorCount(flownTree, id),
-        ...((kept || multiple && candidate !== undefined) && (multiple ? targetIgnition(id) : overrideFor(assignedIgnitions, id))?.event === 'never'
+        ...((kept || candidate !== undefined) && (ignitionIds.size > 0 ? !ignitionIds.has(id) : knownUnlitIgnition(
+          candidate !== undefined ? multiple ? targetIgnition(id).event : 'automatic' : overrideFor(assignedIgnitions, id)?.event,
+          !hasIgnitionSourceStage(flownTree, id)))
           ? { ignition: 'never' as const } : {}),
       };
     });
@@ -719,11 +720,13 @@ export async function runBatchSweep(
         throw new Error(`Motor diameter does not fit ${noteText(displayNames.get(mount.id) ?? mount.label)}.`);
       }
     }
-    const optimumForPlugged = !autoDelay && deploysOnCharge
-      && legs.every((l) => l.spec.ejectionDelay === Infinity && !l.noListedDelay);
+    const litLegs = legs.filter(l => !unlitTarget(l.mountId, probeTree));
+    const onlyPlugged = (l: typeof litLegs[number]) => delayOptions(l.entry).every(d => !Number.isFinite(d)) && !l.noListedDelay;
+    const pluggedLegs = new Set(litLegs.filter(l => (autoDelay || deploysOnCharge && litLegs.every(onlyPlugged))
+      && onlyPlugged(l)).map(l => l.mountId));
     const liveMountIds = new Set(motorMounts(probeTree).map((m) => m.id));
     const assigned: [string, MountMotor][] = Object.entries(assignedMotors)
-      .filter(([id]) => liveMountIds.has(id) && id !== replacedMountId && !legs.some((l) => l.mountId === id))
+      .filter(([id]) => liveMountIds.has(id) && !refused.has(id) && id !== replacedMountId && !legs.some((l) => l.mountId === id))
       .map(([id, spec]) => {
         const label = motorLabel(motorLabelEntry({ spec,
           meta: { ...overrideFor(input.assignedMountMotors, id)?.meta, label: '', motorId: overrideFor(assignedMotorIds, id) } }), spec.ejectionDelay,
@@ -746,11 +749,9 @@ export async function runBatchSweep(
       const ignition = multiple ? targetIgnition(l.mountId) : { event: 'automatic' as const, delay: 0 };
       // Batch is single-stage: burnout/ejection ignition needs a lower stage.
       // A never-lit target keeps the provisional fixed delay, as kept motors do.
-      const event = knownIgnitionEvent(ignition.event);
-      const unlit = multiple && (event === 'never' || isOnLaunchStage(probeTree, l.mountId)
-        && (event === 'burnout' || event === 'ejectioncharge'));
+      const unlit = unlitTarget(l.mountId, probeTree);
       const meta = {
-        autoDelay: autoDelay || !!l.noListedDelay || optimumForPlugged,
+        autoDelay: autoDelay || !!l.noListedDelay || pluggedLegs.has(l.mountId),
         ...l.meta,
       };
       if (unlit) meta.autoDelay = false;
@@ -760,8 +761,13 @@ export async function runBatchSweep(
         ignition,
       }]);
     }
+    // Retained Auto motors can fly hypothetical charges too; the run must name them.
+    for (const [id, mm] of assigned) {
+      const soldDelays = mm.meta.availableDelays;
+      if (mm.meta.autoDelay && soldDelays?.length && soldDelays.every(d => !Number.isFinite(d))) pluggedLegs.add(id);
+    }
     const flight = await flyLaunch(rocket, {
-      assigned, hardware: undefined, primaryMountId: legs[0]!.mountId,
+      assigned, refusedMountIds: [...refused], hardware: undefined, primaryMountId: legs[0]!.mountId,
       mountNames: Object.fromEntries([...mounts.map((m) => [m.id, m.label]),
         ...motorMounts(probeTree).filter(m => !mounts.some(original => original.id === m.id))
           .map(m => [m.id, displayNames.get(m.id!) ?? mountName(m)])]),
@@ -770,11 +776,10 @@ export async function runBatchSweep(
       isOnLaunchStage: (id) => isOnLaunchStage(probeTree, id),
       onSupersonicUpgrade: () => {}, signal, yieldToUi,
     });
-    if (optimumForPlugged) {
-      for (const m of flight.delayResolution.mounts) {
-        if (legs.some((l) => l.mountId === m.mountId) && m.mode === 'auto') m.exception = 'plugged-on-charge';
-      }
+    for (const m of flight.delayResolution.mounts) {
+      if (pluggedLegs.has(m.mountId) && m.mode === 'auto' && Number.isFinite(m.flownDelay)) m.exception = 'plugged-on-charge';
     }
+    const optimumForPlugged = flight.delayResolution.mounts.some(m => m.exception === 'plugged-on-charge');
     return {
       res: flight.result, execMs: flight.execMs, flownDelay: flight.flownDelayS,
       delayResolution: flight.delayResolution, primaryMountId: legs[0]!.mountId,
@@ -797,6 +802,17 @@ export async function runBatchSweep(
   const total = batchFlightCount(n, splits.map(batchSplitCombination), includeSingles);
   const comboActive = splits.length > 0;
   const out: BatchRow[] = [];
+  let lastPublish = -Infinity;
+  let lastPublishedCount = -Infinity;
+  const publishEvery = Math.max(8, Math.ceil(total / 200));
+  const publish = (force = false) => {
+    const now = performance.now();
+    if (force || out.length - lastPublishedCount >= publishEvery && now - lastPublish >= 250) {
+      lastPublish = now;
+      lastPublishedCount = out.length;
+      hooks.onRows?.([...out]);
+    }
+  };
   // Cache the request too: mixed-only pair splits may need the same motor on
   // several legs at once. A failed request becomes a row error wherever used.
   const specCache = new Map<string, Promise<MotorSpec>>();
@@ -832,7 +848,7 @@ export async function runBatchSweep(
       // This candidate's own stage nozzle, and the handle carrying it. Null
       // for a motor with no published exit — about two thirds of a 54 mm
       // sweep — which gets the nozzle-free handle and today's numbers.
-      const exitM = await exitForCandidate(entry, targetMotorCount);
+      const exitM = await exitForCandidate(entry, firingTargetCount);
       const keyTree = stageIdOfTarget !== '' && (exitM !== null || typedStageExitM !== null)
         ? applyStageNozzles(tree, { [stageIdOfTarget]: exitM }) : tree;
       const f = await flyLegs(sweepHandle(exitM),
@@ -859,7 +875,7 @@ export async function runBatchSweep(
         launch,
         aero,
       });
-      const batchMounts = batchMountsFor(tree, new Map(targetIds.map(id => [id, entry])), f.delayResolution.mounts.map(m => m.mountId));
+      const batchMounts = batchMountsFor(tree, new Map(targetIds.map(id => [id, entry])), f.delayResolution.mounts.map(m => m.mountId), designMountNames, f.res);
       const run = buildSimRun({
         maxFlightTimeS: flownMaxFlightTimeS(launch),
         units,
@@ -902,7 +918,8 @@ export async function runBatchSweep(
         motorDataKeys: provenance.motorDataKeys,
       });
       if (multiple) run.batchTargetMountIds = [...targetIds];
-      if (f.optimumForPlugged) notePluggedAtOptimum(run, targets.length);
+      noteRefused(run);
+      if (f.optimumForPlugged) notePluggedAtOptimum(run, 1);
       out.push({
         key, entry, label, combo: false, run, exitM,
         ...(f.optimumForPlugged ? { optimumForPlugged: true } : {}),
@@ -912,7 +929,7 @@ export async function runBatchSweep(
       if (signal.aborted) break;
       out.push({ key, entry, label, combo: false, error: errorText(e) });
     }
-    hooks.onRows?.([...out]);
+    publish();
   }
 
   // ---- Combination passes (opt-in): symmetric group splits of the
@@ -988,13 +1005,13 @@ export async function runBatchSweep(
          * answer for a mixed combination the database only half covers.
          */
         const comboParts = entries.map(async (e, k) => ({
-          count: groupFires[k]!,
+          count: groups[k]!.reduce((sum, id) => sum + (unlitTarget(id, split.tree) ? 0 : mountMotorCount(split.tree, id)), 0),
           exitDiameterM: (await nozzleFor(e.motorId))?.exitDiameterM ?? null,
         }));
         const matchesLoaded = split.mountGroups && groups.every((ids, k) =>
           ids.every(id => overrideFor(assignedMotorIds, id) === entries[k]!.motorId));
         const exitM = matchesLoaded && typedStageExitM !== null ? typedStageExitM
-          : equivalentExitDiameterM([...await Promise.all(comboParts), ...otherParts]);
+          : equivalentExitDiameterM([...(await Promise.all(comboParts)).filter(p => p.count > 0), ...otherParts]);
         // Group mount ids are temporary flight machinery, not a design edit.
         const keyTree = stageIdOfTarget !== '' && (exitM !== null || typedStageExitM !== null)
           ? applyStageNozzles(tree, { [stageIdOfTarget]: exitM }) : tree;
@@ -1033,7 +1050,7 @@ export async function runBatchSweep(
           aero,
         });
         const batchMounts = batchMountsFor(split.tree, new Map(groups.flatMap((ids, k) => ids.map(id => [id, entries[k]!] as const))),
-          f.delayResolution.mounts.map(m => m.mountId), splitMountNames);
+          f.delayResolution.mounts.map(m => m.mountId), splitMountNames, f.res);
         const run = buildSimRun({
           maxFlightTimeS: flownMaxFlightTimeS(launch),
           units, advisoryLimits,
@@ -1074,6 +1091,7 @@ export async function runBatchSweep(
         run.motor = [...counts.values()]
           .map(({ entry: e, fires }) => `${fires}× ${storedNames.get(e.motorId)!}`)
           .join(' + ');
+        noteRefused(run);
         if (f.optimumForPlugged) notePluggedAtOptimum(run, entries.length);
         out.push({
           key, entry: entries[0]!, label, combo: true, run, exitM,
@@ -1084,9 +1102,10 @@ export async function runBatchSweep(
         if (signal.aborted) break;
         out.push({ key, entry: entries[0]!, label, combo: true, error: errorText(e) });
       }
-      hooks.onRows?.([...out]);
+      publish();
     }
   }
 
+  publish(true);
   return { rows: out, stopped: signal.aborted };
 }

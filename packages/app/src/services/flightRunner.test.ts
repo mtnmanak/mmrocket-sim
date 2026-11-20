@@ -142,6 +142,12 @@ const staged = (autoDelay: boolean): LaunchInput => ({
   onSupersonicUpgrade: () => {},
 });
 
+it('J1 names the build refusal when the assigned fixed primary was left off', async () => {
+  const { handle } = recordingHandle();
+  await expect(flyLaunch(handle, { ...staged(false), refusedMountIds: ['sustainer'] }))
+    .rejects.toThrow('The motor on the primary mount was refused at build time');
+});
+
 it.each(['constructor', 'toString', '__proto__'])('names a refused Auto mount %s without an inherited label', async id => {
   const { handle } = recordingHandle();
   await expect(flyLaunch(handle, { ...staged(false), assigned: [[id, testMotor()]],

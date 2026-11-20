@@ -249,6 +249,27 @@ const SUPERSONIC: AeroState = { aeroMode: 'supersonic', effectiveKbf: true, auto
 /** Extended Barrowman: the classic model with Rogers Kbf off. */
 const KBF_OFF: AeroState = { aeroMode: 'classic', effectiveKbf: false, autoSupersonic: false };
 
+it.each(['automatic', 'burnout', 'ejectioncharge'] as const)('r2 zero-delay card advice follows launch-stage ignition %s', async event => {
+  prefs(CLASSIC);
+  const tree = defaultTree();
+  const mount = motorMounts(tree)[0]!.id!;
+  let mm: MountMotor | undefined;
+  for (const motor of MOTOR_DB) if (motor.diameter <= 18 && motor.length <= 70 && (await bundledSimFiles(motor.motorId)).length) {
+    mm = await loadCatalogueMotor(motor.manufacturerAbbrev, motor.designation, 0) ?? undefined;
+    if (mm) break;
+  }
+  expect(mm).toBeDefined();
+  if (!mm) throw new Error('No bundled small motor for zero-delay card test');
+  mm.meta.autoDelay = false;
+  mm.ignition = { event, delay: 0 };
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: { ...tree, ignitionDefaults: { [mount]: mm.ignition } },
+    mountMotors: { [mount]: mm }, launch: DEFAULT_CONDITIONS, measured: { massKg: null, cgM: null },
+    configLayers: 1, activeConfigId: null, savedConfigs: [], savedAt: 1, appVersion: APP_VERSION }));
+  const host = await mountApp();
+  await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Motors & Configuration')!.click());
+  expect(host.querySelector('.zero-delay-recovery')?.textContent?.includes('zero-second delay')).toBe(event === 'automatic');
+}, 30_000);
+
 it.each(['Fly', 'Batch'])('RES-1b %s counts override entries rather than empty categories', async surface => {
   prefs(CLASSIC);
   const tree = defaultTree();
@@ -1223,7 +1244,9 @@ describe('the Launch button and simulateFile fly an opened file the same', () =>
 
   it('F4: a .CDX1 with two motor mounts', async () => {
     const { out } = await fileCase(fixture('Show-off.CDX1'), 'Show-off.CDX1', CLASSIC);
-    expect(out.run.motor).toBe('1/4A2');
+    // J1: the quarter-A mount does not ignite; name the motor that fired.
+    expect(out.run.motor).toBe('A8');
+    expect(out.run.batchMounts?.some(m => m.motor === '1/4A2' && m.ignition === 'never')).toBe(true);
     expect(Object.keys(out.state.mountMotors).length).toBeGreaterThan(1);
   }, 60000);
 
@@ -1299,18 +1322,18 @@ const corpus = (name: string) => join(CORPUS!, name);
  * Native designs have no importer-seeded ignition defaults. Exercise the actual card and Launch.
  * `own` keeps the card in its default own-setting scope; `others` adds saved configurations.
  */
-async function nativeIgnitionCase(staged = false, { own = false, others = () => [] }: {
-  own?: boolean; others?: (mount: string, mm: MountMotor) => object[];
+async function nativeIgnitionCase(staged = false, { own = false, others = () => [], motor = mm => mm }: {
+  own?: boolean; others?: (mount: string, mm: MountMotor) => object[]; motor?: (mm: MountMotor) => MountMotor;
 } = {}) {
   prefs(CLASSIC);
   const tree = staged ? addStage(defaultTree()).tree : defaultTree();
   const mount = motorMounts(tree)[0]!.id!;
-  const mm = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+  const mm = motor((await loadCatalogueMotor('Estes', 'C6', 5))!);
   localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [mount]: mm },
     launch: DEFAULT_CONDITIONS, measured: { massKg: null, cgM: null }, configLayers: 1,
     activeConfigId: 'a', detachedOverrides: {}, savedAt: 1, appVersion: APP_VERSION,
     savedConfigs: [{ id: 'a', name: 'Native A', isDefault: true, motors: { [mount]: mm } },
-      ...others(mount, mm)] }));
+      ...others(mount, mm)] }, (_key, value) => value === Infinity ? 'Infinity' : value));
   const host = await mountApp();
   const click = async (text: string) => act(async () => {
     [...host.querySelectorAll('button')].find(b => b.textContent?.includes(text))!.click();
@@ -1345,6 +1368,36 @@ async function nativeIgnitionCase(staged = false, { own = false, others = () => 
   };
   return { host, mount, click, select, choose, number, fly };
 }
+
+it('r6 Plugged tooltip preserves another same-stage motor charge as a recovery source', async () => {
+  const { host } = await nativeIgnitionCase(false, { motor: mm => ({
+    ...mm, spec: { ...mm.spec, ejectionDelay: Infinity }, meta: { ...mm.meta, autoDelay: false },
+  }) });
+  const label = [...host.querySelectorAll('label')].find(l => l.textContent?.trim() === 'plugged')!;
+  expect(label.querySelector<HTMLInputElement>('input')!.checked).toBe(true);
+  expect(label.title).toContain("another motor's charge in the same stage");
+  expect(label.title).toContain('apogee/altitude electronics');
+  expect(label.title).toContain('otherwise recovery will not deploy');
+}, 30000);
+
+it('r5 Auto with a plugged provisional delay does not claim the charge is disabled on the mount card', async () => {
+  const { host } = await nativeIgnitionCase(false, { motor: mm => ({
+    ...mm, spec: { ...mm.spec, ejectionDelay: Infinity },
+    meta: { ...mm.meta, autoDelay: true, availableDelays: [Infinity] },
+  }) });
+  const box = (name: string) => [...host.querySelectorAll('label')].find(l => l.textContent?.trim() === name)!
+    .querySelector<HTMLInputElement>('input')!;
+  expect(box('auto (optimal)').checked).toBe(true);
+  expect(box('plugged').checked).toBe(false);
+  expect(host.querySelector<HTMLInputElement>('[aria-label^="Ejection delay for"]')!.placeholder).toBe('auto (optimal)');
+  // Selecting Plugged explicitly removes the simulated charge and turns Auto off.
+  await act(async () => { box('plugged').click(); });
+  expect(box('plugged').checked).toBe(true);
+  expect(box('auto (optimal)').checked).toBe(false);
+  await act(async () => { box('auto (optimal)').click(); });
+  expect(box('auto (optimal)').checked).toBe(true);
+  expect(box('plugged').checked).toBe(false);
+}, 30000);
 
 it('FC-4 fixup native staged ignition save and reopen retain default and override', async () => {
   const { host, click, choose, number } = await nativeIgnitionCase(true);
@@ -1474,7 +1527,7 @@ it.skipIf(!CORPUS || !existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('FC
   });
   const flat = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap(n => [n, ...flat(n.children ?? [])]);
   const chutes = flat(peekSession()!.tree.components).filter(n => n.type === 'parachute');
-  const configLabel = savedConfigLabel(peekSession()!.savedConfigs!.find(c => c.id === peekSession()!.activeConfigId)!);
+  const configLabel = savedConfigLabel(peekSession()!.savedConfigs!.find(c => c.id === peekSession()!.activeConfigId)!, peekSession()!.tree);
   expect(chutes).toHaveLength(2);
   const bar = host.querySelector('.notice-bar')!;
   expect(bar.classList.contains('expanded')).toBe(true);
@@ -1631,7 +1684,7 @@ it.skipIf(!CORPUS || !existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('LW
       expect(description).not.toBeNull();
       expect(launch.nextElementSibling).toBe(description.closest('.launch-override-warning'));
       expect(description.parentElement?.classList.contains('launch-override-callout')).toBe(true);
-      expect(description.textContent).toContain('[F67C-9]');
+      expect(description.textContent).toContain('[4× F67C-9]');
       expect(description.textContent).toContain('2 parachutes');
       expect(description.textContent).toContain('Motor ejection charge');
       expect(description.textContent).toContain('300 ft');
@@ -1641,7 +1694,7 @@ it.skipIf(!CORPUS || !existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('LW
       if (launch.classList.contains('vitals-launch')) {
         const warning = description.closest('.launch-override-warning')!;
         expect(warning.parentElement?.classList.contains('vitals-strip')).toBe(true);
-        expect(warning.querySelector('.launch-override-short')?.textContent).toBe('Flight configuration “[F67C-9]” overrides 2 parachutes — they deploy at Motor ejection charge.');
+        expect(warning.querySelector('.launch-override-short')?.textContent).toBe('Flight configuration “[4× F67C-9]” overrides 2 parachutes — they deploy at Motor ejection charge.');
       }
     }
   };

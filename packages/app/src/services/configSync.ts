@@ -55,7 +55,7 @@ export function duplicateActiveConfig(state: {
   const configs = syncActiveConfig(state.savedConfigs, state.activeConfigId,
     { tree: state.tree, motors: state.mountMotors, unmatchedRefs: state.unmatchedRefs });
   const active = configs.find(c => c.id === state.activeConfigId)!;
-  const copy = structuredClone({ ...active, id: configUuid(), name: `${savedConfigLabel(active)} copy`, isDefault: false });
+  const copy = structuredClone({ ...active, id: configUuid(), name: `${savedConfigLabel(active, state.tree)} copy`, isDefault: false });
   return { savedConfigs: [...configs, copy], activeConfigId: copy.id };
 }
 
@@ -220,7 +220,7 @@ export function scaleConfigStageMass(
       for (const mount of previewMounts(finalTree, 1, { assignedMotorDiameters })) {
         if (mount.motorMm === null || mount.motorStillFits) continue;
         diagnostics.needsAttention = true;
-        diagnostics.notes.push(`Configuration ${noteField(savedConfigLabel(c))}: ${noteField(mount.name)}: the ${motorDimensionText(mount.motorMm, units)} motor no longer fits the ${motorDimensionText(mount.finalBoreMm, units)} bore. Choose another motor on Motors & Configuration before flying.`);
+        diagnostics.notes.push(`Configuration ${noteField(savedConfigLabel(c, finalTree))}: ${noteField(mount.name)}: the ${motorDimensionText(mount.motorMm, units)} motor no longer fits the ${motorDimensionText(mount.finalBoreMm, units)} bore. Choose another motor on Motors & Configuration before flying.`);
       }
     }
   }
@@ -231,7 +231,7 @@ export function scaleConfigStageMass(
         name: findNode(tree, id)?.name, ...values })) }, factor, { units });
     if (diagnostics && c.id !== activeId) {
       const notes = snapshots.componentNotes ?? [];
-      diagnostics.notes.push(...notes.map(note => `Configuration ${noteField(savedConfigLabel(c))}: ${note}`));
+      diagnostics.notes.push(...notes.map(note => `Configuration ${noteField(savedConfigLabel(c, tree))}: ${note}`));
       diagnostics.needsAttention ||= snapshots.needsAttention || notes.some(note => note.includes('re-weigh'));
     }
     return { ...c, stageMassOverrides: Object.fromEntries(snapshots.tree.components.map(s =>

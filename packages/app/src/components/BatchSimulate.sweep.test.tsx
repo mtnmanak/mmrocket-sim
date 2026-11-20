@@ -153,6 +153,54 @@ const candidateCount = () => Number(/(\d+) candidate motors/.exec(host.textConte
 
 const checkbox = (text: string) => [...host.querySelectorAll('label')].find(l => l.textContent?.trim().endsWith(text))!.querySelector<HTMLInputElement>('input')!;
 
+it.each([4, 6])('r3 explicitly targets the %s ring tubes and exposes mixed controls beside a kept centre', n => {
+  const mounts = Array.from({ length: n + 1 }, (_, i) => ({ ...MOUNTS[0]!, id: `tube${i}`, label: `Tube ${i}` }));
+  const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [{ type: 'bodytube', id: 'b',
+    outerRadius: 0.2, length: 0.6, children: mounts.map((m, i) => ({ type: 'innertube', id: m.id, name: m.label,
+      motorMount: true, outerRadius: 0.0125, thickness: 0.0005,
+      radialPosition: i === n ? 0 : 0.05, radialDirection: i * Math.PI * 2 / n })) }] }] };
+  mount({ tree, mounts });
+  const control = [...host.querySelectorAll('label')].find(l => l.textContent?.includes(`Use only ${n} ring mounts`))!.querySelector('input')!;
+  expect(control.checked).toBe(false);
+  act(() => control.click());
+  expect(host.textContent).toContain(`mixed ${n / 2}+${n / 2}`);
+  expect(host.textContent).toContain(`Tube ${n} stays empty`);
+});
+
+it('J1 retains a single row’s frozen loadout after a completed sweep and matching-checkbox change', async () => {
+  const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: ['mount', 'other'].map(id => ({
+    type: 'innertube', id, name: id, motorMount: true, outerRadius: 0.013, thickness: 0.001,
+  })) }] };
+  const mounts = [MOUNTS[0]!, { ...MOUNTS[0]!, id: 'other', label: 'other' }];
+  const flown = row('frozen', 'Candidate', 200);
+  flown.run!.batch = true;
+  flown.run!.batchMounts = [
+    { mountId: 'mount', mountName: 'mount', motor: 'Flown motor', count: 1, role: 'candidate' },
+    { mountId: 'other', mountName: 'other', motor: 'Flown motor', count: 1, role: 'candidate' },
+  ];
+  sweep.mockResolvedValue({ rows: [flown], stopped: false });
+  mount({ tree, mounts });
+  expect(host.textContent).toContain('in these 2 mounts; 2 can fire');
+  await start();
+  const matching = [...host.querySelectorAll('label')].find(l => l.textContent?.includes('Use all 2 matching mounts'))!.querySelector('input')!;
+  act(() => matching.click());
+  expect(bodyRows()[0]?.textContent).toContain('Flown motor in mount, other');
+  expect(host.textContent).toContain('Candidates fly in mount only.');
+});
+
+it('J1 locks sweep-defining filters and delay/mix controls while a sweep is running', async () => {
+  sweep.mockImplementation((_input, hooks) => new Promise(resolve => {
+    hooks.signal.addEventListener('abort', () => resolve({ rows: [], stopped: true }));
+  }));
+  mount({ tree: CLUSTER_TREE, mounts: CLUSTER_MOUNTS });
+  await start();
+  expect(checkbox('mixed 2+2').disabled).toBe(true);
+  expect(checkbox('optimal delay per motor').disabled).toBe(true);
+  expect(checkbox('include OOP').disabled).toBe(true);
+  expect(host.querySelector('fieldset')?.disabled).toBe(true);
+  act(() => stopBtn()!.click());
+});
+
 it('141 opens the saved combination object and closes on the top saved row in table order', async () => {
   const low = row('low', 'Low', 200), top = { ...row('top', '2× A + 2× B', 400), combo: true };
   const rejected = row('rejected', 'Too low', 1);

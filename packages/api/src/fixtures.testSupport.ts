@@ -56,11 +56,11 @@ export async function unbundledDigestCase() {
   return { body, sentence: sentence! };
 }
 export const clusterBody = () => orkOf(referenceXml().replace('<clusterconfiguration>single', '<clusterconfiguration>4-ring'));
-export function secondaryBody(kind: 'never' | 'refused') {
+export function secondaryBody(kind: 'never' | 'burnout' | 'ejectioncharge' | 'refused') {
   let xml = referenceXml();
   let mount = xml.match(/<innertube>[\s\S]*?<\/innertube>/)![0]
     .replace('Inner Tube', 'Secondary mount').replace('cf2a3edb-ead5-4bbd-93b2-1b5631003347', 'secondary-mount');
-  if (kind === 'never') mount = mount.replaceAll('<ignitionevent>automatic', '<ignitionevent>never');
+  if (kind !== 'refused') mount = mount.replaceAll('<ignitionevent>automatic', `<ignitionevent>${kind}`);
   else {
     const definition = { motorId: 'ex:bad', designation: 'Bad-C6', realManufacturer: 'Test', diameter: 18, length: 70,
       totalWeightG: 25, propWeightG: 10, delays: '5', source: 'snapshot', addedAt: 0,

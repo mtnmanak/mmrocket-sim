@@ -296,18 +296,19 @@ it.each([-1, '2', {}, Infinity])('invalid stored last deployment ground speed %j
 it('appends gust sigma to CSV/XLSX headers in wind units, leaving legacy cells blank', () => {
   const list = [mkRun('calm', { windSigma: 0 }), mkRun('gusty', { windSigma: 1 }), mkRun('old', { conditionsKey: '{"windStdDev":9}' })];
   const table = runsToTable(list, IMPERIAL_UNITS);
-  expect(table.headers.slice(-3)).toEqual(['Wind gusts σ at pad (mph)', 'Batch candidate mount', 'Batch other mounts']);
-  expect(table.rows.map(row => row.slice(-3))).toEqual([[0, '', ''], [2.2, '', ''], ['', '', '']]);
+  expect(table.headers.slice(-4)).toEqual(['Wind gusts σ at pad (mph)', 'Batch candidate mount', 'Batch other mounts', 'Motor count scope']);
+  expect(table.rows.map(row => row.slice(-4, -1))).toEqual([[0, '', ''], [2.2, '', ''], ['', '', '']]);
   const csv = runsToCsv(list, IMPERIAL_UNITS).split('\n');
-  expect(csv[0]?.endsWith('Wind gusts σ at pad (mph),Batch candidate mount,Batch other mounts')).toBe(true);
-  expect(csv[2]?.endsWith(',2.2,,')).toBe(true);
-  expect(csv[3]?.endsWith(',,,')).toBe(true);
+  expect(csv[0]?.endsWith('Wind gusts σ at pad (mph),Batch candidate mount,Batch other mounts,Motor count scope')).toBe(true);
+  expect(csv[2]?.endsWith(',2.2,,,primary mount/group')).toBe(true);
+  expect(csv[3]?.endsWith(',,,,primary mount/group')).toBe(true);
 });
 
 it.each([null, -1, '2', {}, Infinity])('invalid stored gust sigma %j becomes unknown', windSigma => {
   localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([mkRun('bad', { windSigma: windSigma as number })]));
   expect(loadRuns()[0]).not.toHaveProperty('windSigma');
-  expect(runsToTable(loadRuns()).rows[0]?.at(-3)).toBe('');
+  const table = runsToTable(loadRuns());
+  expect(table.rows[0]?.[table.headers.indexOf('Wind gusts σ at pad (m/s)')]).toBe('');
 });
 
 it('persists recorded sigma and keeps old runs unknown', () => {
@@ -350,7 +351,8 @@ it('retains gust sigma and frozen flight advice together while normalizing corru
   expect(loaded[1]).not.toHaveProperty('maxAirspeedMs');
   expect(loaded[2]).not.toHaveProperty('windSigma');
   expect(loaded[2]).not.toHaveProperty('advisoryLimits');
-  expect(runsToTable(loaded).rows.map(row => row.at(-3))).toEqual(['', 0, '']);
+  const table = runsToTable(loaded);
+  expect(table.rows.map(row => row[table.headers.indexOf('Wind gusts σ at pad (m/s)')])).toEqual(['', 0, '']);
 });
 
 it.each(['Hybrid', 'none'])('RES-1b exports no configuration attribution for stored imported simulation %s', flightConfig => {

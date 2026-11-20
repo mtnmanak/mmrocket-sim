@@ -2,11 +2,15 @@ import { noteField } from './noteField.js';
 import { ownEntry } from './ownEntry.js';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
-import { findNode, mountName, mountsTie } from '../tree/treeModel.js';
+import { findNode, motorMounts, mountName, mountsTie } from '../tree/treeModel.js';
+import { namedBatchMounts } from './batchLoadout.js';
 import { stripRefPadMass, type migrateLegacyPadMass } from './configSync.js';
 import { LEGACY_PAD_MASS_KEY, type HardwareMassResult } from './hardwareMass.js';
 import type { HeldNote } from './notices.js';
 import type { OrkMotorRef } from './orkFile.js';
+
+const namesOf = (tree: RocketTree) => new Map(namedBatchMounts(motorMounts(tree)
+  .map(m => ({ id: m.id!, mountName: mountName(m) }))).map(m => [m.id, m.mountName]));
 
 /**
  * WHAT BECAME OF A WEIGHED PAD MASS AT RESTORE — the decisions, and the
@@ -61,6 +65,7 @@ export function restoredPadMassNote(
   }
   // eslint-disable-next-line no-restricted-syntax -- a pad-mass record, quoted as it stands (audit row 522)
   if (ranked?.from && ranked.to && typeof ranked.kg === 'number') {
+    const names = namesOf(tree);
     const from = ownEntry(motors, ranked.from);
     const to = ownEntry(motors, ranked.to);
     return {
@@ -68,8 +73,8 @@ export function restoredPadMassNote(
       // D7 I16: the weighing now rides a different flown carrier — Caution.
       tier: 'caution',
       text: `The weighed pad mass (${text.mass(ranked.kg)}) now sits under ${to ? noteField(text.motorName(to.label)) : 'another motor'}`
-        + ` on ${noteField(mountName(findNode(tree, ranked.to), 'its mount'))}, not under`
-        + ` ${from ? noteField(text.motorName(from.label)) : 'the motor'} on ${noteField(mountName(findNode(tree, ranked.from), 'its mount'))}:`
+        + ` on ${noteField(names.get(ranked.to) ?? mountName(findNode(tree, ranked.to), 'its mount'))}, not under`
+        + ` ${from ? noteField(text.motorName(from.label)) : 'the motor'} on ${noteField(names.get(ranked.from) ?? mountName(findNode(tree, ranked.from), 'its mount'))}:`
         + ' the weighed hardware now rides with the core\'s motor ahead of a pod\'s or a strap-on\'s, where it used'
         + ' to ride with whichever was picked first. The value itself is unchanged.',
     };
@@ -136,7 +141,8 @@ export function reconcileLegacyPadMass(input: LegacyPadMassInput): LegacyPadMass
   // the saved file. Dropped with a notice, like a refusal (2026-09-08 review).
   if (filePrimaryMountId !== primaryMountId) {
     const fileRef = filePrimaryMountId ? ownEntry(input.unmatchedRefs, filePrimaryMountId) : undefined;
-    const where = mountName(filePrimaryMountId ? findNode(input.tree, filePrimaryMountId) : null, 'a removed mount');
+    const where = filePrimaryMountId ? namesOf(input.tree).get(filePrimaryMountId)
+      ?? mountName(findNode(input.tree, filePrimaryMountId), 'a removed mount') : 'a removed mount';
     return {
       kind: 'drop',
       mountId: primaryMountId,

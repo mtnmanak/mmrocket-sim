@@ -83,9 +83,9 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, 
   const working = isWorkingSettings({ active: !!active, hasMotors,
     hasUnmatched: Object.keys(unmatchedRefs ?? {}).length > 0, hasOverrides });
   const summary = tree ? describeFlightOverrides(tree, overrides, motors ?? active?.motors ?? {},
-    active ? savedConfigLabel(active) : null, prefs.units.altitude) : null;
+    active ? savedConfigLabel(active, tree) : null, prefs.units.altitude) : null;
   const noSaved = noSavedConfigurationsText({ configs: configs.length, working, hasMotors });
-  const labelOf = (c: SavedConfig) => `${savedConfigLabel(c)} — configuration ${configs.indexOf(c) + 1}`;
+  const labelOf = (c: SavedConfig) => `${savedConfigLabel(c, tree)} — configuration ${configs.indexOf(c) + 1}`;
   const editingConfig = configs.find(c => c.id === editing);
   const deletingConfig = configs.find(c => c.id === deleting);
   const atLimit = configs.length >= MAX_ORK_CONFIGURATIONS;
@@ -93,7 +93,7 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, 
   const motorLabel = (c: SavedConfig) => [...Object.values(c.motors).map(m => m.label), ...(c.unmatched ?? [])].join(', ') || 'No motors';
   // N011: sort a copy; file order breaks ties and remains the creation-order choice.
   const displayed = sort === 'creation' ? configs : [...configs].sort((a, b) => {
-    const key = sort.startsWith('motor') ? motorLabel : savedConfigLabel;
+    const key = sort.startsWith('motor') ? motorLabel : (c: SavedConfig) => savedConfigLabel(c, tree);
     const compared = key(a).localeCompare(key(b), undefined, { numeric: true, sensitivity: 'base' });
     return sort.endsWith('-desc') ? -compared : compared;
   });
@@ -107,7 +107,7 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, 
             if (!e.target.value) onClear();
             else { const c = configs.find(row => row.id === e.target.value); if (c) onApply(c); }
           }}>
-          {displayed.map(c => <option key={c.id} value={c.id}>{savedConfigLabel(c)}{c.isDefault ? ' — file default' : ''}</option>)}
+          {displayed.map(c => <option key={c.id} value={c.id}>{savedConfigLabel(c, tree)}{c.isDefault ? ' — file default' : ''}</option>)}
           {working && <option value="__working__" disabled>Working settings (not saved)</option>}
           <option value="">None (no motors)</option>
         </select>

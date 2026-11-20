@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as exMotors from './exMotors.js';
 import * as motorLabels from './motorLabels.js';
-import { batchLoadoutText, batchOtherMountsText, delayReportMotorNames, namedBatchMounts, validBatchMounts } from './batchLoadout.js';
+import { batchLoadoutText, batchOtherMountsText, candidateDelayText, delayReportMotorNames, namedBatchMounts, recordedPrimaryMountId, validBatchMounts } from './batchLoadout.js';
+import { canReplayDelays } from './autoDelaySolver.js';
 import { runConfigurationHeading, runConfigurationLabel } from './runConfiguration.js';
 import { designationForMotorIdentity } from './motorLabels.js';
 import { MOTOR_DB, motorLabel } from './motorDb.js';
@@ -13,6 +14,36 @@ const mount = (n: number, role: BatchMountRecord['role'] = 'kept', motor: string
 const four = [mount(1, 'candidate', 'M1780NT'), mount(2), mount(3), mount(4)];
 
 describe('batch loadout evidence', () => {
+  it('r3 retains frozen Launch motor names after an EX library entry disappears', () => {
+    const resolution = testResolution([['m1', testMotor(false, 5)]], [5]);
+    resolution.mounts[0]!.motorIdentity = 'ex:deleted-r3';
+    expect(delayReportMotorNames(resolution.mounts, { batchMounts: [mount(1, 'candidate', 'Recorded EX')] })?.get('m1'))
+      .toBe('Recorded EX');
+  });
+  it('r3 discards malformed mixed delay evidence and labels unavailable fixed advice', () => {
+    const run = { motorConfig: 'mixed 2+2', batchMounts: [mount(1, 'candidate'), mount(2, 'candidate')] };
+    expect(candidateDelayText({ ...run, delayResolution: {} as never }, 'flownDelay', String)).toBeNull();
+    const delayResolution = testResolution([['m1', testMotor(false, 5)], ['m2', testMotor(false, 7)]], [5, 7]);
+    expect(candidateDelayText({ ...run, delayResolution }, 'rawOptimum', String))
+      .toBe('75mm MMT 1: unavailable; 75mm MMT 2: unavailable');
+  });
+  it('J1 replays a Launch whose reported motor replaced an unlit primary using the same frozen role', () => {
+    const assigned: [string, ReturnType<typeof testMotor>][] = [['m1', testMotor(false, Infinity)], ['m2', testMotor(false, 5)]];
+    assigned[0]![1].ignition.event = 'never';
+    const delayResolution = testResolution(assigned, [Infinity, 5]);
+    const run = { batchMounts: [mount(1, 'kept'), mount(2, 'candidate')] };
+    expect(canReplayDelays(delayResolution, assigned, 'm1', 5, true)).toBe(false);
+    expect(canReplayDelays(delayResolution, assigned, recordedPrimaryMountId(run, 'm1'), 5, true)).toBe(true);
+    expect(recordedPrimaryMountId({ ...run, batch: true }, 'm1')).toBe('m1');
+  });
+  it('J1 preserves both mixed groups’ flown, optimum and recommended delays', () => {
+    const delayResolution = testResolution([['m1', testMotor()], ['m2', testMotor()]], [9, 10]);
+    const run = { motorConfig: 'mixed 2+2', batchMounts: [mount(1, 'candidate', 'A', 2), mount(2, 'candidate', 'B', 2)], delayResolution };
+    expect(candidateDelayText(run, 'flownDelay', String)).toBe('75mm MMT 1: 9; 75mm MMT 2: 10');
+    expect(candidateDelayText(run, 'rawOptimum', String)).toContain('MMT 2: 10');
+    expect(candidateDelayText(run, 'recommendedDelay', String)).toContain('MMT 2: 10');
+    expect(candidateDelayText({ ...run, motorConfig: 'single' }, 'flownDelay', String)).toBeNull();
+  });
   it('124 names every candidate when an entire matching set is swept', () => {
     const batchMounts = four.map(m => ({ ...m, role: 'candidate' as const, motor: 'M1780NT' }));
     expect(batchLoadoutText({ batch: true, batchMounts })).toBe('M1780NT in 75mm MMT 1, 75mm MMT 2, 75mm MMT 3, 75mm MMT 4');

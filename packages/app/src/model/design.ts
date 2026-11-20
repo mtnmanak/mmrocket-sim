@@ -1,4 +1,5 @@
 import type { StageMassOverride } from '../services/stageMassOverrides.js';
+import { mountMotorCount } from '../tree/treeModel.js';
 import type { IgnitionEvent, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { MotorMeta } from '../services/simReport.js';
 import type { OrkDeployOverride, OrkMotorRef, OrkSeparationOverride } from '../services/orkFile.js';
@@ -208,11 +209,16 @@ export interface SavedConfig {
  * Both belong in the label, or a configuration whose only motor is unmatched
  * would read as "No motors".
  */
-export function savedConfigLabel(c: SavedConfig): string {
+export function savedConfigLabel(c: SavedConfig, tree?: RocketTree): string {
   if (c.name) return c.name;
+  const counted = (id: string, label: string) => {
+    const count = tree ? mountMotorCount(tree, id) : 1;
+    return label && count > 1 ? `${count}× ${label}` : label;
+  };
+  const refs = Object.entries(c.unmatchedRefs ?? {});
   const labels = [
-    ...Object.values(c.motors).map((m) => m.label),
-    ...(c.unmatched ?? []),
+    ...Object.entries(c.motors).map(([id, m]) => counted(id, m.label)),
+    ...(refs.length ? refs.map(([id, ref]) => counted(id, ref.designation)) : c.unmatched ?? []),
   ].filter(Boolean);
   return labels.length ? `[${labels.join(', ')}]` : 'No motors';
 }

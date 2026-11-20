@@ -43,7 +43,7 @@ export function planMotorAssignment(input: MotorAssignmentInput) {
   const repairNotice = repairedConfig ? {
     id: `motor-loadout-repaired:${repairedConfig.id}`,
     severity: 'warn' as const,
-    text: `Your motor assignment replaces the ambiguous imported loadout for “${noteField(savedConfigLabel(repairedConfig))}”. `
+    text: `Your motor assignment replaces the ambiguous imported loadout for “${noteField(savedConfigLabel(repairedConfig, tree))}”. `
       + 'Check all motor assignments before launching.',
   } : undefined;
   let padMassNote: string | undefined;

@@ -31,6 +31,7 @@ import { MAX_EX_MOTOR_SAMPLES } from './exMotorLimits.js';
 import { tierLines } from './importNotes.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import { checkFormatLoss } from './formatLoss.js';
+import { testMotor } from './autoDelay.testSupport.js';
 
 const restoreTier = (restored: ReturnType<typeof designStateFromSession>, text: string) =>
   tierLines(restored.restoreNotes, restored.restoreNoteTiers).find(note => note.text === text)?.tier;
@@ -48,6 +49,25 @@ const state = () => ({
     pressureHPa: null,
     latitudeDeg: 45,
   } as LaunchConditions,
+});
+
+it('r4 restores sold-plugged Auto provisional delays safely in active, saved and legacy slots', () => {
+  const mm = { ...testMotor(true, 0), meta: { label: 'test', autoDelay: true, availableDelays: ['Infinity'] } };
+  const fixed = { ...mm, meta: { ...mm.meta, autoDelay: false } };
+  const charged = { ...mm, meta: { ...mm.meta, availableDelays: [5, 'Infinity'] } };
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), appVersion: '0.211',
+    motor: mm.spec, motorMeta: mm.meta, motorLabel: mm.label,
+    mountMotors: { auto: mm, fixed, charged }, savedConfigs: [{ id: 'c', name: 'C', motors: { auto: mm, fixed, charged } }],
+  }));
+  const loaded = loadSession()!;
+  expect(loaded.motor!.ejectionDelay).toBe(Infinity);
+  for (const set of [loaded.mountMotors!, loaded.savedConfigs![0]!.motors]) {
+    expect(set.auto!.spec.ejectionDelay).toBe(Infinity);
+    expect(set.fixed!.spec.ejectionDelay).toBe(0);
+    expect(set.charged!.spec.ejectionDelay).toBe(0);
+    const exported = exportMotorsMap({ tree: loaded.tree, assigned: Object.entries(set), unmatchedRefs: {}, activeConfigId: null, exLibrary: () => [] });
+    expect(exported.auto?.delay).toBe(Infinity);
+  }
 });
 
 it('HF2 clears oversized measurement strings rather than coercing them', () => {

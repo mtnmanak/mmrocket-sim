@@ -1,3 +1,4 @@
+import { mountNamesOf } from '../services/designDerivation.js';
 import { useMemo } from 'react';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { savedConfigLabel, type FlightTree, type SavedConfig } from '../model/design.js';
@@ -47,6 +48,8 @@ export function ConfigOverview({ configs, activeConfigId, tree, onApply, onShowP
   onShowPart: (id: string, family: Part['family']) => void;
 }) {
   const { prefs } = usePrefs();
+  const mountNames = useMemo(() => mountNamesOf(motorMounts(tree)), [tree]);
+  const partName = (part: Part) => part.family === 'ignition' ? mountNames[part.node.id!] ?? 'a removed mount' : part.node.name || part.node.type;
   const parts = useMemo(() => configurationParts(tree), [tree]);
   return <details className="panel config-overview">
     <summary>All configurations</summary>
@@ -55,7 +58,7 @@ export function ConfigOverview({ configs, activeConfigId, tree, onApply, onShowP
         <table className="config-table">
           <caption className="sr-only">Effective settings for every saved flight configuration</caption>
           <thead><tr><th scope="col">Configuration</th>{parts.map(p => <th key={p.node.id} scope="col">
-            {p.node.name || p.node.type}<br />{p.family === 'ignition' ? 'Motor · ignition' : p.family === 'recovery' ? 'Recovery' : 'Separation'}
+            {partName(p)}<br />{p.family === 'ignition' ? 'Motor · ignition' : p.family === 'recovery' ? 'Recovery' : 'Separation'}
           </th>)}</tr></thead>
           <tbody>{configs.map((config, index) => {
             // The active configuration is already applied. Re-applying it resets
@@ -63,7 +66,7 @@ export function ConfigOverview({ configs, activeConfigId, tree, onApply, onShowP
             // name is not a button, and a cell goes to that part's row (review
             // of b9-int, finding 2). The choosers never re-apply it either.
             const active = config.id === activeConfigId;
-            const label = savedConfigLabel(config);
+            const label = savedConfigLabel(config, tree);
             return <tr key={config.id} aria-current={active ? 'true' : undefined}>
               <th scope="row">{active ? <span>{label}</span>
                 : <button className="file-btn" aria-label={`Apply ${label} — configuration ${index + 1}`}
@@ -73,7 +76,7 @@ export function ConfigOverview({ configs, activeConfigId, tree, onApply, onShowP
               </th>
               {parts.map(part => {
                 const value = partValue(part, config, tree, prefs.units.altitude);
-                const what = `${part.node.name || part.node.type}: ${value.text}${value.override ? ' — override' : ''}`;
+                const what = `${partName(part)}: ${value.text}${value.override ? ' — override' : ''}`;
                 return <td key={part.node.id}><button className="file-btn" onClick={() => {
                   if (!active) onApply(config);
                   onShowPart(part.node.id!, part.family);

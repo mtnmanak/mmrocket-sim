@@ -26,7 +26,7 @@ export interface MountDelayRecord extends Omit<DelayMount, 'delay'> {
   branchName: string | null;
   status: 'resolved' | 'fixed';
   caution?: string;
-  /** Batch's explicit charge-recovery exception, never applied to background mounts. */
+  /** Hypothetical charge on a sold-plugged Auto motor, on Launch or Batch. */
   exception?: 'plugged-on-charge';
 }
 export interface DelayResolution {

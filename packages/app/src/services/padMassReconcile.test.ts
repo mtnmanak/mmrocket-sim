@@ -42,6 +42,13 @@ const TREE: RocketTree = {
 };
 
 describe('restoredPadMassNote — what the restore already knows', () => {
+  it('r3 names both duplicate mount cards when a weighed mass moves between them', () => {
+    const tree = structuredClone(TREE);
+    for (const stage of tree.components) Object.assign(stage.children![0]!.children![0]!, { name: 'Inner Tube', motorMount: true });
+    const note = restoredPadMassNote(null, { from: 'm-boo', to: 'm-sus', kg: 2.5 },
+      { tree, motors: { 'm-sus': motor('H220-14'), 'm-boo': motor('J350-P') }, text: TEXT });
+    expect(note?.text).toContain('on Inner Tube 1, not under J350 on Inner Tube 2:');
+  });
   it('says a v0.117 pad mass with no motor to belong to was not kept, as a warning', () => {
     expect(restoredPadMassNote({ outcome: 'dropped', kg: 1.25 }, null, { tree: TREE, motors: {}, text: TEXT }))
       .toEqual({

@@ -1983,10 +1983,13 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
 export interface Cdx1ExportEngine {
   designation: string;
   manufacturer?: string;
-  /** Kernel ignition-event name; only 'burnout' has a delay RASAero can hold. */
+  /** Kernel ignition event; charge timers also require the lower motor's delay. */
   ignitionEvent?: string;
-  /** Seconds after the stage below's burnout (RASAero's own semantics). */
+  /** Seconds after ignitionEvent; CDX1 stores a burnout-relative timer. */
   ignitionDelay?: number;
+  /** Fixed/provisional charge delay, used to translate charge-relative staging. */
+  delay?: number;
+  autoDelay?: boolean;
 }
 
 export interface Cdx1ExportInput {
@@ -2354,7 +2357,7 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
   // .CDX1 export — and the first fix filled a parallel delays array by
   // side-effect pushes on each of the map's exit paths, one future
   // early-return away from writing Booster1's delay into the Sustainer cell.
-  const stageSlots = stagesIn.map((st, stIdx): { engine: string | null; ignitionDelay: number } => {
+  const stageSlots = stagesIn.map((st, stIdx): { engine: string | null; ignitionDelay: number; motor?: Cdx1ExportEngine } => {
     if (!engineOn || !motors) return { engine: null, ignitionDelay: 0 };
     let found: Cdx1ExportEngine | undefined;
     let motorCount = 0;
@@ -2385,6 +2388,7 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
     return {
       engine: found && abbrev ? `${found.designation}  (${abbrev})` : null,
       ignitionDelay,
+      ...(found ? { motor: found } : {}),
     };
   });
   const stageEngines = stageSlots.map((s) => s.engine);
@@ -2400,7 +2404,17 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
     const st = stagesIn[i];
     return fmt(st ? nnum(st, 'nozzleExitDiameter', 0) * IN : 0);
   };
-  const stageIgnitionDelays = stageSlots.map((s) => s.ignitionDelay);
+  const stageIgnitionDelays = stageSlots.map((s, i) => {
+    if (knownIgnitionEvent(s.motor?.ignitionEvent) !== 'ejectioncharge') return s.ignitionDelay;
+    const lower = stageSlots[i + 1];
+    const delay = lower?.motor?.delay;
+    if (lower?.engine && delay !== undefined && Number.isFinite(delay)) {
+      if (lower.motor?.autoDelay) notes?.push(`Motor “${noteField(s.motor!.designation)}”: its charge-relative ignition is saved using the lower motor's current saved delay. This burnout timer will not follow later Auto-delay changes. Save .ork to keep charge-relative staging.`);
+      return delay + (s.motor?.ignitionDelay ?? 0);
+    }
+    notes?.push(`Motor “${noteField(s.motor!.designation)}”: its lower-stage charge timing cannot be written as a finite RASAero burnout timer. It reopens with 0 s ignition delay and may ignite when it would stay unlit in the app. Save .ork to keep charge-timed ignition.`);
+    return 0;
+  });
 
   const fmt = (v: number): string => {
     // toFixed is exponential from 1e21, whose exponent's zeros are not decimals (1e+30 wrote "1e+3").
@@ -3012,6 +3026,13 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
   // design's separation timers on every .CDX1 export.
   const stageSeparationDelay = (i: number): string => {
     const st = stagesIn[i];
+    const motor = stageSlots[i]?.motor;
+    if (st && stageEngines[i] && String(st['separationEvent'] ?? 'ejection') === 'ejection'
+      && (motor?.autoDelay || motor?.delay === undefined || motor.delay !== 0 || nnum(st, 'separationDelay', 0) !== 0)) {
+      notes?.push(`${noteField(st.name ?? 'Booster')}: separation on the motor’s ejection charge is saved as 0 s after burnout in RASAero. `
+        + `${motor?.delay === Infinity ? 'The plugged motor has no charge, so this stage would not separate on that event in the app; it separates at burnout on reopening.'
+          : 'Its charge or separation delay is not kept, so this booster can separate earlier on reopening.'} Save .ork to keep charge-timed staging.`);
+    }
     return fmt(st && String(st['separationEvent'] ?? 'ejection') === 'burnout'
       ? nnum(st, 'separationDelay', 0) : 0);
   };

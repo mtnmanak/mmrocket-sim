@@ -14,6 +14,21 @@ const tree = (others: ComponentNode[]): RocketTree => ({ components: [{
   id: 'stage', type: 'stage', children: [mount('source'), ...others],
 }] });
 
+it('r3 preserves plugged-only Auto on an empty peer and an Auto peer', () => {
+  const fresh = { ...motor, spec: { ...motor.spec, ejectionDelay: Infinity },
+    meta: { ...motor.meta, availableDelays: [Infinity], autoDelay: true } };
+  expect(otherMountMotor(fresh).meta.autoDelay).toBe(true);
+  expect(otherMountMotor(fresh, fresh).meta.autoDelay).toBe(true);
+});
+
+it('J1 gives duplicate offer targets and skipped mounts the same numbered design names', () => {
+  const design = tree([mount('target'), mount('short', 0.075, 0.1)]);
+  design.components[0]!.children!.forEach(n => { n.name = 'Inner Tube'; });
+  const result = otherMountPlan(design, { source: motor }, 'source');
+  expect(result.targets[0]?.name).toBe('Inner Tube 2');
+  expect(result.skipped[0]?.name).toBe('Inner Tube 3');
+});
+
 it('126 uses browser diameter fit, source bore class, and the exact mount length boundary', () => {
   const design = tree([mount('exact', 0.075, motor.spec.length), mount('short', 0.075, motor.spec.length - 1e-8),
     mount('narrow', 0.054), mount('other bore', 0.098), mount('zero', 0.075, 0), mount('unlimited')]);

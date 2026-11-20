@@ -6,8 +6,47 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { batchMountDisclosure } from './batchMountDisclosure.js';
 import type { BatchMountOption } from './batchSweep.js';
 import { testMotor } from './autoDelay.testSupport.js';
+import { batchRingSubset, batchRingSplits } from './batchRing.js';
+
+it.each([4, 6])('r3 offers the %s-tube ring while retaining a same-bore centre mount', n => {
+  const mounts = ['centre', ...Array.from({ length: n }, (_, i) => `ring${i}`)].map(option);
+  const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [{ type: 'bodytube', id: 'body',
+    outerRadius: 0.2, length: 0.6, children: mounts.map((m, i) => ({
+      type: 'innertube', id: m.id, motorMount: true, outerRadius: 0.0385, thickness: 0.001,
+      radialPosition: i === 0 ? 0 : 0.1, radialDirection: (i - 1) * Math.PI * 2 / n,
+    })) }] }] };
+  const ring = batchRingSubset(tree, mounts, 'ring0');
+  expect(ring?.map(m => m.id)).toEqual(mounts.slice(1).map(m => m.id));
+  expect(batchRingSplits(tree, ring!).halves?.groupSize).toBe(n / 2);
+  expect(batchRingSubset(tree, mounts, 'centre')).toBeNull();
+  expect(batchMountDisclosure(tree, mounts, mounts[1]!, {}, {}, {}, {}).mixedUnavailable)
+    .toContain(`Tick Use only ${n} ring mounts`);
+  tree.components[0]!.children![0]!.children![0]!.radialPosition = 0.03;
+  expect(batchRingSubset(tree, mounts, 'ring0')).toBeNull();
+});
 
 const option = (id: string): BatchMountOption => ({ id, label: id, diameterMm: 75, motorCount: 1, maxMotorLengthM: null });
+it('J1 points from the matching checkbox back to a selected cluster and identifies unlit target copies', () => {
+  const mounts = ['a', 'b'].map(option);
+  const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: mounts.map(m => ({
+    type: 'innertube', id: m.id, name: m.id, motorMount: true, outerRadius: 0.0385, thickness: 0.001,
+    ...(m.id === 'b' ? { cluster: '4-ring' } : {}),
+  })) }] };
+  const result = batchMountDisclosure(tree, mounts, mounts[1]!, {}, {}, {}, { b: { event: 'never', delay: 0 } }, ['a', 'b']);
+  expect(result.mixedUnavailable).toContain('Untick Use all 2 matching mounts for mixed 2+2 on b.');
+  expect(result.text).toContain('×4 b (never ignites)');
+});
+
+it('J1 directs an unticked separate-tube ring to the matching checkbox for mixed batches', () => {
+  const mounts = ['a', 'b', 'c', 'd'].map(option);
+  const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [{ type: 'bodytube', id: 'body',
+    outerRadius: 0.2, length: 0.6, children: mounts.map((m, i) => ({
+      type: 'innertube', id: m.id, name: m.id, motorMount: true, outerRadius: 0.0385, thickness: 0.001,
+      radialPosition: 0.1, radialDirection: i * Math.PI / 2,
+    })) }] }] };
+  const result = batchMountDisclosure(tree, mounts, mounts[0]!, {}, {}, {}, {});
+  expect(result.mixedUnavailable).toBe('Tick Use all 4 matching mounts for mixed batches on this ring of separate tubes.');
+});
 it('Round 5 picker retains impulse prefixes for synthetic kept catalogue reloads', () => {
   const reloads = ['229H255-14A', '315H255-14A'].map(d => labelMotor(d, 'Cesaroni'));
   const spy = vi.spyOn(motorDb, 'getCatalogue').mockReturnValue(reloads);

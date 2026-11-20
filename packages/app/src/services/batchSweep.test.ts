@@ -3,6 +3,59 @@ import { gradeBatchRun } from './batchCriteria.js';
 import { notePluggedAtOptimum } from './batchSweep.js';
 import type { SimRun } from './simReport.js';
 
+it('r2 describes a hypothetical charge without inventing a recovery outcome or mixing pronouns', () => {
+  const run = { comments: '', delayS: 3, delayResolution: { mounts: [
+    { mountName: 'Target', flownDelay: 3, exception: 'plugged-on-charge' },
+    { mountName: 'Kept', flownDelay: 5 },
+  ] } } as unknown as SimRun;
+  notePluggedAtOptimum(run, 1);
+  expect(run.comments).not.toMatch(/no deployment|marked motors|flew them|To fly them/);
+  expect(run.comments).toContain('The named motor in this loadout is');
+  expect(run.comments).toContain('Target: 3 s');
+  expect(run.comments).toContain('hypothetical charge');
+  expect(run.comments).toContain('apogee or altitude');
+});
+
+it.each([0, 6, Infinity])('r4 marks a sold-plugged retained Auto charge with provisional delay %s', async provisional => {
+  const tree = rocket({ sideMount: true });
+  const kept = { spec: { ...curve('Kept'), ejectionDelay: provisional }, label: 'Kept',
+    meta: { label: 'Kept', autoDelay: true, availableDelays: [Infinity] }, ignition: { event: 'automatic' as const, delay: 0 } };
+  const result = await sweep(input(tree, { autoDelay: false, candidates: [entry('a', 'Acme', 'E20', '5')],
+    mounts: [MOUNT, { ...MOUNT, id: 'side' }], assignedMotors: { side: kept.spec }, assignedMountMotors: { side: kept },
+    assignedAutoDelays: { side: true } }), { fetchSpec: fetchFrom({ a: curve('E20') }), nozzleFor: nozzles({}) });
+  const row = result.rows[0]!;
+  expect(row.error).toBeUndefined();
+  expect(row.run?.delayResolution?.mounts.find(m => m.mountId === 'side')).toMatchObject({ mode: 'auto', exception: 'plugged-on-charge' });
+  expect(row.optimumForPlugged).toBe(true);
+  expect(row.run?.comments).toContain('hypothetical charge');
+  expect(row.run?.comments).toContain(`${row.run!.delayResolution!.mounts.find(m => m.mountId === 'side')!.mountName}:`);
+}, 60_000);
+
+it('r4 does not call a charge-capable retained Auto motor sold plugged after toggling Plugged', async () => {
+  const kept = { spec: { ...curve('Kept'), ejectionDelay: Infinity }, label: 'Kept',
+    meta: { label: 'Kept', autoDelay: true, availableDelays: [5, Infinity] }, ignition: { event: 'automatic' as const, delay: 0 } };
+  const result = await sweep(input(rocket({ sideMount: true }), { autoDelay: false,
+    candidates: [entry('a', 'Acme', 'E20', '5')], mounts: [MOUNT, { ...MOUNT, id: 'side' }],
+    assignedMotors: { side: kept.spec }, assignedMountMotors: { side: kept }, assignedAutoDelays: { side: true } }),
+  { fetchSpec: fetchFrom({ a: curve('E20') }), nozzleFor: nozzles({}) });
+  expect(result.rows[0]?.error).toBeUndefined();
+  expect(result.rows[0]?.run?.delayResolution?.mounts.find(m => m.mountId === 'side')?.exception).toBeUndefined();
+  expect(result.rows[0]?.optimumForPlugged).not.toBe(true);
+  expect(result.rows[0]?.run?.comments).not.toContain('sold plugged');
+}, 60_000);
+
+it.each([false, true])('r2 replaces an inherited refused target with a valid candidate Auto=%s', async autoDelay => {
+  const candidates = [entry('a', 'Acme', 'E20', '5')];
+  const deps = { fetchSpec: fetchFrom({ a: curve('E20') }), nozzleFor: nozzles({}) };
+  const mounts = [MOUNT, { ...MOUNT, id: 'side' }];
+  const normal = await sweep(input(rocket({ sideMount: true }), { mounts, candidates, autoDelay }), deps);
+  const replacement = await sweep(input(rocket({ sideMount: true }), { mounts, candidates, autoDelay,
+    assignedMotors: { side: curve('Refused kept motor') }, refusedMountIds: ['mount', 'side'] }), deps);
+  expect(replacement.rows[0]?.error).toBeUndefined();
+  expect(replacement.rows[0]?.run?.maxAltitude).toBe(normal.rows[0]?.run?.maxAltitude);
+  expect(replacement.rows[0]?.run?.delayResolution?.mounts.some(m => m.mountId === 'side')).toBe(false);
+}, 60_000);
+
 it('H1 per-mount plugged advice preserves warning levels with separators in names', () => {
   const run = { comments: 'Danger', commentLevels: ['warning'], delayS: 3,
     delayResolution: { mounts: [{ mountName: 'Core | Left', flownDelay: 3, exception: 'plugged-on-charge' }] } } as unknown as SimRun;
@@ -171,7 +224,16 @@ it.each([false, true])('136 mixed-only sweeps fetch specs and solve charge delay
   expect(result.rows[0]!.error).toBeUndefined();
   expect(result.rows[0]!.run!.motorConfig).toBe('mixed 2+2');
   expect(result.rows[0]!.run!.delayResolution!.mounts.every(m => m.status === 'resolved')).toBe(true);
-  expect(result.rows[0]!.optimumForPlugged).toBe(!autoDelay || undefined);
+  expect(result.rows[0]!.optimumForPlugged).toBe(true);
+  const exported = runsToTable([result.rows[0]!.run!]);
+  const delayCell = String(exported.rows[0]![exported.headers.indexOf('Delay (s)')]);
+  const optimumCell = String(exported.rows[0]![exported.headers.indexOf('Optimal delay (s)')]);
+  const recommendedCell = String(exported.rows[0]![exported.headers.indexOf('Recommended delay (s)')]);
+  for (const m of result.rows[0]!.run!.delayResolution!.mounts) {
+    expect(delayCell).toContain(`${m.mountName}: ${m.flownDelay}`);
+    expect(optimumCell).toContain(`${m.mountName}:`);
+    expect(recommendedCell).toContain(`${m.mountName}: ${m.recommendedDelay}`);
+  }
   expect(fetchSpec).toHaveBeenCalledTimes(2);
   expect(progress.mock.calls[0]![0]).toMatchObject({ done: 0, total: 1 });
   expect(batchSolverFlights({ candidates, groups: [2], includeSingles: false, autoDelay, deploysOnCharge: true, othersAuto: false })).toBe(1);
@@ -303,7 +365,7 @@ it('Round 5 reserves split-group names against kept design mounts on every discl
     expect(run.batchMounts!.filter(m => m.role === 'candidate').map(m => m.mountName)).toEqual(candidateNames);
     if (row.combo) expect(run.delayResolution!.mounts.filter(m => m.mountId !== 'side').map(m => m.mountName)).toEqual(candidateNames);
     expect(batchLoadoutText(run)).toContain('in Cluster (pair A)');
-    expect(runsToTable([run]).rows[0]!.slice(-2)).toEqual([candidateNames.join('; '), 'E20 in Cluster (pair A)']);
+    expect(runsToTable([run]).rows[0]!.slice(-3, -1)).toEqual([candidateNames.join('; '), 'E20 in Cluster (pair A)']);
     expect(runsToCsv([run])).toContain(`${candidateNames.join('; ')},E20 in Cluster (pair A)`);
   }
 }, 60_000);
@@ -319,12 +381,13 @@ it('Round 5 discards an entire new record vector with an oversized resolved name
   expect(out.rows[0]?.run?.batchMounts).toBeUndefined();
 }, 60_000);
 
-it.each([{ diameter: 1001 }, { masses: [1e16] }])('Round 4 refuses the whole row for an over-limit background spec: %j', async invalid => {
+it.each([{ diameter: 1001 }, { masses: [1e16] }])('J1 leaves a build-refused over-limit background motor off each row: %j', async invalid => {
   const out = await sweep(input(rocket({ sideMount: true }), { autoDelay: false,
     candidates: [entry('a', 'Acme', 'E20', '5')], assignedMotors: { side: { ...curve('Refused'), ...invalid } },
   }), { fetchSpec: fetchFrom({ a: curve('E20') }), nozzleFor: nozzles({}) });
-  expect(out.rows[0]?.error).toContain('the motor was left off the rocket');
-  expect(out.rows[0]?.run).toBeUndefined();
+  expect(out.rows[0]?.error).toBeUndefined();
+  expect(out.rows[0]?.run?.batchMounts?.find(m => m.mountId === 'side')?.role).toBe('empty');
+  expect(out.rows[0]?.run?.comments).toContain('Build-refused mounts were left off');
 }, 60_000);
 
 it('Round 4 groups a legacy kept catalogue motor with the same swept motor', async () => {
@@ -357,7 +420,7 @@ it('Round 7 preserves typographic quotes in frozen records and both export colum
     ['3” MMT', '“Candidate”'], ['54mm “main” tube', '“Kept”'],
   ]);
   expect(batchLoadoutText(run)).toBe('“Candidate” in 3” MMT; “Kept” in 54mm “main” tube');
-  expect(runsToTable([run]).rows[0]!.slice(-2)).toEqual(['3” MMT', '“Kept” in 54mm “main” tube']);
+  expect(runsToTable([run]).rows[0]!.slice(-3, -1)).toEqual(['3” MMT', '“Kept” in 54mm “main” tube']);
   expect(runsToCsv([run])).toContain('3” MMT,\u201cKept\u201d in 54mm “main” tube');
 }, 60_000);
 
@@ -486,7 +549,8 @@ it.each(['toString', 'constructor', '__proto__'])('flies a loaded legacy sibling
   expect(out.rows).toHaveLength(1);
   expect(out.rows[0]?.error).toBeUndefined();
   expect(out.rows[0]?.run).toBeDefined();
-  expect(out.rows[0]?.run?.nozzleStages).toEqual(['Sustainer']);
+  // J1 S7a-3: an installed ID-less motor has an unknown exit; a partial sum is unsafe.
+  expect(out.rows[0]?.run?.nozzleStages).toBeUndefined();
 });
 it.each(['constructor', 'toString', '__proto__'])('ignores an unloaded sibling id %s when looking up nozzle exits', async id => {
   const tree = rocket({ sideMount: true });
@@ -727,6 +791,20 @@ describe('per-mount policy plumbing', () => {
     return { vectors, refuse: (value: boolean) => { refused = value; } };
   }
 
+  it.each([0, 600])('J1 throttles growing table snapshots including %s ms flights', async elapsed => {
+    fakeTelemetry();
+    let now = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => { now += elapsed; return now; });
+    const candidates = Array.from({ length: 12 }, (_, i) => entry(`m${i}`, 'Acme', `E${20 + i}`, '5'));
+    const onRows = vi.fn();
+    const result = await runBatchSweep(input(rocket(), { candidates, autoDelay: false }),
+      { signal: new AbortController().signal, onRows }, { fetchSpec: async (_e, delay) => ({ ...curve('E20'), ejectionDelay: delay }),
+        nozzleFor: nozzles({}), yieldToUi: noYield });
+    expect(result.rows).toHaveLength(12);
+    expect(onRows.mock.calls.length).toBeLessThanOrEqual(4);
+    expect(onRows.mock.calls.at(-1)?.[0]).toEqual(result.rows);
+  }, 30_000);
+
   it('carries background Auto, resets each row and leaves plugged neighbours alone', async () => {
     const { vectors } = fakeTelemetry();
     const cands = [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')];
@@ -895,11 +973,11 @@ describe('provisionalDelay — what a candidate flies before any optimum is know
     }
   });
 
-  it('flies a plugged-only motor plugged unticked, and at 0 under auto delay — as the design page does', () => {
+  it('J1 keeps a plugged-only motor provisional plugged in both delay modes, as the browser saves it', () => {
     // The audit's case: unticked, `?? 0` flew this with a charge at burnout.
     expect(provisionalDelay(entry('a', 'X', 'A', 'P'), false)).toBe(Infinity);
     // Under auto delay 0 is only the FIRST flight, re-flown at the optimum.
-    expect(provisionalDelay(entry('a', 'X', 'A', 'P'), true)).toBe(0);
+    expect(provisionalDelay(entry('a', 'X', 'A', 'P'), true)).toBe(Infinity);
   });
 
   /**
@@ -913,7 +991,7 @@ describe('provisionalDelay — what a candidate flies before any optimum is know
     // Its default pick (defaultDelay, or "Auto (optimal)" for a motor that
     // lists no delay), and what its auto load flies before App re-flies at the optimum.
     expect(browser).toContain("if (picked) setDelay(defaultDelay(picked) ?? 'auto');");
-    expect(browser).toContain("const chosen = delay === 'auto' ? finite[finite.length - 1] ?? 0");
+    expect(browser).toContain("const chosen = delay === 'auto' ? finite[finite.length - 1] ?? (opts.includes(Infinity) ? Infinity : 0)");
     let pluggedOnly = 0;
     for (const m of MOTOR_DB) {
       const opts = delayOptions(m);
@@ -923,7 +1001,7 @@ describe('provisionalDelay — what a candidate flies before any optimum is know
       // "Auto" pick, whose first flight is the auto load's.
       const pick = defaultDelay(m);
       expect(provisionalDelay(m, false), m.designation).toBe(pick ?? (finite[finite.length - 1] ?? 0));
-      expect(provisionalDelay(m, true), m.designation).toBe(finite[finite.length - 1] ?? 0);
+      expect(provisionalDelay(m, true), m.designation).toBe(finite[finite.length - 1] ?? (opts.includes(Infinity) ? Infinity : 0));
     }
     expect(pluggedOnly).toBeGreaterThan(100);
   });
@@ -995,10 +1073,10 @@ describe('the sweep, flown on the real kernel', () => {
     // history, the CSV and the XLSX, where its Delay column reads a delay the
     // motor is not sold with.
     const said = row.run!.comments.split(' | ');
-    expect(said[said.length - 1]).toBe('This motor is sold plugged (no ejection charge), and this design '
-      + 'deploys its recovery on the motor’s charge, so the batch flew it with a hypothetical charge at the optimum delay of '
-      + `${row.run!.delayS} s rather than with no deployment at all. To fly it as sold, set the recovery `
-      + 'to deploy at apogee or altitude.');
+    expect(said[said.length - 1]).toBe('This motor is sold plugged (no ejection charge), so the '
+      + 'batch flew it with a hypothetical charge at the optimum delay of '
+      + `${row.run!.delayS} s. Recovery follows the design's deployment settings; other motors may also supply charges. `
+      + 'To fly it as sold, untick optimal delay per motor and use apogee or altitude electronics wherever recovery would otherwise depend on those charges.');
     expect(commentLevelsAlign(row.run!)).toBe(true);
     // What the old `?? 0` flew, on the same airframe.
     const r = OrkRocket.buildTree(engineTree(tree));
@@ -1833,9 +1911,9 @@ it('K7: plugged exception provenance matches Auto and rejects P on charge recove
   expect(row.run!.delayResolution!.mounts[0]!.mode).toBe('auto');
   const plugged = designPageKey(state);
   expect(runMatchesDesign(row.run!, plugged)).toBe(false);
-  expect(changedSinceRun(row.run!, plugged)).toContain('the motor');
+  expect(changedSinceRun(row.run!, plugged)).toContain('the motor delay policy');
   const auto = designPageKey(designState(tree, { mount: {
-    ...mm, spec: { ...mm.spec, ejectionDelay: 0 }, meta: { ...mm.meta, autoDelay: true },
+    ...mm, spec: { ...mm.spec, ejectionDelay: Infinity }, meta: { ...mm.meta, autoDelay: true },
   } }));
   expect(runMatchesDesign(row.run!, auto)).toBe(true);
   expect(changedSinceRun(row.run!, auto)).toEqual([]);
@@ -1853,7 +1931,7 @@ it('K7: plugged combination provenance keys every target leg at Auto', async () 
   expect(row.optimumForPlugged).toBe(true);
   const assigned = Object.fromEntries(split.mountIds.map((id, i) => {
     const mm = loadedMotor(i === 0 ? 'a' : 'b', i === 0 ? 'E20' : 'E22');
-    return [id, { ...mm, spec: { ...mm.spec, ejectionDelay: 0 }, meta: { ...mm.meta, autoDelay: true } }];
+    return [id, { ...mm, spec: { ...mm.spec, ejectionDelay: Infinity }, meta: { ...mm.meta, autoDelay: true } }];
   }));
   const cur = designPageKey(designState(split.tree, assigned));
   expect(row.run!.motorSetKey).toBe(cur.motorSetKey);
@@ -1919,6 +1997,45 @@ function separateRing(n = 4) {
   return { tree, mounts, target: mounts[0]!, targetMountIds: mounts.map(m => m.id) };
 }
 
+it('r2 replaces refused secondary targets in matching and mixed ring flights', async () => {
+  const setup = separateRing();
+  const ring = batchRingSplits(setup.tree, setup.mounts);
+  setup.tree.components[0]!.children!.find(n => n.id === 'bt')!.children!.push({
+    ...motorMounts(setup.tree)[0]!, id: 'kept-refused', radialPosition: 0,
+  });
+  const result = await sweep(input(setup.tree, { ...setup, mounts: [...setup.mounts, { ...MOUNT, id: 'kept-refused' }],
+    assignedMotors: { 'kept-refused': curve('Refused kept motor') }, refusedMountIds: [...setup.targetMountIds, 'kept-refused'],
+    candidates: [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')],
+    autoDelay: false, splits: [ring.halves!] }),
+  { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }), nozzleFor: nozzles({}) });
+  expect(result.rows).toHaveLength(4);
+  for (const row of result.rows) {
+    expect(row.error).toBeUndefined();
+    expect(row.run?.batchMounts).toHaveLength(5);
+    expect(row.run?.batchMounts?.filter(m => m.mountId !== 'kept-refused').every(m => m.role === 'candidate' && m.motor !== null)).toBe(true);
+    expect(row.run?.batchMounts?.find(m => m.mountId === 'kept-refused')).toMatchObject({ role: 'empty', motor: null });
+    expect(row.run?.delayResolution?.mounts.some(m => m.mountId === 'kept-refused')).toBe(false);
+  }
+}, 60_000);
+
+it.each([false, true])('J1 does not invent a charge when every target is unlit, Auto=%s', async autoDelay => {
+  const setup = separateRing();
+  const body = setup.tree.components[0]!.children![1]!;
+  body.children!.find(m => m.id === 'chute')!.deployEvent = 'ejection';
+  body.children!.push({ ...body.children!.find(m => m.id === 'ring0')!, id: 'kept', name: 'Kept', radialPosition: 0 });
+  const out = await sweep(input(setup.tree, { ...setup, autoDelay,
+    mounts: [...setup.mounts, { ...MOUNT, id: 'kept', label: 'Kept' }],
+    candidates: [entry('p', 'Acme', 'E20', 'P')],
+    assignedMotors: { kept: curve('E22') }, assignedMotorIds: { kept: 'kept' },
+    assignedIgnitions: Object.fromEntries(setup.targetMountIds.map(id => [id, { event: 'never', delay: 0 }])),
+  }), { fetchSpec: fetchFrom({ p: curve('E20') }), nozzleFor: nozzles({ p: 0.01, kept: 0.012 }) });
+  expect(out.rows[0]?.error).toBeUndefined();
+  expect(out.rows[0]?.optimumForPlugged).toBeUndefined();
+  expect(out.rows[0]?.run?.comments).not.toContain('hypothetical charge');
+  expect(out.rows[0]?.run?.comments).not.toContain('Infinity s');
+  expect(out.rows[0]?.exitM).toBeCloseTo(0.012, 10);
+}, 30_000);
+
 it('Round 5 refuses an oversized candidate on a narrower matching target before installing any leg', async () => {
   const tree = rocket({ sideMount: true, deployEvent: 'apogee' });
   const tubes = motorMounts(tree);
@@ -1982,7 +2099,7 @@ it('124 sweeps every target with its own ignition, sums nozzle counts and freeze
   expect(row.run!.batchTargetMountIds).toEqual(setup.targetMountIds);
   expect(row.run!.batchMounts?.map(m => [m.mountId, m.role])).toEqual(setup.mounts.map(m => [m.id, 'candidate']));
   expect(fly.mock.calls[0]![1].assigned.map(([id, m]) => [id, m.ignition])).toEqual(Object.entries(ignitions));
-  expect(runsToTable([row.run!]).rows[0]?.slice(-2)).toEqual(['MMT 1; MMT 2; MMT 3; MMT 4', '']);
+  expect(runsToTable([row.run!]).rows[0]?.slice(-3, -1)).toEqual(['MMT 1; MMT 2; MMT 3; MMT 4', '']);
   expect(batchLoadoutText(row.run!)).toBe('E20 in MMT 1, MMT 2, MMT 3, MMT 4');
   const table = runsToTable([row.run!]);
   expect(table.rows[0]![table.headers.indexOf('Motors (cluster)')]).toBe(4);
@@ -2122,7 +2239,10 @@ it.each(['never', 'burnout', 'ejectioncharge'] as const)('Round 2 Auto excludes 
   expect(out.rows[0]!.error).toBeUndefined();
   expect(out.rows[0]!.run!.delayResolution!.mounts.find(m => m.mountId === 'ring3')?.mode).toBe('manual');
   expect(fly.mock.calls[0]![1].assigned.find(([id]) => id === 'ring3')![1].meta.autoDelay).toBe(false);
-  if (event === 'never') expect(out.rows[0]!.run!.batchMounts?.find(m => m.mountId === 'ring3')?.ignition).toBe('never');
+  expect(out.rows[0]!.run!.batchMounts?.find(m => m.mountId === 'ring3')?.ignition).toBe('never');
+  const printed = designPrintHtml({ tree: setup.tree, info: input(setup.tree).info, units: INITIAL_UNITS,
+    radiusMode: 'diameter', withMotors: true, appVersion: 'test', run: out.rows[0]!.run!, changedSince: [] });
+  expect(printed).toContain('including 1 that never ignite');
   const primary = await sweep(input(setup.tree, { ...setup, candidates: [entry('a', 'Acme', 'E20', '5')],
     assignedIgnitions: { ring0: { event, delay: 0 } } }),
     { fetchSpec: fetchFrom({ a: curve('E20') }), nozzleFor: nozzles({}) });
@@ -2270,7 +2390,7 @@ it('Round 3 plugged exception provenance preserves unlit legs in both passes', a
     expect(unlit.meta.autoDelay).toBe(false);
     expect(unlit.spec.ejectionDelay).toBe(Infinity);
     const current = designPageKey(designState(setup.tree, Object.fromEntries(assigned.map(([id, mm]) => [id,
-      mm.meta.autoDelay ? { ...mm, spec: { ...mm.spec, ejectionDelay: 0 } } : mm]))));
+      mm.meta.autoDelay ? { ...mm, spec: { ...mm.spec, ejectionDelay: Infinity } } : mm]))));
     expect(row.run!.motorSetKey).toBe(current.motorSetKey);
     expect(changedSinceRun(row.run!, current)).toEqual([]);
     expect(canReplayDelays(row.run!.delayResolution, assigned, assigned[0]![0], row.run!.delayS, true)).toBe(true);

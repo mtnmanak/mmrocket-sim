@@ -5,6 +5,17 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DesignStats, FlightStats, RESULT_TILE_METRICS } from './StatTiles.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import type { DeploymentReport, SimRun } from '../services/simReport.js';
+import { testMotor, testResolution } from '../services/autoDelay.testSupport.js';
+
+it('r3 shows both mixed optimum delays in the optional optimal-delay tile', () => {
+  const metric = RESULT_TILE_METRICS.find(m => m.id === 'optimalDelay')!;
+  const run = { motorConfig: 'mixed 2+2', optimumDelayS: 4, batchMounts: [
+    { mountId: 'a', mountName: 'Pair A', motor: 'A', role: 'candidate', count: 2 },
+    { mountId: 'b', mountName: 'Pair B', motor: 'B', role: 'candidate', count: 2 },
+  ], delayResolution: testResolution([['a', testMotor()], ['b', testMotor()]], [4, 7]) } as SimRun;
+  expect(metric.render(run, U).value).toBe('Pair A: 4.0 s; Pair B: 7.0 s');
+  expect(metric.render(run, U).unit).toBeUndefined();
+});
 
 /**
  * The results tiles against a flight the kernel could not compute.

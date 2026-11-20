@@ -56,6 +56,8 @@ export interface DescribeFileOptions {
   signal?: AbortSignal;
   /** A host's display rule for the design's name (simulateFile's `designName`). */
   designName?: (name: string) => string;
+  /** Host display rule applied before duplicate mount names are numbered. */
+  mountName?: (name: string) => string;
   /** Let an API host sanitize entries before rebuilding the displayed import note. */
   includeImportNoteGroup?: boolean;
 }
@@ -337,7 +339,7 @@ export async function describeFile(
   }
   const stageList = stages(tree);
   const mountNodes = motorMounts(tree);
-  const names = mountNamesOf(mountNodes);
+  const names = mountNamesOf(mountNodes, opts.mountName);
   const mounts = mountNodes.map((m, i): DescribedMount => {
     const stageIndex = stageIndexOf(tree, m.id!);
     const node = findNode(tree, m.id!) ?? m;

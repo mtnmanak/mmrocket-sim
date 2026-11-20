@@ -1,3 +1,4 @@
+import { candidateDelayText } from '../services/batchLoadout.js';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { StaticInfo } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -665,7 +666,10 @@ export const RESULT_TILE_METRICS: TileSpec[] = [
   },
   {
     id: 'optimalDelay', label: 'Optimal delay',
-    render: (r) => ({ value: tileFixed(r.optimumDelayS, 1), unit: 's' }),
+    render: (r) => {
+      const mixed = candidateDelayText(r, 'rawOptimum', v => `${v.toFixed(1)} s`);
+      return mixed ? { value: mixed } : { value: tileFixed(r.optimumDelayS, 1), unit: 's' };
+    },
   },
 ];
 

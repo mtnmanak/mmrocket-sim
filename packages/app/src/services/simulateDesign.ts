@@ -1,4 +1,7 @@
 import { noteText } from './noteField.js';
+import { boundedLoadoutMotorNames, motorLabelEntry } from './motorLabels.js';
+import { installedMounts } from './flightRunner.js';
+import { knownUnlitIgnition } from './ignitionEvent.js';
 import { recordFlightOverrides, type RecordedFlightOverride } from './flightOverrideSummary.js';
 import { activeFlightOverrides, resolveFlightState } from './flightState.js';
 import type { FlightResult, OrkRocket, RocketTree } from '@online-openrocket/engine';
@@ -8,7 +11,7 @@ import { DEFAULT_PREFS } from '../prefs/preferences.js';
 import { INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
 import { withActiveConfigSynced } from './configSync.js';
 import type { OrkMotorRef } from './orkFile.js';
-import { isOnLaunchStage, motorisedStagesWithNozzle, mountMotorCount, stageRecoveryById, stagesWithRecoveryDevice } from '../tree/treeModel.js';
+import { hasIgnitionSourceStage, isOnLaunchStage, motorisedStagesWithNozzle, mountMotorCount, stageRecoveryById, stagesWithRecoveryDevice  } from '../tree/treeModel.js';
 import { APP_VERSION } from '../version.js';
 import { buildDesign, KERNEL_HANDLES, type BuildHandle, type BuiltDesign, type HandleFactory } from './buildDesign.js';
 import {
@@ -133,7 +136,7 @@ export async function flyBuiltDesign<R extends BuildHandle>(
   const labelled = input.working
     ? withActiveConfigSynced(savedConfigs, activeConfigId, input.working.motors, input.working.unmatchedRefs) : savedConfigs;
   const activeConfig = activeConfigId === null ? undefined : labelled.find(c => c.id === activeConfigId);
-  const flightConfig = activeConfig ? savedConfigLabel(activeConfig) : assigned.length ? 'working settings' : 'none';
+  const flightConfig = activeConfig ? savedConfigLabel(activeConfig, tree) : assigned.length ? 'working settings' : 'none';
   const refusedMountIds = refusedMountIdsOf(built.motorFailures);
   // The keys and their order are onLaunch's at 78d3015; optional host signal,
   // clock and yield are spread only when given, so App's runner input is unchanged.
@@ -162,16 +165,35 @@ export async function flyBuiltDesign<R extends BuildHandle>(
     ...(input.yieldToUi ? { yieldToUi: input.yieldToUi } : {}),
   });
   const { result: res, flownDelayS: flownDelay, usedSupersonic, execMs, delayResolution } = flight;
+  for (const record of delayResolution.mounts) {
+    const soldDelays = assigned.find(([id]) => id === record.mountId)?.[1].meta.availableDelays;
+    if (record.mode === 'auto' && Number.isFinite(record.flownDelay)
+        && soldDelays?.length && soldDelays.every(d => !Number.isFinite(d))) record.exception = 'plugged-on-charge';
+  }
   // The primary's record is the one `assigned` carries (filtered from the
   // working set, so the same object App's `mountMotors[primaryMountId]` was):
   // ONE source for the motor the report names and the motor that flew. Read
   // after the flight, which has already refused a design with no motor there.
-  const primary: MountMotor = assigned.find(([id]) => id === primaryMountId)![1];
+  const installed = installedMounts(assigned, refusedMountIds);
+  const ignitionIds = new Set([...(res.events ?? []), ...(res.branches ?? []).flatMap(b => b.events)]
+    .filter(e => e.type === 'IGNITION' && e.motorMountId).map(e => e.motorMountId));
+  const didNotIgnite = (id: string, mm: MountMotor) => ignitionIds.size > 0 ? !ignitionIds.has(id) : knownUnlitIgnition(mm.ignition.event, !hasIgnitionSourceStage(tree, id));
+  const firing = installed.filter(([id, mm]) => !didNotIgnite(id, mm));
+  const reportedId = firing.some(([id]) => id === primaryMountId) ? primaryMountId : firing[0]?.[0] ?? primaryMountId;
+  const primary: MountMotor = installed.find(([id]) => id === reportedId)![1];
+  const reportedDelay = delayResolution.mounts.find(m => m.mountId === reportedId)?.flownDelay;
+  const recordedNames = mountNamesOf(mounts);
+  const installedNames = boundedLoadoutMotorNames(installed.map(([, mm]) => motorLabelEntry(mm)));
+  const frozenMounts = installedNames ? installed.map(([id, mm], i) => ({
+    mountId: id, mountName: recordedNames[id]!, role: id === reportedId ? 'candidate' as const : 'kept' as const,
+    motor: installedNames[i]!, count: mountMotorCount(tree, id),
+    ...(didNotIgnite(id, mm) ? { ignition: 'never' as const } : {}),
+  })) : undefined;
   // Per-stage motor info so booster branches can be safety-checked
   // (a chuteless booster above the high-power line must warn). The branch
   // naming rule, and the reason it is not simply the stage's name, lives
   // with the function in services/flightPipeline.ts.
-  const branchMotors = stageMotorInfo(tree, assigned, stageList);
+  const branchMotors = stageMotorInfo(tree, firing, stageList);
   // The configuration identity and override tuples were captured before flight.
   const run = buildSimRun({
     maxFlightTimeS: flownMaxFlightTimeS(launch),
@@ -179,14 +201,15 @@ export async function flyBuiltDesign<R extends BuildHandle>(
     ...(input.units ? { units } : {}),
     advisoryLimits,
     advisoryTree: tree,
-    advisoryMotors: assigned,
+    advisoryMotors: installed,
     result: res,
-    delayResolution, primaryMountId,
+    delayResolution, primaryMountId: reportedId,
+    batchMounts: frozenMounts,
     // Which of the configuration's motors did not fly: once another
     // configuration is active, nothing else can say (orkFlightData).
     refusedMountIds,
     info: built.info,
-    motor: { ...primary.spec, ejectionDelay: flownDelay },
+    motor: { ...primary.spec, ejectionDelay: reportedDelay === 'plugged' ? Infinity : reportedDelay ?? flownDelay },
     meta: {
       ...primary.meta,
       // What the kernel flew on the primary mount — the cluster times any
@@ -194,15 +217,15 @@ export async function flyBuiltDesign<R extends BuildHandle>(
       // motor in a three-pod set was recorded as one). The report's
       // Motors row says "firing together"; the CSV column keeps its old
       // 'Motors (cluster)' header so a sheet keyed on it still reads.
-      motorCount: mountMotorCount(tree, primaryMountId),
+      motorCount: installed.reduce((sum, [id]) => sum + mountMotorCount(tree, id), 0),
     },
     launch: launchForReport,
     rocketName: tree.name ?? 'Rocket',
     execMs,
     stageMotorInfo: branchMotors,
-    boosterMotors: assigned
-      .filter(([id]) => id !== primaryMountId)
-      .map(([, mm]) => mm.label),
+    boosterMotors: firing
+      .filter(([id]) => id !== reportedId)
+      .map(([id, mm]) => `${mountMotorCount(tree, id) > 1 ? `${mountMotorCount(tree, id)}× ` : ''}${mm.label}`),
     // Both stamps are permanent on the stored run, so both live in
     // services/flightPipeline.ts with their reasoning and their tests —
     // including why `effectiveKbf` and never the raw preference.
@@ -230,10 +253,18 @@ export async function flyBuiltDesign<R extends BuildHandle>(
     // left empty bought exactly nothing and must not be named as
     // corrected. Names only: whether the term was LIVE is decided from
     // the two model stamps above, which is the rest of that gate.
-    nozzleStages: motorisedStagesWithNozzle(tree, assigned).map((s) => s.name),
+    nozzleStages: motorisedStagesWithNozzle(tree, firing).map((s) => s.name),
     recoveryStages: stagesWithRecoveryDevice(tree),
     recoveryByStage: stageRecoveryById(tree),
   });
+  for (const record of delayResolution.mounts.filter(m => m.exception === 'plugged-on-charge')) {
+    const note = `${noteText(record.mountName).replace(/\|/g, '/')}: motor sold plugged (no ejection charge). `
+      + `Auto flew a hypothetical charge at ${record.flownDelay} s. Recovery follows the design's deployment settings; `
+      + 'other motors may also supply charges. Select Plugged on this mount to fly without its charge; '
+      + 'recovery that depends on it will not deploy unless you provide another charge or use apogee or altitude electronics.';
+    run.comments = run.comments ? `${run.comments} | ${note}` : note;
+    if (run.commentLevels) run.commentLevels = [...run.commentLevels, 'info'];
+  }
   return { flight, run };
 }
 

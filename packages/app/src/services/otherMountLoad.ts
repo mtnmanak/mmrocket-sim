@@ -9,6 +9,7 @@ import { withAuto, withDelay } from './mountDelayEdits.js';
 import { stableJson } from './dirtyState.js';
 import { overrideFor } from './flightState.js';
 import type { OrkMotorRef } from './orkFile.js';
+import { mountNamesOf } from './designDerivation.js';
 
 // All fields reconcileIncludedMotor/restateBackedOutMotor can write or delete.
 // Keep raw bookkeeping too: captureStageMass intentionally discards stale marks,
@@ -50,7 +51,7 @@ export function restoreOtherMountStages(tree: RocketTree, changes: ReturnType<ty
 export function otherMountMotor(fresh: MountMotor, old?: MountMotor, ref?: OrkMotorRef): MountMotor {
   const { padMassKg: _mass, padMassWeighedWith: _set, ...unweighed } = fresh;
   const next = { ...unweighed, ignition: old?.ignition ?? fresh.ignition };
-  if (fresh.spec.ejectionDelay === Infinity) return withAuto(next, false);
+  if (fresh.spec.ejectionDelay === Infinity && !fresh.meta.autoDelay) return withAuto(next, false);
   if (!old && !ref) return next;
   if (old ? old.meta.autoDelay : ref?.autoDelay) return withAuto(next, true);
   const delay = old?.spec.ejectionDelay ?? ref!.delay;
@@ -85,6 +86,7 @@ export function otherMountShape(tree: RocketTree, sourceId: string): string {
 
 export function otherMountPlan(tree: RocketTree, motors: Record<string, MountMotor>, sourceId: string, refs: Record<string, OrkMotorRef> = {}) {
   const source = overrideFor(motors, sourceId);
+  const names = mountNamesOf(motorMounts(tree));
   const mounts = peers(tree, sourceId);
   const sourceMount = mounts.find(m => m.id === sourceId);
   const targets: { id: string; name: string; replaces?: string; loadLabel?: string }[] = [];
@@ -95,7 +97,7 @@ export function otherMountPlan(tree: RocketTree, motors: Record<string, MountMot
   for (const mount of mounts) {
     const id = mount.id!;
     if (id === sourceId) continue;
-    const name = mountName(mount);
+    const name = names[id]!;
     const bore = Math.round(mountBore(mount) * 1000);
     const limit = motorLengthLimit(mount);
     if (!fitsMount(bore, { diameter: source.spec.diameter * 1000 })) skipped.push({ name, reason: 'narrow' });

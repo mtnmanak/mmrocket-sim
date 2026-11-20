@@ -93,6 +93,24 @@ describe('ConfigPanel', () => {
 
 
   const chooser = () => host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!;
+  it('r3 sorts unnamed cluster configurations by their displayed counted label', () => {
+    const configs: SavedConfig[] = [
+      { id: 'single', name: null, isDefault: true, motors: { b: mm('A8-3') } },
+      { id: 'cluster', name: null, isDefault: false, motors: { a: mm('F67C-9') } },
+    ];
+    const tree = { components: [{ type: 'stage' as const, children: [
+      { type: 'innertube' as const, id: 'a', motorMount: true, cluster: '4-ring' },
+      { type: 'innertube' as const, id: 'b', motorMount: true },
+    ] }] };
+    act(() => root.render(<PrefsProvider><ConfigPanel configs={configs} tree={tree} activeConfigId="single" hasMotors
+      onApply={() => {}} onClear={() => {}} onCreate={() => null} onRename={() => {}} onDelete={() => {}} /></PrefsProvider>));
+    act(() => {
+      const sort = host.querySelector<HTMLSelectElement>('[aria-label="Sort configurations"]')!;
+      sort.value = 'name'; sort.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect([...chooser().options].slice(0, 2).map(o => o.value)).toEqual(['cluster', 'single']);
+    expect(chooser().options[0]?.textContent).toContain('4× F67C-9');
+  });
   it('N011 sorts only display order, keeps selection, motors and stable ties, and persists on remount', () => {
     const configs: SavedConfig[] = [
       { ...CONFIGS[0]!, name: 'Zulu', motors: { m1: mm('B6-4') } },

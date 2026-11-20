@@ -81,7 +81,7 @@ export function collectOpenMotorIdentities(
       const config = snapshot.savedConfigs.find(c => c.id === set.configId);
       const number = mounts.findIndex(m => m.id === mountId) + 1;
       const mount = mountName(findNode(snapshot.tree, mountId));
-      const label = `${mount}${number ? ` (mount ${number})` : ''} — ${config ? savedConfigLabel(config) : 'Loaded motors'}`;
+      const label = `${mount}${number ? ` (mount ${number})` : ''} — ${config ? savedConfigLabel(config, snapshot.tree) : 'Loaded motors'}`;
       if (!group.carriedBy.includes(label)) group.carriedBy.push(label);
     }
   }

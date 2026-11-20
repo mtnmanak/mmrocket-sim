@@ -2182,7 +2182,8 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
       const [shared] = delays;
       const ig = statedIgnition.get(ref) ?? 0;
       if (delays.size === 1 && shared !== undefined && Number.isFinite(shared)) {
-        ref.ignitionDelay = Math.round((shared + ig) * 1e6) / 1e6;
+        ref.ignitionEvent = 'ejectioncharge';
+        ref.ignitionDelay = ig;
       } else {
         ref.ignitionDelay = ig;
         const unresolved = below.some(m => m.autoDelay || sentinelRefs.get(m) === 'every-unmatched');

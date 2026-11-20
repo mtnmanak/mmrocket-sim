@@ -1,4 +1,5 @@
 import { noteField } from '../services/noteField.js';
+import { knownUnlitIgnition } from '../services/ignitionEvent.js';
 import type { UnitSelection } from '../prefs/units.js';
 // The engine is imported as a VALUE here, not only as types: the two
 // body-CD-referenced protuberance classes need the kernel to tell them what
@@ -745,7 +746,7 @@ export function motorisedStagesWithNozzle(
   const stageOf = kernelStageIdByNode(tree);
   const live = new Set<string>();
   for (const [mountId, mm] of motors) {
-    if (mm?.ignition?.event === 'never') continue;
+    if (knownUnlitIgnition(mm?.ignition?.event, !hasIgnitionSourceStage(tree, mountId))) continue;
     const sid = stageOf.get(mountId);
     if (sid !== undefined) live.add(sid);
   }
@@ -2218,6 +2219,20 @@ export function motorMounts(tree: RocketTree): ComponentNode[] {
  */
 export function isOnLaunchStage(tree: RocketTree, id: string): boolean {
   return stageIndexOf(tree, id) === stages(tree).length - 1;
+}
+
+/** The kernel routes a stage's charge/burnout to its upper stage, including a strap-on's carrying stage. */
+export function hasIgnitionSourceStage(tree: RocketTree, id: string): boolean {
+  const owners = kernelStageIdByNode(tree);
+  const owner = owners.get(id);
+  if (!owner) return false;
+  const serial = stages(tree);
+  if (serial.some((stage, i) => stage.id === owner && i < serial.length - 1)) return true;
+  const walk = (nodes: ComponentNode[], carrying?: string): boolean => nodes.some(node => {
+    if (node.type === 'parallelstage' && carrying === owner) return true;
+    return walk(node.children ?? [], node.type === 'stage' || node.type === 'parallelstage' ? node.id : carrying);
+  });
+  return walk(tree.components);
 }
 
 /** A blank design — one empty stage — for starting from scratch. */

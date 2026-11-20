@@ -4,6 +4,20 @@ import { mountBore } from '../tree/scaleRocket.js';
 import { stageIdByNode } from '../tree/treeModel.js';
 import type { BatchMountOption, BatchSplit } from './batchSweep.js';
 
+/** An explicit ring-only choice can keep a same-bore centre motor installed. */
+export function batchRingSubset(tree: RocketTree, matching: readonly BatchMountOption[], selectedId: string): BatchMountOption[] | null {
+  if (matching.length !== 5 && matching.length !== 7) return null;
+  const shapes = aftLayout(tree, 0).inner;
+  for (const excluded of matching) {
+    if (excluded.id === selectedId) continue;
+    const centre = shapes.find(s => s.key === excluded.id && s.kind === 'circle');
+    if (!centre || Math.hypot(centre.y, centre.z) > 0.0005) continue;
+    const ring = matching.filter(m => m !== excluded);
+    if (batchRingSplits(tree, ring).halves) return ring;
+  }
+  return null;
+}
+
 /** Use the Aft view's actual tube centres, including radial offsets and inherited rotation. */
 export function batchRingSplits(tree: RocketTree, targets: readonly BatchMountOption[]): {
   halves: BatchSplit | null; pairs: BatchSplit | null;

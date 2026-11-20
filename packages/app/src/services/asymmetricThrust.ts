@@ -5,6 +5,7 @@ import { findNode, motorMounts, mountName, stages } from '../tree/treeModel.js';
 import { noteField } from './noteField.js';
 import { fmtSig } from '../prefs/units.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
+import { namedBatchMounts } from './batchLoadout.js';
 
 export interface ThrustSite {
   mountId: string;
@@ -14,11 +15,14 @@ export interface ThrustSite {
   spec: MotorSpec;
   /** null means an airstart whose time is not yet known. */
   ignition: number | null;
+  /** A detached parallel stage no longer balances thrust on its carrying core. */
+  separation?: number;
 }
 
 /** Linear interpolation of the loaded curve, with no thrust outside its burn. */
 function thrust(site: ThrustSite, time: number, side = 0): number {
   if (site.ignition === null) return 0;
+  if (site.separation !== undefined && (time > site.separation || time === site.separation && side > 0)) return 0;
   const t = time - site.ignition, { times, thrusts } = site.spec;
   const start = site.ignition + times[0]!, end = site.ignition + times.at(-1)!;
   if (!times.length || time < start || time > end
@@ -36,7 +40,8 @@ function thrust(site: ThrustSite, time: number, side = 0): number {
 /** The moment is linear between samples; its norm reaches its maximum at an endpoint. */
 export function thrustImbalance(sites: readonly ThrustSite[], peakFloor = 0, radiusFloor = 0) {
   const lit = sites.filter(s => s.ignition !== null && s.spec.times.length);
-  const grid = [...new Set(lit.flatMap(s => s.spec.times.map(t => t + s.ignition!)))].sort((a, b) => a - b);
+  const grid = [...new Set(lit.flatMap(s => [...s.spec.times.map(t => t + s.ignition!),
+    ...(s.separation === undefined ? [] : [s.separation])]))].sort((a, b) => a - b);
   const radius = lit.reduce((r, s) => Math.max(r, Math.hypot(s.y, s.z)), radiusFloor);
   let peak = peakFloor, moment = 0, time = 0, worstSide = 0;
   for (const t of grid) {
@@ -151,16 +156,27 @@ export function asymmetricThrustWarnings(
     }
     return times.length > 0 && Math.min(...times) + motor.ignition.delay > end;
   };
+  const mountNames = new Map(namedBatchMounts(motorMounts(tree).map(m => ({ id: m.id!, mountName: mountName(m) })))
+    .map(m => [m.id, m.mountName]));
   aftLayout(tree, 0, dimensions, undefined, (id, y, z) => {
     const motor = installed.get(id)!;
     const recorded = recordedIgnition(id);
     if (result && !recorded.length && !aborted && !endedBeforeIgnition(id)) return;
     const ignition = recorded.length ? Math.min(...recorded)
       : trigger(id) === 'launch' ? motor.ignition.delay : null;
-    allSites.push({ mountId: id, name: mountName(findNode(tree, id)), y, z, spec: motor.spec, ignition });
+    const carryingStages = new Set<string>();
+    // A parent strap-on takes every nested assembly with it when it separates.
+    // Serial stages already have independent balance groups below.
+    for (let owner = stageOf.get(id); owner?.type === 'parallelstage'; owner = parent.get(owner)) {
+      if (owner.id) carryingStages.add(owner.id);
+    }
+    const separations = events.filter(e => e.type === 'STAGE_SEPARATION'
+      && e.sourceId !== undefined && carryingStages.has(e.sourceId) && Number.isFinite(e.time)).map(e => e.time);
+    allSites.push({ mountId: id, name: mountNames.get(id) ?? mountName(findNode(tree, id)), y, z, spec: motor.spec, ignition,
+      ...(separations.length ? { separation: Math.min(...separations) } : {}) });
   });
   // One serial stage and all of its parallel stages share a whole-burn grid,
-  // peak and radius. Separation never starts another measurement.
+  // peak and radius. A separated strap-on stops contributing at separation.
   const groups = new Map<ComponentNode | undefined, ThrustSite[]>();
   for (const site of allSites) {
     const owner = groupOf.get(site.mountId), sites = groups.get(owner) ?? [];

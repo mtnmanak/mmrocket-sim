@@ -104,7 +104,7 @@ import { AftView } from './components/AftView.js';
 import { View3DBoundary } from './components/View3DBoundary.js';
 import { PanelBoundary } from './components/PanelBoundary.js';
 import { designationForMotorIdentity, motorTooltip, restoreConfigLabels, restoreMotorLabels } from './services/motorLabels.js';
-import { namedBatchMounts } from './services/batchLoadout.js';
+import { namedBatchMounts, recordedPrimaryMountId } from './services/batchLoadout.js';
 import { MOTOR_DB_DATE, getCatalogue, getCatalogueOverlay, subscribeCatalogue, type CatalogueOverlay, classLabel, diameterClass } from './services/motorDb.js';
 import { useCatalogue } from './components/useCatalogue.js';
 import { loadCatalogueMotor, matchImportedMotor } from './services/motorMatch.js';
@@ -163,14 +163,15 @@ import { useVersionCheck } from './services/versionCheck.js';
 import { applyUpdate, setIsUntouched, setReloadHold, settleReloadHold, useSwUpdate } from './services/swUpdate.js';
 import { pageActivity } from './services/pageActivity.js';
 import { DebugLogDownload } from './components/DebugLogDownload.js';
+import { knownUnlitIgnition } from './services/ignitionEvent.js';
 import { sessionDebugLog } from './services/sessionDebugLog.js';
 import { offlineStatusText, useOfflineStatus } from './services/offlineStatus.js';
-import {
+import { hasIgnitionSourceStage,
   addChild, addStage, nozzleStages, nozzleEditableStageIds, applyStageNozzles, autoDelayBox, cloneSubtree, duplicateNode, findNode,
   hasParallelStage, motorMounts, moveNode,
   isPristineDefault, mountCountNote, mountMotorCount, mountName, removeNode, stageIndexOf, stages,
   suppressingAncestor, updateAllNodes, updateNode,
-} from './tree/treeModel.js';
+ } from './tree/treeModel.js';
 import { num, numOpt, numOrNull } from './tree/nodeNum.js';
 import {
   flightDataForExport as flightDataForExportPure, flownAutoDelays, planSummaryImport, summaryImportCounts, summaryDocument,
@@ -193,7 +194,7 @@ import {
 import { baseLabel, massTextFor, padMassTextFor, statedWeightTextFor } from './services/unitText.js';
 import {
   assignedMotorsOf, currentSetKeyOf, designBuildInputOf, effectiveSupersonicOf, filePrimaryOf, hardwareDeltaKgOf,
-  launchPrimaryOf, legacyPadMassStepOf, physicsKeyOf, provenanceKeyOf, refusedMountIdsOf,
+  launchPrimaryOf, legacyPadMassStepOf, mountNamesOf, physicsKeyOf, provenanceKeyOf, refusedMountIdsOf,
 } from './services/designDerivation.js';
 import { equivalentExitDiameterM, stageMotors } from './services/nozzleFollow.js';
 import { nozzleForMotorId } from './services/nozzleDb.js';
@@ -1353,7 +1354,7 @@ export function App() {
   const liveConfigs = useMemo(() => withActiveConfigSynced(savedConfigs, activeConfigId, mountMotors, unmatchedRefs),
     [savedConfigs, activeConfigId, mountMotors, unmatchedRefs]);
   const liveActiveLayer = liveConfigs.find(c => c.id === activeConfigId);
-  const overrideConfigLabel = liveActiveLayer ? savedConfigLabel(liveActiveLayer) : null;
+  const overrideConfigLabel = liveActiveLayer ? savedConfigLabel(liveActiveLayer, tree) : null;
   // The detached working settings own an override layer whenever no
   // configuration is active and saved ones exist, or they hold an override:
   // ONE owner rule for the scope choices, beginFlightEdit and editIgnition, so
@@ -1445,13 +1446,6 @@ export function App() {
   const flightTree = useMemo(() => ({ ...tree, components: flightState.tree.components }), [tree, flightState.tree.components]);
   const assigned = useMemo(() => assignedMotorsOf(flightState.mountMotors, mounts), [flightState.mountMotors, mounts]);
 
-  // THE NOZZLE EXIT DIAMETER FOLLOWS THE MOTOR (Eric, 2026-09-13) — the rule,
-  // and why it is decided here rather than in NozzleField, are in
-  // hooks/useNozzleFollow.ts. It acts on a change of this loadout only.
-  const stageMotorLoadout = useMemo(() => stageMotors(flightTree, assigned), [flightTree, assigned]);
-  const {
-    cleared: nozzleCleared, pending: nozzlePending, seed: seedNozzleFollow, restoring: restoreNozzleFollow,
-  } = useNozzleFollow({ loadout: stageMotorLoadout, treeRef, writeTree: writeTree });
   // The PRIMARY mount drives the report's lead columns, auto-delay and the
   // weighed pad mass: the topmost-stage mount with a motor (the sustainer's).
   // ONE definition of "the primary" — treeModel.primaryMountOf — shared with
@@ -1588,6 +1582,11 @@ export function App() {
    * or the stored vector can never match (audit 2026-09-30).
    */
   const refusedMountIds = useMemo(() => refusedMountIdsOf(motorFailures), [motorFailures]);
+  // Follow only motors this build installed, using the same refusals as Batch.
+  const stageMotorLoadout = useMemo(() => stageMotors(flightTree, assigned, refusedMountIds), [flightTree, assigned, refusedMountIds]);
+  const {
+    cleared: nozzleCleared, pending: nozzlePending, seed: seedNozzleFollow, restoring: restoreNozzleFollow,
+  } = useNozzleFollow({ loadout: stageMotorLoadout, treeRef, writeTree: writeTree });
   /**
    * The same mounts in a stored delay vector's terms: what the Auto-delay card
    * checks a run's vector against. It was checked against every ASSIGNED mount,
@@ -2329,7 +2328,7 @@ export function App() {
     // The mounts the run FLEW, as reflyRun will see them — a refused motor
     // was never in its delay vector (flightRunner.installedMounts).
     return runMatchesDesign(run, currentMatchKey)
-      && canReplayDelays(run.delayResolution, installedMounts(assigned, refusedMountIds), primaryMountId, run.delayS,
+      && canReplayDelays(run.delayResolution, installedMounts(assigned, refusedMountIds), recordedPrimaryMountId(run, primaryMountId), run.delayS,
         true);
   }, [currentMatchKey, built, primaryMountId, reflightCache, assigned, refusedMountIds]);
 
@@ -2376,7 +2375,7 @@ export function App() {
       // would otherwise be silently one model behind.
       const current = { supersonic: effectiveSupersonic, kbf: effectiveKbf, hybrid: effectiveHybrid };
       const res = reflyRun(built.rocket, {
-        assigned, hardware: built.hardware, refusedMountIds, primaryMountId,
+        assigned, hardware: built.hardware, refusedMountIds, primaryMountId: recordedPrimaryMountId(run, primaryMountId),
         delayS: run.delayS, delayResolution: run.delayResolution,
         motorIdentityVerified: true,
         simOptions: kernelSimOptions(replayLaunchFor(run, launch), { aeroMode: effectiveHybrid ? 'hybrid' : effectiveSupersonic ? 'supersonic' : 'classic', effectiveKbf }),
@@ -2427,7 +2426,7 @@ export function App() {
       // two can differ — and a CSV that re-flew on today's model would be a
       // different flight from the plots it sits under, under the same name.
       return reflyRun(built.rocket, {
-        assigned, hardware: built.hardware, refusedMountIds, primaryMountId,
+        assigned, hardware: built.hardware, refusedMountIds, primaryMountId: recordedPrimaryMountId(lastRun, primaryMountId),
         // Auto delay flew the rounded optimum, recorded on the run.
         delayS: lastRun.delayS, delayResolution: lastRun.delayResolution,
         motorIdentityVerified: true,
@@ -2732,7 +2731,7 @@ export function App() {
   // and flightDataForExport(), memoized: the check runs after every edit.
   const lossInput = (format: LossyFormat): FormatLossInput => ({
     tree, overrides: activeOverrides, launch, measured, configs: savedConfigs, activeConfigId,
-    motors: exportMotorsMap(format === 'rkt' ? flownForAutosave : {}), flightData: flightDataNow,
+    motors: exportMotorsMap(flownForAutosave), flightData: flightDataNow,
     distanceUnit: prefs.units.altitude,
     compInfo: format === 'rkt' && built ? rktComponentInfo(tree, id => built.rocket.componentInfo(id)) : {},
   });
@@ -3202,7 +3201,7 @@ export function App() {
     // missing id; remove the file-owned fallback association as well.
     setImportedDocument(prev => prev ? { ...prev,
       storedSimulations: prev.storedSimulations.filter(s => s.configId !== config.id) } : prev);
-    setFileNote(`Flight configuration “${noteField(savedConfigLabel(config))}” deleted.`);
+    setFileNote(`Flight configuration “${noteField(savedConfigLabel(config, tree))}” deleted.`);
   };
 
   /** The "None" row / full unload: no motors, no active configuration. */
@@ -3592,6 +3591,8 @@ export function App() {
   // Batch simulate targets the PRIMARY (sustainer) mount; per the owner's rule
   // batch never runs across staged rockets (combinatorics).
   const primaryLabel = primaryMountId ? overrideFor(mountMotors, primaryMountId)?.label : undefined;
+  const assignedCopies = assigned.reduce((sum, [id]) => sum + mountMotorCount(tree, id), 0);
+  const displayMountNames = useMemo(() => mountNamesOf(mounts), [mounts]);
   const assignedCount = assigned.length;
   // The strip's Flight item (CFG-SPEC B3): the configuration Launch flies,
   // then its motor; the tooltip names the configuration and every loaded motor.
@@ -3600,11 +3601,12 @@ export function App() {
   const flightWorking = isWorkingSettings({ active: !!activeLayer, hasMotors: assignedCount > 0,
     hasUnmatched: Object.keys(unmatchedRefs).length > 0, hasOverrides: detachedHoldsOverrides });
   const flightItem = useMemo(() => flightVitals({
+    tree: { components: tree.components },
     active: liveActiveLayer, working: flightWorking,
     motors: [...assigned].sort(([a], [b]) => Number(b === primaryMountId) - Number(a === primaryMountId))
-      .map(([id, mm]) => ({ mount: mountName(mounts.find((m) => m.id === id)!),
+      .map(([id, mm]) => ({ mount: displayMountNames[id]!,
         text: motorTooltip(overrideFor(mountMotors, id) ?? mm, catalogue) })),
-  }), [liveActiveLayer, flightWorking, assigned, primaryMountId, mounts, mountMotors, catalogue]);
+  }), [tree.components, liveActiveLayer, flightWorking, assigned, primaryMountId, displayMountNames, mountMotors, catalogue]);
 
   // Motor-mount sizes (nominal motor diameter each mount accepts), per stage —
   // surfaced in the Rocket panel and Motors panel so the flyer never has to
@@ -3682,15 +3684,15 @@ export function App() {
         ? [{ mount, identity: [ref.manufacturer, ref.designation].filter(Boolean).join(' ') }] : [];
     });
     const loadout = [
-      ...assigned.map(([id, mm]) => `${mountName(mounts.find(m => m.id === id)!)}: ${mm.label} ×${mountMotorCount(tree, id)} (${!built ? 'build unavailable' : refusedMountIds.includes(id) ? 'omitted from build' : 'installed in build'})`),
-      ...unresolved.map(({ mount, identity }) => `${mountName(mount)}: ${noteField(identity)} ×${mountMotorCount(tree, mount.id!)} (unresolved; omitted from build)`),
+      ...assigned.map(([id, mm]) => `${displayMountNames[id]!}: ${mm.label} ×${mountMotorCount(tree, id)} (${!built ? 'build unavailable' : refusedMountIds.includes(id) ? 'omitted from build' : 'installed in build'})`),
+      ...unresolved.map(({ mount, identity }) => `${displayMountNames[mount.id!]!}: ${noteField(identity)} ×${mountMotorCount(tree, mount.id!)} (unresolved; omitted from build)`),
     ];
     return designPrintHtml({
       tree, info: built?.info ?? null, units: prefs.units, radiusMode: prefs.radiusMode,
       stabilityUnit: prefs.stabilityUnit, withMotors: installedMounts(assigned, refusedMountIds).length > 0, appVersion: APP_VERSION,
       motorFailures: [...motorFailures, ...unresolved.map(({ mount, identity }) => ({ mountId: mount.id!,
         text: `Unresolved imported motor ${noteField(identity)}: no motor curve is loaded.` }))],
-      currentLoadout: `${liveActiveLayer ? savedConfigLabel(liveActiveLayer) : flightWorking ? 'Working settings (not saved)' : 'None'}; `
+      currentLoadout: `${liveActiveLayer ? savedConfigLabel(liveActiveLayer, tree) : flightWorking ? 'Working settings (not saved)' : 'None'}; `
         + (loadout.length ? loadout.join('; ') : 'no motor assigned'),
       infoFor: built ? id => { try { return built.rocket.componentInfo(id); } catch { return null; } } : undefined,
       run: reportRun, changedSince: reportRun ? changedSinceRun(reportRun, provenanceKey) : null,
@@ -3755,8 +3757,8 @@ export function App() {
         info={built.info}
         cd={designCd}
         recovery={recovery}
-        motorLabel={assigned.length > 1
-          ? assigned.map(([, mm]) => mm.label).join(' + ')
+        motorLabel={assignedCopies > 1
+          ? assigned.map(([id, mm]) => `${mountMotorCount(tree, id) > 1 ? `${mountMotorCount(tree, id)}× ` : ''}${mm.label}`).join(' + ')
           : primaryLabel}
       />
       {lastRun && <FlightLoadStats run={lastRun} />}
@@ -4247,6 +4249,7 @@ export function App() {
           // because a design with nothing loaded is the normal starting point.
           initialMountId={primaryMountId ?? mounts[0]!.id!}
           assignedMountMotors={flightState.mountMotors}
+          refusedMountIds={refusedMountIds}
           // Flown specs, not catalogue: a weighed motor on a NON-target mount
           // keeps its hardware through the batch's applyOthers; the batch
           // itself shifts only the target mount's matching candidate (weighed).
@@ -4419,7 +4422,7 @@ export function App() {
               <span className="vitals-motor-label">
                 {primaryLabel ?? <span className="vitals-none">{flightItem.name !== null ? 'no motor' : 'none'}</span>}
               </span>
-              {assigned.length > 1 && <span className="vitals-motor-count">{` +${assigned.length - 1}`}</span>}
+              {assignedCopies > 1 && <span className="vitals-motor-count">{` +${assignedCopies - 1}`}</span>}
               {assigned.length > 0 && (
                 // One click from ANY tab: strip every loaded motor so the
                 // rocket can be viewed/weighed clean (2026-08-05 chat). A
@@ -4548,7 +4551,7 @@ export function App() {
             info={built?.info ?? null}
             run={lastRun}
             motorLabel={primaryLabel
-              ? `${primaryLabel}${assigned.length > 1 ? ` +${assigned.length - 1}` : ''}`
+              ? `${primaryLabel}${assignedCopies > 1 ? ` +${assignedCopies - 1}` : ''}`
               : null}
             launch={launch}
             onLaunchChange={editLaunch}
@@ -5079,14 +5082,14 @@ export function App() {
                     {/* The card's title, not a <label>: it names no control
                         (audit 2026-09-30). */}
                     <span className="mount-card-title" style={{ flex: 1, fontWeight: 600 }}>
-                      {mountName(m)}
+                      {displayMountNames[m.id!]}
                       <span className="mount-size-inline">⌀&nbsp;{classLabel(diameterClass(mountDiaMm(mNode)))}&nbsp;mm</span>
                       {countNote && ` (${countNote})`}
                     </span>
                     {mm && (
                       <button className="fin-row-del" title="Remove this motor"
                         // Named, not "multiplication x" (audit 2026-09-22).
-                        aria-label={`Remove ${mm.label} from ${mountName(m)}`}
+                        aria-label={`Remove ${mm.label} from ${displayMountNames[m.id!]!}`}
                         onClick={() => {
                                                 motorChoices.current.delete(m.id!);
                           setMountMotors((prev) => {
@@ -5104,7 +5107,7 @@ export function App() {
                   </div>
                   {/* Read-only: the limit belongs to the physical mount and is
                       edited, with its Estimate, on Design (CFG-SPEC A4). */}
-                  <MotorLengthReadout mountName={mountName(m)} value={motorLengthLimit(mNode)}
+                  <MotorLengthReadout mountName={displayMountNames[m.id!]!} value={motorLengthLimit(mNode)}
                     noBore={mNode ? noBoreReason(mNode) : null}
                     onOpenDesign={() => showMotorLengthOnDesign(m.id!)} />
                   <MotorPicker
@@ -5112,7 +5115,7 @@ export function App() {
                       // N003: replacement resets the motor's ignition; only mount/config layers survive.
                       const ignition = overrideFor(activeOverrides.ignitions, m.id!)
                         ?? overrideFor((tree as FlightTree).ignitionDefaults, m.id!);
-                      return ignition?.event === 'never' ? null : zeroDelayRecoveryAdvice(flightTree, m.id!, delay, auto);
+                      return knownUnlitIgnition(ignition?.event, !hasIgnitionSourceStage(flightTree, m.id!)) ? null : zeroDelayRecoveryAdvice(flightTree, m.id!, delay, auto);
                     }}
                     mountDiameterMm={mountDiaMm(mNode)}
                     maxMotorLengthM={motorLengthLimit(mNode)}
@@ -5132,7 +5135,7 @@ export function App() {
                       onLoad={loadOtherMounts} onUndo={undoOtherMounts} onDismiss={dismissOtherMounts} />}
                   </div>
                   <div className="zero-delay-recovery" role="status">
-                    {mm && mm.ignition?.event !== 'never' && zeroDelayRecoveryAdvice(flightTree, m.id!, mm.spec.ejectionDelay, mm.meta.autoDelay) && (
+                    {mm && !knownUnlitIgnition(mm.ignition?.event, !hasIgnitionSourceStage(flightTree, m.id!)) && zeroDelayRecoveryAdvice(flightTree, m.id!, mm.spec.ejectionDelay, mm.meta.autoDelay) && (
                       <Note tier="caution" as="p" className="comp-stats">
                         {zeroDelayRecoveryAdvice(flightTree, m.id!, mm.spec.ejectionDelay, mm.meta.autoDelay)}
                       </Note>
@@ -5157,9 +5160,9 @@ export function App() {
                             value={Number.isFinite(mm.spec.ejectionDelay) ? mm.spec.ejectionDelay : undefined}
                             step={1}
                             max={60}
-                            placeholder={mm.spec.ejectionDelay === Infinity ? 'plugged' : Number.isFinite(mm.spec.ejectionDelay) ? undefined : 'unknown'}
+                            placeholder={mm.meta.autoDelay ? 'auto (optimal)' : mm.spec.ejectionDelay === Infinity ? 'plugged' : Number.isFinite(mm.spec.ejectionDelay) ? undefined : 'unknown'}
                             // The card heading's own fallback: never the internal id (audit 2026-09-30).
-                            ariaLabel={`Ejection delay for ${mountName(m)}`}
+                            ariaLabel={`Ejection delay for ${displayMountNames[m.id!]!}`}
                             onCommit={(v) => {
                               if (v === null) return;
                                                         // Typing a delay overrides auto (mountDelayEdits).
@@ -5170,10 +5173,10 @@ export function App() {
                           />
                         </div>
                         <label className="motor-inline-label" style={{ whiteSpace: 'nowrap' }}
-                          title="No ejection charge (removed for electronic deployment, or a factory -P motor). Recovery must deploy on apogee/altitude.">
+                          title="No ejection charge (removed for electronic deployment, or a factory -P motor). Recovery needs another motor's charge in the same stage or apogee/altitude electronics; otherwise recovery will not deploy.">
                           <input
                             type="checkbox"
-                            checked={mm.spec.ejectionDelay === Infinity}
+                            checked={!mm.meta.autoDelay && mm.spec.ejectionDelay === Infinity}
                             style={{ width: 'auto' }}
                             onChange={(e) => {
                               // Un-plugging restores the longest prescribed
@@ -5214,7 +5217,7 @@ export function App() {
                           2026-09-30): it carried its own aria-label, "Ignition
                           event", beside a label tied to nothing. The scope
                           choice is explicit (CFG-SPEC A3). */}
-                      <MountIgnitionField mountId={m.id!} mountName={mountName(m)} ownerKey={flightOwnerKey}
+                      <MountIgnitionField mountId={m.id!} mountName={displayMountNames[m.id!]!} ownerKey={flightOwnerKey}
                         own={overrideFor((tree as FlightTree).ignitionDefaults, m.id!) ?? overrideFor(mountMotors, m.id!)?.ignition ?? mm.ignition}
                         override={overrideFor(activeOverrides.ignitions, m.id!)}
                         overrideLabel={overrideScopeLabel} isStaged={isStaged}
@@ -5236,14 +5239,14 @@ export function App() {
                         <MotorPadMass
                           mountId={m.id!}
                           motorLabel={baseLabel(mm.label)}
-                          mountName={mountName(m)}
+                          mountName={displayMountNames[m.id!]!}
                           multiMotor={assigned.length > 1 || count > 1}
                           valueKg={mm.padMassKg ?? null}
                           legacyPending={mm.padMassWeighedWith === LEGACY_PAD_MASS_KEY}
                           onChange={(kg) => setPadMass(m.id!, kg)}
                           computedPadMassKg={computedPadMassKg}
                           hardware={built?.hardware}
-                          nameOfMount={(id) => mountName(findNode(tree, id), 'a removed mount')}
+                          nameOfMount={(id) => displayMountNames[id] ?? 'a removed mount'}
                           describeIdentity={describeIdentity}
                           identityKey={motorIdentity(mm.meta, mm.spec.designation)}
                         />
@@ -5253,7 +5256,7 @@ export function App() {
                     // The file's primary is an unmatched reference (filePrimaryMountId
                     // is never null while primaryMountId is not).
                     const fileRef = filePrimaryMountId ? overrideFor(unmatchedRefs, filePrimaryMountId) : undefined;
-                    const where = mountName(filePrimaryMountId ? findNode(tree, filePrimaryMountId) : null, 'a removed mount');
+                    const where = filePrimaryMountId ? displayMountNames[filePrimaryMountId] ?? 'a removed mount' : 'a removed mount';
                     const named = fileRef?.designation ?? 'a motor the file names';
                     return typeof fileRef?.padMassKg === 'number' && fileRef.padMassKg > 0
                       ? (

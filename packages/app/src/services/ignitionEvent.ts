@@ -27,3 +27,9 @@ export function knownIgnitionEvent(raw: string | null | undefined): IgnitionEven
   const name = raw.trim().toLowerCase().replace(/_/g, '');
   return IGNITION_EVENTS.find((e) => e === name) ?? null;
 }
+
+/** Charge/burnout needs a source stage whose upper stage is this motor's owner. */
+export function knownUnlitIgnition(raw: string | null | undefined, withoutSourceStage: boolean): boolean {
+  const event = knownIgnitionEvent(raw);
+  return event === 'never' || withoutSourceStage && (event === 'burnout' || event === 'ejectioncharge');
+}

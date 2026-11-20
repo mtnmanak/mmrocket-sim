@@ -1,4 +1,6 @@
 import type { UnitSelection } from '../prefs/units.js';
+import { namedBatchMounts } from './batchLoadout.js';
+import { installedMounts } from './flightRunner.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import type { FlightOverrides, FlightTree, MountMotor, SavedConfig } from '../model/design.js';
 import { motorisedStagesWithNozzle, motorMounts, mountName, primaryMountOf, stages } from '../tree/treeModel.js';
@@ -126,8 +128,9 @@ export function hardwareDeltaKgOf(built: Pick<BuiltDesign, 'hardware'> | null): 
 }
 
 /** What the report's delay table and the Auto-delay refusal call each mount: the card heading's own fallback. */
-export function mountNamesOf(mounts: readonly ComponentNode[]): Record<string, string> {
-  return Object.fromEntries(mounts.map((m) => [m.id!, mountName(m)]));
+export function mountNamesOf(mounts: readonly ComponentNode[], clean?: (name: string) => string): Record<string, string> {
+  return Object.fromEntries(namedBatchMounts(mounts.map(m => ({ id: m.id!, mountName: mountName(m) })), clean)
+    .map(m => [m.id, m.mountName]));
 }
 
 /**
@@ -199,7 +202,7 @@ export function provenanceKeyOf(a: {
     // Does the design SPEND the pressure-thrust term? A stored run flown
     // before v0.119 cannot be re-flown on a design that does — see
     // simReport's runCarriesNozzleStamp (2026-09-08).
-    hasNozzle: motorisedStagesWithNozzle(tree, assigned).length > 0,
+    hasNozzle: motorisedStagesWithNozzle(tree, installedMounts(assigned, a.refusedMountIds)).length > 0,
     requiresPhysicsRevision: requiresPhysicsRevision(tree),
     physicsRevisions: physicsRevisionsFor(tree),
   });

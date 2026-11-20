@@ -12,6 +12,19 @@ import { PrefsProvider } from '../prefs/PrefsContext.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const noop = () => {};
+it('r3 numbers duplicate mounts in configuration headers and cell navigation labels', () => {
+  const input: FlightTree = { components: [{ type: 'stage', children: ['a', 'b'].map(id => ({
+    type: 'innertube', id, name: 'Inner Tube', motorMount: true,
+  })) }] };
+  const host = document.createElement('div'), root = createRoot(host);
+  try {
+    act(() => root.render(<ConfigOverview tree={input} configs={[{ id: 'x', name: 'X', isDefault: true, motors: {} }]}
+      activeConfigId="x" onApply={noop} onShowPart={noop} />));
+    expect(host.querySelector('thead')?.textContent).toContain('Inner Tube 1');
+    expect(host.querySelector('thead')?.textContent).toContain('Inner Tube 2');
+    expect(host.querySelector('tbody td:nth-of-type(2) button')?.getAttribute('aria-label')).toContain('Inner Tube 2:');
+  } finally { act(() => root.unmount()); }
+});
 it.each(['toString', 'constructor', '__proto__'])('ignores inherited entries for component id %s', id => {
   const host = document.createElement('div'), root = createRoot(host);
   const ownTree: FlightTree = { components: [{ type: 'stage', children: [

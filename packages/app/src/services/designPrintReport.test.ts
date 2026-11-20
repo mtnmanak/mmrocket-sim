@@ -93,7 +93,7 @@ it('Round 2 counts every recorded installed motor, including never ignition but 
     .toContain('Complete flight motor count: 5 (installed, including 3 that never ignite).');
   for (const batch of [false, 'true' as never]) {
     expect(doc(designPrintHtml({ ...input, run: { ...selected, batch } })).textContent)
-      .toContain('Complete flight motor count: Unknown (not recorded).');
+      .toContain('Complete flight motor count: 5 (installed, including 3 that never ignite).');
   }
   expect(doc(designPrintHtml({ ...input, run: { ...selected, batchMounts: [{ ...batchMounts[0]!, count: 0 }] } })).textContent)
     .toContain('Complete flight motor count: Unknown (not recorded).');
@@ -494,7 +494,8 @@ it('keeps hypothetical-charge and burnout cautions beside the mount delay they q
   expect(validDelayResolution(resolution)).toBe(true);
   const d = doc(designPrintHtml({ ...input, run: { ...run, delayResolution: resolution } }));
   const row = d.querySelector('table[aria-label="Per-mount ejection delays"] tbody tr');
-  expect(row?.textContent).toContain('plugged → Auto (charge recovery)');
+  expect(row?.textContent).toContain('Auto (hypothetical charge)');
+  expect(row?.textContent).not.toContain('charge recovery');
   expect(row?.textContent).toContain('hypothetical charge (motor sold plugged)');
   expect(row?.textContent).toContain('limited by burnout');
   expect(row?.querySelector('.caution')?.textContent).toContain(LATE_BURNOUT_CAUTION);

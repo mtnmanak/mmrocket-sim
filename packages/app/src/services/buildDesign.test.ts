@@ -275,6 +275,7 @@ describe('buildDesign — the warning strip', () => {
   it.each([
     ['a shroud whose Name field was cleared', ''],
     ['a shroud named like the start of the fins’ name', 'Fin'],
+    ['J1 a shroud named with an inch mark', '1/2" Camera Shroud'],
   ])('keeps the real fins’ thick-fin warning beside %s, and drops the shroud’s (real kernel)', (_what, name) => {
     const built = buildDesign(noMotors(camTree(name, 0.04)), KERNEL_HANDLES);
     if ('error' in built) throw new Error(built.error);

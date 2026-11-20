@@ -82,7 +82,7 @@ export function useNozzleFollow(opts: {
   const nozzleKeys = useRef(new Map<string, string>());
   // Keep stamping every new tree for undo, but only read the EX library when
   // the key inputs change (audit 2026-10-11, S3c-2 integration).
-  const loadoutKey = JSON.stringify(loadout.map(s => [s.stageId, s.motors.map(m => [m.mountId, m.motorId, m.count])]));
+  const loadoutKey = JSON.stringify(loadout.map(s => [s.stageId, s.motors.map(m => [m.mountId, m.motorId, m.count, m.identity])]));
   const { motorKeys, currentKeys } = useMemo(() => {
     const motorKeys = new Map<string, string>();
     for (const s of loadout) for (const m of s.motors) {
@@ -271,9 +271,10 @@ export function useNozzleFollow(opts: {
           entry: ex.exitDiameterM === undefined ? null : { exitDiameterM: ex.exitDiameterM },
         });
       }
-      const v = { key: stageMotorKey(s, nozzleKeys.current), label: s.motors[0]?.label ?? '' };
-      seen.current.set(s.stageId, v);
-      next.set(s.stageId, v);
+      // The new build may refuse a motor. Seed from its first effective
+      // loadout, after build refusals and layered ignitions have resolved.
+      seen.current.delete(s.stageId);
+      next.delete(s.stageId);
     }
     decided.current = next;
   }, []);
