@@ -133,7 +133,7 @@ import { exportRkt, rktComponentInfo } from './services/rocksimFile.js';
 import { loadPresets } from './services/presets.js';
 import { componentCsv, componentTable } from './services/componentTable.js';
 import { CSV_BOM, GLB_MIME, safeName } from './services/fileName.js';
-import { designFileBase, designFileLabel, designFileTitle, documentTitle, type DesignFileRef } from './services/designFileName.js';
+import { designFileBase, designFileLabel, designFileTitle, documentTitle, savedDesignFileRef, type DesignFileRef } from './services/designFileName.js';
 import { onCompletedSave, saveFile, saveOutcomeNote, type SaveOutcome } from './services/saveFile.js';
 import { tableToXlsx, XLSX_MIME } from './services/xlsx.js';
 import { exportCdx1 } from './services/rasaeroFile.js';
@@ -2725,7 +2725,7 @@ export function App() {
           // A cancelled or failed newer attempt must not supersede a real write.
           appliedSave.current = Math.max(appliedSave.current, saveId);
           appliedSaveDestination.current = out.kind === 'saved' ? out.destination ?? null : null;
-          setDesignFile({ name: out.name, via: out.kind === 'saved' ? 'saved' : 'downloaded', format: 'ork' });
+          setDesignFile(savedDesignFileRef(out.name, out.kind, 'ork', tree.name, designFile));
           setLossySaved(null);
         }
       }
@@ -2827,7 +2827,7 @@ export function App() {
             && (out.kind === 'saved' || out.kind === 'downloaded')) {
           appliedSave.current = Math.max(appliedSave.current, saveId);
           appliedSaveDestination.current = out.kind === 'saved' ? out.destination ?? null : null;
-          const file: DesignFileRef = { name: out.name, via: out.kind, format };
+          const file = savedDesignFileRef(out.name, out.kind, format, tree.name, designFile);
           setDesignFile(file);
           setLossySaved({ mark, flights, format, lossCount: report.losses.length, ...(report.incomplete ? { incomplete: true } : {}) });
           setLiveLoss({ file, report });
@@ -4054,7 +4054,7 @@ export function App() {
           </button>
         </div>
         <div className="design-file">
-          <span className="design-file-name" title={designFileTitle(designFile)}>{designFileLabel(designFile)}</span>
+          <span className="design-file-name" title={designFileTitle(designFile, tree.name)}>{designFileLabel(designFile, tree.name)}</span>
           <span className={`design-save-status${lossyStatus?.startsWith('Saved as') ? ' design-save-status-lossy' : ''}`} role="status" aria-label="Design save status" aria-live="polite">
             {lossyStatus ?? (dirty ? 'Unsaved changes' : 'No unsaved changes')}
           </span>

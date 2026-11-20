@@ -33,6 +33,20 @@ import { MOTOR_CORRECTIONS } from './motor-corrections.mjs';
 
 const committed = () => readFileSync(OUT, 'utf8').replace(/\r\n/g, '\n');
 
+it('explains following suggestions consistently in both file guidance sections', () => {
+  const markdown = readFileSync(SRC, 'utf8');
+  const where = markdown.split('**Where the file goes.**')[1].split('\n\n')[0];
+  expect(where).toContain('current rocket name when the filename follows it');
+  expect(where).toContain('even after saving it again');
+  const rule = markdown.split('**Save .ork offers**')[1].split('\n\n')[0];
+  expect(rule).toContain('Designs saved before this update keep their saved file name');
+  expect(rule).toContain("default name New Rocket, which now follows the rocket's name");
+  const header = markdown.split('\n\nThe header shows')[1].split('\n\n')[0];
+  expect(header).toContain('current suggestion');
+  expect(header).toContain('in parentheses');
+  expect(markdown).not.toContain('The header says **Save offers**');
+});
+
 it('refuses inherited curve-source names instead of undercounting source shares', () => {
   const dir = mkdtempSync(join(tmpdir(), 'guide-source-'));
   try {

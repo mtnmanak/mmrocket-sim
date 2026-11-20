@@ -56,6 +56,10 @@ describe('precache coverage — every built file is offline, or deliberately not
       .toEqual(['workbox-window.prod.es5-BqEJf4Xk.js']);
   });
 
+  it('deliberately excludes the crawler sitemap, while still checking other XML assets', () => {
+    expect(uncachedFiles(['index.html', 'sitemap.xml', 'assets/design.xml'], SW_MIN)).toEqual(['assets/design.xml']);
+  });
+
   it('names a URL the manifest lists twice (workbox refuses it once the revisions differ)', () => {
     // vite-plugin-pwa appends includeAssets and the manifest icons to the glob
     // matches, so a favicon both globbed and named in includeAssets was listed
