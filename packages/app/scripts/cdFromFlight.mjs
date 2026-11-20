@@ -862,6 +862,16 @@ function requireSamples(values, label, { increasing = false, offset = 0 } = {}) 
   }
 }
 
+function requireNoGaps(times, dt, label) {
+  // Five nominal intervals allow timestamp jitter and isolated dropped rows,
+  // but cannot justify bridging a missing section of thrust or coast data.
+  for (let i = 1; i < times.length; i++) {
+    if (times[i] - times[i - 1] > 5 * dt + 1e-9) {
+      fail('R6', `${label} has a telemetry gap from ${times[i - 1].toFixed(3)} to ${times[i].toFixed(3)} s; Cd cannot be inferred across missing readings.`);
+    }
+  }
+}
+
 /** Pressure unit multipliers to Pa, keyed off the unit written in the column name. */
 const PRESSURE_UNITS = [
   { re: /\(atm\)/i, toPa: ATM_PA, label: 'atm' },
@@ -985,6 +995,10 @@ export function prepare(options) {
     timeColumn = null, accelColumn = null, altitudeUnit = null,
   } = options;
 
+  if (altitudeUnit !== null && !['ft', 'm'].includes(altitudeUnit)) {
+    fail('R9', '--altitude-unit must be ft or m. Other spellings cannot be used to scale altitude.');
+  }
+
   const label = accelPath ? basename(accelPath) : 'the accelerometer file';
   const text = accelText != null ? accelText : readFileSync(accelPath, 'utf8');
   const { header, rows } = parseCsv(text);
@@ -1065,6 +1079,17 @@ export function solve(prepared, options) {
   if (!(Number.isFinite(diameterM) && diameterM > 0)) {
     fail('R9', '--diameter-m (or --diameter-in) is required and must be a positive number. '
       + 'Cd scales as 1/d^2, so a 2.5 % diameter error is a 5 % Cd error. There is no default.');
+  }
+
+  if (!Array.isArray(machBand) || machBand.length !== 2 || !machBand.every(Number.isFinite)
+    || machBand[0] < 0 || machBand[0] >= machBand[1]) {
+    fail('R9', '--mach-band requires 0 <= lo < hi, with two finite numbers.');
+  }
+  if (lengthM !== null && !(Number.isFinite(lengthM) && lengthM > 0)) {
+    fail('R9', '--length-m must be a positive finite number for Reynolds numbers.');
+  }
+  if (!(Number.isFinite(settleS) && settleS >= 0)) {
+    fail('R9', '--settle-s must be a non-negative finite number.');
   }
 
   const { aAxG, unit, rateHz } = prepared;
@@ -1183,17 +1208,19 @@ export function solve(prepared, options) {
     else if (t[i] > 0) break;
   }
   requireSamples(t.subarray(launch, usedEnd), `${prepared.label} time`, { increasing: true, offset: launch });
+  requireNoGaps(t.subarray(launch, usedEnd), medianDt(t.subarray(launch, usedEnd)), prepared.label);
   requireSamples(prepared.rawAxial.subarray(launch, usedEnd), `${prepared.label} ${prepared.accelColumnName}`, { offset: launch });
   t = t.subarray(0, usedEnd);
   if (baro && (useMeasured || hasBaroAlt)) {
     const start = baro.t.findIndex(time => time >= tBurnout);
     let end = -1;
     for (let i = 0; i < baro.t.length; i++) if (baro.t[i] <= apogee.t) end = i;
-    const lo = Math.max(0, start - 1);
-    const hi = Math.min(baro.t.length, end + 2);
+    const lo = Math.max(0, start >= 0 && baro.t[start] === tBurnout ? start : start - 1);
+    const hi = Math.min(baro.t.length, end + (baro.t[end] === apogee.t ? 1 : 2));
     baro = { ...baro, t: baro.t.subarray(lo, hi),
       altitudeM: baro.altitudeM?.subarray(lo, hi), pressurePa: baro.pressurePa?.subarray(lo, hi) };
     requireSamples(baro.t, `${baro.label} time`, { increasing: true, offset: lo });
+    requireNoGaps(baro.t, medianDt(baro.t), baro.label);
     if (hasBaroAlt) requireSamples(baro.altitudeM, `${baro.label} altitude`, { offset: lo });
   }
   if (baro && (useMeasured || hasBaroAlt)
@@ -1291,6 +1318,7 @@ export function solve(prepared, options) {
     padSd: unit.padSd / unit.perG,
     padSamples: unit.n,
     rateHz,
+    lowRate: rateHz < WARN_RATE_HZ,
     dt: prepared.dt,
     rows: prepared.rows,
     label: prepared.label,
@@ -1368,6 +1396,7 @@ const sci = (x, d = 3) => (Number.isFinite(x) ? x.toExponential(d) : '');
 export function formatReport(s) {
   const L = [];
   L.push('Cd from flight data');
+  if (s.lowRate) L.push(`[LOW RATE: ${s.rateHz.toFixed(1)} Hz — coarse sampling can bias Cd low]`);
   L.push('='.repeat(72));
   L.push(`accelerometer   ${s.label}  (${s.rows} rows, ${f(s.rateHz, 1)} Hz, dt ${f(s.dt, 4)} s)`);
   L.push(`                axial channel "${s.accelColumnName}", clock "${s.timeColumnName}"`);
@@ -1487,13 +1516,20 @@ Optional
   --json               Emit the summary as JSON instead of the table.
 `.trimStart();
 
-/** Minimal flag parser: `--name value` and bare `--flag`. */
+const BOOLEAN_FLAGS = new Set(['json', 'help']);
+const VALUE_FLAGS = new Set(['baro', 'mass-kg', 'diameter-m', 'diameter-in', 'length-m',
+  'site-elevation-m', 'pad-temp-c', 'accel-scale', 'burnout-s', 'apogee-s', 'settle-s',
+  'altitude-unit', 'mach-band', 'accel-column', 'time-column', 'csv']);
+
+/** Known value flags and boolean switches; typos must not change the analysis. */
 export function parseArgs(argv) {
   const out = { _: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith('--')) { out._.push(a); continue; }
     const key = a.slice(2);
+    if (BOOLEAN_FLAGS.has(key)) { out[key] = true; continue; }
+    if (!VALUE_FLAGS.has(key)) fail('R9', `unknown option --${key}. Check --help for the supported flags.`);
     const next = argv[i + 1];
     if (next === undefined || next.startsWith('--')) out[key] = true;
     else { out[key] = next; i++; }
@@ -1520,17 +1556,18 @@ function numFlag(args, name) {
 }
 
 export function main(argv) {
-  const args = parseArgs(argv.slice(2));
-  if (args._.length === 0 || args.help) {
-    console.log(USAGE);
-    return args.help ? 0 : 1;
-  }
   try {
+    const args = parseArgs(argv.slice(2));
+    if (args._.length === 0 || args.help) {
+      console.log(USAGE);
+      return args.help ? 0 : 1;
+    }
     for (const name of ['baro', 'accel-scale', 'mach-band', 'altitude-unit', 'accel-column', 'time-column', 'csv']) {
       if (args[name] !== undefined && typeof args[name] !== 'string') fail('R9', `--${name} was given with no value.`);
     }
     const diameterIn = numFlag(args, 'diameter-in');
-    const machBandRaw = typeof args['mach-band'] === 'string' ? args['mach-band'].split(',').map(Number) : null;
+    const machBandRaw = typeof args['mach-band'] === 'string'
+      ? args['mach-band'].split(',').map(s => s.trim() ? Number(s) : NaN) : null;
     if (machBandRaw && (machBandRaw.length !== 2 || !machBandRaw.every(Number.isFinite))) {
       fail('R9', '--mach-band takes two numbers, e.g. --mach-band 0.25,0.72');
     }
@@ -1568,7 +1605,6 @@ export function main(argv) {
       console.log(JSON.stringify({ ...rest, sampleCount: series.length }, null, 2));
     } else {
       console.log(formatReport(summary));
-      if (summary.rateHz < WARN_RATE_HZ) console.log(`\n[LOW RATE: ${summary.rateHz.toFixed(1)} Hz]`);
     }
     return 0;
   } catch (err) {

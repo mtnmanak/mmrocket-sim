@@ -1177,7 +1177,8 @@ export function oneRowPerMotor(rows, assemblies) {
       // nozzles.
       out.alternatives = group
         .filter((r) => r.exitDiameterM !== undefined && r.exitDiameterM !== pick.exitDiameterM)
-        .filter((r, i, xs) => xs.findIndex((y) => y.nozzlePartNo === r.nozzlePartNo) === i)
+        .filter((r, i, xs) => xs.findIndex((y) => y.nozzlePartNo === r.nozzlePartNo
+          && y.exitDiameterM === r.exitDiameterM) === i)
         .map((r) => ({
           nozzlePartNo: r.nozzlePartNo,
           exitDiameterM: r.exitDiameterM,
@@ -1211,7 +1212,8 @@ export function oneRowPerMotor(rows, assemblies) {
       // have been destroyed here without a word. A field that accumulates reasons must be
       // written in one place and appended to everywhere else — the row that trips two rules is
       // always the one nobody tested.
-      const ambiguityNote = `AeroTech publish two nozzles for this motor (${pick.nozzlePartNo} `
+      const count = out.alternatives.length === 1 ? 'two' : out.alternatives.length === 2 ? 'three' : String(out.alternatives.length + 1);
+      const ambiguityNote = `AeroTech publish ${count} nozzles for this motor (${pick.nozzlePartNo} `
         + `${pick.exitDiameterIn} in against ${others.join(', ')}). `
         + (out.exitPickedBy === 'dated-revision'
           ? `The one used here is the one that sheet's own dated revision block calls current (${revDate(pick.provenance.assemblyDrawing)}); `

@@ -95,6 +95,63 @@ describe('main, on synthetic CSVs', () => {
   const bt205 = { kind: 'BodyTube', manufacturer: 'Estes', partNo: 'BT205', insideDiameter: 0.018034,
     outsideDiameter: 0.0186944, length: 0.4572 };
 
+  it('maps textual parabolic to the same ellipsoid as RockSim code 2', () => {
+    expect(mapShape('parabolic')).toBe('ELLIPSOID');
+    expect(mapShape('parabolic')).toBe(mapShape('2'));
+    expect(mapShape('5')).toBe('PARABOLIC');
+    const nose = FILES.find(s => s.kind === 'NoseCone');
+    expect(nose.parse(['Acme', 'N', 'nose', '0', '10', '2', '', '', '', '0', 'parabolic'], IN).shape).toBe('ELLIPSOID');
+  });
+
+  it.each(['different shape', 'different construction', 'different parameter', 'unknown shape'])('keeps a nose with %s despite matching dimensions', difference => {
+    const existing = { kind: 'NoseCone', manufacturer: 'Madcow', partNo: 'HAACK-N',
+      outsideDiameter: 2 * IN, length: 10 * IN, shape: 'HAACK', filled: true };
+    if (difference === 'different parameter') existing.shapeParameter = 0.25;
+    const w = world([], [existing]);
+    try {
+      const shape = difference === 'different shape' ? 'conical' : difference === 'unknown shape' ? 'mystery' : 'sears-haack';
+      const thickness = difference === 'different construction' ? '0.1' : '0';
+      writeFileSync(join(w.dir, 'NoseconeDATA.CSV'), `header\nMadcow,NEW-N,nose,0,10,2,5,0,0,${thickness},${shape},,,,,\n`);
+      expect(w.run()).toBe(0);
+      expect(w.presets()).toHaveLength(2);
+    } finally { rmSync(w.dir, { recursive: true, force: true }); }
+  });
+
+  it('reports a shape conflict for the same part number', () => {
+    const w = world([], [{ kind: 'NoseCone', manufacturer: 'Madcow', partNo: 'NEW-N',
+      outsideDiameter: 2 * IN, length: 10 * IN, shape: 'HAACK', filled: true }]);
+    try {
+      writeFileSync(join(w.dir, 'NoseconeDATA.CSV'), 'header\nMadcow,NEW-N,nose,0,10,2,5,0,0,0,conical,,,,,\n');
+      expect(w.run()).toBe(0);
+      expect(w.presets()).toHaveLength(1);
+      expect(w.report().conflicts[0].fields).toContainEqual({ dim: 'shape', openrocket: 'HAACK', rocksim: 'CONICAL' });
+    } finally { rmSync(w.dir, { recursive: true, force: true }); }
+  });
+
+  it('keeps different shapes within one CSV and deduplicates identical profiles', () => {
+    const w = world([], []);
+    try {
+      writeFileSync(join(w.dir, 'NoseconeDATA.CSV'), ['header',
+        'Madcow,N,nose,0,10,2,5,0,0,0,conical,,,,,',
+        'Madcow,N,nose,0,10,2,5,0,0,0,sears-haack,,,,,',
+        'Madcow,N,nose,0,10,2,5,0,0,0,conical,,,,,',
+      ].join('\n'));
+      expect(w.run()).toBe(0);
+      expect(w.presets().map(p => p.shape)).toEqual(['CONICAL', 'HAACK']);
+    } finally { rmSync(w.dir, { recursive: true, force: true }); }
+  });
+
+  it('also preserves a transition with a different profile', () => {
+    const w = world([], [{ kind: 'Transition', manufacturer: 'Madcow', partNo: 'OLD',
+      foreOutsideDiameter: 2 * IN, aftOutsideDiameter: 3 * IN, length: 10 * IN, shape: 'HAACK', filled: true }]);
+    try {
+      const row = ['Madcow', 'NEW', 'transition', '0', '0', '0', '2', '10', '3', '0', '0', '0', '0', '', '', '', '', '', 'conical'];
+      writeFileSync(join(w.dir, 'TransitionDATA.CSV'), `header\n${row.join(',')}\n`);
+      expect(w.run()).toBe(0);
+      expect(w.presets()).toHaveLength(2);
+    } finally { rmSync(w.dir, { recursive: true, force: true }); }
+  });
+
   it('omits and reports inherited material names from CSV cells', () => {
     const w = world(['constructor', 'toString', '__proto__'].map((material, i) =>
       `Estes,TEST-${i},tube,0,1,1.1,${12 + i},${material},,2,20`), []);

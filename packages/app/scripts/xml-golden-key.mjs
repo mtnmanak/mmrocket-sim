@@ -36,6 +36,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
+import * as ts from 'typescript';
 
 /** Where the walk starts: the module the golden script bundles and runs. */
 export const KEY_ROOT = 'src/services/xmlParseParity.ts';
@@ -45,9 +46,22 @@ export const KEY_ROOT = 'src/services/xmlParseParity.ts';
  *  (xmlParseJs.ts is not reachable from the root at all; named for the reader.) */
 export const KEY_EXCLUDED = ['src/services/xmlParse.ts', 'src/services/xmlParseJs.ts'];
 
-// `import x from './y.js'`, `export * from './y.js'`, `import './y.js'` and
-// `import('./y.js')`; group 1 marks `import type` / `export type`.
-const IMPORT = /(?:^|[\s;])(?:import|export)\s+(type\s+)?(?:[^'"`;]*?\sfrom\s+)?['"]([^'"]+)['"]|\bimport\(\s*['"]([^'"]+)['"]\s*\)/gm;
+function importSpecifiers(file) {
+  const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
+  const specs = new Set();
+  const visit = node => {
+    if ((ts.isImportDeclaration(node) && !node.importClause?.isTypeOnly)
+      || (ts.isExportDeclaration(node) && !node.isTypeOnly)) {
+      if (node.moduleSpecifier && ts.isStringLiteralLike(node.moduleSpecifier)) specs.add(node.moduleSpecifier.text);
+    } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword
+      && node.arguments[0] && ts.isStringLiteralLike(node.arguments[0])) {
+      specs.add(node.arguments[0].text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return specs;
+}
 
 const toRel = (app, p) => relative(app, p).split(sep).join('/');
 
@@ -69,9 +83,8 @@ export function importerKeyFiles(app) {
     if (seen.has(file) || excluded.has(file)) return;
     seen.add(file);
     if (!/\.(ts|tsx|mjs|js)$/.test(file)) return;
-    for (const m of readFileSync(file, 'utf8').matchAll(IMPORT)) {
-      const spec = m[2] ?? m[3];
-      if (m[1] || !spec.startsWith('.')) continue;
+    for (const spec of importSpecifiers(file)) {
+      if (!spec.startsWith('.')) continue;
       const target = resolveSpec(file, spec);
       if (!target) throw new Error(`xml-golden-key: cannot resolve '${spec}' from ${toRel(app, file)}`);
       walk(target);

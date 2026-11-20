@@ -316,6 +316,7 @@ export function createThrustcurveFetch({
       let res;
       try { res = await paced(url, request, () => { started = now(); }); }
       catch (error) {
+        if (started === undefined) throw error;
         throw transportFailure(error, url, started, advisory);
       }
       if (res.headers?.get?.('cf-mitigated') === 'challenge') {

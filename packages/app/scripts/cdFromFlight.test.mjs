@@ -67,6 +67,7 @@ import {
   integrateVelocity,
   main,
   parseCsv,
+  parseArgs,
   prepare,
   solve,
 } from './cdFromFlight.mjs';
@@ -353,6 +354,104 @@ function synthFlight({
   }
   return { accelCsv: `${accel.join('\n')}\n`, baroCsv: `${baro.join('\n')}\n`, truth, cd, massKg, diameterM };
 }
+
+describe('audit input and disclosure regressions', () => {
+  const options = fx => ({ accelText: fx.accelCsv, baroText: fx.baroCsv,
+    massKg: fx.massKg, diameterM: fx.diameterM, siteElevationM: 0 });
+  const withoutGap = (csv, from) => csv.split('\n').filter((line, i) => {
+    const t = Number(line.split(',')[0]);
+    return i === 0 || !(t > from && t < from + 1);
+  }).join('\n');
+
+  it.each(['accelText', 'baroText'])('refuses interior gaps in %s', field => {
+    const fx = synthFlight();
+    const input = options(fx);
+    input[field] = withoutGap(input[field], field === 'accelText' ? 4 : 8);
+    expect(() => analyse(input)).toThrow(/^R6:.*gap/s);
+  });
+
+  it.each(['pressure', 'altitude', 'both'])('refuses a companion coast gap despite a slower post-flight tail (%s)', channel => {
+    const fx = synthFlight();
+    const rows = withoutGap(fx.baroCsv, 8).trimEnd().split('\n');
+    const last = rows.at(-1).split(',');
+    for (let i = 1; i <= 2000; i++) rows.push([Number(last[0]) + i, ...last.slice(1)].join(','));
+    const columns = channel === 'pressure' ? [0, 1] : channel === 'altitude' ? [0, 2] : [0, 1, 2];
+    const baroText = rows.map(row => columns.map(i => row.split(',')[i]).join(',')).join('\n');
+    expect(() => analyse({ ...options(fx), baroText, apogeeS: 17.92 })).toThrow(/^R6:.*gap/s);
+  });
+
+  it('refuses an accelerometer tail-off gap despite a slower post-flight tail', () => {
+    const fx = synthFlight();
+    const rows = fx.accelCsv.trimEnd().split('\n').filter((row, i) => {
+      const time = Number(row.split(',')[0]);
+      return i === 0 || !(time > 4.86 && time < 4.98);
+    });
+    const last = rows.at(-1).split(',');
+    for (let i = 1; i <= 20000; i++) rows.push([Number(last[0]) + i / 25, ...last.slice(1)].join(','));
+    expect(() => analyse({ ...options(fx), accelText: rows.join('\n'), burnoutS: 5, apogeeS: 17.92 }))
+      .toThrow(/^R6:.*gap/s);
+  });
+
+  it('ignores a companion gap before an exact burnout sample', () => {
+    const fx = synthFlight();
+    const opts = { ...options(fx), burnoutS: 5, apogeeS: 17.92 };
+    const complete = analyse(opts);
+    const baroText = fx.baroCsv.split('\n').filter((row, i) => {
+      const time = Number(row.split(',')[0]);
+      return i === 0 || !(time > 4 && time < 5);
+    }).join('\n');
+    expect(analyse({ ...opts, baroText }).band.cd).toBeCloseTo(complete.band.cd, 10);
+  });
+
+  it.each([0, 0.001])('ignores a companion gap after the last required apogee sample (offset=%s)', offset => {
+    const fx = synthFlight();
+    const apogeeS = 17.92 - offset;
+    const complete = analyse({ ...options(fx), apogeeS });
+    const baroText = fx.baroCsv.split('\n').filter((row, i) => {
+      const time = Number(row.split(',')[0]);
+      return i === 0 || !(time > 17.92 && time < 18.92);
+    }).join('\n');
+    const result = analyse({ ...options(fx), baroText, apogeeS });
+    expect(result.band.cd).toBeCloseTo(complete.band.cd, 10);
+  });
+
+  it.each(['feet', 'FT', 'metres', 'nonsense'])('refuses unsupported altitude override %s', altitudeUnit => {
+    expect(() => analyse({ ...options(synthFlight()), altitudeUnit })).toThrow(/^R9:.*altitude-unit/);
+  });
+
+  it('keeps boolean flags separate from the input and rejects typos', () => {
+    expect(parseArgs(['--json', 'flight.csv', '--help'])).toEqual({ _: ['flight.csv'], json: true, help: true });
+    expect(() => parseArgs(['flight.csv', '--pad-temp', '4.4'])).toThrow(/^R9:.*--pad-temp/);
+  });
+
+  it.each([
+    { machBand: [0.72, 0.25] }, { machBand: [-0.1, 0.7] }, { machBand: [0.2, NaN] },
+    { lengthM: -1.2 }, { lengthM: 0 }, { lengthM: Infinity }, { settleS: -0.5 },
+  ])('refuses invalid analysis options %j', bad => {
+    expect(() => analyse({ ...options(synthFlight()), ...bad })).toThrow(/^R9:/);
+  });
+
+  it('carries the low-rate caveat in programmatic, text and JSON results', () => {
+    const fx = synthFlight({ rateHz: 25, baroRateHz: 25, padS: 4 });
+    const summary = analyse(options(fx));
+    expect(summary.lowRate).toBe(true);
+    expect(formatReport(summary)).toContain('LOW RATE');
+    const dir = mkdtempSync(join(tmpdir(), 'flight-rate-'));
+    const logs = [];
+    const log = console.log, error = console.error;
+    try {
+      console.log = line => logs.push(line);
+      console.error = () => {};
+      writeFileSync(join(dir, 'flight.csv'), fx.accelCsv);
+      expect(main(['node', 'cdFromFlight.mjs', '--json', join(dir, 'flight.csv'),
+        '--mass-kg', String(fx.massKg), '--diameter-m', String(fx.diameterM), '--site-elevation-m', '0'])).toBe(0);
+      expect(JSON.parse(logs[0]).lowRate).toBe(true);
+    } finally {
+      console.log = log; console.error = error;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 /** The options every synthetic solve shares. */
 const synthOpts = (fx, extra = {}) => ({

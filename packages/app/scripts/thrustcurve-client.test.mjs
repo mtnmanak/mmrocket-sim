@@ -32,6 +32,21 @@ function harness(answers, options = {}) {
 
 const challenge = { status: 403, headers: { 'cf-mitigated': 'challenge' }, body: '<title>Just a moment...</title>' };
 
+it('does not latch a configuration failure as a transport outage', async () => {
+  vi.stubEnv('THRUSTCURVE_INTERVAL_MS', 'fast');
+  try {
+    const { client, sent } = harness([], { intervalMs: undefined });
+    for (let i = 0; i < 3; i++) {
+      await expect(client('https://example.invalid/config')).rejects.toThrow(/^THRUSTCURVE_INTERVAL_MS/);
+    }
+    expect(sent).toEqual([]);
+    vi.stubEnv('THRUSTCURVE_INTERVAL_MS', '5000');
+    expect((await client('https://example.invalid/recovered')).status).toBe(200);
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
 it.each([429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 530])('latches HTTP %s after bounded retries', async status => {
   const { client, sent, slept } = harness(Array.from({ length: 4 }, () => ({ status, delay: 120_000 })));
   expect((await client('https://www.thrustcurve.org/a')).status).toBe(status);

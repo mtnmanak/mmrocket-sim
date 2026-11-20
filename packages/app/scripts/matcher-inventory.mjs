@@ -1,4 +1,10 @@
 /** Number each element by its nearest simulation, without per-motor array searches. */
+export function matcherBoosterEnabled(el, owner) {
+  return el.tagName === 'SustainerEngine'
+    || (owner?.querySelector(`:scope > ${el.tagName.replace('Engine', '').replace('Booster', 'IncludeBooster')}`)
+      ?.textContent?.trim().toLowerCase() === 'true');
+}
+
 export function simulationNumbers(doc, tag, owners = new WeakMap()) {
   const numbers = new WeakMap();
   const pending = [[doc.documentElement, undefined, undefined]];
