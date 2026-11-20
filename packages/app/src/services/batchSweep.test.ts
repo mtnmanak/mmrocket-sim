@@ -286,6 +286,17 @@ function input(tree: RocketTree, over: Partial<BatchSweepInput> = {}): BatchSwee
 const sweep = (inp: BatchSweepInput, deps: Partial<BatchSweepDeps>, signal = new AbortController().signal) =>
   runBatchSweep(inp, { signal }, { yieldToUi: noYield, ...deps });
 
+it('J10 a single-target sweep retains its typed nozzle exit', async () => {
+  const tree = rocket({ nozzleExitDiameter: 0.01, sideMount: true, deployEvent: 'apogee' });
+  const candidate = entry('j10', 'Acme', 'E20', '5');
+  const { rows } = await sweep(input(tree, { candidates: [candidate], autoDelay: false,
+    assignedMotorIds: { mount: candidate.motorId }, assignedIgnitions: { mount: { event: 'launch', delay: 2 } },
+  }), { fetchSpec: fetchFrom({ j10: curve('E20') }), nozzleFor: nozzles({ j10: 0.008 }) });
+  expect(rows[0]!.error).toBeUndefined();
+  expect(rows[0]!.exitM).toBeCloseTo(0.01, 12);
+  expect(rows[0]!.run!.nozzleStages).toEqual(['Sustainer']);
+}, 60_000);
+
 it('143 records flown loadouts for single and combination rows without claiming the design configuration', async () => {
   const tree = clusterRocket('4-ring', 'apogee');
   const candidates = [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')];
@@ -365,7 +376,7 @@ it('Round 5 reserves split-group names against kept design mounts on every discl
     expect(run.batchMounts!.filter(m => m.role === 'candidate').map(m => m.mountName)).toEqual(candidateNames);
     if (row.combo) expect(run.delayResolution!.mounts.filter(m => m.mountId !== 'side').map(m => m.mountName)).toEqual(candidateNames);
     expect(batchLoadoutText(run)).toContain('in Cluster (pair A)');
-    expect(runsToTable([run]).rows[0]!.slice(-3, -1)).toEqual([candidateNames.join('; '), 'E20 in Cluster (pair A)']);
+    expect(runsToTable([run]).rows[0]!.slice(-4, -2)).toEqual([candidateNames.join('; '), 'E20 in Cluster (pair A)']);
     expect(runsToCsv([run])).toContain(`${candidateNames.join('; ')},E20 in Cluster (pair A)`);
   }
 }, 60_000);
@@ -420,7 +431,7 @@ it('Round 7 preserves typographic quotes in frozen records and both export colum
     ['3” MMT', '“Candidate”'], ['54mm “main” tube', '“Kept”'],
   ]);
   expect(batchLoadoutText(run)).toBe('“Candidate” in 3” MMT; “Kept” in 54mm “main” tube');
-  expect(runsToTable([run]).rows[0]!.slice(-3, -1)).toEqual(['3” MMT', '“Kept” in 54mm “main” tube']);
+  expect(runsToTable([run]).rows[0]!.slice(-4, -2)).toEqual(['3” MMT', '“Kept” in 54mm “main” tube']);
   expect(runsToCsv([run])).toContain('3” MMT,\u201cKept\u201d in 54mm “main” tube');
 }, 60_000);
 
@@ -2109,7 +2120,7 @@ it('124 sweeps every target with its own ignition, sums nozzle counts and freeze
   expect(row.run!.batchTargetMountIds).toEqual(setup.targetMountIds);
   expect(row.run!.batchMounts?.map(m => [m.mountId, m.role])).toEqual(setup.mounts.map(m => [m.id, 'candidate']));
   expect(fly.mock.calls[0]![1].assigned.map(([id, m]) => [id, m.ignition])).toEqual(Object.entries(ignitions));
-  expect(runsToTable([row.run!]).rows[0]?.slice(-3, -1)).toEqual(['MMT 1; MMT 2; MMT 3; MMT 4', '']);
+  expect(runsToTable([row.run!]).rows[0]?.slice(-4, -2)).toEqual(['MMT 1; MMT 2; MMT 3; MMT 4', '']);
   expect(batchLoadoutText(row.run!)).toBe('E20 in MMT 1, MMT 2, MMT 3, MMT 4');
   const table = runsToTable([row.run!]);
   expect(table.rows[0]![table.headers.indexOf('Motors (cluster)')]).toBe(4);

@@ -14,6 +14,7 @@ import { normalizeFlightAdvisories } from '../prefs/flightAdvisories.js';
 import { validWindLevels, validWindProfileSource } from './windProfile.js';
 import { batchLoadoutText, batchOtherMountsText, candidateDelayText, flownLoadoutText, namedBatchMounts, validBatchMounts } from './batchLoadout.js';
 import { noteText } from './noteField.js';
+import { guideExitValueSources } from './guideExitValues.js';
 
 /**
  * Persisted simulation-run history (localStorage). the owner's flight-day flow:
@@ -63,6 +64,10 @@ export function loadRuns(): SimRun[] {
       typeof r === 'object' && r !== null && !Array.isArray(r)
       && typeof (r as { id?: unknown }).id === 'string');
     for (const r of list) {
+      if (!Array.isArray(r.launchGuideDesignValues)
+        || !r.launchGuideDesignValues.every(key => key === 'cg' || key === 'cp' || key === 'stability')) {
+        delete r.launchGuideDesignValues;
+      }
       for (const key of ['motorSetKey', 'designKey', 'conditionsKey', 'motorConfig', 'flightConfig', 'flightConfigId', 'motorType', 'propellant', 'motorCase', 'motorDesignation', 'importedRunId'] as const) {
         if (typeof r[key] !== 'string') delete r[key];
       }
@@ -589,6 +594,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
     : r.batch === true && (r.batchTargetMountIds?.length ?? 0) > 1 ? 'installed in candidate mounts'
     : r.batch === true || r.motorConfig ? 'candidate group'
     : validBatchMounts(r.batchMounts) ? 'installed in complete flight' : 'primary mount/group'],
+  ['Guide-exit value sources', guideExitValueSources],
   ];
 }
 

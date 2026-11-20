@@ -9,6 +9,7 @@ import { finRootChord } from '../tree/finTab.js';
 import { finOutline } from './finTemplate.js';
 import { paperRingDimensions, paperRingOuterRadius } from './paperTemplates.js';
 import { validDelayResolution } from './autoDelaySolver.js';
+import { guideExitValueSources } from './guideExitValues.js';
 import { formatWarning } from './simWarnings.js';
 import { loadoutBatch, recordedConfiguration, runConfigurationHeading } from './runConfiguration.js';
 import { dataHeaderLines, EXPORT_VARS } from './schematicExport.js';
@@ -163,10 +164,10 @@ export function designPrintHtml(input: DesignPrintInput): string {
       if (anyAverage) body.push(`<p>${e(PRINTED_AVERAGE_NOTE)} Source: <a href="${e(PUBLISHED_DELAYS_URL)}" target="_blank" rel="noopener noreferrer">AeroTech’s certification documents</a>.</p>`);
     } else {
       body.push(note(run.delayResolution === undefined
-        ? 'Legacy scalar delay evidence. Other mounts’ delays are not recorded; do not apply the primary motor’s recommendation to them.'
-        : 'Per-mount delay evidence is invalid or incomplete. Only the recorded primary motor scalar is shown; other mounts’ delays cannot be established.', 'caution'),
+        ? 'Legacy scalar delay evidence. Other mounts’ delays are not recorded. The summary optimum is not established as a primary-mount charge delay.'
+        : 'Per-mount delay evidence is invalid or incomplete. Only the recorded scalar summary is shown; other mounts’ delays cannot be established. The summary optimum is not established as a primary-mount charge delay.', 'caution'),
       p(`Primary motor ejection delay flown: ${run.delayS === Infinity ? 'plugged — no ejection charge' : sec(run.delayS)}`),
-      p(`${run.delayS === Infinity ? 'Hypothetical primary motor-eject recommendation (motor has no ejection charge). ' : ''}Primary motor optimal delay: ${sec(run.optimumDelayS)}; recommended drill-to-fit delay: ${sec(run.recommendedDelayS)}`));
+      p(`${run.delayS === Infinity ? 'Hypothetical motor-eject recommendation (primary motor has no ejection charge). ' : ''}Legacy summary optimum: ${sec(run.optimumDelayS)}; recommended drill-to-fit delay: ${sec(run.recommendedDelayS)}`));
     }
     const results = [
       `Apogee: ${val('altitude', run.maxAltitude)}; time to apogee: ${sec(run.timeToApogee)}`,
@@ -174,6 +175,7 @@ export function designPrintHtml(input: DesignPrintInput): string {
       `Peak acceleration: ${val('acceleration', run.maxAcceleration)}`,
       `Launch mass: ${val('mass', run.launchMass)}; recovery mass: ${val('mass', run.burnoutMassSettled ? run.burnoutMass : null)}`,
       `Launch CG: ${val('length', run.launchCG, 3)}; launch CP: ${val('length', run.launchCP, 3)}`,
+      `Guide-exit value sources: ${guideExitValueSources(run)}`,
       `Launch stability: ${stability.value} ${stability.unit}`,
       `Guide exit speed: ${val('velocity', run.rodExitVelocity)}; thrust : weight: ${run.thrustToWeightAtRod ?? 'Unknown'}`,
       `Wind: ${val('windspeed', run.windAvg)}; density altitude: ${val('altitude', run.densityAltitudeM)}`,

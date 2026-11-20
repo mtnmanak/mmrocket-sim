@@ -1023,3 +1023,8 @@ it('R9 caps impulse percentages and retains small nonzero certified impulse',()=
     expect(m[0].split('e')[0]!.replace(/[^0-9]/g,'').replace(/^0+/,'').replace(/0+$/,'').length,text).toBeLessThanOrEqual(6);
   }
 });
+// J10 r2: BatchSimulate returns 20 -> 19 after removing the obsolete
+// single-target ignition disclosure under ruling 157 (implemented by J23).
+// The remaining full-input/nozzle comparison copy adds no measured comparison
+// or safety threshold. BatchSimulate.sweep checks that copy with and without
+// a typed nozzle exit; designPrintReport checks legacy summary delay wording.

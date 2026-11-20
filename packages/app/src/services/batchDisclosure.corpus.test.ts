@@ -76,7 +76,7 @@ it.skipIf(!file)('discloses the owner’s four separate mounts on two real batch
       ? `Batch · K1499N in ${target.label}, ${others.map(m => m.label).join(', ')}`
       : `Batch · M1780NT in ${target.label}; K1499N in ${others.map(m => m.label).join(', ')}`);
     const expectedTail = [target.label, `K1499N in ${others.map(m => m.label).join(', ')}`];
-    expect(runsToTable([run]).rows[0]?.slice(-3, -1)).toEqual(expectedTail);
+    expect(runsToTable([run]).rows[0]?.slice(-4, -2)).toEqual(expectedTail);
     expect(runsToCsv([run])).toContain(`,"${expectedTail[1]}"`);
   }
 }, 120_000);

@@ -40,7 +40,7 @@ it('explains following suggestions consistently in both file guidance sections',
   expect(where).toContain('even after saving it again');
   const rule = markdown.split('**Save .ork offers**')[1].split('\n\n')[0];
   expect(rule).toContain('Designs saved before this update keep their saved file name');
-  expect(rule).toContain("default name New Rocket, which now follows the rocket's name");
+  expect(rule).toContain("default name (New_Rocket or My_Rocket), which now follows the rocket's name");
   const header = markdown.split('\n\nThe header shows')[1].split('\n\n')[0];
   expect(header).toContain('current suggestion');
   expect(header).toContain('in parentheses');

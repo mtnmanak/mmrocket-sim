@@ -36,6 +36,30 @@ const mkRun = (id: string, over: Partial<SimRun> = {}): SimRun =>
     ...over,
   }) as SimRun;
 
+it('J10 preserves and exports guide-exit fallback provenance without changing numbers', () => {
+  const run = mkRun('fallback', { launchCG: 0.26, launchCP: 0.29, launchStaticMarginCal: 1.3,
+    launchGuideDesignValues: ['cg', 'cp', 'stability'] });
+  addRun(run);
+  const [saved] = loadRuns();
+  expect(saved?.launchGuideDesignValues).toEqual(['cg', 'cp', 'stability']);
+  const table = runsToTable([saved!]);
+  const col = table.headers.indexOf('Guide-exit value sources');
+  expect(col).toBeGreaterThan(-1);
+  expect(table.rows[0]![col]).toContain('CG: design estimate; no guide-exit sample');
+  expect(table.rows[0]![col]).toContain('CP: design estimate; no guide-exit sample');
+  expect(table.rows[0]![col]).toContain('Static margin: design estimate; no guide-exit sample');
+  expect(runsToCsv([saved!])).toContain('Guide-exit value sources');
+});
+
+it.each([{}, ['not-a-source'], 'cg'])('J10 drops malformed guide-exit provenance: %j', bad => {
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([
+    mkRun('bad-source', { launchCG: 0.26, launchGuideDesignValues: bad } as unknown as Partial<SimRun>),
+  ]));
+  const [saved] = loadRuns();
+  expect(saved).not.toHaveProperty('launchGuideDesignValues');
+  expect(runsToCsv([saved!])).toContain('CG: source not recorded');
+});
+
 it.each([7, true, {}, { toString: 0 }] as unknown[])('cleans unreadable report children and motor designation: %j', bad => {
   localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ ...mkRun('bad'),
     motorDesignation: bad, recommendedDelayS: bad, weathercockRisk: bad, hybridBand: [bad, 1],
@@ -303,12 +327,13 @@ it.each([-1, '2', {}, Infinity])('invalid stored last deployment ground speed %j
 it('appends gust sigma to CSV/XLSX headers in wind units, leaving legacy cells blank', () => {
   const list = [mkRun('calm', { windSigma: 0 }), mkRun('gusty', { windSigma: 1 }), mkRun('old', { conditionsKey: '{"windStdDev":9}' })];
   const table = runsToTable(list, IMPERIAL_UNITS);
-  expect(table.headers.slice(-4)).toEqual(['Wind gusts σ at pad (mph)', 'Batch candidate mount', 'Batch other mounts', 'Motor count scope']);
-  expect(table.rows.map(row => row.slice(-4, -1))).toEqual([[0, '', ''], [2.2, '', ''], ['', '', '']]);
+  expect(table.headers.slice(-5)).toEqual(['Wind gusts σ at pad (mph)', 'Batch candidate mount', 'Batch other mounts', 'Motor count scope', 'Guide-exit value sources']);
+  expect(table.rows.map(row => row.slice(-5, -2))).toEqual([[0, '', ''], [2.2, '', ''], ['', '', '']]);
   const csv = runsToCsv(list, IMPERIAL_UNITS).split('\n');
-  expect(csv[0]?.endsWith('Wind gusts σ at pad (mph),Batch candidate mount,Batch other mounts,Motor count scope')).toBe(true);
-  expect(csv[2]?.endsWith(',2.2,,,primary mount/group')).toBe(true);
-  expect(csv[3]?.endsWith(',,,,primary mount/group')).toBe(true);
+  const source = 'CG: unavailable; CP: unavailable; Static margin: unavailable';
+  expect(csv[0]?.endsWith('Wind gusts σ at pad (mph),Batch candidate mount,Batch other mounts,Motor count scope,Guide-exit value sources')).toBe(true);
+  expect(csv[2]?.endsWith(`,2.2,,,primary mount/group,${source}`)).toBe(true);
+  expect(csv[3]?.endsWith(`,,,,primary mount/group,${source}`)).toBe(true);
 });
 
 it.each([null, -1, '2', {}, Infinity])('invalid stored gust sigma %j becomes unknown', windSigma => {

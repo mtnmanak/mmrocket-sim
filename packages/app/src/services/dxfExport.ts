@@ -55,11 +55,10 @@ import { finRootChord, finTabSpan } from '../tree/finTab.js';
  *   downward; DXF's grows upward, so the fin planform passes straight
  *   through — span grows +Y, chord runs +X, and a through-the-wall tab hangs
  *   below y = 0 exactly as the kernel models it.
- * - **One closed contour per part outline.** A fin with a TTW tab merges the
- *   tab into the outline (finCutOutline, shared with the STL prism) instead
- *   of drawing the tab as a separate box: CAM offsets a single closed path
- *   correctly, whereas two overlapping open paths cut a slot through the
- *   root.
+ * - **One closed contour per disconnected fin region.** finCutContours
+ *   merges a TTW tab where it touches the seated fin; separate lobes or a
+ *   disconnected tab retain their own closed paths. CAM can offset each
+ *   region without overlapping open paths cutting a slot through the root.
  *
  * Layers, so the operator can pick what actually gets cut:
  *   CUT        closed contours — the part outline and every bore
@@ -288,8 +287,8 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string,
     case 'trapezoidfinset':
     case 'ellipticalfinset':
     case 'freeformfinset': {
-      // The MERGED outline (tab folded into the root edge) — a cutter wants
-      // one closed path, not an outline overlapping a tab box.
+      // Merge a touching tab into each connected region's closed path, rather
+      // than drawing an overlapping tab box. Separate regions stay separate.
       //
       // collapseLoop() is not optional. The merge butts the tab's first corner
       // against the outline's last point, so the two coincide whenever the tab

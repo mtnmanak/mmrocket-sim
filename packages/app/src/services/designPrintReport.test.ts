@@ -32,6 +32,14 @@ const input = { tree, info, units: IMPERIAL_UNITS, radiusMode: 'diameter' as con
   stabilityUnit: 'both' as const, withMotors: true, appVersion: 'test', run, changedSince: ['the design'], };
 function doc(html: string) { return new DOMParser().parseFromString(html, 'text/html').body; }
 
+it('J10 prints static fallback provenance beside the flight values', () => {
+  const body = doc(designPrintHtml({ ...input, run: { ...run, launchCG: 0.26, launchCP: 0.29,
+    launchStaticMarginCal: 1.3, launchGuideDesignValues: ['cg', 'cp', 'stability'] } }));
+  expect(body.textContent).toContain('CG: design estimate; no guide-exit sample');
+  expect(body.textContent).toContain('CP: design estimate; no guide-exit sample');
+  expect(body.textContent).toContain('Static margin: design estimate; no guide-exit sample');
+});
+
 it.each(['G80T in Inner Tube', 'E30T in Tube 1, Tube 3; E20 in Tube 2, Tube 4', 'Batch loadout not recorded'])(
   'r4-1 prints the batch loadout once without a quoted configuration: %s', flightConfig => {
     const body = doc(designPrintHtml({ ...input, run: { ...run, batch: true, flightConfig } }));
@@ -500,16 +508,18 @@ it('keeps hypothetical-charge and burnout cautions beside the mount delay they q
   expect(row?.textContent).toContain('limited by burnout');
   expect(row?.querySelector('.caution')?.textContent).toContain(LATE_BURNOUT_CAUTION);
 });
-it('scopes scalar-only legacy evidence to the primary motor and distinguishes plugged from missing', () => {
+it('scopes scalar-only legacy delay evidence and distinguishes plugged from missing', () => {
   const d = doc(designPrintHtml({ ...input, run: { ...run, motorCount: 4, delayS: 7,
     optimumDelayS: 6.8, recommendedDelayS: 7 } }));
   expect(d.textContent).toContain('Legacy scalar delay evidence');
   expect(d.textContent).toContain('Other mounts’ delays are not recorded');
   expect(d.textContent).toContain('Primary motor ejection delay flown: 7 s');
-  expect(d.textContent).toContain('Primary motor optimal delay: 6.8 s; recommended drill-to-fit delay: 7 s');
+  expect(d.textContent).toContain('Legacy summary optimum: 6.8 s; recommended drill-to-fit delay: 7 s');
+  expect(d.textContent).not.toContain('Primary motor optimal delay:');
+  expect(d.textContent).toContain('The summary optimum is not established as a primary-mount charge delay.');
   const plugged = doc(designPrintHtml({ ...input, run: { ...run, delayS: Infinity } }));
   expect(plugged.textContent).toContain('Primary motor ejection delay flown: plugged — no ejection charge');
-  expect(plugged.textContent).toContain('Hypothetical primary motor-eject recommendation');
+  expect(plugged.textContent).toContain('Hypothetical motor-eject recommendation');
   const missing = doc(designPrintHtml({ ...input, run: { ...run, delayS: NaN } }));
   expect(missing.textContent).toContain('Primary motor ejection delay flown: Unknown');
 });

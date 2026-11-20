@@ -39,6 +39,22 @@ vi.mock('../services/saveFile.js', async (importOriginal) => ({
 }));
 const sweep = vi.mocked(runBatchSweep);
 
+it('J10 qualifies flight matching even without a published nozzle', () => {
+  mount({ assignedIgnitions: { mount: { event: 'launch', delay: 2 } } });
+  expect(host.textContent).not.toContain('Automatic ignition with zero delay');
+  expect(host.textContent).not.toContain('replacing its assigned ignition');
+  expect(host.textContent).toContain('same complete loadout, ignition, delay policies');
+  expect(host.textContent).not.toContain('matches your design-page flight exactly');
+});
+
+it('J10 promises only a matching nozzle value on a delayed target with a typed exit', () => {
+  const tree = { ...TREE, components: [{ ...TREE.components[0]!, nozzleExitDiameter: 0.01 }] };
+  mount({ tree, assignedIgnitions: { mount: { event: 'launch', delay: 2 } } });
+  expect(host.querySelector('.batch-nozzle')?.textContent).toContain('same nozzle value');
+  expect(host.querySelector('.batch-nozzle')?.textContent).not.toContain('flight exactly');
+  expect(host.textContent).not.toContain('Automatic ignition with zero delay');
+});
+
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const TREE: RocketTree = {

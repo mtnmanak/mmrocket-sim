@@ -561,6 +561,8 @@ export interface SimRun extends WindProfileConditions, AeroProvenance {
   launchCG: number | null;
   launchCP: number | null;
   launchStaticMarginCal: number | null;
+  /** Explicit fallback provenance. Absent on older saved runs; [] means no design substitutes. */
+  launchGuideDesignValues?: ('cg' | 'cp' | 'stability')[];
   /**
    * The same margin as a percentage of aerodynamic length. Recorded at build
    * time because a stored run has no rocket to re-measure. Absent on runs
@@ -2230,6 +2232,8 @@ export function buildSimRun(input: {
   const launchCP = sampleAt(series.cpLocation, iRodClear) ?? (staticLift ? shownCp(info) : null);
   const launchStaticMarginCal = sampleAt(series.stability, iRodClear)
     ?? (staticLift ? shownStability(info) : null);
+  const launchGuideDesignValues = (['cg', 'cp', 'stability'] as const).filter(key =>
+    sampleAt(key === 'cg' ? series.cgLocation : key === 'cp' ? series.cpLocation : series.stability, iRodClear) === null);
   // The flight-series margin (calibers, at launch) rescaled onto the same
   // denominator the design views use, so the Results tab can honour the
   // stability-unit preference without re-deriving anything.
@@ -2692,6 +2696,7 @@ export function buildSimRun(input: {
     launchCG,
     launchCP,
     launchStaticMarginCal,
+    launchGuideDesignValues,
     launchStaticMarginPct,
     altitudeAtDeployment,
     velocityAtDeployment,

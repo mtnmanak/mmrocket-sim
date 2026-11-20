@@ -33,7 +33,7 @@ it('round trips complete batch evidence and drops a bad vector without repairing
 
 it('appends batch tail columns shared by CSV and XLSX, preserving all previous positions', () => {
   const table = runsToTable([row('batch', { batch: true, batchMounts: mounts }), row('ordinary', { batchMounts: mounts }), row('legacy', { batch: true })]);
-  expect(table.headers.slice(0, -3)).toEqual([
+  expect(table.headers.slice(0, -4)).toEqual([
     'Designation', 'Apogee (ft)', 'Velocity (mph)', 'Manufacturer', 'Diameter (mm)', 'Type', 'Propellant', 'Case',
     'T:W', 'Guide (mph)', 'Accel (Gs)', 'Delay (s)', 'Pad Weight (g)', 'Recovery Weight (g)', 'Date', 'Rocket',
     'Max altitude (m)', 'Max velocity (m/s)', 'Max Mach', 'Max acceleration (m/s2)', 'Max roll rate (r/s)',
@@ -52,22 +52,22 @@ it('appends batch tail columns shared by CSV and XLSX, preserving all previous p
     'Angle of attack at max q·α (rad)', 'Angle of attack at max q·α (deg)', 'Hybrid band lower (Mach)',
     'Hybrid band upper (Mach)', 'Travel for 15.0 m/s (m)', 'Overrides', 'Status', 'Wind gusts σ at pad (m/s)',
   ]);
-  expect(table.headers.slice(-3)).toEqual(['Batch candidate mount', 'Batch other mounts', 'Motor count scope']);
-  expect(table.rows.map(r => r.slice(-3, -1))).toEqual([['MMT 1', 'K1499N in MMT 2'], ['', ''], ['', '']]);
+  expect(table.headers.slice(-4)).toEqual(['Batch candidate mount', 'Batch other mounts', 'Motor count scope', 'Guide-exit value sources']);
+  expect(table.rows.map(r => r.slice(-4, -2))).toEqual([['MMT 1', 'K1499N in MMT 2'], ['', ''], ['', '']]);
   expect(table.rows[0]?.[table.headers.indexOf('Motors (cluster)')]).toBe(1);
   expect(table.rows[0]?.[table.headers.indexOf('Flight config')]).toBe('Batch · M1780NT in MMT 1; K1499N in MMT 2');
   expect(table.rows[2]?.[table.headers.indexOf('Flight config')]).toBe('');
   const csv = runsToCsv([row('batch', { batch: true, batchMounts: mounts })]).split('\n');
   expect(csv[0]).toBe(table.headers.join(','));
-  expect(csv[1]?.endsWith(',MMT 1,K1499N in MMT 2,candidate group')).toBe(true);
+  expect(csv[1]?.endsWith(',MMT 1,K1499N in MMT 2,candidate group,CG: unavailable; CP: unavailable; Static margin: unavailable')).toBe(true);
 });
 
 it('Round 2 keeps duplicate mount numbering across both export columns and rejects truthy flags', () => {
   const batchMounts = [mounts[0]!, mounts[1]!, { ...mounts[1]!, mountId: 'c' }, { ...mounts[1]!, mountId: 'd' }]
     .map(m => ({ ...m, mountName: 'Inner Tube' }));
   const table = runsToTable([row('batch', { batch: true, batchMounts }), row('bad-flag', { batch: 'true' as never, batchMounts })]);
-  expect(table.rows[0]?.slice(-3, -1)).toEqual(['Inner Tube 1', 'K1499N in Inner Tube 2, Inner Tube 3, Inner Tube 4']);
-  expect(table.rows[1]?.slice(-3, -1)).toEqual(['', '']);
+  expect(table.rows[0]?.slice(-4, -2)).toEqual(['Inner Tube 1', 'K1499N in Inner Tube 2, Inner Tube 3, Inner Tube 4']);
+  expect(table.rows[1]?.slice(-4, -2)).toEqual(['', '']);
   const csv = runsToCsv([row('batch', { batch: true, batchMounts })]);
   expect(csv).toContain('Inner Tube 1,"K1499N in Inner Tube 2, Inner Tube 3, Inner Tube 4"');
 });

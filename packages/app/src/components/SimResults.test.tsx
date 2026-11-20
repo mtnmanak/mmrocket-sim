@@ -101,6 +101,17 @@ it('row 127 renders the stored thrust warning as Danger in the launch report', (
   expect(host.textContent).toContain('simulation does not show this turn');
 });
 
+it('J10 labels static substitutes separately from guide-exit measurements', () => {
+  const saved: SimRun = { ...run(), launchCG: 0.26, launchCP: 0.29, launchStaticMarginCal: 1.3,
+    launchGuideDesignValues: ['cg', 'cp', 'stability'] };
+  render(<SimRunDetails run={saved} />);
+  act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Show all details')!.click());
+  for (const label of ['CG', 'CP', 'Static margin']) {
+    expect(host.textContent).toContain(`${label} (design estimate; no guide-exit sample)`);
+    expect(host.textContent).not.toContain(`${label} at launch guide exit`);
+  }
+});
+
 it('N046 opens a flight warning explanation from its unchanged code and keeps the tier', () => {
   const saved = run();
   saved.simWarnings = [{ key: 'NO_RECOVERY_DEVICE', message: '[Warning.NO_RECOVERY_DEVICE]' }];

@@ -1,5 +1,6 @@
 import { recordedConfiguration, runConfigurationHeading, runConfigurationLabel, runStatus } from '../services/runConfiguration.js';
 import { batchLoadoutText, candidateDelayText, flownLoadoutText } from '../services/batchLoadout.js';
+import { guideExitValueLabel } from '../services/guideExitValues.js';
 import type { DesignMatchKey } from '../services/simReport.js';
 import { deploymentRole, openingPolicy } from '../services/simReport.js';
 import { normalizeFlightAdvisories } from '../prefs/flightAdvisories.js';
@@ -407,15 +408,15 @@ export function SimRunDetails({ run, hasSeries, changedSince, mountOrder }: {
                   sits forward of the Design tab's. At zero wind they agree. */}
               <Row label="Angle of attack at launch guide exit"
                 value={run.rodExitAoa == null || !Number.isFinite(run.rodExitAoa) ? '—' : fmtSi('angle', prefs.units.angle, run.rodExitAoa, prefs.units.angle === '°' ? 1 : 3)} quantity="angle" />
-              <Row label="CG at launch guide exit"
+              <Row label={guideExitValueLabel(run, 'cg')}
                 value={run.launchCG === null ? '—' : fmtSi('length', len, run.launchCG, 3)} quantity="length" />
-              <Row label="CP at launch guide exit"
+              <Row label={guideExitValueLabel(run, 'cp')}
                 value={run.launchCP === null ? '—' : fmtSi('length', len, run.launchCP, 3)} quantity="length" />
               {(() => {
                 const m = formatRunStability(
                   run.launchStaticMarginCal, run.launchStaticMarginPct, prefs.stabilityUnit);
                 return (
-                  <Row label="Static margin at launch guide exit" value={m.value} unit={m.unit}
+                  <Row label={guideExitValueLabel(run, 'stability')} value={m.value} unit={m.unit}
                     bad={stabilityState(run.launchStaticMarginCal) === 'under'}
                     warn={stabilityState(run.launchStaticMarginCal) === 'over'} />
                 );
