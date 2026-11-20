@@ -2,7 +2,7 @@ import type { FlightEvent, FlightSeries } from '@online-openrocket/engine';
 import type { Preferences } from './prefs/PrefsContext.js';
 import { siToUi, uiToSi, type Quantity } from './prefs/units.js';
 import { exportColumnCatalog } from './services/flightDataCsv.js';
-import { CHART_TOKENS, LIGHT_PALETTE, LINE_STYLES, REFERENCE_DASH, lineStyle, slotOf, type ChartToken } from './chartTheme.js';
+import { CHART_TOKENS, LIGHT_PALETTE, REFERENCE_DASH, lineStyle, slotOf, type ChartToken } from './chartTheme.js';
 
 export interface SeriesDef {
   key: keyof FlightSeries;
@@ -60,14 +60,17 @@ export class StyleAllocator {
   private readonly used = new Set<string>();
   private readonly C: readonly string[];
   constructor(C: readonly string[]) { this.C = C; }
+  private pair(slot: number, tier: number): string {
+    return `${this.C[slot]!}:${(lineStyle(slot, tier) ?? []).join(',')}`;
+  }
   private take(slot: number, tier: number): Look {
-    this.used.add(`${slot}:${tier}`);
+    this.used.add(this.pair(slot, tier));
     const dash = lineStyle(slot, tier);
     return { color: this.C[slot]!, token: CHART_TOKENS[slot]!, ...(dash ? { dash } : {}) };
   }
   /** Whether a series of quantity `token` may take this pair (rule 3). */
   private free(slot: number, tier: number, token: ChartToken | null): boolean {
-    if (this.used.has(`${slot}:${tier}`)) return false;
+    if (this.used.has(this.pair(slot, tier))) return false;
     return token === 'reference' || (slot !== REFERENCE_SLOT && lineStyle(slot, tier) !== REFERENCE_DASH);
   }
   /** The look for a series of quantity `token`; for null, the next free pair in slot order. */
@@ -210,13 +213,15 @@ export function unusedLook(catalog: readonly SeriesDef[]): Pick<SeriesDef, 'colo
 export function directionDash(member: SeriesDef, catalog: readonly SeriesDef[]):
   { rising: number[] | undefined; falling: number[] | undefined } {
   const slot = member.token ? slotOf(member.token) : null;
-  const candidates = slot === null ? LINE_STYLES : CHART_TOKENS.map((_, tier) => lineStyle(slot, tier + 1));
+  const candidates = Array.from({ length: 64 }, (_, tier) => lineStyle(slot ?? 0, tier + 1));
   const ok = (dash: readonly number[] | undefined) => dash !== REFERENCE_DASH && !sameDash(dash, member.dash)
     && !catalog.some((d) => d.key !== member.key && d.color === member.color && sameDash(d.dash, dash));
   // findIndex, not find: a found SOLID style is `undefined` too.
   const at = candidates.findIndex(ok);
-  const falling = at >= 0 ? candidates[at]
-    : LINE_STYLES[LINE_STYLES.findIndex((dash) => dash !== REFERENCE_DASH && !sameDash(dash, member.dash))];
+  // The full catalog can occupy all eight original styles of a colour.
+  // Never silently reuse an occupied pair when looking for its second style.
+  if (at < 0) throw new Error('No unused chart line style remains for the falling segment.');
+  const falling = candidates[at];
   return { rising: member.dash, falling: falling ? [...falling] : undefined };
 }
 

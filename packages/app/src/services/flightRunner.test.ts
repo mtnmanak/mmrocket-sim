@@ -142,6 +142,21 @@ const staged = (autoDelay: boolean): LaunchInput => ({
   onSupersonicUpgrade: () => {},
 });
 
+it('S7a-b4 keeps the Auto Mach probe inside the reported time limit', async () => {
+  const { handle } = recordingHandle();
+  const simulate = handle.simulate;
+  const limits: (number | undefined)[] = [];
+  handle.simulate = options => {
+    limits.push(options?.maxTime);
+    const flight = simulate(options);
+    flight.summary.maxMachNumber = (options?.maxTime ?? Infinity) > 1 ? 1.1 : 0.3;
+    return flight;
+  };
+  const result = await flyLaunch(handle, { ...staged(false), aeroMode: 'auto', simOptions: { maxTime: 1 } });
+  expect(limits[0]).toBe(1);
+  expect(result.usedSupersonic).toBe(false);
+});
+
 it.each(['constructor', 'toString', '__proto__'])('names a refused Auto mount %s without an inherited label', async id => {
   const { handle } = recordingHandle();
   await expect(flyLaunch(handle, { ...staged(false), assigned: [[id, testMotor()]],

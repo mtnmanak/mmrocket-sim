@@ -30,6 +30,14 @@ function manual(motorIdentity: string, flownDelay: number | 'plugged', mountName
   };
 }
 const resolution = (...mounts: ReturnType<typeof manual>[]) => ({ policy: DELAY_POLICY, mounts, probes: 0, elapsedMs: 0 });
+it('S3a-g7 makes the per-mount delay scroll region keyboard reachable and named', () => {
+  const html = renderToStaticMarkup(<MountDelayReport resolution={resolution(manual('Home/K500', 5))} />);
+  const wrapper = html.match(/<div[^>]*><table>/)?.[0];
+  expect(wrapper).toContain('overflow-x:auto');
+  expect(wrapper).toContain('tabindex="0"');
+  expect(wrapper).toContain('role="region"');
+  expect(wrapper).toContain('aria-label="Ejection delays by mount"');
+});
 it('Round 7 preserves typographic quotes in the resolved Motor column', () => {
   const html = renderToStaticMarkup(<MountDelayReport resolution={resolution(manual('Home/“K500”', 5, '3” MMT'))} />);
   expect(html).toContain('<th scope="row">3” MMT</th><td>“K500”</td>');

@@ -3,12 +3,17 @@ import { afterEach, onTestFinished, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { INITIAL_UNITS } from '../prefs/units.js';
 import {
   importUserMaterialsCsv, loadUserMaterials, materialProblem, readUserMaterials, saveUserMaterials,
   USER_MATERIALS_KEY, userMaterialsToCsv, writeUserMaterials, type UserMaterial,
 } from './userMaterials.js';
 
 const valid: UserMaterial = { kind: 'bulk', name: 'My laminate', density: 1234 };
+it('S3c-g7 names the CSV density column unit even with non-SI preferences', () => {
+  const result = importUserMaterialsCsv('kind,name,density,unit\nbulk,My mix,35000,kg/m3\n', [], { ...INITIAL_UNITS, density: 'g/cm³' });
+  expect(result.reasons.join(' ')).toContain('30000 kg/m³');
+});
 it('names stored built-in collisions and explains that their density was not applied', () => {
   const collision = { kind: 'bulk', name: 'bAlSa', density: 999 };
   localStorage.setItem(USER_MATERIALS_KEY, JSON.stringify([collision, valid]));

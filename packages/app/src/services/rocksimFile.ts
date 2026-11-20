@@ -24,7 +24,7 @@ import { spansOverlap } from '../tree/finAlign.js';
 import { isFinSet } from '../tree/mountAngle.js';
 import { axialLength, positionOf, startFromPosition } from '../tree/position.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, inlineXmlCdata, lookupTable, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
-import { gunzipCapped, unzipMember } from './zipMember.js';
+import { gunzipCapped, unzipMember, MAX_ZIP_MEMBER_BYTES } from './zipMember.js';
 import { shapeParamDefault } from '../tree/shapeProfile.js';
 import { solidContextFor } from '../tree/solidContext.js';
 import { isTailCone, tailConeAsTransition } from '../tree/tailCone.js';
@@ -295,7 +295,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
   // opener with no terminator after it is not a section, and neither is
   // anything after it (no later opener can find a "]]>" the first could not),
   // so the rest of the file passes through verbatim, as the regex left it.
-  xml = inlineXmlCdata(xml);
+  xml = inlineXmlCdata(xml, opts?.maxInflatedBytes ?? MAX_ZIP_MEMBER_BYTES);
   refuseOversizedForeignXml(xml, 'rkt');
   // Through the parser seam (xmlParse.ts); same message as before it.
   const doc = parseXml(xml, 'Not a valid RockSim file (XML parse error)');
@@ -1848,9 +1848,10 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
             const others = i > 65 ? [] : finSets.slice(0, i).filter((_other, j) => spansOverlap(ranges[j]!, ranges[i]!));
             const rotation = others.length > 1 ? interleaveRotation(others[0]!, me, others.slice(1))
               : rotOf(me) + Math.PI / count;
-            const turned = ((rotation - rotOf(me)) * 180 / Math.PI + 360) % 360;
+            const turn = 2 * Math.PI;
+            const turned = ((rotation - rotOf(me)) % turn + turn) % turn;
             me['rotation'] = rotation;
-            cautionNote(notes, 'I21.fin-rotated', `“${noteField(me.name ?? me.type)}” sat at the same angle as “${noteField(clash.name ?? clash.type)}” — rotated ${Math.round(turned)}° to interleave (fine-tune via the set's Rotation field).`);
+            cautionNote(notes, 'I21.fin-rotated', `“${noteField(me.name ?? me.type)}” sat at the same angle as “${noteField(clash.name ?? clash.type)}” — rotated ${noticeQuantity('angle', turned, units)} to interleave (fine-tune via the set's Rotation field).`);
           }
         }
       }
@@ -2802,8 +2803,8 @@ const readDeploymentEvents = (
       continue;
     }
     seen.set(serial, t);
-    if (t.deployEvent === 'apogee' && Math.round(num(ev, 'Type', 0)) === 5) {
-      notes.push(`${noteField(node.name ?? node.type)} ${t.says}.`);
+    if (t.missingAltitude) {
+      notes.push(`${noteField(node.name ?? node.type)} at apogee (the file asks for an altitude but names none).`);
     }
   }
   if (pro.size) cautionNote(notes, 'I11.pro-conditions', 'RockSim Pro conditions for ' + [...pro].join(', ') + ' are not supported; '
@@ -2824,8 +2825,7 @@ interface RktTrigger {
   deployEvent: 'ejection' | 'apogee' | 'altitude';
   deployDelay?: number;
   deployAltitude?: number;
-  /** For a note: "at apogee", "at 152 m", … */
-  says: string;
+  missingAltitude?: true;
 }
 
 /**
@@ -2840,21 +2840,21 @@ function rktTrigger(ev: XmlElement, num: NumReader): RktTrigger | number | null 
     case 0:
       return null;
     case 1:
-      return { deployEvent: 'ejection', says: 'at the ejection charge' };
+      return { deployEvent: 'ejection' };
     case 2: {
       const delay = num(ev, 'DeplyTime', 0);
       return delay > 0
-        ? { deployEvent: 'ejection', deployDelay: delay, says: `at the ejection charge + ${delay} s` }
-        : { deployEvent: 'ejection', says: 'at the ejection charge' };
+        ? { deployEvent: 'ejection', deployDelay: delay }
+        : { deployEvent: 'ejection' };
     }
     case 4:
-      return { deployEvent: 'apogee', says: 'at apogee' };
+      return { deployEvent: 'apogee' };
     case 5: {
       const alt = num(ev, 'DeployAltitude', 0);
       // Altitude trigger with no altitude: apogee is the only honest reading.
       return alt > 0
-        ? { deployEvent: 'altitude', deployAltitude: alt, says: `at ${Math.round(alt)} m` }
-        : { deployEvent: 'apogee', says: 'at apogee (the file asks for an altitude but names none)' };
+        ? { deployEvent: 'altitude', deployAltitude: alt }
+        : { deployEvent: 'apogee', missingAltitude: true };
     }
     default:
       return type;

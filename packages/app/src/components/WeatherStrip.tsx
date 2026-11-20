@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from 'react';
 import { noticeQuantity } from '../prefs/units.js';
 import { Note } from './Note.js';
 import { useOnline } from '../hooks/useOnline.js';
@@ -33,6 +34,11 @@ export function WeatherStrip({ weather, launch, onUndo, onDismiss, onFetchAgain,
   onChange: (v: LaunchConditions) => void;
 }) {
   const { prefs } = usePrefs();
+  const undoFocus = useRef<HTMLInputElement | null>(null);
+  useLayoutEffect(() => {
+    undoFocus.current?.focus();
+    undoFocus.current = null;
+  });
   // Fetch again opens the same dialog ☁ Get weather does, whose every request
   // fails offline — so it greys out with the same reason (review of
   // 2026-09-23: it was the one way into the dialog that stayed live offline).
@@ -43,6 +49,8 @@ export function WeatherStrip({ weather, launch, onUndo, onDismiss, onFetchAgain,
   // ERA5 answer: the valid time in the site's zone, the fetch in yours.
   const year = weather ? showsYear(weather.endpoint) : false;
   const fetchedText = weather ? formatDay(Date.parse(weather.retrievedAt), undefined, year) : '';
+  const returnFocus = (button: HTMLButtonElement) => button.closest('.panel')
+    ?.querySelector<HTMLInputElement>('[data-launch-field="launchAltitudeM"] input')?.focus();
   return (
     <Note tier={stale ? 'caution' : 'information'} className={weather ? 'weather-strip' : undefined} data-weather={weather ? 'strip' : undefined}>
       <span role="status" data-weather="status">
@@ -56,11 +64,15 @@ export function WeatherStrip({ weather, launch, onUndo, onDismiss, onFetchAgain,
         {/* Undo takes back a σ the gust chip worked out from this weather too
             (weatherSnapshot.sigmaEstimate); Dismiss keeps every value, σ
             included, and drops only the notes — the chip's goes with the rest. */}
-        <button type="button" className="file-btn" onClick={onUndo}
+        <button type="button" className="file-btn" onClick={e => {
+          undoFocus.current = e.currentTarget.closest('.panel')
+            ?.querySelector<HTMLInputElement>('[data-launch-field="launchAltitudeM"] input') ?? null;
+          onUndo();
+        }}
           title={'Put back what the applied fields held, and Wind gusts σ if you took the estimate — '
             + 'any you have edited since stay as they are'}>Undo</button>
         {' '}
-        <button type="button" className="file-btn file-btn-ghost" onClick={onDismiss}
+        <button type="button" className="file-btn file-btn-ghost" onClick={e => { returnFocus(e.currentTarget); onDismiss(); }}
           title="Keep every value, an estimated Wind gusts σ included, and stop showing where they came from">Dismiss</button>
         {' — '}
         <WeatherCredit geoNames={weather.place.method === 'search'} />
@@ -78,7 +90,7 @@ export function WeatherStrip({ weather, launch, onUndo, onDismiss, onFetchAgain,
           )}
           {' '}
           <button type="button" className="file-btn"
-            onClick={() => onChange({ ...launch, temperatureC: null, pressureHPa: null })}>
+            onClick={e => { returnFocus(e.currentTarget); onChange({ ...launch, temperatureC: null, pressureHPa: null }); }}>
             Clear both — standard air for {alt(stale.nowAltitudeM)}
           </button>
         </>}

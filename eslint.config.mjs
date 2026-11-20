@@ -4,9 +4,8 @@
 // source — seven in src/App.tsx, one in src/components/StatTiles.tsx, two in
 // src/services/lemivSweep.test.ts — with NO ESLint installed anywhere in the repo.
 // They read as deliberate, reviewed overrides of rules that no tool would ever
-// apply. The eight react-hooks/exhaustive-deps ones sit over an app with 111
-// non-test hook call sites (42 useEffect, 49 useMemo, 19 useCallback, 1
-// useLayoutEffect); the failure they invite is a new effect that copies a
+// apply. The react-hooks/exhaustive-deps ones sit over effects and memos;
+// the failure they invite is a new effect that copies a
 // neighbour's `[physicsKey]` dep array, keeps a stale `launch` closure, and quietly
 // simulates the PREVIOUS pad conditions while looking reviewed.
 //
@@ -32,8 +31,9 @@
 //     (set-state-in-effect, purity, immutability, …): only rules-of-hooks and
 //     exhaustive-deps are wired up, because those are the two the source already
 //     writes suppression comments for
-//   - react-refresh/only-export-components: 10 of 35 .tsx modules deliberately export
-//     both a component and its helpers so the helpers can be unit-tested
+//   - react-refresh/only-export-components: modules deliberately export both a
+//     component and its helpers so the helpers can be unit-tested. Re-measure
+//     the affected modules before enabling this rule (reviewed 2026-11-19).
 //   - four jsx-a11y recommended rules: deliberate interaction patterns still
 //     report hits; the app-only block below records the measured exceptions.
 //   - Prettier: it would rewrite every line and wreck `git blame` on a history this
@@ -602,9 +602,10 @@ export default tseslint.config(
     // They legitimately read the disk and print progress.
     files: [
       'scripts/**/*.mjs',
-      'packages/app/scripts/**/*.mjs',
+      'packages/*/scripts/**/*.mjs',
       'eslint.config.mjs',
       '**/vite.config.ts',
+      '**/vitest.config.ts',
     ],
     languageOptions: { globals: { ...globals.node } },
     rules: { 'no-console': 'off' },
@@ -710,7 +711,7 @@ export default tseslint.config(
   },
 
   {
-    files: ['packages/app/src/headless/**/*.ts', 'packages/api/src/**/*.ts'],
+    files: ['packages/app/src/headless/**/*.ts', 'packages/app/src/services/xmlParseJs.ts', 'packages/api/src/**/*.ts'],
     ignores: ['**/*.test.ts', '**/*.testSupport.ts'],
     rules: { 'no-restricted-imports': ['error', { patterns: [TEST_SUPPORT_RESTRICTION] }] },
   },

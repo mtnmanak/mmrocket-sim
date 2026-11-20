@@ -273,9 +273,9 @@ async function flyFromCleanHandle(
   if (aeroMode === 'auto' && !usedSupersonic) {
     const probe = rocket.simulate({
       ...simOptions,
-      maxTime: machProbeSeconds(input.assigned.map(([id, mm]) => ({
+      maxTime: Math.min(simOptions.maxTime ?? Infinity, machProbeSeconds(input.assigned.map(([id, mm]) => ({
         ...mm, onLaunchStage: input.isOnLaunchStage(id),
-      }))),
+      })))),
     });
     if (probe.summary.maxMachNumber > MACH_AUTO_THRESHOLD) upgrade();
   }

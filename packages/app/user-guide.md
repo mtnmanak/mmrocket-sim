@@ -375,6 +375,8 @@ The link is saved with the design — in `.ork` and `.rkt` files and in share li
 
 ## Fins
 
+In the freeform fin coordinate table, **Insert after** adds the midpoint of the edge after that row, including the leading edge. It works with the keyboard as well as a pointer; **+ Add point** still splits the last edge.
+
 Adding a fin set with **+ Add** places its fins between all existing fin sets on that tube, choosing the widest angular clearance. Existing sets keep their rotations. Check physical clearance when mixing fin counts or tube fins.
 
 When a RockSim import rotates a third or later fin set that overlaps another at the same angle, its new angle clears every earlier overlapping set. The import note names the rotation; check the arrangement against the physical rocket.
@@ -603,6 +605,8 @@ because it described the rocket you had, and Ctrl+Z does not bring it back.
 
 ## Scaling a whole design
 
+The **Custom…** mount bore field uses your **Motor dimensions** unit preference. Its value is converted when applied; standard motor-size choices retain their catalogue sizes.
+
 If the tube catalogue cannot load, the dialog shows an error and **Retry**. You can still scale by target diameter or factor.
 
 **⤢ Scale…** sits above the component tree and multiplies the entire rocket by one factor: every
@@ -682,6 +686,8 @@ re-choose recovery gear and motor by hand.
 Solid and structural parts pick a **bulk material** from the built-in material database (which writes its density); parachutes and streamers pick a **surface material**, and shock cords and lines pick a **line material**. Typing a bulk or fillet density detaches the part from the named material. Each body part also has a **surface finish** — nine of them, from Rough (500 µm) through the default Regular paint (60 µm) down to Mirror surface (0 µm) — and that roughness feeds the skin-friction drag model, so a polished airframe genuinely simulates lower drag. In the 3D view and the GLB export the finish also sets how glossy the part looks, from dull Rough to glossy Mirror, with an unrecognized finish using Regular paint; that is appearance only, and the OBJ and STL exports carry no material. Finally, each part has a **display color** (a full picker plus one-click presets) used only in the 2D and 3D views.
 
 ### Custom and saved materials
+
+The My materials library displays and edits bulk density in your selected **Bulk density** unit. Surface and line entries retain kg/m² and kg/m. CSV files keep their stated SI column units, and refusal messages use those column units.
 
 Each material selector offers the built-in list, **In this design** (named custom materials used by any part in the open design, including fin fillets, and materials defined in the opened desktop OpenRocket document), and **My materials** (materials you saved in this browser). Only compatible kinds are offered: bulk in kg/m³, surface in kg/m², and line in kg/m. The same name with two densities appears twice under In this design. Picking an entry applies its name and density together; it does not change other parts.
 
@@ -1201,6 +1207,8 @@ A forecast does not give **Wind gusts σ** directly — it gives a gust. Once a 
 
 ### Maximum flight time
 
+The Auto aerodynamics Mach probe also stops at this limit. A Mach crossing after the selected stop time cannot choose the reported flight's model.
+
 **Maximum flight time (s)** under **Launch conditions** sets when the simulation stops even if the rocket is still in the air; the flight is then reported as incomplete. It defaults to **1,200 s**, accepts **1–14,400 s**, and clamps a value outside that range with a message. Above **3,600 s** the panel cautions: “Long flights take longer to simulate and use more memory.” The setting applies to Launch and Batch simulate; each run records its own limit, which is also used when replaying a flight from Saved simulations. Older autosaves without the setting fly at 1,200 s. Opening a `.ork` reads its selected simulation's `<maxtime>` and saving writes the chosen value; an out-of-range imported value is clamped with an import note. Opening a file without this setting resets it to 1,200 s, with a caution when that replaces a different limit. RockSim and RASAero exports do not keep this setting; use `.ork` to preserve it.
 
 ### Time step — what it sets, and why the default is 0.05 s
@@ -1412,6 +1420,10 @@ New runs retain every mount's flown delay, including manual and plugged mounts, 
 An update to the simulation physics can also make an older run impossible to reproduce. Runs saved before the launch-guide clearance and transition-shoulder mass corrections need a new **Launch** when the design has launch lugs, rail buttons or transition shoulder thickness. The old report stays in history, marked with the physics change when selected, and remains in run-table downloads. Its charts and flight-data downloads cannot be regenerated, its results are left out of a saved `.ork`, and its optimal delay is not reused when saving or sharing the design. Launch again to record results with the corrected physics.
 
 Every flight is stored to a **run history** (up to 500 runs, surviving reloads). When that limit pushes older runs out, a note in the message strip says how many went, so you can download the run table before more go. **Clear all** asks before it deletes anything; a row's **✕** deletes that run at once, and an **Undo** under the table's heading puts back the last run you deleted. A typical flight-day flow is to fly many motors, compare the table, and download it with **⬇ Run table (.csv)** or **⬇ Run table (.xlsx)** — one row per saved run, summary numbers only, with the design name in the filename.
+
+After **Undo** or **Dismiss** closes a deleted-run notice, keyboard focus returns to **Show** or **Hide**. Dismissing the last deleted run or confirming **Clear all** removes the empty panel and moves focus to a screen-reader message, **No saved simulations.** The next run keeps the table's previous **Show** or **Hide** state. In Launch Conditions, weather **Undo** restores the fields before returning focus to **Site altitude**; **Dismiss** and **Clear both** also return focus there. **Estimate from forecast gust** moves focus to **Wind gusts σ** after applying the estimate.
+
+Dismissing a notice in the bottom message strip returns keyboard focus to its expand/collapse button, or to the control you came from when the last notice closes. A notice that returns you to a particular field keeps that destination.
 
 **Clear all** leaves imported app summaries with the opened design; saving a `.ork` preserves those summaries for configurations still in the design. Desktop OpenRocket predictions stay in the current session, but neither an app-written `.ork` nor the run-table download includes them. Keep the original desktop file to preserve those predictions.
 

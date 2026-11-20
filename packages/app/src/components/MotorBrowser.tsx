@@ -888,7 +888,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                         ? `Longer than your max motor length — may hit internal components. Still selectable.`
                         : undefined}
                   >
-                    <td>{flagged && '⚠ '}{displayDesignation(m.designation, m.manufacturerAbbrev)}{!isAvailable(m) && <span className="motor-oop">OOP</span>}</td>
+                    <td>{flagged && '⚠ '}{displayDesignation(m.designation, m.manufacturerAbbrev)}{noMass && <span className="motor-mass-note"> — no usable weight; import a motor file to simulate</span>}{!isAvailable(m) && <span className="motor-oop">OOP</span>}</td>
                       <td>{displayMotorManufacturer(m)}</td>
                     <td>{dimUi(m.diameter).toFixed(motorSym === 'mm' ? 0 : 2)}</td>
                     <td>{dimUi(m.length).toFixed(motorSym === 'mm' ? 0 : 2)}</td>

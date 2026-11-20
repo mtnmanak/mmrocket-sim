@@ -148,9 +148,29 @@ export function cssDash(dash: readonly number[] | undefined): readonly number[] 
   return dash?.length ? CSS_DASH.get(dash) ?? dash : undefined;
 }
 
+const EXTRA_LINE_STYLES: number[][] = [];
+// Distinct dash counts and even on/off totals, all fitting the 28 px sample.
+// One longer dash keeps each period primitive and avoids sparse dots on spikes.
+// Exclude near copies of the original styles too (including the reference).
+for (let period = 8; period <= 28; period += 2) {
+  for (let count = 1; count <= 4; count++) {
+    for (let on = count * 2 + 2; on <= period - count * 2; on += 2) {
+      const off = period - on;
+      if (LINE_STYLES.some(d => d?.length === count * 2
+        && Math.abs(d.reduce((s, v, i) => s + (i % 2 === 0 ? v : 0), 0) - on) < 2
+        && Math.abs(d.reduce((s, v, i) => s + (i % 2 === 1 ? v : 0), 0) - off) < 2)) continue;
+      EXTRA_LINE_STYLES.push(Array.from({ length: count }, (_, i) => [i === 0 ? on - 2 * (count - 1) : 2,
+        i === 0 ? off - 2 * (count - 1) : 2]).flat());
+    }
+  }
+}
+
 /** The dash for slot `slot` in repeat tier `tier` (undefined = solid). */
 export function lineStyle(slot: number, tier = 0): number[] | undefined {
   const s = ((slot % CHART_TOKENS.length) + CHART_TOKENS.length) % CHART_TOKENS.length;
+  // Preserve the first eight tiers; a quantity can exhaust all eight styles
+  // before the full flight catalog has been allocated.
+  if (tier >= TIER_STYLE.length) return EXTRA_LINE_STYLES[(tier - TIER_STYLE.length) % EXTRA_LINE_STYLES.length];
   return LINE_STYLES[TIER_STYLE[tier % TIER_STYLE.length]![s]!];
 }
 

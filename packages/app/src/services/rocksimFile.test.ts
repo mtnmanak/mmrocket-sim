@@ -552,7 +552,7 @@ describe('RockSim export → import round trip', () => {
     const all = flatten(r.tree.components);
     expect(all.find((c) => c.type === 'tubefinset')!['finCount']).toBe(8);
     expect(all.find((c) => c.type === 'trapezoidfinset')!['rotation']).toBeCloseTo(Math.PI / 8, 9);
-    expect(r.notes.join(' ')).toMatch(/rotated 23° to interleave/);
+    expect(r.notes.join(' ')).toMatch(/rotated 22.5° to interleave/);
   });
 
   it('reconstructs a rotated, spaced cluster with its scale and rotation', () => {

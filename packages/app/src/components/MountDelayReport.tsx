@@ -28,7 +28,7 @@ export function MountDelayReport({ resolution, run, mountOrder }: {
   const motorNames = delayReportMotorNames(resolution.mounts, run, mountOrder);
   return <section aria-label="Per-mount ejection delays">
     <p className="simdet-delay">Auto targets each mount’s recovery-free branch apogee, rounded to a whole second.</p>
-    <div style={{ overflowX: 'auto' }}>
+    <div style={{ overflowX: 'auto' }} tabIndex={0} role="region" aria-label="Ejection delays by mount">
       <table>
         <caption>Ejection delays by mount</caption>
         <thead><tr><th scope="col">Mount</th><th scope="col">Motor</th><th scope="col">Branch</th><th scope="col">Mode</th>

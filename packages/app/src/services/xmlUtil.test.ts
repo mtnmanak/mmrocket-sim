@@ -1,10 +1,25 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import { decodeXml, escapeXml, escapeXmlAttr, parseDecimal, xmlNum, xmlText } from './xmlUtil.js';
+import { decodeXml, escapeXml, escapeXmlAttr, inlineXmlCdata, parseDecimal, xmlNum, xmlText } from './xmlUtil.js';
+import { InflatedFileTooLargeError } from './zipMember.js';
 import { exportOrk } from './orkFile.js';
 import { exportRkt } from './rocksimFile.js';
 import { exportCdx1 } from './rasaeroFile.js';
 import type { RocketTree } from '@online-openrocket/engine';
+
+it('S1b-g8 accepts the escaped-size boundary and refuses one character below it', () => {
+  const xml = '<a><![CDATA[' + '&'.repeat(10) + ']]></a>';
+  const escaped = '<a>' + '&amp;'.repeat(10) + '</a>';
+  expect(inlineXmlCdata(xml, escaped.length)).toBe(escaped);
+  expect(() => inlineXmlCdata(xml, escaped.length - 1)).toThrow(InflatedFileTooLargeError);
+});
+
+it.each(['<a>ordinary text longer than the cap</a>', '<a><!-- <![CDATA[ ignored ]] > --></a>', '<a><?test <![CDATA[ ignored ]] > ?></a>'])('S1b-g8 does not cap XML with no escaped CDATA: %s', xml => {
+  expect(inlineXmlCdata(xml, 16)).toBe(xml);
+});
+it('S1b-g8 checks the result after CDATA delimiters shrink a document', () => {
+  expect(inlineXmlCdata('<a><![CDATA[text]]></a>', 11)).toBe('<a>text</a>');
+});
 
 /**
  * 24 lines with no direct test, imported by all six file writers

@@ -65,7 +65,11 @@ it.each(['overlay', 'shipped'])('loads network masses for a %s motor absent from
     });
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
     const label = displayDesignation(motor.designation, motor.manufacturerAbbrev);
-    const row = [...host.querySelectorAll<HTMLTableRowElement>('tbody tr')].find(r => r.cells[0]?.textContent?.replace(/OOP$/, '').trim() === label)!;
+    const row = [...host.querySelectorAll<HTMLTableRowElement>('tbody tr')].find(r => {
+      const cell = r.cells[0]?.cloneNode(true) as HTMLTableCellElement | undefined;
+      cell?.querySelectorAll('.motor-oop, .motor-mass-note').forEach(note => note.remove());
+      return cell?.textContent?.trim() === label;
+    })!;
     expect(row).toBeDefined();
     if (source === 'shipped') {
       expect(row.getAttribute('aria-disabled'), host.textContent ?? '').toBe('true');
@@ -141,7 +145,11 @@ it('under a snapshot overlay, loads a shipped motor absent from the bundle from 
     });
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
     const label = displayDesignation(motor.designation, motor.manufacturerAbbrev);
-    const row = [...host.querySelectorAll<HTMLTableRowElement>('tbody tr')].find(r => r.cells[0]?.textContent?.replace(/OOP$/, '').trim() === label)!;
+    const row = [...host.querySelectorAll<HTMLTableRowElement>('tbody tr')].find(r => {
+      const cell = r.cells[0]?.cloneNode(true) as HTMLTableCellElement | undefined;
+      cell?.querySelectorAll('.motor-oop, .motor-mass-note').forEach(note => note.remove());
+      return cell?.textContent?.trim() === label;
+    })!;
     await vi.waitFor(() => expect(row.getAttribute('aria-disabled')).toBeNull());
     await act(async () => row.click());
     const load = [...host.querySelectorAll<HTMLButtonElement>('.motor-load-row button')].find(b => b.textContent?.includes('Load'))!;

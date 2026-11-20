@@ -1,4 +1,15 @@
 // @vitest-environment happy-dom
+// J9a 2026-11-19: MyMaterialsDialog 1 -> 4 converts bulk densities at the
+// Round r2: MyMaterialsDialog 4 -> 3 shares the rounded edit seed instead of
+// repeating the conversion in submit. The imperial name-only edit regression
+// pins exact SI preservation; no material ceiling or flight threshold moved.
+// preference boundary; OpenMotorDialog 1 -> 2 and SimResults 51 -> 52 format
+// motor dimensions. ScaleDialog 38 -> 41 converts bore validation/input limits,
+// retaining the same SI fit thresholds (ScaleDialog's inch regression covers it).
+// orkFile 545 -> 546 gives maxtime defaults seconds; rocksimFile 290 -> 291
+// formats normalized fin rotations. xmlUtil 12 -> 15 counts CDATA growth before
+// escaping against the existing size cap. importNotices and API index regressions
+// cover these boundaries. No safety threshold or density ceiling was changed.
 // PRFL-1: census unchanged. The owner-defined 0.85–1.15 display band and
 // unity crossings describe the sampled flight, with no verdict or flight
 // threshold change. rollPitchResonance.test covers interval boundaries,

@@ -569,6 +569,12 @@ export function FinPointsEditor({ points, onChange }: {
                         onCommit={(v) => { if (v !== null) setPoint(i, 1, v); }} />}
                 </td>
                 <td>
+                  {!last && <button className="file-btn" aria-label={`Insert after point ${i + 1}`}
+                    onClick={() => {
+                      const a = committed[i]!, b = committed[i + 1]!;
+                      const mid: FinPoint = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+                      commit([...committed.slice(0, i + 1), mid, ...committed.slice(i + 1)]);
+                    }}>Insert after</button>}
                   <button className="fin-row-del" disabled={first || last || pts.length <= 3}
                     title="Remove point" aria-label={`Remove point ${i + 1}`}
                     onClick={() => removePoint(i)}>✕</button>

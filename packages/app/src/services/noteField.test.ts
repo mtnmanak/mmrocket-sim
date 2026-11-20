@@ -1,5 +1,11 @@
 import { expect, it } from 'vitest';
-import { noteField } from './noteField.js';
+import { noteField, noteText } from './noteField.js';
+
+it.each(['\u3164', '\u034f'])('S1d-g4 exposes an otherwise invisible name %s', ch => {
+  const mark = `[U+${ch.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}]`;
+  expect(noteField(ch)).toBe(mark);
+  expect(noteText(`Loaded “${ch}”`)).toBe(`Loaded “${mark}”`);
+});
 
 it('cleans the same unsafe set as API notes before file spans acquire note separators', () => {
   const unsafe = [...Array.from({ length: 32 }, (_, i) => i), ...Array.from({ length: 33 }, (_, i) => i + 0x7f),

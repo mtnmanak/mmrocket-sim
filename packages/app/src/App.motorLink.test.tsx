@@ -14,7 +14,6 @@ vi.mock('react', async original => {
   }, useRef: <T,>(value: T) => {
     const ref = real.useRef(value);
     if (value === null) held.refs.push(ref);
-    if (value === false) held.bools.push(ref as { current: boolean });
     return ref;
   } };
 });
@@ -65,7 +64,7 @@ vi.mock('./services/motorMatch.js', async original => {
   const real = await original<typeof import('./services/motorMatch.js')>();
   return { ...real, matchImportedMotor: vi.fn(real.matchImportedMotor) };
 });
-const held = vi.hoisted(() => ({ noteWrites: [] as unknown[], primary: true, busy: false, bools: [] as { current: boolean }[], paused: false, refs: [] as { current: unknown }[], build: false, nozzle: false, notes: [] as string[], pick: null as ComponentProps<typeof MotorPicker>['onSelect'] | null }));
+const held = vi.hoisted(() => ({ noteWrites: [] as unknown[], primary: true, busy: false, paused: false, refs: [] as { current: unknown }[], build: false, nozzle: false, notes: [] as string[], pick: null as ComponentProps<typeof MotorPicker>['onSelect'] | null }));
 vi.mock('./services/designDerivation.js', async original => {
   const real = await original<typeof import('./services/designDerivation.js')>();
   return { ...real, launchPrimaryOf: (...args: Parameters<typeof real.launchPrimaryOf>) => held.primary ? real.launchPrimaryOf(...args) : null };
@@ -91,11 +90,14 @@ vi.mock('./components/MotorPicker.js', async original => {
 vi.mock('./hooks/useNozzleFollow.js', async original => {
   const real = await original<typeof import('./hooks/useNozzleFollow.js')>();
   return { ...real, useNozzleFollow: (...args: Parameters<typeof real.useNozzleFollow>) => {
-    // The last boolean ref before this hook is App's flight handle hold.
-    if (held.busy) held.bools.at(-1)!.current = true;
     const result = real.useNozzleFollow(...args);
     return { ...result, pending: held.nozzle || result.pending };
   } };
+});
+
+vi.mock('./hooks/useFlightHandleHold.js', async original => {
+  const real = await original<typeof import('./hooks/useFlightHandleHold.js')>();
+  return { ...real, useFlightHandleHold: (busy: boolean) => real.useFlightHandleHold(busy || held.busy) };
 });
 
 vi.mock('./services/catalogueAutoCheck.js', async original => ({
@@ -181,7 +183,7 @@ beforeEach(async () => {
   held.nozzle = false;
   held.build = false;
   held.paused = false;
-  held.primary = true; held.busy = false; held.bools = [];
+  held.primary = true; held.busy = false;
   held.noteWrites = [];
   vi.mocked(planImport).mockImplementation((await vi.importActual<typeof import('./services/importApply.js')>('./services/importApply.js')).planImport);
   vi.mocked(saveSessionDebounced).mockClear();

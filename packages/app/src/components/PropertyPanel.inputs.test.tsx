@@ -458,4 +458,24 @@ describe('PropertyPanel — sliders', () => {
     pointer(sliderNamed('Position offset'), 'pointerup');
     expect((patches.at(-1)!['position'] as { offset: number }).offset).toBe(0);
   });
+
+  it('S3a-3 clamps after snapping to an extreme sibling anchor', () => {
+    const mount = { id: 'm', type: 'innertube', length: 0.07,
+      position: { method: 'top', offset: 999 } } as ComponentNode;
+    const sibling = { id: 'anchor', type: 'innertube', length: 10,
+      position: { method: 'middle', offset: 265 } } as ComponentNode;
+    const tree = treeOf(tube('A', { length: 1500, children: [mount, sibling] }));
+    show(tree, mount);
+    pointer(sliderNamed('Position offset'), 'pointerdown');
+    slideTo(sliderNamed('Position offset'), 999900);
+    pointer(sliderNamed('Position offset'), 'pointerup');
+    expect((patches.at(-1)!['position'] as { offset: number }).offset).toBe(1000);
+  });
+
+  it('S3a-2 names the fin population in override accessible names', () => {
+    const fin = { id: 'fin', type: 'freeformfinset', finCount: 3, points: [[0, 0], [0.03, 0.04], [0.06, 0]] } as ComponentNode;
+    show(treeOf(tube('A', { children: [fin] })), fin);
+    expect(inputNamed('Mass override (all fins combined)')).not.toBeNull();
+    expect(inputNamed('Drag coefficient (Cd) override — per fin')).not.toBeNull();
+  });
 });

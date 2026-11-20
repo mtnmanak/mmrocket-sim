@@ -2097,7 +2097,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
             <div className="field-label-help"><label htmlFor={idFor('overrideMass')}>Mass{node.type.endsWith('finset') ? ' (all fins combined)' : ''} <UnitChip quantity="mass" /></label>{definition('overrideMass', 'Mass override')}</div>
             <NumField
               id={idFor('overrideMass')}
-              ariaLabel="Mass override"
+              ariaLabel={`Mass override${node.type.endsWith('finset') ? ' (all fins combined)' : ''}`}
               value={massOverride !== undefined ? siToUi('mass', massSym, massOverride) : undefined}
               step={niceStep(siToUi('mass', massSym, 0.0001))}
               nullable
@@ -2195,7 +2195,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
             </label>{definition('overrideCD', 'Cd override')}</div>
             <NumField
               id={idFor('overrideCD')}
-              ariaLabel="Drag coefficient (Cd) override"
+              ariaLabel={`Drag coefficient (Cd) override${node.type.endsWith('finset') ? ' — per fin' : ''}`}
               value={numOpt(node, 'overrideCD')}
               step={0.05}
               nullable

@@ -69,5 +69,6 @@ export function warningName(name: string): string {
 export function warningEcho(text: string): string {
   return noteEcho(text.replace(NAME_SPAN, (_span: string, straight: string | undefined, straightEnd: string | undefined,
     curly: string | undefined, curlyEnd: string | undefined) => straight !== undefined
-    ? `"${noteEcho(noteField(straight), 200)}${straightEnd ?? ''}` : `\u201c${noteEcho(noteField(curly ?? ''), 200)}${curlyEnd ?? ''}`), WARNING_ECHO_MAX);
+    ? `"${noteEcho(noteField(`"${straight}"`).slice(1, -1), 200)}${straightEnd ?? ''}`
+    : `\u201c${noteEcho(noteField(noteText(`\u201c${curly ?? ''}\u201d`).slice(1, -1)), 200)}${curlyEnd ?? ''}`), WARNING_ECHO_MAX);
 }

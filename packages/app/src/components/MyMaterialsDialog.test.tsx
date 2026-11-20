@@ -26,6 +26,32 @@ const type = (el: HTMLInputElement, value: string) => act(() => {
   el.dispatchEvent(new Event('input', { bubbles: true }));
 });
 const mount = () => act(() => root.render(<PrefsProvider><MyMaterialsDialog onClose={() => root.render(null)} /></PrefsProvider>));
+
+it.each([['oz/in³', 900, '0.52', '0.520233006121'], ['lb/ft³', 140, '8.74', '8.73991446645']])('S3c-b1 rounds conversion noise in %s without changing a name-only edit', (unit, density, shown, seeded) => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { density: unit } }));
+  saveUserMaterials([{ kind: 'bulk', name: 'Mix', density }]); mount();
+  expect(host.textContent).toContain(`Mix (${shown} ${unit})`);
+  click(button('Edit bulk material Mix'));
+  expect(input(`Density (${unit})`).value).toBe(seeded);
+  type(input('Material name'), 'Renamed');
+  act(() => { host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+  expect(loadUserMaterials()[0]).toMatchObject({ name: 'Renamed', density });
+});
+
+it('S3c-b1 edits and displays bulk density in the selected unit', () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { density: 'g/cm³' } }));
+  saveUserMaterials([{ kind: 'bulk', name: 'Mix', density: 900 }]); mount();
+  expect(host.textContent).toContain('0.9 g/cm³');
+  click(button('Edit bulk material Mix'));
+  expect(input('Density (g/cm³)').value).toBe('0.9');
+  type(input('Density (g/cm³)'), '35');
+  act(() => { host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+  expect(host.querySelector('[aria-invalid="true"]')?.getAttribute('aria-describedby')).toBeTruthy();
+  expect(host.textContent).toContain('limit of 30 g/cm³');
+  type(input('Density (g/cm³)'), '1.1');
+  act(() => { host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+  expect(loadUserMaterials()[0]?.density).toBeCloseTo(1100, 8);
+});
 it.each(['import', 'delete'])('R4 shows the recovery copy at Caution after %s fails', async action => {
   saveUserMaterials([{ kind: 'bulk', name: 'Mix', density: 900 }]); mount();
   localStorage.setItem(USER_MATERIALS_KEY, 'broken JSON');

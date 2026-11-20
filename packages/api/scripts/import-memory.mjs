@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* global process, console -- a Node script outside the config's Node-globals directories */
 /**
  * Import-memory measurement for the API's stored-flight omission
  * (xmlParseJs.ts `omitOrkSamples`): generates deterministic stored-flight .ork

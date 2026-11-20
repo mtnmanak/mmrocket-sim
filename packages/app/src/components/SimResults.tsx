@@ -11,7 +11,7 @@ import { FlightLoadStats } from './FlightLoadStats.js';
 import { LOAD_WINDOW } from '../services/flightLoads.js';
 import { MACH_AUTO_THRESHOLD } from '../services/machProbe.js';
 import { windProfileSummary } from '../services/windProfile.js';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { noticeQuantity, fmtAltitude, fmtSi } from '../prefs/units.js';
 import { clickable } from './clickable.js';
@@ -315,7 +315,7 @@ export function SimRunDetails({ run, hasSeries, changedSince, mountOrder }: {
         </Note>;
       })}
       {(run.deployments ?? []).length > 0 && (
-        <div className="motor-table-wrap" style={{ marginTop: 8 }}>
+        <div className="motor-table-wrap" style={{ marginTop: 8 }} tabIndex={0} role="region" aria-label="Recovery deployments">
           <DeploymentTable deployments={run.deployments ?? []} alt={alt} vel={vel} />
           <DeploymentRoleNote deployments={run.deployments ?? []} />
         </div>
@@ -339,7 +339,7 @@ export function SimRunDetails({ run, hasSeries, changedSince, mountOrder }: {
               )}
             </p>
             {b.deployments.length > 0 && (
-              <div className="motor-table-wrap">
+              <div className="motor-table-wrap" tabIndex={0} role="region" aria-label={`${b.name} recovery deployments`}>
                 <DeploymentTable deployments={b.deployments} alt={alt} vel={vel} />
                 <DeploymentRoleNote deployments={b.deployments} />
               </div>
@@ -487,7 +487,7 @@ export function SimRunDetails({ run, hasSeries, changedSince, mountOrder }: {
                 <Row label="Density altitude" value={fmtAltitude(prefs.units.altitude, run.densityAltitudeM)}
                   quantity="altitude" />
               )}
-              <Row label="Motor diameter" value={Number.isFinite(run.motorDiameterMm) ? `${run.motorDiameterMm} mm` : '—'} />
+              <Row label="Motor diameter" value={Number.isFinite(run.motorDiameterMm) ? noticeQuantity('motorDimensions', run.motorDiameterMm! / 1000, prefs.units) : '—'} />
               <Row label="Manufacturer" value={run.manufacturer || '—'} />
               <Row label="Motor type" value={run.motorType || '—'} />
               <Row label="Propellant" value={run.propellant || '—'} />
@@ -587,9 +587,17 @@ export function SimHistory({
     ? new Map(runs.map(run => [run, runStatus(run, provenance)])) : null, [open, runs, provenance]);
   const [undo, setUndo] = useState<{ run: SimRun; beforeId: string | null } | null>(null);
   const undoRef = useRef<HTMLButtonElement>(null);
+  const historyToggle = useRef<HTMLButtonElement>(null);
+  const emptyHistory = useRef<HTMLDivElement>(null);
+  const restoreUndoFocus = useRef(false);
+  useLayoutEffect(() => {
+    if (restoreUndoFocus.current) (historyToggle.current ?? emptyHistory.current)?.focus();
+    restoreUndoFocus.current = false;
+  });
   // The ✕ that had the focus went with its row; Undo takes it.
   useEffect(() => { if (undo) undoRef.current?.focus(); }, [undo]);
-  if (runs.length === 0 && undo === null) return null;
+  if (runs.length === 0 && undo === null) return <div ref={emptyHistory} tabIndex={-1}
+    role="region" aria-label="Saved simulations" className="sr-only">No saved simulations.</div>;
 
   const runName = (r: SimRun) => [r.rocket, r.motor].filter(Boolean).join(' ');
   const removeRun = (r: SimRun) => {
@@ -601,10 +609,10 @@ export function SimHistory({
     <p className="comp-stats" style={{ margin: '6px 0 0' }}>
       {runName(undo.run) ? `Deleted run ${runName(undo.run)}.` : 'Deleted a run.'}{' '}
       <button ref={undoRef} className="file-btn" aria-label={`Undo: put back run ${runName(undo.run)}`.trim()}
-        onClick={() => { onRunsChange(restoreRun(undo.run, undo.beforeId)); setUndo(null); }}>
+        onClick={() => { restoreUndoFocus.current = true; onRunsChange(restoreRun(undo.run, undo.beforeId)); setUndo(null); }}>
         Undo
       </button>{' '}
-      <button className="file-note-dismiss" aria-label="Dismiss" onClick={() => setUndo(null)}>×</button>
+      <button className="file-note-dismiss" aria-label="Dismiss" onClick={() => { restoreUndoFocus.current = true; setUndo(null); }}>×</button>
     </p>
   )}</div>;
   // The last run deleted: the table has gone, its Undo has not.
@@ -636,7 +644,7 @@ export function SimHistory({
           ⬇ Run table (.xlsx)
         </button>
         <button className="file-btn file-btn-danger" onClick={() => setConfirmClear(true)}>Clear all</button>
-        <button className="file-btn file-btn-ghost" aria-expanded={open}
+        <button ref={historyToggle} className="file-btn file-btn-ghost" aria-expanded={open}
           onClick={() => setOpen(!open)}>{open ? 'Hide' : 'Show'}</button>
       </div>
       {undoLine}
@@ -683,7 +691,7 @@ export function SimHistory({
           </p>
           <div className="modal-actions">
             <button className="file-btn modal-danger"
-              onClick={() => { setConfirmClear(false); setUndo(null); onRunsChange(clearRuns()); }}>
+              onClick={() => { restoreUndoFocus.current = true; setConfirmClear(false); setUndo(null); onRunsChange(clearRuns()); }}>
               Delete all {runs.length}
             </button>
             <button className="file-btn" onClick={() => setConfirmClear(false)}>Cancel</button>
@@ -691,7 +699,7 @@ export function SimHistory({
         </Modal>
       )}
       {open && (
-        <div className="motor-table-wrap" style={{ maxHeight: 300 }}>
+        <div className="motor-table-wrap" style={{ maxHeight: 300 }} tabIndex={0} role="region" aria-label="Saved simulations">
           <table className="motor-table">
             <thead>
               <tr>

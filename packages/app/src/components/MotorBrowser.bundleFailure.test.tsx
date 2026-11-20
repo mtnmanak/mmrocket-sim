@@ -7,7 +7,7 @@ import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import type { MotorSpec } from '@online-openrocket/engine';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
-import { MOTOR_DB, displayDesignation, hasMassData } from '../services/motorDb.js';
+import { MOTOR_DB, displayDesignation, displayMotorManufacturer, hasMassData } from '../services/motorDb.js';
 import { MotorBrowser } from './MotorBrowser.js';
 
 vi.mock('../data/motorCurves.json', () => { throw new Error('curve chunk unavailable'); });
@@ -41,8 +41,12 @@ it('lets a motor with unknown bundle mass evidence load usable network masses', 
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, motor.designation);
       search.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    const row = [...host.querySelectorAll<HTMLTableRowElement>('tbody tr')].find(r =>
-      r.cells[0]?.textContent?.replace(/OOP$/, '').trim() === displayDesignation(motor.designation, motor.manufacturerAbbrev))!;
+    const row = [...host.querySelectorAll<HTMLTableRowElement>('tbody tr')].find(r => {
+      const cell = r.cells[0]?.cloneNode(true) as HTMLTableCellElement | undefined;
+      cell?.querySelectorAll('.motor-oop, .motor-mass-note').forEach(note => note.remove());
+      return cell?.textContent?.trim() === displayDesignation(motor.designation, motor.manufacturerAbbrev)
+        && r.cells[1]?.textContent === displayMotorManufacturer(motor);
+    })!;
     expect(row).toBeDefined();
     for (let i = 0; i < 100 && row.hasAttribute('aria-disabled'); i++) await settle();
     expect(row.getAttribute('aria-disabled')).toBeNull();
@@ -51,7 +55,7 @@ it('lets a motor with unknown bundle mass evidence load usable network masses', 
     const load = [...host.querySelectorAll<HTMLButtonElement>('.motor-load-row button')].find(b => b.textContent?.includes('Load'))!;
     await act(async () => load.click());
     for (let i = 0; i < 100 && !selected.length; i++) await settle();
-    expect(selected).toHaveLength(1);
+    expect(selected, host.textContent ?? '').toHaveLength(1);
     expect(selected[0]!.masses[0]).toBeCloseTo(masses.totalWeightG / 1000, 12);
     expect(fetcher).toHaveBeenCalledOnce();
   } finally {

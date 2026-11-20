@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { exportColumnCatalog } from '../services/flightDataCsv.js';
 import { configUuid } from '../services/configSnapshot.js';
@@ -18,7 +18,15 @@ export function FlightExportLayoutDialog({ layout, onClose }: {
   })));
   const [events, setEvents] = useState<FlightExportLayout['events']>(layout?.events ?? {});
   const [error, setError] = useState('');
+  const moveButtons = useRef(new Map<string, HTMLButtonElement>());
+  const focusMove = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (focusMove.current) moveButtons.current.get(focusMove.current)?.focus();
+    focusMove.current = null;
+  }, [columns]);
   const move = (index: number, delta: number) => {
+    const end = index + delta;
+    if (end === 0 || end === columns.length - 1) focusMove.current = `${columns[index]!.key}:${-delta}`;
     const next = [...columns];
     [next[index], next[index + delta]] = [next[index + delta]!, next[index]!];
     setColumns(next);
@@ -65,8 +73,8 @@ export function FlightExportLayoutDialog({ layout, onClose }: {
             <select aria-label={`${c.name} unit`} value={columns[index]!.unit} onChange={e => setColumns(columns.map((d, i) => i === index ? { ...d, unit: e.target.value } : d))}>
               {c.units.map(u => <option key={u} value={u}>{u ? u + (c.suffix ?? '') : 'No unit'}</option>)}
             </select>
-            <button className="file-btn" aria-label={`Move ${c.name} up`} disabled={index === 0} onClick={() => move(index, -1)}>Up</button>
-            <button className="file-btn" aria-label={`Move ${c.name} down`} disabled={index === columns.length - 1} onClick={() => move(index, 1)}>Down</button>
+            <button ref={el => { if (el) moveButtons.current.set(`${c.key}:-1`, el); else moveButtons.current.delete(`${c.key}:-1`); }} className="file-btn" aria-label={`Move ${c.name} up`} disabled={index === 0} onClick={() => move(index, -1)}>Up</button>
+            <button ref={el => { if (el) moveButtons.current.set(`${c.key}:1`, el); else moveButtons.current.delete(`${c.key}:1`); }} className="file-btn" aria-label={`Move ${c.name} down`} disabled={index === columns.length - 1} onClick={() => move(index, 1)}>Down</button>
           </>}
         </div>;
       })}

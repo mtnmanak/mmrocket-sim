@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OpenMotorDialog } from './OpenMotorDialog.js';
+import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { findDbMotor } from '../services/motorDb.js';
 import { addExMotors, loadExMotors, parseEng } from '../services/exMotors.js';
 import { EX_NO_MOTOR_FILES_NOTE } from '../services/exMotorLimits.js';
@@ -113,7 +114,8 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); });
 
 describe('open motor dialog', () => {
-  it('S1c-2 labels EX choices with the flown snapshot designation and diameter', () => {
+  it.each(['mm', 'in'])('S1c-2 / S3c-b2 labels EX snapshots in %s', unit => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { motorDimensions: unit } }));
     addExMotors([{ ...parseEng('E20 29 100 P 0.05 0.1 Home\n0 0\n0.5 40\n1 0')[0]!, flightSnapshot: {
       designation: 'H100', diameter: 0.054, length: 0.3, cgX: 0.15,
       times: [0, 1, 2], thrusts: [0, 200, 0], masses: [0.5, 0.4, 0.3],
@@ -121,9 +123,9 @@ describe('open motor dialog', () => {
     const group = { ...identities[0]!, ref: {
       manufacturer: 'Home', designation: 'H100', diameter: 0.054, length: 0.3, delay: 5,
     } };
-    act(() => root.render(<OpenMotorDialog identities={[group]} onApply={apply} onLater={later} />));
+    act(() => root.render(<PrefsProvider><OpenMotorDialog identities={[group]} onApply={apply} onLater={later} /></PrefsProvider>));
     const labels = [...host.querySelectorAll('label')].map(label => label.textContent);
-    expect(labels).toContain('Home H100 (EX, 54 mm)');
+    expect(labels).toContain(unit === 'mm' ? 'Home H100 (EX, 54 mm (2.126 in))' : 'Home H100 (EX, 2.126 in (54 mm))');
     expect(labels.some(label => label?.includes('E20'))).toBe(false);
   });
 
@@ -131,7 +133,7 @@ describe('open motor dialog', () => {
     render();
     expect(new TextEncoder().encode(enerjetEng)).toHaveLength(504);
     await importText(0, enerjetEng, click);
-    expect(host.textContent).toContain('Enerjet F67 (EX, 28.6 mm)');
+    expect(host.textContent).toContain('Enerjet F67 (EX, 28.6 mm (1.126 in))');
     expect(host.textContent).not.toContain('No imported motor matches');
     expect(host.querySelectorAll('fieldset')[0]!.querySelector('input:checked')!.parentElement!.textContent).toContain('Enerjet F67 (EX');
     await act(async () => button('Apply').click());
@@ -193,7 +195,7 @@ describe('open motor dialog', () => {
     Object.defineProperty(input, 'files', { value: [file] });
     await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
     expect(loadExMotors()).toHaveLength(1);
-    expect(host.textContent).toContain('Enerjet F67 (EX, 28.6 mm)');
+    expect(host.textContent).toContain('Enerjet F67 (EX, 28.6 mm (1.126 in))');
     await act(async () => button('Apply').click());
     expect(apply.mock.calls[0]![0]['0']).toMatchObject({ kind: 'ex', motor: { realManufacturer: 'Enerjet', designation: 'F67' } });
   });

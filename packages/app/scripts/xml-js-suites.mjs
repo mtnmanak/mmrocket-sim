@@ -114,6 +114,8 @@ export const XML_JS_SUITES = [
   'src/services/orkFile.layers.test.ts',
   'src/services/orkFile.audit-fidelity.test.ts',
   'src/services/orkExtensions.test.ts',
+  // J9a: locale notes, blank maxtime and CDATA expansion refusals in both parsers.
+  'src/services/importNotices.test.ts',
   'src/services/orkFile.version.test.ts',
   'src/services/orkExMotors.test.ts',
   'src/services/orkExRound2.test.ts',

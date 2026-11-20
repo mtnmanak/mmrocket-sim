@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { MAX_FLIGHT_PLOTS, type SavedFlightPlot } from '../prefs/flightPlots.js';
 import { Note } from './Note.js';
@@ -16,6 +16,7 @@ export function SavedFlightPlots({ current, onApply }: { current: Layout; onAppl
   const [status, setStatus] = useState('');
   const [deleted, setDeleted] = useState<{ plot: SavedFlightPlot; index: number } | null>(null);
   const inputId = useId(), errorId = useId();
+  const selector = useRef<HTMLSelectElement>(null);
   const selected = plots.find(p => p.id === chosen);
   const write = (next: SavedFlightPlot[]) => setPrefs({ ...prefs, flightPlots: next });
   const validName = () => {
@@ -30,7 +31,7 @@ export function SavedFlightPlots({ current, onApply }: { current: Layout; onAppl
   return <div className="saved-flight-plots">
     <div className="comparison-controls">
       <label>Saved plots
-        <select value={selected ? chosen : ''} onChange={e => {
+        <select ref={selector} value={selected ? chosen : ''} onChange={e => {
           setChosen(e.target.value); setName(plots.find(p => p.id === e.target.value)?.name ?? ''); setError('');
         }}>
           <option value="">{plots.length ? 'Choose saved plots' : 'No saved plots'}</option>
@@ -81,6 +82,7 @@ export function SavedFlightPlots({ current, onApply }: { current: Layout; onAppl
       }
       const next = [...plots]; next.splice(deleted.index, 0, deleted.plot); write(next);
       setChosen(deleted.plot.id); setName(deleted.plot.name); setStatus(`Restored ${deleted.plot.name}.`); setDeleted(null); setError('');
+      selector.current?.focus();
     }}>Undo delete</button>}
     {saveFailing && <Note as="p" tier="caution">The browser could not store these plots. Changes work only for this session; they may be lost on reload.</Note>}
   </div>;

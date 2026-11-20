@@ -34,6 +34,13 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); document.querySelector('[data-tools-test-style]')?.remove(); localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('N033 and N044 view tools', () => {
+  it('S3a-g8 restores focus when Escape closes the caliper from its controls', () => {
+    mount(); click('Caliper: measure two points'); pointer(100, 100); pointer(200, 100);
+    const control = host.querySelector<HTMLInputElement>('.schematic-tool-notes input')!;
+    expect(control).not.toBeNull();
+    act(() => control.focus()); key(control, 'Escape');
+    expect(document.activeElement).toBe(svg());
+  });
   it.each([false, true].flatMap(walls2d => ['mm', 'in'].flatMap(unit => [
     { walls2d, unit, angleOffset: Math.PI / 3, roll: 0 },
     { walls2d, unit, angleOffset: 0, roll: Math.PI / 3 },

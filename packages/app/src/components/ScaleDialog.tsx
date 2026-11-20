@@ -514,16 +514,20 @@ export function ScaleDialog({
                                   a native number input hides rejected text as empty (audit 2026-10-11, S3b-g2). */}
                               <span className="inline-numfield" style={{ display: 'inline-block', width: 90 }}>
                                 <NumField
-                                  min={m.maxBoreMm !== null && m.maxBoreMm > 0 && m.maxBoreMm < 1 ? 0 : 1}
-                                  max={boreLimitMm(m) + 1e-6}
-                                  validate={value => goodBore(m, value)}
-                                  ariaLabel={`Custom mount bore for ${m.name}, mm`}
+                                  min={siToUi('motorDimensions', prefs.units.motorDimensions, m.maxBoreMm !== null && m.maxBoreMm > 0 && m.maxBoreMm < 1 ? 0 : 0.001)}
+                                  max={siToUi('motorDimensions', prefs.units.motorDimensions, (boreLimitMm(m) + 1e-6) / 1000)}
+                                  validate={value => goodBore(m, uiToSi('motorDimensions', prefs.units.motorDimensions, value) * 1000)}
+                                  ariaLabel={`Custom mount bore for ${m.name}, ${prefs.units.motorDimensions}`}
                                   invalid={customBad(m)}
-                                  value={Number(custom[m.id])}
-                                  onCommit={value => { if (value !== null && goodBore(m, value)) onCustomBore(m, String(value)); }}
+                                  value={siToUi('motorDimensions', prefs.units.motorDimensions, Number(custom[m.id]) / 1000)}
+                                  onCommit={value => {
+                                    if (value === null) return;
+                                    const mm = prefs.units.motorDimensions === 'mm' ? value : uiToSi('motorDimensions', prefs.units.motorDimensions, value) * 1000;
+                                    if (goodBore(m, mm)) onCustomBore(m, String(mm));
+                                  }}
                                 />
                               </span>
-                              {' mm'}
+                              {' '}{prefs.units.motorDimensions}
                               {m.maxBoreMm !== null && (m.maxBoreMm === 0
                                 ? <> — no size fits inside the tube around it, which {noRoomWhy(m)}</>
                                 // A sub-mm limit keeps full precision, so the figure shown is one
