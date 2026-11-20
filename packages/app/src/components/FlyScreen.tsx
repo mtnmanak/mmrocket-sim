@@ -5,7 +5,10 @@ import { noSavedConfigurationsText } from '../services/flightState.js';
 import { LaunchOverrideWarning, type LaunchOverrideProps } from './LaunchOverrideWarning.js';
 import { GroundWindNote } from './GroundWindNote.js';
 import { windProfileSummary } from '../services/windProfile.js';
-import type { RocketTree, StaticInfo } from '@online-openrocket/engine';
+import type { EngineWarning, RocketTree, StaticInfo } from '@online-openrocket/engine';
+import { formatWarning } from '../services/simWarnings.js';
+import { Note } from './Note.js';
+import { ThrustBalanceNotes } from './ThrustBalanceNotes.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { weatherPlaceLabel } from '../services/coordinates.js';
 import { motorLabel } from '../services/motorDb.js';
@@ -35,7 +38,9 @@ import { TreeSchematic } from './TreeSchematic.js';
 export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
   onLaunch, simulating, overrideSummary, onShowOverride, recovery, canLaunch, onChangeMotor, onCompare, canCompare,
   staleModel, changedSince, onGetWeather, weather, configs = [], activeConfigId = null,
-  hasWorkingSettings = false, onApplyConfig, onClearConfig }: LaunchOverrideProps & {
+  hasWorkingSettings = false, onApplyConfig, onClearConfig, thrustWarnings = [], configurationLoading = false }: LaunchOverrideProps & {
+  configurationLoading?: boolean;
+  thrustWarnings?: readonly EngineWarning[];
   configs?: SavedConfig[];
   activeConfigId?: string | null;
   hasWorkingSettings?: boolean;
@@ -162,6 +167,12 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
               {' '}Press Launch to fly the current design.
             </p>
           )}</div>
+          {(run?.simWarnings ?? []).map((w, i) => {
+            const shown = formatWarning(w, prefs.units);
+            return shown.tier === 'information' ? null : <Note key={i} as="p" tier={shown.tier}>
+              <strong>{shown.label}.</strong> {shown.detail}
+            </Note>;
+          })}
           <div className="fly-stats">
             {stat('Apogee', run ? fmtSi('altitude', prefs.units.altitude, run.maxAltitude) : '—',
               run ? prefs.units.altitude : undefined)}
@@ -197,6 +208,7 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
           <label className="field" style={{ minWidth: 0 }}>
             Configuration:
             <select aria-label="Flight configuration" style={{ width: '100%', minWidth: 0 }}
+              disabled={configurationLoading} title={configurationLoading ? 'Wait for the motor to finish loading' : undefined}
               value={activeConfigId !== null && configs.some(c => c.id === activeConfigId) ? `config:${activeConfigId}` : hasWorkingSettings ? 'working' : 'none'}
               onChange={e => {
                 if (e.target.value === 'none') onClearConfig?.();
@@ -272,6 +284,7 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
         </div>
       </div>
 
+      <ThrustBalanceNotes warnings={thrustWarnings} />
       <button className="launch-btn fly-launch" onClick={onLaunch} aria-describedby={overrideSummary ? 'launch-override-fly' : undefined} disabled={!canLaunch || simulating}
         title={!canLaunch ? 'Assign a motor first (Motors & Configuration)' : 'Simulate the flight'}>
         {simulating ? 'Simulating…' : <><Icon name="rocket" size={17} /> Launch</>}

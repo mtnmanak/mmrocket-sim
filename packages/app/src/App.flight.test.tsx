@@ -274,7 +274,8 @@ describe('a design whose pod motor the kernel refused', () => {
       const core = motorMounts(tree).find((m) => m.id !== 'pod-mmt')!.id!;
       const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
       const refused = {
-        ...c6, spec: { ...c6.spec, masses: c6.spec.masses.map((m, i, all) => (i === all.length - 1 ? -0.001 : m)) },
+        ...c6,
+        spec: { ...c6.spec, masses: c6.spec.masses.map((m, i, all) => (i === all.length - 1 ? -0.001 : m)) },
       };
       localStorage.setItem(SESSION_KEY, JSON.stringify({
         tree, mountMotors: { [core]: c6, 'pod-mmt': refused },
@@ -335,7 +336,8 @@ describe('an Auto motor beside a pod motor the kernel refused', () => {
     const core = motorMounts(tree).find((m) => m.id !== 'pod-mmt')!.id!;
     const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
     const refused = {
-      ...c6, spec: { ...c6.spec, masses: c6.spec.masses.map((m, i, all) => (i === all.length - 1 ? -0.001 : m)) },
+      ...c6,
+      spec: { ...c6.spec, masses: c6.spec.masses.map((m, i, all) => (i === all.length - 1 ? -0.001 : m)) },
     };
     localStorage.setItem(SESSION_KEY, JSON.stringify({
       tree, mountMotors: { [core]: { ...c6, meta: { ...c6.meta, autoDelay: true } }, 'pod-mmt': refused },
@@ -400,7 +402,8 @@ describe('an Auto motor beside a pod motor the kernel refused', () => {
       const core = motorMounts(tree).find((m) => m.id !== 'pod-mmt')!.id!;
       const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
       const refused = {
-        ...c6, spec: { ...c6.spec, masses: c6.spec.masses.map((m, i, all) => (i === all.length - 1 ? -0.001 : m)) },
+        ...c6,
+        spec: { ...c6.spec, masses: c6.spec.masses.map((m, i, all) => (i === all.length - 1 ? -0.001 : m)) },
       };
       const motorsA = { [core]: { ...c6, meta: { ...c6.meta, autoDelay: true } }, 'pod-mmt': refused };
       localStorage.setItem(SESSION_KEY, JSON.stringify({

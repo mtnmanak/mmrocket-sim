@@ -66,6 +66,7 @@ export const AUTO_APPLY_WINDOW_MS = 5 * 60_000;
 
 export function createSwUpdateStore() {
   let state: SwUpdateState = { kind: 'idle', applying: false };
+  let registered = false;
   const listeners = new Set<() => void>();
   let apply = () => { publish('failed'); return Promise.resolve(); };
   let controllerChanged = () => {};
@@ -116,6 +117,7 @@ export function createSwUpdateStore() {
 
   function start(reg: ServiceWorkerRegistration, deps: SwUpdateDeps): () => void {
     stop();
+    registered = true;
     const registeredAt = deps.now();
     const activeAtStart = reg.active;
     const workers = new Map<ServiceWorker, { atLoad: boolean; waited: boolean }>();
@@ -191,7 +193,10 @@ export function createSwUpdateStore() {
     // "A fresh open": a page applies an update by itself only within this long
     // of loading — enough for a slow download (~6 MB at ~0.2 Mbit/s), and never
     // hours later in a tab left open, when another tab closes and it is alone.
-    const fresh = () => deps.now() - registeredAt <= AUTO_APPLY_WINDOW_MS;
+    const fresh = () => {
+      const elapsed = deps.now() - registeredAt;
+      return elapsed >= 0 && elapsed <= AUTO_APPLY_WINDOW_MS;
+    };
     const autoApply = async (worker: ServiceWorker) => {
       if (!workers.get(worker)?.atLoad || !fresh() || !deps.isUntouched() || isReloadHeld()) return;
       try {
@@ -239,7 +244,8 @@ export function createSwUpdateStore() {
     };
     function onStateChange(event: Event) { inspect(event.target as ServiceWorker); }
     const updateFound = () => {
-      if (reg.installing) watch(reg.installing, deps.now() - registeredAt <= 60_000);
+      const elapsed = deps.now() - registeredAt;
+      if (reg.installing) watch(reg.installing, elapsed >= 0 && elapsed <= 60_000);
     };
     deps.container.addEventListener('controllerchange', onControllerChange);
     reg.addEventListener('updatefound', updateFound);
@@ -273,6 +279,11 @@ export function createSwUpdateStore() {
   }
   return {
     start,
+    registrationUnavailable: (reload: () => void, controlled: () => boolean) => {
+      if (registered) return;
+      // Install only after registration definitively failed, never during its race.
+      apply = () => { if (controlled()) publish('failed'); else reload(); return Promise.resolve(); };
+    },
     applyUpdate: () => pendingReload ? resumeReload(true) : apply(),
     deferReload: (repair: (requested: boolean) => Promise<'retry' | 'continue'>) => {
       pendingReload = repair;
@@ -296,17 +307,22 @@ export const swUpdate = createSwUpdateStore();
 const initialReloadHold = () => true;
 let reloadHold = initialReloadHold;
 export const isReloadHeld = () => reloadHold();
+let requestedReloadHold = initialReloadHold;
+/** Explicit fallback reloads may close their own error modal. */
+export const isRequestedReloadHeld = () => requestedReloadHold();
 /** A first-render crash has no App predicate to replace the startup hold. */
 export function setCrashReloadHold(check: () => boolean): () => void {
   return reloadHold === initialReloadHold ? setReloadHold(check) : () => {};
 }
-export function setReloadHold(check: () => boolean, afterUnmount?: () => boolean): () => void {
+export function setReloadHold(check: () => boolean, afterUnmount?: () => boolean, requested = check): () => void {
   reloadHold = check;
+  requestedReloadHold = requested;
   void swUpdate.recheckHeldReload();
   return () => {
     if (reloadHold === check) {
       const held = check();
       reloadHold = afterUnmount ?? (() => held);
+      requestedReloadHold = reloadHold;
     }
   };
 }

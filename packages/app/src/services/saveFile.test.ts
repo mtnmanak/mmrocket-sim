@@ -45,6 +45,10 @@ afterEach(() => {
 });
 
 describe('saveFile — with a Save-As dialog (Chrome, Edge)', () => {
+  it('r3 returns a rejected download promise when the fallback object URL is blocked', async () => {
+    vi.mocked(URL.createObjectURL).mockImplementationOnce(() => { throw new Error('blocked object URL'); });
+    await expect(downloadBlob(new Blob(['data']), 'data.csv')).rejects.toThrow('blocked object URL');
+  });
   it('S2-1 distinguishes equal basenames and recognizes different handles for the same entry', async () => {
     const handle = (path: string) => ({ name: 'Rocket.ork',
       isSameEntry: async (other: { path: string }) => path === other.path, path,
@@ -146,7 +150,7 @@ describe('saveFile — with a Save-As dialog (Chrome, Edge)', () => {
     // downloadBlob — the path those two CSV buttons take — hands the Blob's
     // own type through, and gets the dialog too.
     picker.mockClear();
-    downloadBlob(blob, 'flight.csv');
+    await downloadBlob(blob, 'flight.csv');
     await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(2));
     expect(picker.mock.calls[0]![0].types[0]!.accept).toEqual({ 'text/csv': ['.csv'] });
     expect(clicked).toEqual([]);
@@ -242,7 +246,7 @@ describe('onCompletedSave — a write over the design file is heard once it has 
     const listener = vi.fn();
     listen(listener);
     (window as PickerWin).showSaveFilePicker = () => Promise.resolve(quick('notify/blob.csv'));
-    downloadBlob(new Blob(['a,b']), 'flight.csv');
+    await downloadBlob(new Blob(['a,b']), 'flight.csv');
     await vi.waitFor(() => expect(listener).toHaveBeenCalledTimes(1));
   });
 

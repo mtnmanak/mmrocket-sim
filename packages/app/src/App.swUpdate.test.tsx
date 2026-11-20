@@ -15,8 +15,77 @@ import { saveFile } from './services/saveFile.js';
 import { createPageActivity, pageActivity } from './services/pageActivity.js';
 import * as shareLink from './services/shareLink.js';
 import * as importApply from './services/importApply.js';
+import { useDialog } from './components/useDialog.js';
+import { ReloadPageButton } from './components/ReloadPageButton.js';
+import { defaultTree } from './tree/treeModel.js';
 
 const dirtyOverride = vi.hoisted(() => ({ value: undefined as boolean | undefined }));
+
+function restoreUserDesign() {
+  const tree = { ...defaultTree(), name: 'A design to keep' };
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ tree, mountMotors: {},
+    launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now() }));
+}
+
+it('r5 lets an unchanged first-visit starter leave and update despite a failed autosave', async () => {
+  dirtyOverride.value = false;
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+  vi.mocked(heldSession).mockReturnValue({} as NonNullable<ReturnType<typeof heldSession>>);
+  vi.mocked(useVersionCheck).mockReturnValue({ state: { kind: 'unknown' }, recheck: vi.fn(), checking: false });
+  vi.mocked(useSwUpdate).mockReturnValue({ kind: 'ready', applying: false });
+  const host = document.createElement('div'); const root = createRoot(host);
+  try {
+    await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+    const leave = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(leave);
+    expect(leave.defaultPrevented).toBe(false);
+    await act(async () => host.querySelector<HTMLButtonElement>('.version-update')!.click());
+    expect(applyUpdate).toHaveBeenCalledOnce();
+    expect(host.textContent).not.toContain('before applying the update');
+  } finally { await act(async () => root.unmount()); }
+}, 30_000);
+
+it('r4 checks live imports again when the update confirmation proceeds', async () => {
+  dirtyOverride.value = true;
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+  vi.mocked(useVersionCheck).mockReturnValue({ state: { kind: 'unknown' }, recheck: vi.fn(), checking: false });
+  vi.mocked(useSwUpdate).mockReturnValue({ kind: 'ready', applying: false });
+  const host = document.createElement('div'); const root = createRoot(host);
+  let finish: (() => void) | undefined;
+  try {
+    await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+    await act(async () => host.querySelector<HTMLButtonElement>('.version-update')!.click());
+    const proceed = () => [...host.querySelectorAll('button')].find(b => b.textContent === 'Apply update and reload anyway')!;
+    expect(proceed()).toBeDefined();
+    // Imports are live activity: this starts after the confirmation's render.
+    finish = pageActivity.startImport();
+    await act(async () => proceed().click());
+    expect(applyUpdate).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('Finish or cancel the pending open before reloading');
+    finish(); finish = undefined;
+    await act(async () => host.querySelector<HTMLButtonElement>('.version-update')!.click());
+    await act(async () => proceed().click());
+    expect(applyUpdate).toHaveBeenCalledOnce();
+  } finally { finish?.(); await act(async () => root.unmount()); host.remove(); }
+}, 30000);
+
+it('J6 holds an unattended update while a clean tab has a modal draft', async () => {
+  dirtyOverride.value = false;
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true }));
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+  vi.mocked(useVersionCheck).mockReturnValue({ state: { kind: 'unknown' }, recheck: vi.fn(), checking: false });
+  vi.mocked(useSwUpdate).mockReturnValue({ kind: 'idle', applying: false });
+  function Draft() { const ref = useDialog(() => {}); return <div ref={ref} role="dialog" aria-modal="true"><input defaultValue="Unsaved material draft" /></div>; }
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  const update = pendingTakeover(false);
+  try {
+    await act(async () => root.render(<PrefsProvider><App /><Draft /></PrefsProvider>));
+    expect(isReloadHeld()).toBe(true);
+    update.container.dispatchEvent(new Event('controllerchange'));
+    expect(update.reload).not.toHaveBeenCalled();
+  } finally { await act(async () => root.unmount()); host.remove(); update.stop(); }
+});
 it.each(['before tracking', 'before offer commit'])('r2 protects a clean restored share link %s', async mode => {
   vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
   dirtyOverride.value = false;
@@ -60,15 +129,17 @@ it.each(['before tracking', 'before offer commit'])('r2 protects a clean restore
     expect(s.reload).not.toHaveBeenCalled();
     const confirm = vi.fn(() => false); vi.stubGlobal('confirm', confirm);
     await act(async () => host.querySelector<HTMLButtonElement>('.version-update')!.click());
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('lose'));
+    expect(confirm).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('Finish or cancel the pending open before reloading');
     expect(applyUpdate).not.toHaveBeenCalled();
   } finally { await act(async () => root.unmount()); host.remove(); s.stop(); window.history.replaceState(null, '', '/'); }
 });
 
-it.each(['held reload', 'waiting worker', 'stale version'])('r2 warns and confirms an explicit update reload for a clean unstored design (%s)', async mode => {
+it.each(['held reload', 'waiting worker', 'stale version'].flatMap(mode => [false, true].map(late => [mode, late] as const)))('r3 warns before activating an update from a clean held tab (%s, late hold %s)', async (mode, late) => {
+  restoreUserDesign();
   vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
   dirtyOverride.value = false;
-  vi.mocked(heldSession).mockReturnValue({} as NonNullable<ReturnType<typeof heldSession>>);
+  vi.mocked(heldSession).mockReturnValue(late ? null : {} as NonNullable<ReturnType<typeof heldSession>>);
   vi.mocked(useVersionCheck).mockReturnValue({ state: { kind: 'stale', latest: { version: '0.999' } }, recheck: vi.fn(), checking: false });
   vi.mocked(useSwUpdate).mockReturnValue({ kind: mode === 'stale version' ? 'idle' : 'ready', applying: false, reloadRequired: mode === 'held reload' });
   const confirm = vi.fn(() => false); vi.stubGlobal('confirm', confirm);
@@ -76,15 +147,42 @@ it.each(['held reload', 'waiting worker', 'stale version'])('r2 warns and confir
   try {
     await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
     const button = host.querySelector<HTMLButtonElement>('.version-update')!;
-    expect(button.title).toContain('.ork');
+    if (!late) expect(button.title).toContain('.ork');
+    // A failed debounced write can acquire the hold without another App render.
+    vi.mocked(heldSession).mockReturnValue({} as NonNullable<ReturnType<typeof heldSession>>);
+    const leave = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(leave);
+    expect(leave.defaultPrevented).toBe(true);
     await act(async () => button.click());
-    expect(confirm).toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
     expect(applyUpdate).not.toHaveBeenCalled();
-    confirm.mockReturnValue(true);
+    expect(host.textContent).toContain('before applying the update');
+    await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent === 'Keep working')!.click());
+    expect(applyUpdate).not.toHaveBeenCalled();
     await act(async () => button.click());
+    await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent === 'Apply update and reload anyway')!.click());
     expect(applyUpdate).toHaveBeenCalledOnce();
   } finally { await act(async () => root.unmount()); }
 });
+
+it('r3 reloads a clean tab on the first click from a failed lazy modal', async () => {
+  dirtyOverride.value = false;
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true }));
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+  vi.mocked(useVersionCheck).mockReturnValue({ state: { kind: 'unknown' }, recheck: vi.fn(), checking: false });
+  vi.mocked(useSwUpdate).mockReturnValue({ kind: 'idle', applying: false });
+  function FailedDialog() { const ref = useDialog(() => {}); return <div ref={ref} role="dialog" aria-modal="true"><ReloadPageButton /></div>; }
+  const reload = vi.spyOn(window.location, 'reload').mockImplementation(() => {});
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<PrefsProvider><App /><FailedDialog /></PrefsProvider>));
+    expect(isReloadHeld()).toBe(true);
+    await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent === '↻ Reload the page')!.click());
+    expect(reload).toHaveBeenCalledOnce();
+    expect(host.textContent).not.toContain('This tab has work to keep');
+  } finally { await act(async () => root.unmount()); host.remove(); reload.mockRestore(); }
+}, 30_000);
 vi.mock('./hooks/useDesignDirty.js', async original => {
   const real = await original<typeof import('./hooks/useDesignDirty.js')>();
   return { ...real, useDesignDirty: (...args: Parameters<typeof real.useDesignDirty>) => {
@@ -120,6 +218,8 @@ beforeEach(() => {
 });
 
 it.each(['conflict', 'held design'])('round 3 clean unmount keeps later %s live', async reason => {
+  restoreUserDesign();
+  dirtyOverride.value = false;
   vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
   vi.mocked(useVersionCheck).mockReturnValue({ state: { kind: 'unknown' }, recheck: vi.fn(), checking: false });
   vi.mocked(useSwUpdate).mockReturnValue({ kind: 'idle', applying: false });
@@ -542,6 +642,8 @@ it.each(['before tracking', 'during decode'])('V211-3 holds a share import on ta
 });
 
 it.each(['held design', 'live conflict'])('V211-4/10 holds a mounted clean tab with %s before rerender', async reason => {
+  restoreUserDesign();
+  dirtyOverride.value = false;
   vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
   vi.mocked(useVersionCheck).mockReturnValue({ state: { kind: 'unknown' }, recheck: vi.fn(), checking: false });
   vi.mocked(useSwUpdate).mockReturnValue({ kind: 'idle', applying: false });

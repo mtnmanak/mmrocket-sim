@@ -128,7 +128,7 @@ export async function guardPrecache(
   const repair = async (requested = false, serverChecked = false): Promise<PrecacheGuardOutcome> => {
     if (!requested && isReloadHeld()) return hold();
     // Another tab may have installed a healthy worker while this repair waited.
-    try { if ((await readEntries() ?? 0) > 0) return 'precache-ok'; }
+    try { if (!unregistered && (await readEntries() ?? 0) > 0) return 'precache-ok'; }
     catch { return 'unknown'; }
     // A cancelled leave prompt can leave an unregistered document alive.
     // Every later reload still needs a reachable server.

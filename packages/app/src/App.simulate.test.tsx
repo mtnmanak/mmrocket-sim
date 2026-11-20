@@ -1108,7 +1108,8 @@ describe('the Launch button and simulateDesign fly a stored design the same', ()
     } as ComponentNode);
     const core = motorMounts(tree).find((n) => n.id !== 'pod-mmt')!.id!;
     const m = await c6();
-    const refused = { ...m, spec: { ...m.spec, masses: m.spec.masses.map((x, i, all) => (i === all.length - 1 ? -0.001 : x)) } };
+    const refused = { ...m,
+      spec: { ...m.spec, masses: m.spec.masses.map((x, i, all) => (i === all.length - 1 ? -0.001 : x)) } };
     const { out } = await sessionCase({ tree, launch: DEFAULT_CONDITIONS, mountMotors: { [core]: m, 'pod-mmt': refused } }, CLASSIC);
     expect(out.build.motorFailures).toHaveLength(1);
     expect(out.run.delayResolution?.mounts.map((x) => x.mountId)).toEqual([core]);

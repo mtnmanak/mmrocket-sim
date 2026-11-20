@@ -5,6 +5,7 @@ import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { autosavedDesignFile } from '../services/autosaveBackup.js';
 import { saveFile, saveOutcomeNote } from '../services/saveFile.js';
 import { setCrashReloadHold } from '../services/swUpdate.js';
+import { noteText } from '../services/noteField.js';
 import {
   autosaveIsAnotherTabs, discardSession, heldSession, onSessionConflictChange, onSessionSaveStateChange, sessionPayload,
 } from '../services/session.js';
@@ -92,28 +93,32 @@ export class AppBoundary extends Component<
   };
 
   private download = async () => {
-    const file = autosavedDesignFile();
-    const held = heldSession() !== null;
-    if (!file) {
-      this.setState({ note: 'There is no autosaved design in this browser to download.' });
-      return;
+    try {
+      const file = autosavedDesignFile();
+      const held = heldSession() !== null;
+      if (!file) {
+        this.setState({ note: 'There is no autosaved design in this browser to download.' });
+        return;
+      }
+      const out = await saveFile(file.data, {
+        suggestedName: file.name, mime: file.mime, extensions: [file.extension], description: file.description,
+      });
+      if (out.kind === 'cancelled') return;
+      // autosavedDesignFile handed over the held design (it prefers it), so the
+      // leave-page guard has nothing left to keep.
+      if (held) this.handedOver = true;
+      this.downloadedBackup = true;
+      // The app's own after-save line, so a crash save names Firefox's ask-where setting too.
+      const where = saveOutcomeNote(out)!.text;
+      this.setState({
+        note: file.ork
+          ? [`${where} Open it with Open… once the app is running again.`, ...file.notes].join('\n')
+          : `${where} The design could not be written as an .ork, so this is the autosave exactly as`
+            + ' the browser holds it — keep it, and attach it to a bug report.',
+      });
+    } catch (e) {
+      this.setState({ note: `Recovery download failed: ${noteText(e instanceof Error ? e.message : String(e))}` });
     }
-    const out = await saveFile(file.data, {
-      suggestedName: file.name, mime: file.mime, extensions: [file.extension], description: file.description,
-    });
-    if (out.kind === 'cancelled') return;
-    // autosavedDesignFile handed over the held design (it prefers it), so the
-    // leave-page guard has nothing left to keep.
-    if (held) this.handedOver = true;
-    this.downloadedBackup = true;
-    // The app's own after-save line, so a crash save names Firefox's ask-where setting too.
-    const where = saveOutcomeNote(out)!.text;
-    this.setState({
-      note: file.ork
-        ? [`${where} Open it with Open… once the app is running again.`, ...file.notes].join('\n')
-        : `${where} The design could not be written as an .ork, so this is the autosave exactly as`
-          + ' the browser holds it — keep it, and attach it to a bug report.',
-    });
   };
 
   private startFresh = () => {

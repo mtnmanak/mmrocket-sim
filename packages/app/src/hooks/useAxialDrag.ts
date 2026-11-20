@@ -1,9 +1,9 @@
-import { useMemo, useRef, useState, type RefObject } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import {
   anchorStarts, axialLength, offsetForStart, positionOf, snapStart, startFromPosition,
 } from '../tree/position.js';
-import { updateNode } from '../tree/treeModel.js';
+import { findNode, findParent, updateNode } from '../tree/treeModel.js';
 import { applyFieldLimit } from '../tree/schema.js';
 import { POSITION_LIMIT } from '../tree/sanitize.js';
 import { releasedDuring, startsGesture } from '../chartPanZoom.js';
@@ -118,6 +118,20 @@ export function useAxialDrag({ tree, onPatchNode, svgRef, viewWidth, pxPerMetre 
   // that follows a real drag must not change the selection.
   const dragMoved = useRef(false);
   const [preview, setPreview] = useState<Preview | null>(null);
+  useLayoutEffect(() => {
+    const d = drag.current;
+    if (!d) return;
+    const child = findNode(tree, d.childId);
+    const parent = findParent(tree, d.childId);
+    // Motor/nozzle writes and equivalent immutable trees do not change the
+    // drag's frame. Retire it only when the part or its anchors changed.
+    if (child && parent && parent !== 'stage' && parent.id === d.grip.parent.id
+      && axialLength(parent) === d.grip.pLen && axialLength(child) === axialLength(d.grip.child)
+      && JSON.stringify(positionOf(child)) === JSON.stringify(positionOf(d.grip.child))
+      && JSON.stringify(anchorStarts(parent, child)) === JSON.stringify(anchorStarts(d.grip.parent, d.grip.child))) return;
+    drag.current = null;
+    setPreview(null);
+  }, [tree]);
   // The committed design with ONE position changed, by the very `updateNode`
   // App's onPatchNode applies on release. Only this view reads it: nothing
   // here reaches the kernel, the history or the saved state.

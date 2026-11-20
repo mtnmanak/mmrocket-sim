@@ -1,4 +1,5 @@
 import { Note } from './Note.js';
+import { CHUNK_LOAD_GUIDANCE } from '../services/lazyLoadFailure.js';
 import { useEffect, useMemo, useState } from 'react';
 import type { RocketTree } from '@online-openrocket/engine';
 import { NumField } from './NumField.js';
@@ -270,7 +271,7 @@ export function ScaleDialog({
           <button className="file-btn" onClick={onClose} aria-label="Close scale dialog">✕ Close</button>
         </div>
 
-        <div role="alert">{catalogueFailed && <>Could not load the catalogue. You can still scale by diameter or factor.
+        <div role="alert">{catalogueFailed && <>Could not load the catalogue. You can still scale by diameter or factor. {CHUNK_LOAD_GUIDANCE}{' '}
           <button type="button" onClick={() => { setCatalogueFailed(false); setCatalogueAttempt(n => n + 1); }}>Retry</button>
         </>}</div>
         {baseD <= 0 ? (

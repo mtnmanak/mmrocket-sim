@@ -9,6 +9,7 @@ import type { AeroChoice } from './aeroChoice.js';
 import { normalizeRunColumns } from '../services/runSummaryColumns.js';
 import { normalizeExportLayouts } from '../services/flightExportLayouts.js';
 import { sessionDebugLog } from '../services/sessionDebugLog.js';
+import { MAX_DIMENSION_M } from '../tree/schema.js';
 
 // The stored shape and its defaults, and the aero choice, live in React-free
 // modules (2026-10-01: the headless Launch reads them with no React mounted).
@@ -63,7 +64,8 @@ function load(): Preferences {
     if (!['creation', 'name', 'name-desc', 'motor', 'motor-desc'].includes(parsed.configurationSort!)) delete parsed.configurationSort;
     if (parsed.fieldPrecision !== 'auto' && parsed.fieldPrecision !== 3 && parsed.fieldPrecision !== 4) delete parsed.fieldPrecision;
     if (!['nose', 'aft', 'offset'].includes(parsed.rulerReference2d!)) delete parsed.rulerReference2d;
-    if (typeof parsed.rulerOffset2dM !== 'number' || !Number.isFinite(parsed.rulerOffset2dM)) delete parsed.rulerOffset2dM;
+    if (typeof parsed.rulerOffset2dM !== 'number' || !Number.isFinite(parsed.rulerOffset2dM)
+      || Math.abs(parsed.rulerOffset2dM) > MAX_DIMENSION_M) delete parsed.rulerOffset2dM;
     // A stored printer that isn't three positive numbers is dropped, not
     // repaired — planning cuts for a half-parsed machine is worse than not
     // offering to split at all. Absent stays absent (no printer configured).

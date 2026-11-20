@@ -13,7 +13,7 @@ import { migrateLegacyPadMass, restoreUnmatchedRefs } from './configSync.js';
 import type { DesignState } from './designDerivation.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import type { MeasuredFigures } from './orkFile.js';
-import type { SessionState } from './session.js';
+import { sessionUnreadable, type SessionState } from './session.js';
 import { restoreMotorLabels, restoreConfigLabels } from './motorLabels.js';
 import { checkLegacyPositions } from './legacyPositionCheck.js';
 import { isLoneEmptyConfig } from './emptyConfig.js';
@@ -79,6 +79,7 @@ export function designStateFromSession(
   // are named just like file imports (open-items, 22–23 September: "A
   // restored session is repaired without a note").
   const restoreNotes: string[] = [...(session?.treeRestoreNotes ?? [])];
+  if (session === null && sessionUnreadable()) cautionNote(restoreNotes, 'G04.root-replaced', 'The existing autosave could not be read. Autosave is paused to preserve its original bytes; download the autosave before starting a new design.');
   // The loader's own records for those lines (session.ts: a removed design or
   // configurations, D7 G04). Plain strings carry none and read as Information.
   carryFlags(restoreNotes, session?.treeRestoreNotes ? noteFlags(session.treeRestoreNotes) : []);
@@ -234,7 +235,7 @@ export function designStateFromSession(
       mountMotors: migrated.state.mountMotors, activeConfigId: migrated.state.activeConfigId,
       configLayers: 1, detachedOverrides: migrated.state.detachedOverrides ?? {} },
     session: session ? migrated.state : null,
-    refused: false,
+    refused: session === null && sessionUnreadable(),
     restoreNotes,
     restoreNoteTiers: noteFlags(restoreNotes),
     preLengthRestore: { tree: before, maxMotorLengthByStage: limits },

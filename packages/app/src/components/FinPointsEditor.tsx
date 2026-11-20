@@ -1,5 +1,5 @@
 import { GlossaryHelp } from './GlossaryHelp.js';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { INITIAL_UNITS, niceStep, noticeQuantity, siToUi, uiToSi, type UnitSelection } from '../prefs/units.js';
 import { finOutlineProblem, kernelFinPoints, MAX_FIN_POINT_M, MAX_FIN_OUTLINE_POINTS } from '../tree/finOutline.js';
@@ -169,12 +169,18 @@ function EditableFinPoints({ points, onChange }: {
   const [refused, setRefused] = useState<string | null>(null);
   const previousPoints = useRef(points);
   const emittedPoints = useRef<FinPoint[] | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     // Parent updates may clone our own edit or unchanged points. Only an
     // external outline change (such as Undo/Redo) retires the explanation.
     if (!samePoints(points, previousPoints.current)
       && (!emittedPoints.current || !samePoints(points, emittedPoints.current))) {
       setRefused(null);
+      press.current = null;
+      dragIndex.current = null;
+      liveRef.current = null;
+      frozenTransform.current = null;
+      setLivePts(null);
+      setPanning(false);
     }
     previousPoints.current = points;
     // Consume the echo so a later Undo to this outline is external again.

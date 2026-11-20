@@ -101,7 +101,8 @@ const GuideDialog = lazy(() => import('./components/GuideDialog.js').then((m) =>
 const ChangelogDialog = lazy(() => import('./components/ChangelogDialog.js').then((m) => ({ default: m.ChangelogDialog })));
 import { TreeSchematic } from './components/TreeSchematic.js';
 import { AftView } from './components/AftView.js';
-import { View3DBoundary } from './components/View3DBoundary.js';
+import { View3DBoundary, isChunkLoadError } from './components/View3DBoundary.js';
+import { CHUNK_LOAD_GUIDANCE } from './services/lazyLoadFailure.js';
 import { PanelBoundary } from './components/PanelBoundary.js';
 import { designationForMotorIdentity, motorTooltip, restoreConfigLabels, restoreMotorLabels } from './services/motorLabels.js';
 import { namedBatchMounts, recordedPrimaryMountId } from './services/batchLoadout.js';
@@ -124,7 +125,8 @@ import { installedMounts, reflyRun } from './services/flightRunner.js';
 import { flyBuiltDesign } from './services/simulateDesign.js';
 import { buildDesign, KERNEL_HANDLES, type DesignBuild } from './services/buildDesign.js';
 import { preflightAudit, readAuditMasses } from './services/preflightAudit.js';
-import { loadExMotorIdentities } from './services/exMotors.js';
+import { loadExMotorIdentities, subscribeExMotors } from './services/exMotors.js';
+import { asymmetricThrustWarnings } from './services/asymmetricThrust.js';
 import { exportOrk, importOrk, type MeasuredFigures, type OrkExportFlightData, type OrkMotorRef } from './services/orkFile.js';
 import {
   decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS, shareLinkOpenFailure,
@@ -141,7 +143,7 @@ import { cdx1StageFigures } from './services/cdx1StageFigures.js';
 import { checkFormatLossOf, checkFormatLossSafely, formatExtension, type CheckedFormatLossReport, type FormatLossInput, type FormatLossReport, type LossyFormat } from './services/formatLoss.js';
 import { gateLossySave, lossySaveStatus, replacementLossNote, type LossySaveMark } from './services/lossySave.js';
 import {
-  flushSession, heldSession, loadSession, onSessionConflictChange, onSessionSaveStateChange, saveSessionDebounced,
+  flushSession, heldSession, loadSession, allowSessionReplacement, sessionUnreadable, onSessionConflictChange, onSessionSaveStateChange, saveSessionDebounced,
   sessionConflicted, sessionPredatesThisBuild, sessionSaveFailing, takeOverSession, versionEarlierThan,
 } from './services/session.js';
 import {
@@ -538,11 +540,22 @@ export function App() {
     setMountMotorsRaw(value);
   }, []);
   const motorChoices = useRef(new Map<string, object>());
+  const [motorChoicePending, setMotorChoicePending] = useState(false);
+  const retireMotorChoice = (mountId?: string) => {
+    if (mountId === undefined) motorChoices.current.clear();
+    else motorChoices.current.delete(mountId);
+    setMotorChoicePending(motorChoices.current.size > 0);
+  };
+  const [exLibraryRevision, setExLibraryRevision] = useState(0);
+  useEffect(() => subscribeExMotors(() => setExLibraryRevision(v => v + 1)), []);
   const beginMotorChoice = (mountId: string) => {
     const token = {};
     motorChoices.current.set(mountId, token);
-    return () => motorChoices.current.get(mountId) === token
-      && motorMounts(treeRef.current).some((m) => m.id === mountId);
+    setMotorChoicePending(true);
+    return Object.assign(() => motorChoices.current.get(mountId) === token
+      && motorMounts(treeRef.current).some((m) => m.id === mountId), {
+      settled: () => { if (motorChoices.current.get(mountId) === token) retireMotorChoice(mountId); },
+    });
   };
   // A previous catalogue check (the motor browser's button, or the automatic
   // one on load) left its delta in this browser; install it before anything
@@ -1065,41 +1078,58 @@ export function App() {
       invalidateSaved();
     }
   }), [invalidateSaved]);
-  // Conflicted changes and dirty edits while autosave is paused or failing are in no
-  // storage slot, so closing this tab would lose them without a leave prompt.
+  // A held design may be marked saved without ever reaching storage (for
+  // example a share link). Read the hold at unload, including failures after render.
+  const quickPicksOffered = useMemo(() => isPristineDefault(tree), [tree]);
+  const hasDesignWork = session !== null || dirty || designFile !== null || importedDocument !== undefined || !quickPicksOffered;
   useEffect(() => {
-    if (!sessionConflict && !((autosavePaused || autosaveFailing) && dirty)) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (leavingForOtherTab.current) return;
+      const heldWithoutFile = hasDesignWork && heldSession() !== null
+        && !(!dirty && designFile?.format === 'ork' && designFile.via !== 'opened');
+      if (leavingForOtherTab.current || !(sessionConflict || heldWithoutFile
+        || ((autosavePaused || autosaveFailing) && dirty))) return;
       e.preventDefault();
       e.returnValue = '';
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => { window.removeEventListener('beforeunload', onBeforeUnload); };
-  }, [sessionConflict, autosavePaused, autosaveFailing, dirty]);
+  }, [sessionConflict, autosavePaused, autosaveFailing, dirty, designFile, hasDesignWork]);
   // Protect the fragment before the mount effect can strip it, and keep that
   // protection until the imported design or replacement offer has committed.
   const [shareOpening, setShareOpening] = useState(() => hasSharePayload(window.location.hash));
-  const holdReload = dirty || sessionConflict || shareOpening || shareOffer !== null || pendingOpen !== null;
+  const holdReload = dirty || sessionConflict || shareOpening || shareOffer !== null || pendingOpen !== null
+    || simulating || showBatch || bundleSource !== null || (hasDesignWork && (autosavePaused || autosaveFailing));
+  const [confirmUpdate, setConfirmUpdate] = useState(false);
   const reloadWarning = dirty
     ? 'This tab has unsaved changes: save them (.ork) if you want to keep them, then Reload.'
     : sessionConflict ? 'This tab is waiting because another tab changed the autosave. Save this design (.ork) if you want to keep it, then Reload.'
-    : heldSession() !== null || shareOpening || shareOffer !== null || pendingOpen !== null || pageActivity.importsInProgress() > 0
+    : hasDesignWork && heldSession() !== null ? 'Save this tab’s design as an .ork file before reloading: autosave does not hold its current work.'
+    : shareOpening || shareOffer !== null || pendingOpen !== null || pageActivity.importsInProgress() > 0
       ? 'Save this tab’s design as an .ork file and finish or cancel the pending open first. Reloading can lose this tab’s work.'
       : null;
-  const onApplyUpdate = () => {
-    if (!dirty && (heldSession() !== null || shareOpening || shareOffer !== null || pendingOpen !== null
-      || pageActivity.importsInProgress() > 0)
-      && !window.confirm('Save this tab’s design as an .ork file and finish or cancel the pending open first. Reloading can lose this tab’s work or the incoming design. Reload anyway?')) return;
+  const onApplyUpdate = (confirmed = false) => {
+    if (shareOpening || shareOffer !== null || pendingOpen !== null || pageActivity.importsInProgress() > 0) {
+      setFileNote('Finish or cancel the pending open before reloading. Save this tab’s design as an .ork file first if you want to keep it.', 'warn', true, 'caution');
+      return;
+    }
+    // Decide before SKIP_WAITING changes the worker for every tab. A cancelled
+    // beforeunload after activation is too late to keep this build's chunks.
+    if (!confirmed && (dirty || sessionConflicted() || (hasDesignWork && heldSession() !== null))) {
+      setConfirmUpdate(true);
+      return;
+    }
+    setConfirmUpdate(false);
     void applyUpdate();
   };
   const holdReloadNow = useRef(true);
   const dirtyReloadNow = useRef(true);
-  useLayoutEffect(() => { holdReloadNow.current = holdReload; dirtyReloadNow.current = dirty; });
+  const designWorkNow = useRef(true);
+  useLayoutEffect(() => { holdReloadNow.current = holdReload; dirtyReloadNow.current = dirty; designWorkNow.current = hasDesignWork; });
   // Dirty stops changing with App; the crash panel's conflict/held design stays live.
-  useEffect(() => setReloadHold(() => holdReloadNow.current || sessionConflicted()
-    || heldSession() !== null || pageActivity.importsInProgress() > 0,
-    () => dirtyReloadNow.current || sessionConflicted() || heldSession() !== null), []);
+  useEffect(() => setReloadHold(() => holdReloadNow.current || openModalCount() > 0 || sessionConflicted()
+    || (designWorkNow.current && heldSession() !== null) || pageActivity.importsInProgress() > 0,
+    () => dirtyReloadNow.current || sessionConflicted() || (designWorkNow.current && heldSession() !== null),
+    () => holdReloadNow.current || sessionConflicted() || (designWorkNow.current && heldSession() !== null) || pageActivity.importsInProgress() > 0), []);
   useEffect(() => {
     if (startupSettled) void settleReloadHold();
   }, [startupSettled]);
@@ -1188,8 +1218,9 @@ export function App() {
     appliedSaveDestination.current = null;
     appliedOrkSaveDestination.current = null;
     setAutosavePaused(false);
+    allowSessionReplacement();
     setHiddenPartIds(new Set());
-    motorChoices.current.clear();
+    retireMotorChoice();
     // ONE emptyTree(), for BOTH the state and the mark (importApply's
     // planNewDesign says why that matters). Pressing ✕ New twice used to raise
     // "Start a new design?" on an empty design, which is the always-fires
@@ -1463,6 +1494,9 @@ export function App() {
   const flightTree = useMemo(() => ({ ...tree, components: flightState.tree.components }), [tree, flightState.tree.components]);
   const assigned = useMemo(() => assignedMotorsOf(flightState.mountMotors, mounts), [flightState.mountMotors, mounts]);
 
+  // THE NOZZLE EXIT DIAMETER FOLLOWS THE MOTOR (Eric, 2026-09-13) — the rule,
+  // and why it is decided here rather than in NozzleField, are in
+  // hooks/useNozzleFollow.ts. It acts on a change of this loadout only.
   // The PRIMARY mount drives the report's lead columns, auto-delay and the
   // weighed pad mass: the topmost-stage mount with a motor (the sustainer's).
   // ONE definition of "the primary" — treeModel.primaryMountOf — shared with
@@ -1599,11 +1633,13 @@ export function App() {
    * or the stored vector can never match (audit 2026-09-30).
    */
   const refusedMountIds = useMemo(() => refusedMountIdsOf(motorFailures), [motorFailures]);
-  // Follow only motors this build installed, using the same refusals as Batch.
-  const stageMotorLoadout = useMemo(() => stageMotors(flightTree, assigned, refusedMountIds), [flightTree, assigned, refusedMountIds]);
+  const installedAssigned = useMemo(() => installedMounts(assigned, refusedMountIds), [assigned, refusedMountIds]);
+  const flyThrustWarnings = useMemo(() => asymmetricThrustWarnings(flightTree, installedAssigned), [flightTree, installedAssigned]);
+  const stageMotorLoadout = useMemo(() => stageMotors(flightTree, installedAssigned, refusedMountIds), [flightTree, installedAssigned, refusedMountIds]);
   const {
     cleared: nozzleCleared, pending: nozzlePending, seed: seedNozzleFollow, restoring: restoreNozzleFollow,
-  } = useNozzleFollow({ loadout: stageMotorLoadout, treeRef, writeTree: writeTree });
+  } = useNozzleFollow({ loadout: stageMotorLoadout, treeRef, writeTree });
+  const configurationLoading = motorChoicePending || nozzlePending;
   /**
    * The same mounts in a stored delay vector's terms: what the Auto-delay card
    * checks a run's vector against. It was checked against every ASSIGNED mount,
@@ -1994,7 +2030,7 @@ export function App() {
 
   /** Assigns a motor to a mount, with the propellant-aware ignition default. */
   const assignMotor = (targetMountId: string, label: string, spec: MotorSpec, meta: MotorMeta, keepMountSettings = false) => {
-    motorChoices.current.delete(targetMountId);
+    retireMotorChoice(targetMountId);
     // THE LIVE TREE, not this render's (2026-09-08, from review). Both motor
     // pickers call `onSelect` only after an AWAITED thrust-curve fetch, so the
     // `tree` this closure captured can be several renders old by the time the
@@ -2026,7 +2062,7 @@ export function App() {
     });
     // And the active configuration's STORED copy of that reference, or a
     // reload before the next sync would seed it back (restoreUnmatchedRefs).
-    setSavedConfigs((prev) => withoutStoredRef(prev, activeConfigId, targetMountId));
+    setSavedConfigs(prev => withoutStoredRef(prev, activeConfigId, targetMountId));
     // LAST, so its note wins: a RASAero stage whose stated launch weight still
     // holds this motor's weight has to give it back now, or the motor is
     // counted twice (+79 % on MESOS — services/statedLaunchWeight.ts). Returns
@@ -2056,9 +2092,9 @@ export function App() {
     if (plan.targets.length) setOtherMountOffer({ sourceId, configId: activeConfigId, plan,
       shape: otherMountShape(treeRef.current, sourceId) });
   };
-  const otherMountOfferApplies = otherMountOffer !== null && otherMountOffer.configId === activeConfigId
+  const otherMountOfferApplies = useMemo(() => otherMountOffer !== null && otherMountOffer.configId === activeConfigId
     && otherMountOffer.shape === otherMountShape(tree, otherMountOffer.sourceId)
-    && otherMountStagesHold(tree, otherMountOffer.stages ?? []);
+    && otherMountStagesHold(tree, otherMountOffer.stages ?? []), [otherMountOffer, activeConfigId, tree]);
   useEffect(() => {
     if (otherMountOffer && !otherMountOfferApplies) setOtherMountOffer(null);
   }, [otherMountOffer, otherMountOfferApplies]);
@@ -2568,6 +2604,7 @@ export function App() {
 
   const downloadAutosavedDesign = async () => {
     const generation = documentGeneration.current;
+    try {
     const file = autosavedDesignFile();
     if (!file) { setFileNote('There is no autosaved design to download.', 'warn', true, 'caution'); return; }
     const out = await saveFile(file.data, { suggestedName: file.name, mime: file.mime,
@@ -2576,6 +2613,9 @@ export function App() {
     if (note) documentNote(generation, file.ork ? [note.text, ...file.notes].join('\n')
       : `${note.text} The design could not be written as an .ork; this file keeps the raw autosave as JSON.`,
       file.notes.length ? 'warn' : note.severity, true, file.notes.length ? 'caution' : undefined);
+    } catch (e) {
+      documentNote(generation, `Autosave download failed: ${noteText(e instanceof Error ? e.message : String(e))}`, 'error', undefined, 'danger');
+    }
   };
 
   /**
@@ -2680,6 +2720,16 @@ export function App() {
     } : undefined,
   );
 
+  const exportComponentData = async (kind: 'csv' | 'xlsx') => {
+    const generation = documentGeneration.current;
+    try {
+      const t = buildComponentTable();
+      await download(kind === 'csv' ? componentCsv(t) : tableToXlsx(t.headers, t.rows, 'Components'), kind, '-components', [], undefined, generation);
+    } catch (e) {
+      documentNote(generation, `Component ${kind.toUpperCase()} export failed: ${noteText(e instanceof Error ? e.message : String(e))}`, 'error', undefined, 'danger');
+    }
+  };
+
   const onSaveOrk = async (): Promise<SaveOutcome | { kind: 'failed' }> => {
     const generation = documentGeneration.current;
     const saveId = ++saveCounter.current;
@@ -2771,7 +2821,7 @@ export function App() {
     }, 500);
     return () => window.clearTimeout(timer);
   }, [designFile, designSnapshot, unmatchedRefs, runs, importedDocument, simulating, reflying, flightExportInput,
-    prefs.units.altitude, built]);
+    prefs.units.altitude, built, catalogue, exLibraryRevision]);
   // The Open, ✕ New and share confirms say what the .rkt or .CDX1 on disk does
   // not keep. Computed now, from the design on screen, while one is open: the
   // header's debounced preview may not have run yet (just after an Open or an
@@ -2785,7 +2835,7 @@ export function App() {
   // Keyed on what lossInput reads (through designSnapshot and the two memoized
   // export values), not on lossInput itself, which is rebuilt every render.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on lossInput's inputs, not its per-render identity
-  }, [replacing, designFile, designSnapshot, unmatchedRefs, flownForAutosave, flightDataNow, prefs.units.altitude, built]);
+  }, [replacing, designFile, designSnapshot, unmatchedRefs, flownForAutosave, flightDataNow, prefs.units.altitude, built, catalogue, exLibraryRevision]);
   const replaceLoss = replacementLossNote(designFile, replaceReport);
 
   const saveLossy = (format: LossyFormat, accepted?: FormatLossReport) => {
@@ -2853,9 +2903,13 @@ export function App() {
       const { rocketToObj } = await import('./services/objExport.js');
       await download(rocketToObj(tree, tree.name ?? 'Rocket'), 'obj', '', meshExportNotes(tree, prefs.units), undefined, generation);
     } catch (e) {
-      documentNote(generation, `OBJ export failed: ${noteText(e instanceof Error ? e.message : String(e))}`, 'error', undefined, 'danger');
+      documentNote(generation, `OBJ export failed: ${geometryExportFailure(e)}`, 'error', undefined, 'danger');
     }
   };
+
+  const geometryExportFailure = (e: unknown) => isChunkLoadError(e)
+    ? `The export code could not be downloaded. ${CHUNK_LOAD_GUIDANCE}`
+    : noteText(e instanceof Error ? e.message : String(e));
 
   const onSaveGlb = async () => {
     const generation = documentGeneration.current;
@@ -2863,7 +2917,7 @@ export function App() {
       const { rocketToGlb } = await import('./services/gltfExport.js');
       await download(new Uint8Array(await rocketToGlb(tree, tree.name ?? 'Rocket')), 'glb', '', meshExportNotes(tree, prefs.units), undefined, generation);
     } catch (e) {
-      documentNote(generation, `glTF export failed: ${noteText(e instanceof Error ? e.message : String(e))}`, 'error', undefined, 'danger');
+      documentNote(generation, `glTF export failed: ${geometryExportFailure(e)}`, 'error', undefined, 'danger');
     }
   };
 
@@ -2877,7 +2931,7 @@ export function App() {
       const { pieces } = buildPieces(tree);
       await download(piecesToStl(pieces, tree.name ?? 'Rocket'), 'stl', '', meshExportNotes(tree, prefs.units), undefined, generation);
     } catch (e) {
-      documentNote(generation, `STL export failed: ${noteText(e instanceof Error ? e.message : String(e))}`, 'error', undefined, 'danger');
+      documentNote(generation, `STL export failed: ${geometryExportFailure(e)}`, 'error', undefined, 'danger');
     }
   };
 
@@ -2956,8 +3010,9 @@ export function App() {
         plan.note = { ...plan.note, group, text: [group.heading, ...lines.map(n => n.text)].filter(Boolean).join('\n'),
           severity: highestTier(lines) === 'information' ? plan.note.severity : 'warn' };
       }
-      motorChoices.current.clear();
+      retireMotorChoice();
       setAutosavePaused(false);
+      allowSessionReplacement();
       applyImportPlan(plan, {
         history: { reset: resetHistory },
         setMountMotors, setUnmatchedRefs, setSavedConfigs, setActiveConfigId, setDetachedOverrides, setLaunch, setMeasured,
@@ -3031,8 +3086,9 @@ export function App() {
    * back and what it carries across.
    */
   const applyConfig = (requested: SavedConfig) => {
+    if (configurationLoading) return;
     setMotorLoadoutRepair(null);
-    motorChoices.current.clear();
+    retireMotorChoice();
     const plan = planConfigSwitch(
       { savedConfigs, activeConfigId, mountMotors, unmatchedRefs, tree }, requested, statedWeightText);
     // The history starts over from the switched design (applyConfigSwitchPlan
@@ -3183,6 +3239,7 @@ export function App() {
   };
 
   const createConfig = (): string | null => {
+    if (configurationLoading) return null;
     const next = createLoadedConfig({ savedConfigs, activeConfigId, detachedOverrides, tree, mountMotors, unmatchedRefs });
     if (!next) return null;
     // Older scale companions cannot restore configurations created after them.
@@ -3195,6 +3252,7 @@ export function App() {
   };
 
   const duplicateFlightConfig = () => {
+    if (configurationLoading) return;
     const next = duplicateActiveConfig({ savedConfigs, activeConfigId, tree, mountMotors, unmatchedRefs });
     if (!next) return;
     resetHistory();
@@ -3210,6 +3268,7 @@ export function App() {
   };
 
   const deleteFlightConfig = (config: SavedConfig) => {
+    if (configurationLoading && config.id === activeConfigId) return;
     const next = deleteConfig(savedConfigs, activeConfigId, config.id, detachedOverrides);
     setSavedConfigs(next.savedConfigs);
     setActiveConfigId(next.activeConfigId);
@@ -3223,7 +3282,7 @@ export function App() {
 
   /** The "None" row / full unload: no motors, no active configuration. */
   const clearConfig = () => {
-    motorChoices.current.clear();
+    retireMotorChoice();
     detachedHistoryEpoch.current = {};
     // The working set — and what the tree holds for the configuration — goes
     // back into it before it is emptied, for the same reason applyConfig does
@@ -3327,7 +3386,10 @@ export function App() {
       return imported;
     }
     eligibleMotorLinks.current.add(imported);
+    const checkingNote = { text: 'Checking the motor catalogue… This can take up to 10 seconds.', severity: 'info' as const };
+    setFileNoteState(checkingNote);
     await catalogueCheckSettled(10_000);
+    if (openSeq.isCurrent(openId)) setFileNoteState(previous => previous === checkingNote ? null : previous);
     const resolved = await resolveImportMotors(imported, ref => matchImportedMotor(ref, { units: prefs.units }));
     if (!openSeq.isCurrent(openId)) return imported;
     imported.resolvedMotors = resolved;
@@ -3387,7 +3449,7 @@ export function App() {
     const sameMotor = currentMotor !== undefined
       && currentMotor.meta.motorId === pending.motor.meta.motorId
       && currentMotor.spec.ejectionDelay === pending.motorDelay
-      && !!currentMotor.meta.autoDelay === !!pending.motor.meta.autoDelay
+      && (currentMotor.meta.autoDelay === true) === (pending.motor.meta.autoDelay === true)
       && currentMotor.padMassKg === pending.motor.padMassKg
       && currentMotor.padMassWeighedWith === pending.motor.padMassWeighedWith
       && currentIgnition?.event === pending.ignition.event
@@ -3430,7 +3492,6 @@ export function App() {
    * inline: `isPristineDefault` builds a fresh `defaultTree()`, which mints new
    * ids, and this is read once per mount card per render.
    */
-  const quickPicksOffered = useMemo(() => isPristineDefault(tree), [tree]);
   // Share and Quick picks use one memoized tree check (audit 2026-10-11, S2-9).
   shareShouldOffer.current = dirty || !quickPicksOffered || autosavePaused;
   useEffect(() => {
@@ -3518,11 +3579,44 @@ export function App() {
 
   // Loaded motor dimensions per mount — the 2D schematic draws each motor
   // to scale inside its mount tube (the owner's request: real case length).
+  const mountCardData = useMemo(() => new Map(mounts.map(m => {
+      const mNode = findNode(tree, m.id!);
+      // Pods and strap-ons included (audit 2026-09-22, row 351): the
+      // label and the pad-mass card's multi-motor wording follow the
+      // count the mass figures carry, not the cluster alone.
+      const count = mountMotorCount(tree, m.id!);
+      const countNote = mountCountNote(tree, m.id!);
+      // Every loaded mount has its own Auto policy and flown evidence.
+      const autoBox = autoDelayBox(tree, m.id!);
+      // The fallback — an earlier flight's Auto delay on this mount — is
+      // THIS design and mount's motor alone, including saved batch candidates.
+      // The run list is global and mount ids are
+      // counter values every load mints afresh, so a match on the id put
+      // another design's "Previous flight" under this motor (audit
+      // 2026-09-30).
+      const delayRun = runs.find((r) => runMatchesDesign(r, provenanceKey)
+        && resolutionMatchesPolicy(r.delayResolution, flownDelayMounts))
+        ?? runs.find((r) => r.designKey === provenanceKey.designKey
+          && (typeof r.motorDataKeys === 'object' && r.motorDataKeys !== null && !Array.isArray(r.motorDataKeys)
+            ? overrideFor(r.motorDataKeys, m.id!) !== undefined
+              && overrideFor(r.motorDataKeys, m.id!) === overrideFor(provenanceKey.motorDataKeys, m.id!)
+            : r.motorDataKey === undefined || r.motorDataKey === provenanceKey.motorDataKey)
+          && validDelayResolution(r.delayResolution)
+          && r.delayResolution.mounts.some((d) => d.mountId === m.id && d.mode === 'auto'
+            // Matching fingerprints or the whole motor-set key establish the motor.
+            // Only a historical record without those needs the evidence identity.
+            && (overrideFor(r.motorDataKeys, m.id!) !== undefined
+              || r.motorDataKey !== undefined || r.motorSetKey === provenanceKey.motorSetKey
+              || d.motorIdentity === flownDelayMounts.find((mount) => mount.mountId === m.id)?.motorIdentity)));
+      const delayCurrent = !!delayRun && runMatchesDesign(delayRun, provenanceKey)
+        && resolutionMatchesPolicy(delayRun.delayResolution, flownDelayMounts);
+      return [m.id!, { mNode, count, countNote, autoBox, delayRun, delayCurrent, stageIndex: stageIndexOf(tree, m.id!) }];
+  })), [mounts, tree, runs, provenanceKey, flownDelayMounts]);
   const motorDims = useMemo(
-    () => Object.fromEntries(installedMounts(assigned, refusedMountIds).map(([id, mm]) => [
+    () => Object.fromEntries(installedAssigned.map(([id, mm]) => [
       id, { length: mm.spec.length, diameter: mm.spec.diameter, label: mm.label },
     ])),
-    [assigned, refusedMountIds],
+    [installedAssigned],
   );
 
   // Flight evidence is sticky for this page load, even after New or an edit
@@ -3558,7 +3652,7 @@ export function App() {
     name: tree.name ?? 'Rocket',
     info: built?.info ?? null,
     units: prefs.units,
-    withMotors: assigned.length > 0,
+    withMotors: installedAssigned.length > 0,
     appVersion: APP_VERSION,
     omittedMotors: motorFailures.map(f => noteField(mountName(findNode(tree, f.mountId)))),
     unresolvedMotors: unresolvedMounts.map(mount => noteField(mountName(mount))),
@@ -3777,9 +3871,7 @@ export function App() {
         info={built.info}
         cd={designCd}
         recovery={recovery}
-        motorLabel={assignedCopies > 1
-          ? assigned.map(([id, mm]) => `${mountMotorCount(tree, id) > 1 ? `${mountMotorCount(tree, id)}× ` : ''}${mm.label}`).join(' + ')
-          : primaryLabel}
+        motorLabel={installedAssigned.map(([id, mm]) => `${mountMotorCount(tree, id) > 1 ? `${mountMotorCount(tree, id)}× ` : ''}${mm.label}`).join(' + ') || undefined}
       />
       {lastRun && <FlightLoadStats run={lastRun} />}
     </div>
@@ -3830,17 +3922,23 @@ export function App() {
                 "check again" does not destroy the node the user is standing
                 on and throw focus back to the document. */}
             <span className="version-check" aria-live="polite">
+              {confirmUpdate && <span className="reload-confirmation">
+                Save this tab’s design as an .ork file before applying the update.
+                Reloading can lose this tab’s work because the tabs share one autosave.{' '}
+                <button className="file-btn" onClick={() => onApplyUpdate(true)}>Apply update and reload anyway</button>{' '}
+                <button className="file-btn" onClick={() => setConfirmUpdate(false)}>Keep working</button>
+              </span>}
               {swUpdateState.applying ? (
                 <button className="version-update" disabled
                   title="The update is being applied. This tab will reload.">↻ Updating…</button>
               ) : swUpdateState.reloadRequired ? (
                 <button className="version-update" disabled={swUpdateState.applying}
                   title={reloadWarning ?? 'Reload to finish updating this tab or repairing its offline copy.'}
-                  onClick={onApplyUpdate}>↻ Reload to finish the update</button>
+                  onClick={() => onApplyUpdate()}>↻ Reload to finish the update</button>
               ) : swUpdateState.kind === 'ready' ? (
                 <button className="version-update" disabled={swUpdateState.applying}
                   title={reloadWarning ?? 'The download is finished. Reload updates the app; other tabs with unsaved changes wait.'}
-                  onClick={onApplyUpdate}>
+                  onClick={() => onApplyUpdate()}>
                   {swUpdateState.readyVersion && versionEarlierThan(APP_VERSION, swUpdateState.readyVersion)
                     ? `↻ v${swUpdateState.readyVersion} ready — Reload` : '↻ New version ready — Reload'}
                 </button>
@@ -3852,7 +3950,7 @@ export function App() {
               ) : updateState.kind === 'stale' ? (
                 <button className="version-update"
                   title={reloadWarning ?? (swUpdateState.kind === 'failed' ? 'The download did not start. Check your connection and click again.' : `v${updateState.latest.version}${updateState.latest.released ? ` (released ${updateState.latest.released})` : ''} is deployed. Check its download, then reload when ready; other tabs with unsaved changes wait.`)}
-                  onClick={onApplyUpdate}>
+                  onClick={() => onApplyUpdate()}>
                   ↻ v{updateState.latest.version} available — Reload
                 </button>
               ) : (
@@ -3951,14 +4049,11 @@ export function App() {
                     title="Whole-rocket display shell as binary STL (mm). Reference/display model — NOT watertight; for printable parts use the 🖨 button on a selected component">
                     Export .stl — 3D shell (reference)
                   </button>
-                  <button onClick={() => { void download(componentCsv(buildComponentTable()), 'csv', '-components'); }}
+                  <button onClick={() => { void exportComponentData('csv'); }}
                     title="Every component and its attributes as one row per component, in your preferred units — dimensions, materials, and the computed mass/CG/position. For sharing measurement data.">
                     Export .csv — component data
                   </button>
-                  <button onClick={() => {
-                    const t = buildComponentTable();
-                    void download(tableToXlsx(t.headers, t.rows, 'Components'), 'xlsx', '-components');
-                  }}
+                  <button onClick={() => { void exportComponentData('xlsx'); }}
                     title="The same component table as a spreadsheet — typed cells, frozen header, autofilter.">
                     Export .xlsx — component data
                   </button>
@@ -4095,10 +4190,10 @@ export function App() {
         <div className="autosave-paused-alert" role="alert">
         {autosavePaused && (
           <Note tier="caution" className="file-note autosave-warn">
-            The autosaved design was not restored because it exceeds the 10,000 expanded component instance limit.
+            {sessionUnreadable() ? 'The existing autosave could not be read.' : 'The autosaved design was not restored because it exceeds the 10,000 expanded component instance limit.'}{' '}
             Autosave is paused to keep that original design. Download it before choosing New or opening another
             design, which resumes autosave. Save edits to the starter design with Save As / Export.{' '}
-            <button className="file-btn" onClick={() => { void downloadAutosavedDesign(); }}>Download the autosaved design (.ork)</button>
+            <button className="file-btn" onClick={() => { void downloadAutosavedDesign(); }}>Download the autosaved design {sessionUnreadable() ? '(JSON)' : '(.ork)'}</button>
           </Note>
         )}
         </div>
@@ -4248,12 +4343,11 @@ export function App() {
           // Every mount is batchable — a cluster ring around a central mount
           // (the owner's Darkstar) needs the RING selectable, not just the primary.
           mounts={namedBatchMounts(mounts.map(m => ({ node: m, mountName: mountName(m) }))).map(({ node: m, mountName: displayName }) => {
-            const mNode = findNode(tree, m.id!);
+            const { mNode, count: motorCount } = mountCardData.get(m.id!)!;
             // Every motor a candidate fires on this mount: the cluster times any
             // enclosing pod set or strap-on ring (audit 2026-09-22, row 351). It
             // feeds the candidate's equivalent stage exit (exitForCandidate), so
             // the cluster alone gave three pods one pod's nozzle.
-            const motorCount = mountMotorCount(tree, m.id!);
             return {
               id: m.id!,
               label: `${displayName} (⌀ ${classLabel(diameterClass(mountDiaMm(mNode)))} mm${motorCount > 1 ? ` ×${motorCount}` : ''})`,
@@ -4283,8 +4377,8 @@ export function App() {
           // …and their ignition settings, for the same reason: a MotorSpec
           // carries none, and every setMotorById resets the mount to
           // AUTOMATIC. An imported single-stage design can hold a `never` or
-          // a delayed mount even though this app shows the control only on a
-          // staged design.
+          // a delayed mount; every loaded motor shows its control, including on a
+          // single-stage design.
           assignedAutoDelays={Object.fromEntries(assigned.map(([id, mm]) => [id, mm.meta.autoDelay === true]))}
           assignedIgnitions={Object.fromEntries(
             mounts.map(m => [m.id!, overrideFor(activeOverrides.ignitions, m.id!)
@@ -4557,6 +4651,7 @@ export function App() {
 
         {tab === 'fly' && (
           <FlyScreen
+            configurationLoading={configurationLoading}
             configs={liveConfigs} activeConfigId={activeConfigId}
             // THE shared test (flightState.isWorkingSettings), the one the tab's
             // chooser and the strip read, unresolved motor references included —
@@ -4578,7 +4673,8 @@ export function App() {
             canLaunch={!!built && !!primaryMountId && !nozzlePending}
             onChangeMotor={() => { setFlyMountTarget(primaryMountId ?? mounts[0]?.id ?? null); setTab('motors'); }}
             onCompare={() => setShowBatch(true)}
-            canCompare={!!built && !!primaryMountId && !isStaged}
+            canCompare={!!built && mounts.length > 0 && !isStaged}
+            thrustWarnings={flyThrustWarnings}
             staleModel={modelMatch === false && lastRun
               ? aeroModelLabel(lastRun.aeroModel, lastRun.rogersKbf) : null}
             // The same provenance the vitals strip's ⚠ and the Results note
@@ -4966,6 +5062,7 @@ export function App() {
         {tab === 'motors' && (
         <main className="motors-layout">
           <ConfigPanel deletionUnprotected={dirty || !!replaceLoss} configs={liveConfigs} tree={tree} motors={mountMotors} refusedMountIds={refusedMountIds} unmatchedRefs={unmatchedRefs} detachedOverrides={detachedOverrides}
+            configurationLoading={configurationLoading}
             activeConfigId={activeConfigId} hasMotors={assigned.length > 0}
             onApply={applyConfig} onClear={clearConfig} onCreate={createConfig} onDuplicate={duplicateFlightConfig}
             onRename={renameFlightConfig} onDelete={deleteFlightConfig}
@@ -5022,7 +5119,7 @@ export function App() {
               </p>
             )}
             {stageList.map((st, stIdx) => {
-              const stMounts = mounts.filter((m) => stageIndexOf(tree, m.id!) === stIdx);
+              const stMounts = mounts.filter((m) => mountCardData.get(m.id!)?.stageIndex === stIdx);
               const stNozzles = nozzleStages({ ...tree, components: [st] })
                 .filter((s) => s.id && (nozzleEditableIds.has(s.id) || nozzleHeld.has(s.id)));
               // A stage with no mount still lists a nozzle value it carries, so
@@ -5064,36 +5161,7 @@ export function App() {
                   </div>
                   {stMounts.map((m) => {
               const mm = overrideFor(flightState.mountMotors, m.id!);
-              const mNode = findNode(tree, m.id!);
-              // Pods and strap-ons included (audit 2026-09-22, row 351): the
-              // label and the pad-mass card's multi-motor wording follow the
-              // count the mass figures carry, not the cluster alone.
-              const count = mountMotorCount(tree, m.id!);
-              const countNote = mountCountNote(tree, m.id!);
-              // Every loaded mount has its own Auto policy and flown evidence.
-              const autoBox = autoDelayBox(tree, m.id!);
-              // The fallback — an earlier flight's Auto delay on this mount — is
-              // THIS design and mount's motor alone, including saved batch candidates.
-              // The run list is global and mount ids are
-              // counter values every load mints afresh, so a match on the id put
-              // another design's "Previous flight" under this motor (audit
-              // 2026-09-30).
-              const delayRun = runs.find((r) => runMatchesDesign(r, provenanceKey)
-                && resolutionMatchesPolicy(r.delayResolution, flownDelayMounts))
-                ?? runs.find((r) => r.designKey === provenanceKey.designKey
-                  && (typeof r.motorDataKeys === 'object' && r.motorDataKeys !== null && !Array.isArray(r.motorDataKeys)
-                    ? overrideFor(r.motorDataKeys, m.id!) !== undefined
-                      && overrideFor(r.motorDataKeys, m.id!) === overrideFor(provenanceKey.motorDataKeys, m.id!)
-                    : r.motorDataKey === undefined || r.motorDataKey === provenanceKey.motorDataKey)
-                  && validDelayResolution(r.delayResolution)
-                  && r.delayResolution.mounts.some((d) => d.mountId === m.id && d.mode === 'auto'
-                    // Matching fingerprints or the whole motor-set key establish the motor.
-                    // Only a historical record without those needs the evidence identity.
-                    && (overrideFor(r.motorDataKeys, m.id!) !== undefined
-                      || r.motorDataKey !== undefined || r.motorSetKey === provenanceKey.motorSetKey
-                      || d.motorIdentity === flownDelayMounts.find((mount) => mount.mountId === m.id)?.motorIdentity)));
-              const delayCurrent = !!delayRun && runMatchesDesign(delayRun, provenanceKey)
-                && resolutionMatchesPolicy(delayRun.delayResolution, flownDelayMounts);
+              const { mNode, count, countNote, autoBox, delayRun, delayCurrent } = mountCardData.get(m.id!)!;
               return (
                 <div key={m.id} id={m.id ? `cfg-mount-${m.id}` : undefined} tabIndex={-1} className="mount-card" style={{ marginBottom: 10, paddingTop: 6, borderTop: '1px solid var(--border)' }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
@@ -5109,7 +5177,7 @@ export function App() {
                         // Named, not "multiplication x" (audit 2026-09-22).
                         aria-label={`Remove ${mm.label} from ${displayMountNames[m.id!]!}`}
                         onClick={() => {
-                                                motorChoices.current.delete(m.id!);
+                          retireMotorChoice(m.id!);
                           setMountMotors((prev) => {
                             const next = { ...prev };
                             delete next[m.id!];
@@ -5148,7 +5216,7 @@ export function App() {
                     primaryControlId={`cfg-mount-${m.id!}-motor`}
                   />
                   <div className="other-mount-offer-status" role="status">
-                    {otherMountOfferApplies && otherMountOffer?.sourceId === m.id && mm && <OtherMountOffer
+                    {otherMountOfferApplies && otherMountOffer && otherMountOffer.sourceId === m.id && mm && <OtherMountOffer
                       motor={mm} plan={otherMountOffer.plan} loaded={!!otherMountOffer.before}
                       onLoad={loadOtherMounts} onUndo={undoOtherMounts} onDismiss={dismissOtherMounts} />}
                   </div>
@@ -5223,7 +5291,7 @@ export function App() {
                       </div>
                     </div>
                   )}
-                  {mm?.meta.autoDelay && <p className="field-hint">{autoDelayCardText(
+                  {mm?.meta.autoDelay === true && <p className="field-hint">{autoDelayCardText(
                     delayRun?.delayResolution?.mounts.find((d) => d.mountId === m.id), delayCurrent,
                   )}</p>}
                   {/* FC-5: keep the same ignition controls visible for every loaded

@@ -35,15 +35,20 @@ export const EXAMPLE_DESIGNS: readonly ExampleDesign[] = [
 ];
 
 export async function loadExampleFile(example: ExampleDesign, signal?: AbortSignal): Promise<File> {
-  if (signal?.aborted) throw new DOMException('Example load cancelled.', 'AbortError');
-  const { default: url } = await example.asset();
-  if (signal?.aborted) throw new DOMException('Example load cancelled.', 'AbortError');
-  const response = await fetch(url, signal ? { signal } : {});
-  if (!response.ok) {
-    void response.body?.cancel().catch(() => { /* already errored */ });
-    throw new Error(`${example.name} could not be loaded. Try again when the app is available offline or the connection returns.`);
+  try {
+    if (signal?.aborted) throw new DOMException('Example load cancelled.', 'AbortError');
+    const { default: url } = await example.asset();
+    if (signal?.aborted) throw new DOMException('Example load cancelled.', 'AbortError');
+    const response = await fetch(url, signal ? { signal } : {});
+    if (!response.ok) {
+      void response.body?.cancel().catch(() => { /* already errored */ });
+      throw new Error(`${example.name} could not be loaded. Try again when the app is available offline or the connection returns.`);
+    }
+    const bytes = await response.arrayBuffer();
+    if (signal?.aborted) throw new DOMException('Example load cancelled.', 'AbortError');
+    return new File([bytes], example.fileName, { type: 'application/octet-stream' });
+  } catch (error) {
+    if (signal?.aborted || (error instanceof Error && error.name === 'AbortError')) throw new DOMException('Example load cancelled.', 'AbortError');
+    throw new Error(`${example.name} could not be loaded. Try again when the app is available offline or the connection returns. Save this tab’s design as an .ork file before reloading if the app was updated.`, { cause: error });
   }
-  const bytes = await response.arrayBuffer();
-  if (signal?.aborted) throw new DOMException('Example load cancelled.', 'AbortError');
-  return new File([bytes], example.fileName, { type: 'application/octet-stream' });
 }

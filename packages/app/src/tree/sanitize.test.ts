@@ -4,6 +4,50 @@ import {
   explainBuildFailure, limitPatch, partBlockingBuild, sanitizeTree, separationEventOrDefault, treeProblems,
 } from './sanitize.js';
 import { defaultTree, engineTree, normalizeTree } from './treeModel.js';
+import { INITIAL_UNITS, IMPERIAL_UNITS } from '../prefs/units.js';
+
+it('r5 preserves negative deployment and separation heights through sanitization', () => {
+  const notes: string[] = [];
+  const tree = sanitizeTree({ components: [{ type: 'stage', separationAltitude: -10, children: [
+    { type: 'parachute', deployAltitude: -10 },
+  ] }] }, notes);
+  expect(tree.components[0]!['separationAltitude']).toBe(-10);
+  expect(tree.components[0]!.children![0]!['deployAltitude']).toBe(-10);
+  expect(notes).toEqual([]);
+});
+
+it('r3 explains a rejected cant that overflows degrees and keeps its finite radians', () => {
+  const notes: string[] = [];
+  sanitizeTree({ components: [{ type: 'freeformfinset', cant: 1e308, points: [[0, 0], [0.02, 0.03], [0.06, 0]] }] }, notes);
+  expect(notes.join(' ')).toContain('1e+308 rad');
+  expect(notes.join(' ')).toContain('outside the display range in °');
+  expect(notes.join(' ')).not.toContain('—°');
+});
+
+it.each([INITIAL_UNITS, IMPERIAL_UNITS])('r3 explains rejected event altitudes that overflow feet (%j)', units => {
+  const notes: string[] = [];
+  sanitizeTree({ components: [{ type: 'stage', separationAltitude: 1e308, children: [
+    { type: 'parachute', deployAltitude: 1e308 },
+  ] }] }, notes, units);
+  expect(notes).toHaveLength(2);
+  for (const text of notes) {
+    expect(text).toContain('1e+308 m');
+    expect(text).toContain('outside the display range in ft');
+    expect(text).not.toMatch(/— ft|Infinity|NaN/);
+  }
+});
+
+it('J6 repairs imported or restored cant and event heights before display and export', () => {
+  const notes: string[] = [];
+  const tree = sanitizeTree({ components: [{ type: 'stage', separationAltitude: 1e308, children: [
+    { type: 'freeformfinset', cant: Math.PI / 9, points: [[0, 0], [0.02, 0.03], [0.06, 0]] },
+    { type: 'parachute', deployAltitude: 1e308 },
+  ] }] }, notes);
+  expect(tree.components[0]!.children![0]!['cant']).toBeCloseTo(Math.PI / 12, 14);
+  expect(Number.isFinite((tree.components[0]!.children![1]!['deployAltitude'] as number) / 0.3048)).toBe(true);
+  expect(Number.isFinite((tree.components[0]!['separationAltitude'] as number) / 0.3048)).toBe(true);
+  expect(notes.join(' ')).toContain('cant');
+});
 import { noteFlags, tierLines } from '../services/importNotes.js';
 
 it.each(['centeringring', 'tubecoupler', 'bulkhead', 'bodytube'] as const)(
@@ -562,6 +606,13 @@ it.each([{ points: undefined }, { points: null }])('materializes the kernel free
 
 // Only a finding that leaves its node as it was is said once per notes array
 // (audit S8-1): a repair a later pass makes is a new repair, and says so.
+it('r2 distinguishes a cant just above the limit from the repaired angle', () => {
+  const notes: string[] = [];
+  sanitizeTree(rocket([{ type: 'freeformfinset', cant: 15.0000004 * Math.PI / 180 }]), notes);
+  expect(notes.join('\n')).toContain('just over');
+  expect(notes.join('\n')).not.toContain('15 ° is over the limit of 15 °');
+});
+
 it('reports each repair made, even when an earlier pass said the same line', () => {
   const notes: string[] = [];
   // Beside a kept outline (a point past 2.5 m on both axes), which is said once.

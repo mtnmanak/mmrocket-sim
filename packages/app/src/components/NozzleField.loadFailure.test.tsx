@@ -129,6 +129,7 @@ describe('NozzleField — the nozzle data could not be loaded', () => {
     await waitFor(() => note() !== null, 'the could-not-load note');
     expect(note()!.textContent).toMatch(/nozzle data could not be loaded/);
     expect(note()!.textContent).toMatch(/cannot fill itself in/);
+    expect(note()!.textContent).toContain('Save this tab’s design as an .ork file before reloading');
     expect(note()!.closest('.message-caution')).not.toBeNull();
     // Blank is not "automatic" while nothing can fill it: say what blank does.
     expect(note()!.textContent).toMatch(/pressure-thrust term and the power-on base-drag reduction are both off/);

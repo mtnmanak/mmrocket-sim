@@ -1,4 +1,5 @@
 import { UnitChip } from './UnitChip.js';
+import { CHUNK_LOAD_GUIDANCE } from '../services/lazyLoadFailure.js';
 import type { AtmosphereModel } from '../services/atmosphere.js';
 import { effectiveAero } from '../prefs/aeroChoice.js';
 import { useEffect, useMemo, useState } from 'react';
@@ -159,7 +160,7 @@ export function RecoverySizingPanel({ recovery, byStage, tree, launch, deviceMas
     <Shell summary={summary}>
       <div role="status">{catalogueFailed && (
         <p className="recovery-sizing-hint">
-          Parts catalogue could not be loaded. <button type="button" className="file-btn" onClick={() => setCatalogueFailed(false)}>Retry</button>
+          Parts catalogue could not be loaded. {CHUNK_LOAD_GUIDANCE}{' '}<button type="button" className="file-btn" onClick={() => setCatalogueFailed(false)}>Retry</button>
         </p>
       )}</div>
       {objects.map((o, i) => (

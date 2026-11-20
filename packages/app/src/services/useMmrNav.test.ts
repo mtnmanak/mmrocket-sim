@@ -1,15 +1,49 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { DEFAULT_MAX_JSON_BYTES } from './net.js';
 import {
   MMR_NAV_FALLBACK,
   fetchNav,
   parseNav,
   readCachedNav,
   writeCachedNav,
+  navRefreshDue,
   type MmrNav,
 } from './useMmrNav.js';
 
 const originalFetch = globalThis.fetch;
+
+it('J6 caps navigation bodies and omits credentials', async () => {
+  const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ...MMR_NAV_FALLBACK,
+    padding: 'x'.repeat(DEFAULT_MAX_JSON_BYTES) })));
+  vi.stubGlobal('fetch', fetch);
+  await expect(fetchNav()).resolves.toBeNull();
+  expect(fetch.mock.calls[0]![1]).toMatchObject({ credentials: 'omit', cache: 'no-cache' });
+});
+
+it('J6 aborts a stalled navigation request after ten seconds', async () => {
+  vi.useFakeTimers();
+  const outer = new AbortController();
+  let requestSignal: AbortSignal | undefined;
+  vi.stubGlobal('fetch', vi.fn((_url: unknown, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+    requestSignal = init?.signal ?? undefined;
+    requestSignal?.addEventListener('abort', () => reject(new DOMException('cancelled', 'AbortError')));
+  })));
+  const request = fetchNav(outer.signal);
+  try {
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(requestSignal?.aborted).toBe(true);
+    await expect(request).resolves.toBeNull();
+  } finally { outer.abort(); vi.useRealTimers(); }
+});
+
+it('J6 expires nav refresh cooldowns on clock reversal and after their deadline', () => {
+  localStorage.setItem('mmr-chrome:v1:refresh', JSON.stringify({ at: 1000, wait: 60_000 }));
+  expect(navRefreshDue(1001)).toBe(false);
+  expect(navRefreshDue(999)).toBe(true);
+  expect(navRefreshDue(61_000)).toBe(true);
+  localStorage.removeItem('mmr-chrome:v1:refresh');
+});
 
 it('cancels an unread HTTP refusal body', async () => {
   const cancel = vi.fn();
@@ -179,10 +213,7 @@ describe('parseNav — optional blocks DEGRADE, they do not reject', () => {
     // The end-to-end version of the defect: before the fix this response made
     // `fetchNav` resolve null, so `useMmrNav` never left "fallback" — silently,
     // on every load, forever.
-    vi.stubGlobal('fetch', vi.fn(async () => ({
-      ok: true,
-      json: async () => ({ ...clone(LIVE), footer: { line: 'x', links: [] } }),
-    })));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ...clone(LIVE), footer: { line: 'x', links: [] } }))));
     const fresh = await fetchNav();
     expect(fresh).not.toBeNull();
     expect(fresh!.nav).toHaveLength(2);
@@ -275,10 +306,7 @@ describe('the last-known-good cache', () => {
  */
 describe('the contract URL', () => {
   it('requests the canonical www host, not the pages.dev preview alias', async () => {
-    const spy = vi.fn(async (_url: unknown, _init?: unknown) => ({
-      ok: true,
-      json: async () => clone(LIVE),
-    }));
+    const spy = vi.fn(async (_url: unknown, _init?: unknown) => new Response(JSON.stringify(clone(LIVE))));
     vi.stubGlobal('fetch', spy);
     await fetchNav();
     expect(spy).toHaveBeenCalledTimes(1);
@@ -290,7 +318,7 @@ describe('the contract URL', () => {
 
 describe('fetchNav — never rejects, whatever the network does', () => {
   it('returns the parsed contract on a good response', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => clone(LIVE) })));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(clone(LIVE)))));
     const fresh = await fetchNav();
     expect(fresh!.menuVersion).toBe('480f0531d406');
   });
@@ -301,23 +329,17 @@ describe('fetchNav — never rejects, whatever the network does', () => {
   });
 
   it('resolves null on a non-2xx response', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404, json: async () => ({}) })));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 404 })));
     await expect(fetchNav()).resolves.toBeNull();
   });
 
   it('resolves null when the body is not JSON', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({
-      ok: true,
-      json: async () => { throw new SyntaxError('Unexpected token <'); },
-    })));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<not-json>')));
     await expect(fetchNav()).resolves.toBeNull();
   });
 
   it('resolves null when the schema is not the one we render', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({
-      ok: true,
-      json: async () => ({ ...clone(LIVE), schema: 'mmr.nav.v2' }),
-    })));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ...clone(LIVE), schema: 'mmr.nav.v2' }))));
     await expect(fetchNav()).resolves.toBeNull();
   });
 });

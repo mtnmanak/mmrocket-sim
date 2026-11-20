@@ -19,6 +19,7 @@ import { usePrefs } from '../prefs/PrefsContext.js';
 import { siToUi, uiToSi } from '../prefs/units.js';
 import { rulerLayout } from '../services/rulerTicks.js';
 import { NumField } from './NumField.js';
+import { MAX_DIMENSION_M } from '../tree/schema.js';
 import {
   formatStability, hasAerodynamicForce, shownCp, shownStability, stabilityState,
   type StabilityState,
@@ -917,19 +918,19 @@ export function TreeSchematic({ tree, info, motors, hiddenIds, onPatchNode, maxH
           <>
             <button className="file-btn"
               title="True-scale 2D drawing (SVG) with design data — physical mm size, prints at 100% scale"
-              onClick={() => {
+              onClick={() => { void (async () => {
                 if (!svgRef.current) return;
                 try {
                   const data = { ...exportData, spanM: 2 * vHalf };
                   // safeName, not an inline copy of its regex: the copy had no
                   // fallback, so a design named in Cyrillic saved "_-2d.svg"
                   // (audit 2026-09-22).
-                  downloadImage(schematicSvg(svgRef.current, scale, w, h, data),
+                  await downloadImage(schematicSvg(svgRef.current, scale, w, h, data),
                     `${safeName(data.name)}-2d.svg`);
                 } catch (e) {
                   onError?.(`SVG export failed: ${e instanceof Error ? e.message : String(e)}`);
                 }
-              }}>
+              })(); }}>
               ⬇ SVG
             </button>
             <ImageExportMenu label="⬇ Image"
@@ -939,7 +940,7 @@ export function TreeSchematic({ tree, info, motors, hiddenIds, onPatchNode, maxH
                 try {
                   const data = { ...exportData, spanM: 2 * vHalf };
                   const svg = schematicSvg(svgRef.current, scale, w, h, data);
-                  downloadImage(await svgToImage(svg, widthPx, format),
+                  await downloadImage(await svgToImage(svg, widthPx, format),
                     `${safeName(data.name)}-2d.${IMAGE_FORMAT_EXT[format]}`);
                 } catch (e) {
                   onError?.(`Image export failed: ${e instanceof Error ? e.message : String(e)}`
@@ -969,6 +970,7 @@ export function TreeSchematic({ tree, info, motors, hiddenIds, onPatchNode, maxH
                 <label htmlFor={`${uid}-ruler-offset`}>Ruler zero from nose ({lenUnit})</label>
                 <NumField id={`${uid}-ruler-offset`} ariaLabel={`Ruler zero from nose (${lenUnit})`}
                   value={siToUi('length', lenUnit, prefs.rulerOffset2dM ?? 0)} allowNegative
+                  min={siToUi('length', lenUnit, -MAX_DIMENSION_M)} max={siToUi('length', lenUnit, MAX_DIMENSION_M)}
                   step={1} validate={(v) => Number.isFinite(uiToSi('length', lenUnit, v))}
                   onCommit={(v) => { if (v !== null) setPrefs({ ...prefs, rulerOffset2dM: uiToSi('length', lenUnit, v) }); }} />
               </div>}

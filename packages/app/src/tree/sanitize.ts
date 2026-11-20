@@ -85,6 +85,7 @@ function fieldLabel(type: string, key: string, fallback?: string): string {
 const sig = (v: number): string => String(Number(v.toPrecision(6)));
 
 function fmt(kind: LimitKind, v: number, units: UnitSelection = INITIAL_UNITS, key = '', against?: number): string {
+  if (key === 'deployAltitude' || key === 'separationAltitude') return noticeQuantity('altitude', v, units, { against });
   switch (kind) {
     case 'count': return sig(v);
     case 'scalar': return against !== undefined && !noticeEqual(v, against) && sig(v) === sig(against)

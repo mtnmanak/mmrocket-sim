@@ -2257,6 +2257,8 @@ describe('the Batch simulate button', () => {
   it('on a rocket with a mount and NO motor loaded is on, and opens the batch dialog', async () => {
     await seedStarterSession({ over: { mountMotors: {} } });
     const host = await mountApp();
+    await openTab(host, 'Fly');
+    expect(host.querySelector<HTMLButtonElement>('.fly-compare')).not.toBeNull();
     await openTab(host, 'Motors & Configuration');
     await settle(50);
     const b = batchButton(host);

@@ -200,9 +200,9 @@ describe('CFG-3 ports from the Design deployment fields (ruling D2a moved their 
     } finally { cleanup(); }
   });
 
-  it('flags a deployment-altitude overflow even without a density ceiling', () => {
+  it.each(['km', 'm'])('J6 flags a deployment altitude outside display representability (%s)', unit => {
     // Was PropertyPanel.limits: 1e306 km is finite as typed and infinite in SI.
-    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { altitude: 'km', distance: 'ft' } }));
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { altitude: unit, distance: 'ft' } }));
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);
@@ -214,10 +214,10 @@ describe('CFG-3 ports from the Design deployment fields (ruling D2a moved their 
           onReset={vi.fn()} onResetAll={vi.fn()} onEverywhere={vi.fn()} />
       </PrefsProvider>));
       act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Edit…')!.click());
-      const el = host.querySelector<HTMLInputElement>('input[aria-label="Main deploy altitude (km)"]')!;
+      const el = host.querySelector<HTMLInputElement>(`input[aria-label="Main deploy altitude (${unit})"]`)!;
       act(() => el.focus());
       act(() => {
-        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, '1e306');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, unit === 'km' ? '1e306' : '1e308');
         el.dispatchEvent(new Event('input', { bubbles: true }));
       });
       expect(onEdit).not.toHaveBeenCalled();

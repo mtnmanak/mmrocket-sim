@@ -33,7 +33,7 @@ import {
   type OrkMotorRef,
 } from './orkFile.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
-import { DISPLAY_NAME, interleaveRotation } from '../tree/schema.js';
+import { DISPLAY_NAME, interleaveRotation, MAX_EVENT_ALTITUDE_M } from '../tree/schema.js';
 import { evidenceGatedMotorId, findDbMotor, type MotorDbEntry } from './motorDb.js';
 import { physicalEvidenceFits, type MotorMatchContext } from './motorMatchPolicy.js';
 import { indexRocksimMotors, rocksimBurnTime, rocksimMotorEvidence } from './rocksimMotorEvidence.js';
@@ -1529,10 +1529,10 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
   const motorIndex = indexRocksimMotors(doc, design, simulationSets, notes, importedPartElements);
   const designRecoveryNotes: string[] = [];
   const designRecoveryDiagnostics = newDeploymentNotes();
-  const designRecovery = readDeploymentEvents(design, recoverySerialToNode, designRecoveryNotes, num, duplicateRecoverySerials, designRecoveryDiagnostics);
+  const designRecovery = readDeploymentEvents(design, recoverySerialToNode, designRecoveryNotes, num, units, duplicateRecoverySerials, designRecoveryDiagnostics);
   const simulationRecoveryNotes = simEls.map(() => [] as string[]);
   const simulationRecovery = simEls.map((el, i) =>
-    readDeploymentEvents(el, recoverySerialToNode, simulationRecoveryNotes[i]!, num, duplicateRecoverySerials));
+    readDeploymentEvents(el, recoverySerialToNode, simulationRecoveryNotes[i]!, num, units, duplicateRecoverySerials));
   const originalSerial = new Map([...recoverySerialToNode].map(([serial, node]) => [node, serial]));
   const deploymentFor = (node: ComponentNode, simulation?: Map<string, RktTrigger>): DeploymentTuple => {
     const serial = originalSerial.get(node) ?? '';
@@ -2902,6 +2902,7 @@ const readDeploymentEvents = (
   serialToNode: Map<string, ComponentNode>,
   notes: string[],
   num: NumReader,
+  units: UnitSelection,
   ambiguousSerials?: ReadonlySet<string>,
   diagnostics = newDeploymentNotes(),
 ): Map<string, RktTrigger> => {
@@ -2937,6 +2938,11 @@ const readDeploymentEvents = (
       serials.add(serial);
       diagnostics.unknown.set(t, serials);
       continue;
+    }
+    if (t.deployAltitude !== undefined && t.deployAltitude > MAX_EVENT_ALTITUDE_M) {
+      cautionNote(notes, 'I04.limits', `${noteField(node.name ?? node.type)}: deployment altitude ${noticeQuantity('altitude', t.deployAltitude, units)} exceeds the displayable range; set to ${noticeQuantity('altitude', MAX_EVENT_ALTITUDE_M, units)}. Check the deployment before flying.`);
+      t.deployAltitude = MAX_EVENT_ALTITUDE_M;
+      t.says = `at ${noticeQuantity('altitude', t.deployAltitude, units)}`;
     }
     seen.set(serial, t);
     if (t.deployEvent === 'apogee' && Math.round(num(ev, 'Type', 0)) === 5) {

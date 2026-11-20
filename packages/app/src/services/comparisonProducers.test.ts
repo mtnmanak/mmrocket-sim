@@ -1,4 +1,42 @@
+// v0.213 integration (J6 merged onto J1/J4/J5/J7): BatchSimulate 23, units 26, orkFile 552, rocksimFile 302 and
+// sanitize 41 are the sums of each lane's reviewed producers; the merge adds no new producer.
 // @vitest-environment happy-dom
+// J6 r5: BatchSimulate 19 -> 24 and DragPanel 43 -> 44 convert editor
+// bounds using MAX_VALUE/4 display ceilings (altitude and rod-exit speed). Batch criteria and
+// drag preferences also repair persisted overflow; both UI tests cover typed
+// and stored 1e308 m. No flight threshold, default or tolerance changes.
+// J6 r3 angle sibling: units 24 -> 26 is the degree conversion and explicit
+// display-range explanation for a finite rejected cant whose degrees overflow.
+// noticeQuantity/sanitize tests preserve its finite radians and the original
+// signed cant bound; no flight input, ceiling or tolerance changes.
+// J6 round r3: units 23 -> 24 explains finite SI values whose preferred-unit
+// conversion overflows as outside the display range, preserving the finite
+// counterpart. noticeQuantity, sanitize and RockSim tests cover 1e308 m in
+// metric/imperial notices; flight inputs and existing altitude bounds stay put.
+// J6 round r2 inventory: PropertyPanel 91 -> 94 uses noticeEqual for each
+// coupled rail-button height; 11/8/3 mm and actual conflicts are tested.
+// units 19 -> 23 formats close angle limits without equal rounded numbers
+// and preserves tiny nonzero line/surface densities, including scientific
+// notation below fixed-decimal precision. noticeQuantity and sanitize tests
+// cover both sides, zero, residue in other quantities and near-limit cant.
+// rocksimFile 290 -> 295 bounds simulation-only deployment heights using
+// the existing MAX_EVENT_ALTITUDE_M display-representability ceiling and
+// preferred-unit repair copy. rocksimFile's r2 regression tests overflow;
+// no flight threshold, physical default or numerical tolerance changed.
+// J6 inventory review: ConfigPartEditors 1 -> 2 and TreeSchematic 2 -> 4
+// add converted editor caps. Event altitude uses MAX_VALUE/4 solely to remain
+// finite in every altitude unit; ruler offsets reuse MAX_DIMENSION_M.
+// ConfigPartEditors, PrefsContext, sanitize, session and orkFile regressions
+// cover overflow and both own/configuration layers. Cant reuses the kernel's
+// signed PI/12 limit; PropertyPanel.limits covers both signs and angle units.
+// PropertyPanel 87 -> 91 adds the internal-Cd scope explanation and the three
+// effective rail-button dimensions, in preferred units; overrides tests cover
+// ignored internal Cd and the 0 -> 4 mm effective-height disclosure.
+// sanitize 31 -> 33 formats cant and event-height repair notes in their own
+// preferred units. designFile 4 -> 8 is bounded sniff/prolog bookkeeping,
+// covered by long comments and split root tokens; the file budget is unchanged.
+// orkFile 545 -> 546 discloses configuration heights outside representability.
+// No warning tier, flight threshold or numerical tolerance was loosened.
 // V211-1: View3DBoundary 2 -> 1 removes the download fallback's numeric
 // reassurance ("every number ... unchanged") along with its false autosave
 // promise. The WebGL fallback retains its reassurance. No measurement or

@@ -41,6 +41,7 @@ import { Icon } from './Icon.js';
 import { Modal } from './Modal.js';
 import { fmtSi, noticeQuantity, siToUi, uiToSi } from '../prefs/units.js';
 import { NumField } from './NumField.js';
+import { MAX_EVENT_ALTITUDE_M } from '../tree/schema.js';
 import { UnitChip } from './UnitChip.js';
 import { safeName } from '../services/fileName.js';
 import { downloadBlob } from '../services/saveFile.js';
@@ -62,6 +63,8 @@ import { ImpulseBadge } from './MotorBrowser.js';
  */
 
 const CRITERIA_KEY = 'online-openrocket.batch-criteria.v1';
+// km/h is the largest speed conversion (3.6); leave display headroom.
+const MAX_CRITERIA_VELOCITY_MS = Number.MAX_VALUE / 4;
 
 const DEFAULT_CRITERIA: Criteria = {
   minRodExit: null, minThrustToWeight: null, minApogee: null, maxApogee: null,
@@ -80,12 +83,16 @@ function loadCriteria(): Criteria {
       Array.isArray(v) && v.every((s) => typeof s === 'string') ? v as string[] : fallback;
     const numbers = (v: unknown, fallback: number[]) =>
       Array.isArray(v) && v.every((n) => typeof n === 'number' && Number.isFinite(n)) ? v as number[] : fallback;
+    const bounded = (v: unknown, ceiling: number) => {
+      const value = number(v, null);
+      return value === null ? null : Math.max(-ceiling, Math.min(ceiling, value));
+    };
     // Every persisted field needs a reader, including future optional fields.
     return {
-      minRodExit: number(stored['minRodExit'], DEFAULT_CRITERIA.minRodExit),
+      minRodExit: bounded(stored['minRodExit'], MAX_CRITERIA_VELOCITY_MS),
       minThrustToWeight: number(stored['minThrustToWeight'], DEFAULT_CRITERIA.minThrustToWeight),
-      minApogee: number(stored['minApogee'], DEFAULT_CRITERIA.minApogee),
-      maxApogee: number(stored['maxApogee'], DEFAULT_CRITERIA.maxApogee),
+      minApogee: bounded(stored['minApogee'], MAX_EVENT_ALTITUDE_M),
+      maxApogee: bounded(stored['maxApogee'], MAX_EVENT_ALTITUDE_M),
       autoDelay: typeof stored['autoDelay'] === 'boolean' ? stored['autoDelay'] : DEFAULT_CRITERIA.autoDelay,
       includeOOP: typeof stored['includeOOP'] === 'boolean' ? stored['includeOOP'] : DEFAULT_CRITERIA.includeOOP,
       manufacturers: strings(stored['manufacturers'], DEFAULT_CRITERIA.manufacturers),
@@ -286,6 +293,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   } | null>(null);
   /** Why a sweep ended without finishing — something threw outside any one flight. */
   const [failure, setFailure] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   // Stop, and unmount: the ONE cancel signal. It reaches every download, so
   // Stop no longer waits out a fetch, and the sweep checks it between flights.
   // The controller is per-run and is replaced at every start, because an
@@ -453,9 +461,14 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   // past the cap are in neither export, so that branch is Caution.
   const capLosesRows = table.failed > BATCH_TABLE_ROWS;
 
-  const downloadAs = (blob: Blob, ext: string) => {
-    downloadBlob(blob, `batch-${safeName(rocketName)}.${ext}`,
+  const downloadAs = async (blob: Blob, ext: string) => {
+    await downloadBlob(blob, `batch-${safeName(rocketName)}.${ext}`,
       ext === 'csv' ? 'Comma-separated values' : 'Excel workbook');
+  };
+  const exportTable = async (download: () => Promise<void>) => {
+    setExportError(null);
+    try { await download(); }
+    catch (e) { setExportError(`Batch-table export failed: ${noteText(e instanceof Error ? e.message : String(e))}`); }
   };
   // Export ordering (the owner's spec): group by motor config — single-motor rows
   // first, then each mixed config — every group keeping the
@@ -470,11 +483,11 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
     if (!runsOnly.some((r) => r.motorConfig?.startsWith('mixed'))) return runsOnly;
     return [...runsOnly].sort((a, b) => configRank(a) - configRank(b));
   };
-  const downloadCsv = () => {
+  const downloadCsv = async () => {
     // BOM: unit headers can carry non-ASCII; Excel needs it to decode UTF-8.
-    downloadAs(new Blob(['﻿', runsToCsv(exportRuns(), prefs.units, railThreshold, provenance)], { type: 'text/csv' }), 'csv');
+    await downloadAs(new Blob(['﻿', runsToCsv(exportRuns(), prefs.units, railThreshold, provenance)], { type: 'text/csv' }), 'csv');
   };
-  const downloadXlsx = () => {
+  const downloadXlsx = async () => {
     const all = exportRuns();
     const configs = [...new Set(all.map((r) => r.motorConfig ?? ''))].filter((c) => c.startsWith('mixed'));
     // Combination batches get one tab per config PLUS an everything tab.
@@ -489,7 +502,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
           ...runsToTable(all.filter((r) => r.motorConfig === c), prefs.units, railThreshold, provenance),
         })),
       ];
-    downloadAs(new Blob([sheetsToXlsx(sheets) as BlobPart], { type: XLSX_MIME }), 'xlsx');
+    await downloadAs(new Blob([sheetsToXlsx(sheets) as BlobPart], { type: XLSX_MIME }), 'xlsx');
   };
 
   const velUi = (si: number | null) => (si === null ? undefined : siToUi('velocity', vel, si));
@@ -667,6 +680,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
             <label className="motor-inline-label" htmlFor="batch-rod">
               Min rod-exit <UnitChip quantity="velocity" />
               <NumField id="batch-rod" value={velUi(criteria.minRodExit)} step={1} nullable placeholder="—"
+                max={siToUi('velocity', vel, MAX_CRITERIA_VELOCITY_MS)}
                 ariaLabel={`Minimum rod-exit velocity (${vel})`}
                 onCommit={(v) => setCriteria({ ...criteria, minRodExit: v === null ? null : uiToSi('velocity', vel, v) })} />
             </label>
@@ -678,6 +692,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
             <label className="motor-inline-label" htmlFor="batch-min">
               Apogee min <UnitChip quantity="altitude" />
               <NumField id="batch-min" value={altUi(criteria.minApogee)} step={10} nullable placeholder="—"
+                min={siToUi('altitude', alt, -MAX_EVENT_ALTITUDE_M)} max={siToUi('altitude', alt, MAX_EVENT_ALTITUDE_M)}
                 ariaLabel={`Minimum apogee (${alt})`}
                 validate={(v) => Number.isFinite(uiToSi('altitude', alt, v))}
                 onCommit={(v) => setCriteria({ ...criteria, minApogee: v === null ? null : uiToSi('altitude', alt, v) })} />
@@ -685,6 +700,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
             <label className="motor-inline-label" htmlFor="batch-max">
               max <UnitChip quantity="altitude" />
               <NumField id="batch-max" value={altUi(criteria.maxApogee)} step={10} nullable placeholder="—"
+                min={siToUi('altitude', alt, -MAX_EVENT_ALTITUDE_M)} max={siToUi('altitude', alt, MAX_EVENT_ALTITUDE_M)}
                 ariaLabel={`Maximum apogee (${alt})`}
                 validate={(v) => Number.isFinite(uiToSi('altitude', alt, v))}
                 onCommit={(v) => setCriteria({ ...criteria, maxApogee: v === null ? null : uiToSi('altitude', alt, v) })} />
@@ -798,8 +814,8 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
           </span>
           {rows.some((r) => r.run) && (
             <>
-              <button className="file-btn" onClick={downloadCsv}>⬇ CSV</button>
-              <button className="file-btn" onClick={downloadXlsx}
+              <button className="file-btn" onClick={() => { void exportTable(downloadCsv); }}>⬇ CSV</button>
+              <button className="file-btn" onClick={() => { void exportTable(downloadXlsx); }}
                 title="Excel workbook: typed cells (no date mangling), bold frozen header, filter">⬇ XLSX</button>
             </>
           )}
@@ -931,6 +947,9 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
               {finished.unsaved > 0 && ' The CSV and XLSX above still carry every accepted run: download one before closing.'}
             </Note>
           )}
+        </div>
+        <div className="batch-export-alert" role="alert">
+          {exportError && <Note tier="danger" as="p">{exportError}</Note>}
         </div>
         {/* ALWAYS MOUNTED, holding an always-mounted alert region (audit
             2026-09-22, MotorBrowser's motor-import-notes): an alert inserted

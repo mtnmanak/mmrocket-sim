@@ -1,5 +1,7 @@
 import { Component, useState, type ErrorInfo, type ReactNode } from 'react';
 import { ReloadPageButton } from './ReloadPageButton.js';
+import { isChunkLoadError } from '../services/lazyLoadFailure.js';
+export { isChunkLoadError } from '../services/lazyLoadFailure.js';
 
 /**
  * Whether an error is a lazy chunk that could not be DOWNLOADED, in each
@@ -18,12 +20,6 @@ import { ReloadPageButton } from './ReloadPageButton.js';
  * that case showed "could not be shown" with no reload button, where a reload
  * is the only cure (claim check of the v0.141 notes).
  */
-export function isChunkLoadError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  if (err.name === 'ChunkLoadError') return true;
-  return /dynamically imported module|Importing a module script failed|is not a valid JavaScript MIME type|Unable to preload CSS/i
-    .test(err.message);
-}
 
 /**
  * A boundary round the 3D tab, and nothing else.

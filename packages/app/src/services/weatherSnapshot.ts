@@ -1,4 +1,4 @@
-import type { LaunchConditions } from './launchConditions.js';
+import { DEFAULT_CONDITIONS, validStoredLaunchNumber, type LaunchConditions } from './launchConditions.js';
 import { padAir } from './atmosphere.js';
 import type { Endpoint, PlaceMethod } from './openMeteo.js';
 import { editProfileSurface, reconcileProfileSurface, validWindLevels, validWindProfileSource, type WindProfileConditions } from './windProfile.js';
@@ -131,8 +131,8 @@ export function beforeOf(launch: LaunchConditions, patch: WeatherPatch): Weather
     if (launch.windProfileSource) out.windProfileSource = { ...launch.windProfileSource };
   }
   for (const k of APPLY_KEYS) {
-    if (!(k in patch) || !Object.hasOwn(launch, k)) continue;
-    const v = launch[k];
+    if (!(k in patch) || (k === 'longitudeDeg' && !Object.hasOwn(launch, k))) continue;
+    const v = Object.hasOwn(launch, k) ? launch[k] : DEFAULT_CONDITIONS[k];
     out[k] = typeof v === 'number' ? v : null;
   }
   return out;
@@ -271,15 +271,21 @@ export function validWeatherSnapshot(x: unknown): WeatherSnapshot | null {
   const applied: WeatherPatch = {};
   for (const [k, v] of Object.entries(x['applied'])) {
     if (k === 'windLevels' || k === 'windProfileSource') continue;
-    if (!(APPLY_KEYS as readonly string[]).includes(k) || !finite(v)) return null;
+    if (!(APPLY_KEYS as readonly string[]).includes(k) || !validStoredLaunchNumber(k, v)) return null;
     applied[k as ApplyKey] = v;
   }
   const before: WeatherSnapshot['before'] = {};
   for (const [k, v] of Object.entries(x['before'])) {
     if (k === 'windLevels' || k === 'windProfileSource') continue;
     const n = finiteNullOrInvalid(v);
-    if (!(APPLY_KEYS as readonly string[]).includes(k) || n === undefined) return null;
+    if (!(APPLY_KEYS as readonly string[]).includes(k) || n === undefined
+      || (n === null ? !['temperatureC', 'pressureHPa', 'longitudeDeg'].includes(k) : !validStoredLaunchNumber(k, n))) return null;
     before[k as ApplyKey] = n;
+  }
+  for (const key of APPLY_KEYS) {
+    // Older receipts omitted atmosphere fields that were absent before Apply.
+    // Undo restores that absence (automatic air), just as it does longitude.
+    if (key in applied && !['temperatureC', 'pressureHPa', 'longitudeDeg'].includes(key) && !(key in before)) return null;
   }
   for (const [input, output] of [[x['applied'], applied], [x['before'], before]] as const) {
     if ('windLevels' in input) {

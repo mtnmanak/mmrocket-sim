@@ -38,6 +38,10 @@ import { downloadImage, svgToImage } from './services/schematicExport.js';
 import { openPrintDocument } from './services/printDocument.js';
 import * as recentDesigns from './services/recentDesigns.js';
 import * as designBuild from './services/buildDesign.js';
+import * as treeModel from './tree/treeModel.js';
+import * as otherMountLoad from './services/otherMountLoad.js';
+import * as formatLoss from './services/formatLoss.js';
+import * as nozzleDb from './services/nozzleDb.js';
 import { sessionDebugLog } from './services/sessionDebugLog.js';
 
 vi.mock('./services/recentDesigns.js', () => ({
@@ -47,6 +51,16 @@ vi.mock('./services/recentDesigns.js', () => ({
 }));
 import { addChild, asStageNodes, defaultTree, motorMounts } from './tree/treeModel.js';
 import { APP_VERSION } from './version.js';
+const nozzleObserved = vi.hoisted(() => ({
+  loadout: null as Parameters<typeof import('./hooks/useNozzleFollow.js')['useNozzleFollow']>[0]['loadout'] | null,
+}));
+vi.mock('./hooks/useNozzleFollow.js', async original => {
+  const real = await original<typeof import('./hooks/useNozzleFollow.js')>();
+  return { ...real, useNozzleFollow: (options: Parameters<typeof real.useNozzleFollow>[0]) => {
+    nozzleObserved.loadout = options.loadout;
+    return real.useNozzleFollow(options);
+  } };
+});
 
 /**
  * WHICH ACTIONS MAY SAY "THIS DESIGN IS SAVED", AND WHAT App HANDS THE UNITS
@@ -239,6 +253,82 @@ async function unmountAll(): Promise<void> {
   mounted = [];
 }
 
+it('J6 excludes a build-refused motor from nozzle follow, the image and its mass heading', async () => {
+  const tree = defaultTree();
+  const id = motorMounts(tree)[0]!.id!;
+  const motor = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [id]: motor }, launch: DEFAULT_CONDITIONS,
+    savedAt: Date.now(), appVersion: APP_VERSION }));
+  const build = designBuild.buildDesign;
+  vi.spyOn(designBuild, 'buildDesign').mockImplementation((input, factory) => {
+    const result = build({ ...input, assigned: [] }, factory);
+    return 'error' in result ? result : { ...result, motorFailures: [{ mountId: id, text: 'Rejected test motor' }] };
+  });
+  const host = await mountApp();
+  expect(nozzleObserved.loadout!.flatMap(s => s.motors)).toHaveLength(0);
+  expect(host.querySelector('svg rect[fill="var(--launch)"]')).toBeNull();
+  await act(async () => { button(host, '⬇ SVG').click(); });
+  const svg = vi.mocked(downloadImage).mock.calls.at(-1)![0];
+  // J4 S2-b1: with a refused motor the header withholds mass and CG and says why (not "Dry mass": a motor was loaded).
+  expect(String(svg)).toContain('Complete-loadout mass, CG and stability unavailable');
+  expect(String(svg)).not.toContain('Launch mass');
+}, 30000);
+
+it.each(['csv', 'xlsx'])('J6 reports a component %s download failure locally', async kind => {
+  const host = await mountApp();
+  await waitFor(starterStored, 'starter motor');
+  vi.mocked(saveFile).mockRejectedValueOnce(new Error('Blocked Blob URL'));
+  await saveAs(host, `Export .${kind}`);
+  expect(host.textContent).toContain(`Component ${kind.toUpperCase()} export failed: Blocked Blob URL`);
+}, 30000);
+
+it('J6 reports a raw autosave recovery download failure locally', async () => {
+  localStorage.setItem(SESSION_KEY, '{broken');
+  const host = await mountApp();
+  expect(host.querySelector('.autosave-paused-alert')?.textContent).toContain('could not be read');
+  expect(host.querySelector('.autosave-paused-alert')?.textContent).not.toContain('10,000');
+  vi.mocked(saveFile).mockRejectedValueOnce(new Error('Blocked Blob URL'));
+  await act(async () => button(host, 'Download the autosaved design').click());
+  expect(host.textContent).toContain('Autosave download failed: Blocked Blob URL');
+  expect(localStorage.getItem(SESSION_KEY)).toBe('{broken');
+}, 30000);
+
+it('J6 reuses an open other-mount offer while rolling the drawing', async () => {
+  const tree = defaultTree();
+  const m = motorMounts(tree)[0]!;
+  const parent = treeModel.findParent(tree, m.id!)!;
+  if (parent === 'stage') throw new Error('Expected a body-mounted starter motor tube');
+  parent.children!.push({ ...m, id: 'peer', name: 'Peer mount' });
+  const motor = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [m.id!]: motor }, launch: DEFAULT_CONDITIONS,
+    savedAt: Date.now(), appVersion: APP_VERSION }));
+  const host = await mountApp();
+  await openTab(host, 'Motors & Configuration');
+  await act(async () => { button(host, 'Browse motors').click(); });
+  await type(input(host, 'Search motor designation'), 'B6');
+  const row = () => [...host.querySelectorAll<HTMLTableRowElement>('tbody tr')].find(tr =>
+    tr.cells[1]?.textContent === 'Estes' && tr.cells[0]?.textContent?.trim() === 'B6');
+  await waitFor(() => !!row(), 'catalogue row');
+  await act(async () => { row()!.click(); });
+  await act(async () => { button(host, 'Load motor').click(); });
+  await waitFor(() => !!host.querySelector('.other-mount-offer-status')?.textContent?.trim(), 'the other-mount offer');
+  const shape = vi.spyOn(otherMountLoad, 'otherMountShape');
+  await type(input(host, "Roll the view about the rocket's long axis"), '30');
+  expect(shape).not.toHaveBeenCalled();
+}, 30000);
+
+it('J6 refreshes the loss preview after a catalogue change without a relabel', async () => {
+  const host = await mountApp();
+  await waitFor(starterStored, 'starter motor');
+  await saveAs(host, 'Save .rkt');
+  await settle(600);
+  const check = vi.spyOn(formatLoss, 'checkFormatLossOf');
+  await act(async () => setCatalogueOverlay({ baseGenerated: '', fetchedAt: '', liveCount: MOTOR_DB.length,
+    added: [{ ...MOTOR_DB[0]!, motorId: 'j6-extra', designation: 'J6-extra' }], changed: [], removed: [], rejected: [] }));
+  await settle(600);
+  expect(check).toHaveBeenCalled();
+}, 30000);
+
 function storedSession(): SessionState | null {
   const raw = localStorage.getItem(SESSION_KEY);
   return raw ? JSON.parse(raw) as SessionState : null;
@@ -317,7 +407,7 @@ async function type(el: HTMLInputElement, text: string): Promise<void> {
 const shownName = (host: HTMLElement) => host.querySelector('.vitals-item-name .vitals-value')?.textContent;
 
 /** A workspace tab, pressed. */
-async function openTab(host: HTMLElement, name: 'Design' | 'Motors & Configuration' | 'Results'): Promise<void> {
+async function openTab(host: HTMLElement, name: 'Design' | 'Motors & Configuration' | 'Results' | 'Fly'): Promise<void> {
   const b = [...host.querySelectorAll<HTMLButtonElement>('.workspace-tabs button')]
     .find((x) => x.textContent?.trim() === name);
   if (!b) throw new Error(`no tab "${name}"`);
@@ -696,8 +786,17 @@ describe('lane H regressions', () => {
       let release!: () => void;
       const gate = new Promise<void>(resolve => { release = resolve; });
       let loading = false;
-      vi.doMock(module, async () => { loading = true; await gate; throw new Error('old chunk unavailable'); });
+      vi.doMock(module, async () => {
+        loading = true; await gate;
+        return Object.defineProperty({}, ext === 'obj' ? 'rocketToObj' : ext === 'glb' ? 'rocketToGlb' : 'piecesToStl', {
+          get() { throw new TypeError('Failed to fetch dynamically imported module'); },
+        });
+      });
       try {
+        // Start this mocked import explicitly: under the whole-suite load,
+        // Vite's first STL import can otherwise remain queued behind App's
+        // other dynamic imports. App still awaits the same unresolved chunk.
+        if (ext === 'stl') void import('./services/stlExport.js');
         const host = await mountApp();
         await waitFor(starterStored, 'starter motor');
         await saveAs(host, `Export .${ext}`);
@@ -713,6 +812,9 @@ describe('lane H regressions', () => {
         await waitFor(() => !!host.textContent?.includes('export failed:'), 'export failure');
         expect(host.querySelector('[aria-label="Notices"]')?.textContent ?? '').toBe(notes);
         expect(host.querySelector('.earlier-save-note')?.textContent).toContain('export failed:');
+        expect(host.querySelector('.earlier-save-note')?.textContent).toContain('Save this tab’s design as an .ork file');
+        expect(host.querySelector('.earlier-save-note')?.textContent).toContain('reload the page');
+        expect(host.querySelector('.earlier-save-note')?.textContent).not.toContain('click Reload to finish the update');
       } finally { release(); vi.doUnmock(module); }
     }, 60000,
   );
@@ -1170,8 +1272,12 @@ describe('lane H regressions', () => {
     await openTab(host, 'Motors & Configuration');
     await act(async () => { button(host, '+ New from loaded motors').click(); });
     const sync = vi.spyOn(configSync, 'syncActiveConfig');
+    const card = vi.spyOn(treeModel, 'autoDelayBox');
+    const stage = vi.spyOn(treeModel, 'stageIndexOf');
     await type(input(host, "Roll the view about the rocket's long axis"), '30');
     expect(sync).not.toHaveBeenCalled();
+    expect(card).not.toHaveBeenCalled();
+    expect(stage).not.toHaveBeenCalled();
   }, 30000);
 });
 
@@ -1516,6 +1622,9 @@ describe('flight configuration editing in App', () => {
 });
 
 beforeEach(() => {
+  (window as unknown as HappyWindow).happyDOM.setURL('https://mmrsim.mountainmanrockets.com/');
+  // Keep only the latest lightweight loadout, never live tree refs or App closures.
+  nozzleObserved.loadout = null;
   localStorage.clear();
   // Start on the Design tab with the tour off, as a returning desktop user would.
   localStorage.setItem('online-openrocket.workspace.v1', 'design');
@@ -1716,6 +1825,7 @@ describe('C-A2 and C-B8 file workflow', () => {
 
 afterEach(async () => {
   await unmountAll();
+  nozzleObserved.loadout = null;
   vi.restoreAllMocks();
   vi.useRealTimers();
   setCatalogueOverlay(null);
@@ -3471,20 +3581,131 @@ describe('maximum motor length export losses', () => {
 });
 
 describe('pending motor choices across App actions', () => {
-  it.each(['Unload', 'Remove', 'remount', 'tab only', 'Config', 'New', 'Open'])('retires a quick pick across %s', async (action) => {
-    let host = await mountApp();
-    await waitFor(starterStored, 'the starter motor');
-    if (action === 'Config') {
-      await unmountAll();
-      const state = storedSession()!;
-      const mount = motorMounts(state.tree)[0]!.id!;
-      const b6 = (await loadCatalogueMotor('Estes', 'B6', 4))!;
-      localStorage.setItem(SESSION_KEY, JSON.stringify({ ...state, savedConfigs: [
-        { id: 'original', name: 'Original motors', isDefault: true, motors: state.mountMotors },
-        { id: 'other', name: 'Other motors', isDefault: false, motors: { [mount]: b6 } },
-      ] }));
-      host = await mountApp();
+  it.each([
+    { typed: '7', published: null, expected: null, lookupFails: false },
+    { typed: '7', published: 0.004, expected: 0.004, lookupFails: false },
+    { typed: '0', published: 0.004, expected: 0, lookupFails: false },
+    { typed: '7', published: null, expected: null, lookupFails: true },
+  ])('r5 locks configuration changes through the deferred pick and nozzle lookup ($typed mm, published $published m, failure $lookupFails)', async ({ typed, published, expected, lookupFails }) => {
+    const replacement = (await loadCatalogueMotor('Estes', 'A8', 3))!;
+    let finishNozzle!: () => void;
+    const nozzleGate = new Promise<void>(resolve => { finishNozzle = resolve; });
+    vi.spyOn(nozzleDb, 'nozzleForMotorId').mockImplementation(async id => {
+      if (id === replacement.meta.motorId) {
+        await nozzleGate;
+        if (lookupFails) throw new Error('nozzle lookup failed');
+      }
+      return id === replacement.meta.motorId && published !== null ? {
+        motorId: id!, designation: replacement.spec.designation, manufacturer: 'Test fixture',
+        exitDiameterM: published, confidence: 'high', drawings: [],
+      } : null;
+    });
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    await openTab(host, 'Motors & Configuration');
+    await act(async () => { button(host, '+ New from loaded motors').click(); });
+    let finish!: () => void;
+    const gate = new Promise<void>(resolve => { finish = resolve; });
+    vi.mocked(loadCatalogueMotor).mockImplementationOnce(async () => { await gate; return replacement; });
+    const select = [...host.querySelectorAll('select')].find(s => [...s.options].some(o => o.value === 'Estes A8-3'))!;
+    await act(async () => { select.value = 'Estes A8-3'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    const nozzle = host.querySelector<HTMLInputElement>('input[id^="cfg-nozzle-"]')!;
+    await type(nozzle, typed);
+    const assertLocked = (locked: boolean) => {
+      const duplicate = button(host, 'Duplicate');
+      const chooser = host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!;
+      expect(duplicate.disabled).toBe(locked);
+      expect(chooser.disabled).toBe(locked);
+      if (locked) {
+        expect(duplicate.title).toBe('Wait for the motor to finish loading');
+        expect(chooser.title).toBe('Wait for the motor to finish loading');
+      }
+    };
+    assertLocked(true);
+    window.dispatchEvent(new Event('pagehide'));
+    expect(storedSession()!.tree.components[0]!.nozzleExitDiameter).toBeCloseTo(Number(typed) / 1000, 9);
+    await act(async () => { button(host, 'Duplicate').click(); });
+    await act(async () => { finish(); await gate; });
+    assertLocked(true);
+    window.dispatchEvent(new Event('pagehide'));
+    expect(storedSession()!.savedConfigs).toHaveLength(1);
+    await act(async () => { finishNozzle(); await nozzleGate; });
+    await waitFor(() => nozzle.value === (expected === null ? '' : String(expected * 1000)), 'replacement nozzle decision');
+    assertLocked(false);
+    await act(async () => { button(host, 'Duplicate').click(); });
+    window.dispatchEvent(new Event('pagehide'));
+    const saved = storedSession()!;
+    expect(saved.savedConfigs).toHaveLength(2);
+    for (const c of saved.savedConfigs!) {
+      expect(Object.values(c.motors).map(m => m.spec.designation)).toEqual(['A8']);
+      expect(c.nozzles?.[saved.tree.components[0]!.id!]).toBe(expected);
     }
+    const followed = nozzle.value;
+    await act(async () => {
+      const chooser = host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!;
+      chooser.value = saved.savedConfigs![0]!.id;
+      chooser.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(host.querySelector<HTMLInputElement>('input[id^="cfg-nozzle-"]')!.value).toBe(followed);
+  }, 30000);
+  it('r5 preserves weighing when duplicating after a deferred same-motor delay pick', async () => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 3))!;
+    const weighed = { ...c6, padMassKg: 0.1,
+      padMassWeighedWith: JSON.stringify([[mount, c6.meta.motorId, 1]]) };
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, launch: DEFAULT_CONDITIONS,
+      mountMotors: { [mount]: weighed }, savedConfigs: [{ id: 'A', name: 'A', isDefault: true, motors: { [mount]: weighed } }],
+      activeConfigId: 'A', configLayers: 1, appVersion: APP_VERSION, savedAt: Date.now() }));
+    const host = await mountApp();
+    await openTab(host, 'Motors & Configuration');
+    const replacement = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    let finish!: () => void;
+    const gate = new Promise<void>(resolve => { finish = resolve; });
+    vi.mocked(loadCatalogueMotor).mockImplementationOnce(async () => { await gate; return replacement; });
+    const select = [...host.querySelectorAll('select')].find(s => [...s.options].some(o => o.value === 'Estes C6-5'))!;
+    await act(async () => { select.value = 'Estes C6-5'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(button(host, 'Duplicate').disabled).toBe(true);
+    await act(async () => { button(host, 'Duplicate').click(); });
+    await act(async () => { finish(); await gate; });
+    await waitFor(() => !button(host, 'Duplicate').disabled, 'motor and nozzle settled');
+    await act(async () => { button(host, 'Duplicate').click(); });
+    window.dispatchEvent(new Event('pagehide'));
+    const configs = storedSession()!.savedConfigs!;
+    expect(configs).toHaveLength(2);
+    for (const config of configs) {
+      expect(config.motors[mount]!.spec.ejectionDelay).toBe(5);
+      expect(config.motors[mount]!.padMassKg).toBe(weighed.padMassKg);
+      expect(config.motors[mount]!.padMassWeighedWith).toBe(weighed.padMassWeighedWith);
+    }
+  }, 30000);
+  it('r5 unlocks configuration controls after a failed motor pick', async () => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    await openTab(host, 'Motors & Configuration');
+    await act(async () => { button(host, '+ New from loaded motors').click(); });
+    let finish!: () => void;
+    const gate = new Promise<void>(resolve => { finish = resolve; });
+    vi.mocked(loadCatalogueMotor).mockImplementationOnce(async () => { await gate; throw new Error('motor unavailable'); });
+    const select = [...host.querySelectorAll('select')].find(s => [...s.options].some(o => o.value === 'Estes A8-3'))!;
+    await act(async () => { select.value = 'Estes A8-3'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(button(host, 'Duplicate').disabled).toBe(true);
+    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!.disabled).toBe(true);
+    await openTab(host, 'Fly');
+    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!.disabled).toBe(true);
+    await act(async () => { finish(); await gate; });
+    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!.disabled).toBe(false);
+    await openTab(host, 'Motors & Configuration');
+    expect(button(host, 'Duplicate').disabled).toBe(false);
+    await act(async () => { button(host, 'Duplicate').click(); });
+    window.dispatchEvent(new Event('pagehide'));
+    const configs = storedSession()!.savedConfigs!;
+    expect(configs).toHaveLength(2);
+    for (const c of configs) expect(Object.values(c.motors).map(m => m.spec.designation)).toEqual(['C6']);
+  }, 30000);
+  it.each(['Unload', 'Remove', 'remount', 'tab only', 'New', 'Open'])('retires a quick pick across %s', async (action) => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'the starter motor');
     const a8 = (await loadCatalogueMotor('Estes', 'A8', 3))!;
     let finish!: () => void;
     const gate = new Promise<void>((r) => { finish = r; });
@@ -3502,7 +3723,6 @@ describe('pending motor choices across App actions', () => {
     expect(started).toBe(true);
     if (action === 'Unload') await act(async () => { button(host, 'Unload').click(); });
     if (action === 'Remove') await act(async () => { host.querySelector<HTMLButtonElement>('button[title="Remove this motor"]')!.click(); });
-    if (action === 'Config') await act(async () => { host.querySelector<HTMLButtonElement>('button[aria-label^="Apply Other motors"]')!.click(); });
     if (action === 'tab only') { await openTab(host, 'Design'); await openTab(host, 'Motors & Configuration'); }
     if (action === 'remount') {
       await openTab(host, 'Design');
@@ -3521,7 +3741,7 @@ describe('pending motor choices across App actions', () => {
     await act(async () => { finish(); await gate; });
     window.dispatchEvent(new Event('pagehide'));
     const motors = Object.values(storedSession()?.mountMotors ?? {});
-    if (action === 'remount' || action === 'Config') expect(motors.map((m) => m.spec.designation)).toEqual(['B6']);
+    if (action === 'remount') expect(motors.map((m) => m.spec.designation)).toEqual(['B6']);
     else if (action === 'tab only') expect(motors.map((m) => m.spec.designation)).toEqual(['A8']);
     else if (action === 'Open') expect(motors.map((m) => m.spec.designation)).toEqual(['E6']);
     else expect(motors).toEqual([]);

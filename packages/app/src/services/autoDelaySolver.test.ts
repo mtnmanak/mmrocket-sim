@@ -5,6 +5,12 @@ import { probeFlight, testMotor } from './autoDelay.testSupport.js';
 const mounts = () => delayMountsOf([['a', testMotor()], ['b', testMotor()]], { a: 'Core', b: 'Booster MMT' });
 const solve = (probe = () => probeFlight()) => solveAutoDelays({ mounts: mounts(), probe, budget: { probes: 0 }, yieldToUi: async () => {} });
 
+it('J6 treats a malformed truthy Auto policy as manual', () => {
+  const motor = testMotor(false, 5);
+  motor.meta.autoDelay = 'false' as unknown as boolean;
+  expect(delayMountsOf([['a', motor]])[0]?.mode).toBe('manual');
+});
+
 describe('per-mount recovery-free fixed point', () => {
   it('uses each absolute burnout and verifies the simultaneously updated vector', async () => {
     const vectors: number[][] = [];

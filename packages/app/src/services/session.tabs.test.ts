@@ -47,6 +47,21 @@ function save(tab: SessionModule, name: string): void {
 
 const stored = () => (JSON.parse(localStorage.getItem(KEY)!) as { tree: { name: string } }).tree.name;
 
+it('J6 keeps ownership and conflict when a takeover cannot write', async () => {
+  const a = await openTab();
+  save(a, 'A');
+  const b = await openTab();
+  save(b, 'B');
+  save(a, 'A edit');
+  expect(a.sessionConflicted()).toBe(true);
+  const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new DOMException('full', 'QuotaExceededError'); });
+  try { a.takeOverSession(); } finally { spy.mockRestore(); }
+  expect(a.sessionConflicted()).toBe(true);
+  expect(a.autosaveIsAnotherTabs()).toBe(true);
+  a.discardSession();
+  expect(stored()).toBe('B');
+});
+
 /** Every tab's `storage` listener, removed after each test (they share the one window). */
 let unwatch: (() => void)[] = [];
 

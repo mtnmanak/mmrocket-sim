@@ -45,7 +45,7 @@ export function TubeWrapMenu({ tree, tube }: { tree: RocketTree; tube: Component
         files[filename] = bytes;
       }
       if (pages.length === 1) {
-        downloadBlob(new Blob([Object.values(files)[0]! as BlobPart], { type: raster ? `image/${format}` : 'image/svg+xml' }),
+        await downloadBlob(new Blob([Object.values(files)[0]! as BlobPart], { type: raster ? `image/${format}` : 'image/svg+xml' }),
           `${stem}.${extension}`, 'Tube marking wrap');
       } else {
         files['README.txt'] = strToU8(`${tree.name ?? 'Rocket'} — ${geometry.name}: tube wrap\n\n${printAdvice}\n`
@@ -56,7 +56,7 @@ export function TubeWrapMenu({ tree, tube }: { tree: RocketTree; tube: Component
           + 'Slot boxes use fin thickness, with no cutting allowance. Measure the tube and check the fit before cutting.\n'
           + geometry.notes.map(n => `${n === TUBE_HOLE_ADVICE ? '' : 'Caution: '}${n}\n`).join(''));
         const zip = zipSync(files);
-        downloadBlob(new Blob([zip as BlobPart], { type: 'application/zip' }),
+        await downloadBlob(new Blob([zip as BlobPart], { type: 'application/zip' }),
           `${stem}-${pages.length}-pages.zip`, 'Tube marking wrap pages');
       }
       setStatus(`${pages.length} ${pages.length === 1 ? 'page' : 'pages'} prepared.`);

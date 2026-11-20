@@ -1024,6 +1024,7 @@ const runDate = (date: Date, year: boolean) => {
 };
 
 export function formatRunWhen(when: number, now: number = Date.now()): string {
+  if (!Number.isFinite(when)) return 'an unknown time';
   const d = new Date(when);
   // isFinite alone lets 1e16 through, which is a finite number and an Invalid
   // Date; run history is JSON-parsed from localStorage with no validation of
@@ -1054,6 +1055,7 @@ export function formatRunWhen(when: number, now: number = Date.now()): string {
  * second, and "Flown 10:42:11 AM" reads as machine output rather than English.
  */
 export function formatRunWhenProse(when: number, now: number = Date.now()): string {
+  if (!Number.isFinite(when)) return 'at an unknown time';
   const d = new Date(when);
   if (!Number.isFinite(when) || Number.isNaN(d.getTime())) return 'at an unknown time';
   const ref = new Date(now);

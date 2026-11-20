@@ -53,6 +53,11 @@ const stopWorkerDebug = (() => {
 })();
 const stopOfflineDebug = offlineStatus.subscribe(() => {
   const status = offlineStatus.getSnapshot();
+  if (status.kind === 'unavailable') {
+    swUpdate.registrationUnavailable(() => window.location.reload(), () => {
+      try { return !!navigator.serviceWorker?.controller; } catch { return false; }
+    });
+  }
   if (status.kind === 'unavailable' && status.reason === 'registration failed') {
     sessionDebugLog.record('worker-error', new Error(status.detail));
   }

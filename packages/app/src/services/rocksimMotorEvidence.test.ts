@@ -12,7 +12,8 @@ it.each(['duplicate', 'missing', 'empty-collision'])('J4 r3 resolved XML mount s
   const sets = duplicate ? set('7', 'A') + set('7', 'B') : set('-1', 'B');
   const result = importRkt(`<RockSimDocument><FileVersion>4</FileVersion><DesignInformation><RocketDesign><StageCount>1</StageCount><UseKnownMass>1</UseKnownMass><Stage3Mass>100</Stage3Mass><Stage3Parts><BodyTube><OD>160</OD><ID>158</ID><Len>600</Len><AttachedParts>${parts}</AttachedParts></BodyTube></Stage3Parts><SimulationResults><Mass0>200</Mass0><TimeToBurnout>2</TimeToBurnout><Stage3Engines>${scenario === 'empty-collision' ? set('-1', 'A') : ''}${sets}</Stage3Engines></SimulationResults></RocketDesign></DesignInformation></RockSimDocument>`);
   const refs = Object.values(result.configs[0]!.motors);
-  expect(refs.map(r => r.matchContext?.mountBoreMm).sort()).toEqual(duplicate || scenario === 'empty-collision' ? [29, 54] : [54]);
+  // Since J5's S1b-1 (accepted 19 Nov) a duplicated MountSerialNo refuses that configuration's motors rather than guessing.
+  expect(refs.map(r => r.matchContext?.mountBoreMm).sort()).toEqual(duplicate ? [] : scenario === 'empty-collision' ? [29, 54] : [54]);
   for (const [id, ref] of Object.entries(result.configs[0]!.motors)) {
     expect(ref.matchContext?.mountBoreMm).toBe(findNode(result.tree, id)!.name === 'First' ? 29 : 54);
   }

@@ -3,7 +3,7 @@ import { cautionNote } from './importNotes.js';
 import {
   DEFAULT_TIME_STEP_S, KERNEL_WIND_FROM_RAD, type GeodeticMethod, type SimulationOptions,
 } from '@online-openrocket/engine';
-import { padAir, type AtmosphereModel } from './atmosphere.js';
+import { padAir, PAD_TEMP_C_RANGE, PAD_PRESSURE_HPA_RANGE, SITE_ALTITUDE_M_RANGE, type AtmosphereModel } from './atmosphere.js';
 import { kernelWindProfile, type WindProfileConditions } from './windProfile.js';
 
 /**
@@ -290,6 +290,19 @@ export const DEFAULT_CONDITIONS: LaunchConditions = {
 export const ROD_LENGTH_M_RANGE: readonly [number, number] = [0, Infinity];
 export const ROD_ANGLE_DEG_RANGE: readonly [number, number] = [-30, 30];
 export const WIND_MS_RANGE: readonly [number, number] = [0, Infinity];
+
+/** Stored launch fields and weather Undo receipts obey the panel's bounds. */
+export function validStoredLaunchNumber(key: string, value: unknown): value is number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return false;
+  const ranges: Record<string, readonly [number, number]> = {
+    windAverage: WIND_MS_RANGE, windStdDev: WIND_MS_RANGE, launchRodLengthM: ROD_LENGTH_M_RANGE,
+    launchRodAngleDeg: ROD_ANGLE_DEG_RANGE, launchRodAimDeg: ROD_AIM_DEG_RANGE,
+    latitudeDeg: LATITUDE_DEG_RANGE, longitudeDeg: LONGITUDE_DEG_RANGE,
+    launchAltitudeM: SITE_ALTITUDE_M_RANGE, temperatureC: PAD_TEMP_C_RANGE, pressureHPa: PAD_PRESSURE_HPA_RANGE,
+  };
+  const range = Object.hasOwn(ranges, key) ? ranges[key] : undefined;
+  return !range || (value >= range[0] && value <= range[1]);
+}
 export const LATITUDE_DEG_RANGE: readonly [number, number] = [-90, 90];
 /** The Longitude field's bounds (°, east positive). The .ork reader clamps into it; the RASAero format has no longitude. */
 export const LONGITUDE_DEG_RANGE: readonly [number, number] = [-180, 180];

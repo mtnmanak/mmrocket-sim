@@ -40,6 +40,7 @@ import type { MotorPicker } from './components/MotorPicker.js';
 import { OVERRIDE_INCLUDES_MOTOR } from './services/statedLaunchWeight.js';
 import { applyImportPlan, planImport } from './services/importApply.js';
 import { saveSessionDebounced } from './services/session.js';
+import * as saveFiles from './services/saveFile.js';
 vi.mock('./services/session.js', async original => {
   const real = await original<typeof import('./services/session.js')>();
   return { ...real, saveSessionDebounced: vi.fn(real.saveSessionDebounced) };
@@ -327,6 +328,10 @@ it.each(['catalogue', 'curve'])('New cancels a pending %s wait without assigning
     vi.mocked(loadMotorForMount).mockImplementationOnce(async (...args) => { await gate.promise; return real.loadMotorForMount(...args); });
   }
   await open(`&motor=${motor.motorId}`);
+  if (kind === 'catalogue') {
+    await waitFor(() => vi.mocked(catalogueCheckSettled).mock.calls.length > 0);
+    expect(host.textContent).toContain('Checking the motor catalogue');
+  }
   await waitFor(() => kind === 'catalogue' || vi.mocked(loadMotorForMount).mock.calls.length > 0);
   await newDesign();
   const lookups = vi.mocked(nozzleForMotorId).mock.calls.length;
@@ -906,6 +911,22 @@ it('round13 startup uses latest render after edit and revert during read', async
   await act(async () => flushSync(() => sinks.setMeasured({ massKg: 0.2, cgM: null })));
   await act(async () => real.applyImportPlan(plan, sinks));
   await waitFor(() => runs().length === 1);
+}, 20_000);
+
+it('r2 keeps a newer file note when the motor-catalogue wait ends', async () => {
+  const gate = deferred();
+  vi.mocked(catalogueCheckSettled).mockReturnValueOnce(gate.promise);
+  vi.mocked(applyImportPlan).mockImplementationOnce(() => {});
+  await open('&motor=' + motor.motorId);
+  await waitFor(() => vi.mocked(catalogueCheckSettled).mock.calls.length > 0);
+  vi.spyOn(saveFiles, 'saveFile').mockRejectedValueOnce(new Error('r2 disk unavailable'));
+  await click('Save As / Export');
+  await click('Save .ork');
+  expect(host.querySelector('.file-operation-note')?.textContent).toContain('r2 disk unavailable');
+  await act(async () => gate.resolve());
+  await waitFor(() => vi.mocked(loadMotorForMount).mock.calls.length > 0);
+  await settle();
+  expect(host.querySelector('.file-operation-note')?.textContent).toContain('r2 disk unavailable');
 }, 20_000);
 
 it.each(['tab', 'reload'] as const)('round13 relabel in %s preserves link origin', async kind => {

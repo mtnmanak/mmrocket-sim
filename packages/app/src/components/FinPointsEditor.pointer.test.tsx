@@ -64,6 +64,14 @@ afterEach(() => {
 });
 
 const svgEl = () => host.querySelector('svg')!;
+
+it('J6 retires a held point drag when Undo replaces the committed outline', () => {
+  pointer(handle(1), 'pointerdown', { x: 106, y: 22 });
+  pointer(svgEl(), 'pointermove', { x: 120, y: 15 });
+  act(() => root.render(<PrefsProvider><FinPointsEditor points={[[0, 0], [0.01, 0.02], [0.06, 0]]} onChange={n => commits.push(n)} /></PrefsProvider>));
+  pointer(svgEl(), 'pointerup', { x: 120, y: 15 });
+  expect(commits).toHaveLength(0);
+});
 /** Point i's generous invisible grab circle. */
 const handle = (i: number) => host.querySelectorAll('circle[r="12"]')[i]!;
 

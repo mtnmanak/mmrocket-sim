@@ -54,6 +54,20 @@ const mount = (onFullSeries?: () => Promise<FlightResult>, staleReason?: string 
 ));
 
 const buttons = () => Array.from(host.querySelectorAll('button'));
+
+it('J6 clears flight-owned errors and ignores an old flight’s pending rejection', async () => {
+  let reject!: (e: Error) => void;
+  mount(() => new Promise((_resolve, no) => { reject = no; }));
+  await act(async () => labelled('⬇ Flight data (.csv)')!.click());
+  mount(() => Promise.resolve(fakeResult()));
+  await act(async () => reject(new Error('old flight failed')));
+  expect(host.textContent).not.toContain('old flight failed');
+  mount(() => Promise.reject(new Error('current flight failed')));
+  await act(async () => labelled('⬇ Flight data (.csv)')!.click());
+  expect(host.textContent).toContain('current flight failed');
+  mount(() => Promise.resolve(fakeResult()));
+  expect(host.textContent).not.toContain('current flight failed');
+});
 const labelled = (text: string) =>
   buttons().find((b) => (b.textContent ?? '').includes(text)) as HTMLButtonElement | undefined;
 

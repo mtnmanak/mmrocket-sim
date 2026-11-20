@@ -97,7 +97,8 @@ export function useVersionCheck(now: () => number = Date.now): { state: UpdateSt
 
   useEffect(() => {
     const onReturn = () => {
-      if (now() - lastCheckAt.current < HOUR_MS) return;
+      const elapsed = now() - lastCheckAt.current;
+      if (elapsed >= 0 && elapsed < HOUR_MS) return;
       lastCheckAt.current = now();
       recheck();
     };

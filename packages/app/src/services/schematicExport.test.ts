@@ -1,16 +1,24 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ComponentNode, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import type { UnitSelection } from '../prefs/units.js';
-import { dataHeaderLines, EXPORT_VARS, IMAGE_FORMAT_EXT, IMAGE_WIDTHS } from './schematicExport.js';
+import { dataHeaderLines, downloadImage, EXPORT_VARS, IMAGE_FORMAT_EXT, IMAGE_WIDTHS } from './schematicExport.js';
+import * as saveFile from './saveFile.js';
+
+it('r3 propagates the image download promise to the owning view', async () => {
+  const download = vi.spyOn(saveFile, 'downloadBlob').mockRejectedValueOnce(new Error('blocked image download'));
+  try { await expect(downloadImage('<svg/>', 'rocket.svg')).rejects.toThrow('blocked image download'); }
+  finally { download.mockRestore(); }
+});
 import { shownCp } from './simReport.js';
 
 it('J4 r2 S2-b1 supplies only installed motor silhouettes to the live export drawings', () => {
   const app = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
   const dimensions = app.slice(app.indexOf('const motorDims = useMemo('), app.indexOf('// Flight evidence is sticky'));
-  expect(dimensions).toContain('installedMounts(assigned, refusedMountIds).map(');
-  expect(dimensions).toContain('refusedMountIds]');
+  expect(dimensions).toContain('installedAssigned.map(');
+  expect(dimensions).toContain('[installedAssigned]');
+  expect(app).toContain('const installedAssigned = useMemo(() => installedMounts(assigned, refusedMountIds), [assigned, refusedMountIds]);');
 });
 
 /**

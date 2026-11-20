@@ -6,6 +6,14 @@ import { tubeFinMaxCount, tubeFinMaxRadius, tubeFinRadius } from './tubefins.js'
 import { shapeParamDefault, shapeParamMax } from './shapeProfile.js';
 import { ventLimit } from './canopyVent.js';
 
+/** ComponentFactory applies total, base, then flange to the constructor defaults. */
+export function effectiveRailButtonHeights(node: ComponentNode) {
+  const total = Math.max(num(node, 'totalHeight', 0.0097), 0.004);
+  const base = Math.max(0, Math.min(num(node, 'baseHeight', 0.002), total - 0.002));
+  const flange = Math.max(0, Math.min(num(node, 'flangeHeight', 0.002), total - base));
+  return { total, base, flange };
+}
+
 /**
  * Model limits in SI, independent of the panel's display units (audit
  * 2026-10-11, S3a-8). Typing, sliders and catalogue choices read one rule;

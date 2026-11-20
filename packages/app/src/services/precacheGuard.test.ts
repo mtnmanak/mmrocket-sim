@@ -129,6 +129,23 @@ function registration(active = true) {
 }
 
 describe('guardPrecache — unregister and reload, once, only where that heals', () => {
+  it('J6 refuses an offline resumed repair even when a new installing worker has partial entries', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let held = true;
+    setReloadHold(() => held);
+    const { e, seen } = env();
+    const { reg } = registration();
+    reg.unregister = vi.fn(async () => { held = true; return true; });
+    expect(await guardPrecache(reg, e)).toBe('held');
+    held = false;
+    await swUpdate.recheckHeldReload();
+    expect(reg.unregister).toHaveBeenCalledOnce();
+    e.caches = env({ entries: 1 }).e.caches;
+    e.online = () => false;
+    await swUpdate.applyUpdate();
+    expect(seen.reloads).toBe(0);
+    expect(swUpdate.getSnapshot().reloadRequired).toBe(true);
+  });
   it('r2 reloads a retired repair after a cancelled reload and a refilled cache without an update', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     setReloadHold(() => true);

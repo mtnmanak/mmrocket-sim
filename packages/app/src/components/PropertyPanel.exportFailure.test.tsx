@@ -76,6 +76,29 @@ const noExportNote = () => {
 };
 
 describe('PropertyPanel — an export that throws says so', () => {
+  it('r3 reports an SVG template download failure locally', async () => {
+    const fin: ComponentNode = { type: 'freeformfinset', id: 'f', name: 'Fins', points: [[0, 0], [0.02, 0.03], [0.06, 0]] };
+    const t: RocketTree = { components: [{ type: 'stage', children: [{ type: 'bodytube', length: 0.2, outerRadius: 0.02, children: [fin] }] }] };
+    vi.mocked(downloadBlob).mockImplementationOnce(() => { throw new Error('blocked download'); });
+    act(() => root.render(<PrefsProvider><PropertyPanel tree={t} node={fin} onPatch={() => {}} /></PrefsProvider>));
+    act(() => [...host.querySelectorAll('button')].find(b => b.textContent!.includes('Fin template'))!.click());
+    await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent!.startsWith('SVG, white'))!.click());
+    expect(exportRegion()?.textContent).toContain('SVG export failed: blocked download');
+  });
+  it.each(['single', 'split'])('r2 gives save-and-reload guidance for a %s print chunk failure', async kind => {
+    const error = new TypeError('Failed to fetch dynamically imported module');
+    if (kind === 'split') {
+      localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ printer: printerFromPreset('bambu-a1mini') }));
+      vi.mocked(buildPrintPack).mockRejectedValueOnce(error);
+    } else vi.mocked(componentSolid).mockRejectedValueOnce(error);
+    act(() => root.render(<PrefsProvider><PropertyPanel tree={tree} node={nose} onPatch={() => {}} /></PrefsProvider>));
+    const print = [...host.querySelectorAll('button')].find(b => b.textContent!.startsWith('🖨'))!;
+    await act(async () => print.click());
+    expect(exportRegion()?.textContent).toContain('Save this tab’s design as an .ork file');
+    expect(exportRegion()?.textContent).toContain('reload the page');
+    expect(exportRegion()?.textContent).not.toContain('click Reload to finish the update');
+    expect(downloadBlob).not.toHaveBeenCalled();
+  });
   it('S3a-3 clears the split-print error after a successful retry', async () => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ printer: printerFromPreset('bambu-a1mini') }));
     vi.mocked(buildPrintPack).mockRejectedValueOnce(new Error('offline chunk'))

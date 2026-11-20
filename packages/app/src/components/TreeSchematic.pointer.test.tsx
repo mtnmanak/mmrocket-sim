@@ -58,6 +58,33 @@ const mount = (tree: RocketTree, onSelect = vi.fn()) => {
 };
 
 const svgEl = () => host.querySelector('svg')!;
+
+it.each(['parent length', 'removed part', 'position', 'anchors'])('J6 retires a held axial drag when Undo changes %s', change => {
+  const { patches } = mount(rocket([fin({ method: 'top', offset: 0.1 })]));
+  pointer(finShape(), 'pointerdown', { x: 200 });
+  pointer(svgEl(), 'pointermove', { x: 240 });
+  const tree = rocket([fin({ method: 'top', offset: 0.1 })]);
+  const tube = tree.components[0]!.children![1]!;
+  if (change === 'parent length') tube.length = 0.15;
+  else if (change === 'removed part') tube.children = [];
+  else if (change === 'position') tube.children![0]!.position = { method: 'top', offset: 0.05 };
+  else tube.children!.push({ type: 'bulkhead', id: 'new-anchor', position: { method: 'top', offset: 0.2 } });
+  act(() => root.render(<TreeSchematic tree={tree} info={null} onPatchNode={(id, patch) => patches.push({ id, patch })} />));
+  pointer(svgEl(), 'pointerup', { x: 240 });
+  expect(patches).toHaveLength(0);
+});
+it('r3 keeps a held axial drag through a nozzle-follow tree write', () => {
+  const tree = rocket([fin({ method: 'top', offset: 0.1 })]);
+  const { patches } = mount(tree);
+  pointer(finShape(), 'pointerdown', { x: 200 });
+  pointer(svgEl(), 'pointermove', { x: 230 });
+  const next = updateNode(tree, 's1', { nozzleExitDiameter: 0.012 });
+  act(() => root.render(<TreeSchematic tree={next} info={null} onPatchNode={(id, patch) => patches.push({ id, patch })} />));
+  pointer(svgEl(), 'pointermove', { x: 260 });
+  pointer(svgEl(), 'pointerup', { x: 260 });
+  expect(patches).toHaveLength(1);
+  expect(offsetOf(patches[0])).toBeGreaterThan(0.1);
+});
 const finShape = () => host.querySelector('polygon')!;
 
 interface Ptr {

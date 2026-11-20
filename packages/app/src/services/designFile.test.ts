@@ -14,6 +14,19 @@ import { exportOrk } from './orkFile.js';
 import { resolveFlightState } from './flightState.js';
 import { gzipSync, zipSync } from 'fflate';
 
+it('r3 distinguishes a missing parts chunk from a damaged design file', () => {
+  const text = designFileOpenFailure('Flight.ork', new TypeError('Failed to fetch dynamically imported module: /old-presets.js'));
+  expect(text).toContain('Save this tab’s design as an .ork file');
+  expect(text).toContain('reload the page');
+  expect(text).not.toContain('Could not open that .ork file');
+  expect(text).not.toContain('/old-presets.js');
+});
+
+it.each([17000, 16373, 16378])('J6 routes content past a long or window-split prolog (%i bytes)', async length => {
+  const raw = new TextEncoder().encode('<!--' + 'x'.repeat(length) + '--><openrocket version="1.10"><rocket><name>Long prolog</name><subcomponents><stage><subcomponents><bodytube/></subcomponents></stage></subcomponents></rocket></openrocket>');
+  expect((await parseDesignFile(raw.buffer, 'Payload.rkt', { presets: [] })).sourceFormat).toBe('ork');
+});
+
 it('sniffs a bounded view then decodes the inflated bytes once without copying', async () => {
   const raw = new TextEncoder().encode('<openrocket version="1.10"><rocket><name>Test</name><subcomponents><stage><subcomponents><bodytube/></subcomponents></stage></subcomponents></rocket><!--' + ' '.repeat(40000) + '--></openrocket>');
   const spy = vi.spyOn(xmlUtil, 'decodeXml');

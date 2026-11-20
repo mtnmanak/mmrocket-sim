@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { Window } from 'happy-dom';
 import { inlineXmlCdata } from '../src/services/xmlUtil.ts';
-import { contentFormat } from '../src/services/designFile.ts';
+import { contentFormatBytes } from '../src/services/designFile.ts';
 import { gunzipCapped, unzipMember } from '../src/services/zipMember.ts';
 import { simulationNumbers } from './matcher-inventory.mjs';
 import { matcherEngineName } from './matcher-engine-name.mjs';
@@ -35,7 +35,7 @@ for (const file of JSON.parse(readFileSync(process.env.MATCHER_LIST, 'utf8'))) {
     try {
       const bytes = data[0] === 0x50 && data[1] === 0x4b ? unzipMember(data, [`.${kind}`, '.ork', '.rkt', '.cdx1'], kind)
         : data[0] === 0x1f && data[1] === 0x8b ? gunzipCapped(data, kind) : data;
-      kind = contentFormat(lib.decodeXml(bytes.subarray(0, 16 * 1024)).xml) ?? kind;
+      kind = contentFormatBytes(bytes) ?? kind;
       if (kind === 'rkt' && new TextDecoder().decode(bytes.subarray(0, 64)).includes('[[RS')) {
         let rejection;
         try { lib.importRkt(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)); }

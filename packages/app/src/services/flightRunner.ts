@@ -223,7 +223,7 @@ export interface LaunchFlight {
 export async function flyLaunch(rocket: FlightHandle, input: LaunchInput): Promise<LaunchFlight> {
   const installed = installedMounts(input.assigned, input.refusedMountIds);
   const absent = input.assigned.filter(([id]) => !installed.some(([kept]) => kept === id));
-  const unresolved = absent.filter(([, mm]) => mm.meta.autoDelay);
+  const unresolved = absent.filter(([, mm]) => mm.meta.autoDelay === true);
   if (unresolved.length) {
     throw new Error(`Auto delay did not settle for ${unresolved.map(([id]) => noteField(ownEntry(input.mountNames, id) ?? id)).join(', ')}: the motor was refused at build time. Choose a fixed delay and Launch again.`);
   }

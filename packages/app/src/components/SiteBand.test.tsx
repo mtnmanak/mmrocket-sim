@@ -233,7 +233,7 @@ describe('useMmrNav — fallback, then cache, then live', () => {
   });
 
   it('lets a live contract supersede the fallback and writes it to the cache', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => LIVE_NAV })));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(LIVE_NAV))));
     await act(async () => { root.render(<Harness />); });
     expect(band()!.getAttribute('data-mmr-source')).toBe('live');
     expect(band()!.getAttribute('data-mmr-menu-version')).toBe('aaaaaaaaaaaa');
@@ -254,20 +254,31 @@ describe('useMmrNav — fallback, then cache, then live', () => {
   it('refuses a live payload with the wrong schema and keeps the cached menu', async () => {
     const cached: MmrNav = { ...LIVE_NAV, menuVersion: 'cccccccccccc' };
     localStorage.setItem('mmr-chrome:v1', JSON.stringify(cached));
-    vi.stubGlobal('fetch', vi.fn(async () => ({
-      ok: true,
-      json: async () => ({ ...LIVE_NAV, schema: 'mmr.nav.v2', menuVersion: 'dddddddddddd' }),
-    })));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      ...LIVE_NAV, schema: 'mmr.nav.v2', menuVersion: 'dddddddddddd',
+    }))));
     await act(async () => { root.render(<Harness />); });
     expect(band()!.getAttribute('data-mmr-source')).toBe('cache');
     expect(band()!.getAttribute('data-mmr-menu-version')).toBe('cccccccccccc');
   });
 
   it('survives StrictMode\'s double-mount without a duplicate band or a stray fetch error', async () => {
-    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => LIVE_NAV }));
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(LIVE_NAV)));
     vi.stubGlobal('fetch', fetchMock);
     await act(async () => { root.render(<StrictMode><Harness /></StrictMode>); });
     expect(host.querySelectorAll('.mmr-band')).toHaveLength(1);
+    expect(band()!.getAttribute('data-mmr-source')).toBe('live');
+  });
+
+  it('r2 retries after an in-flight request was abandoned on unmount', async () => {
+    const fetchMock = vi.fn((_url: unknown, init?: RequestInit): Promise<Response> =>
+      new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))));
+    vi.stubGlobal('fetch', fetchMock);
+    await act(async () => { root.render(<Harness />); });
+    await act(async () => { root.render(null); });
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify(LIVE_NAV)));
+    await act(async () => { root.render(<Harness />); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(band()!.getAttribute('data-mmr-source')).toBe('live');
   });
 });

@@ -151,6 +151,43 @@ const type = (input: HTMLInputElement, text: string) => act(() => {
 const start = () => act(async () => { primary().click(); });
 const candidateCount = () => Number(/(\d+) candidate motors/.exec(host.textContent ?? '')![1]);
 
+it.each(['Minimum apogee', 'Maximum apogee'])('r5 bounds typed and persisted %s for every altitude unit', label => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { altitude: 'm' } }));
+  mount();
+  type(field(label), '1e308');
+  act(() => { field(label).dispatchEvent(new FocusEvent('focusout', { bubbles: true })); });
+  const stored = JSON.parse(localStorage.getItem('online-openrocket.batch-criteria.v1')!);
+  const key = label.startsWith('Minimum') ? 'minApogee' : 'maxApogee';
+  expect(stored?.[key] == null || Number.isFinite(stored[key] / 0.3048)).toBe(true);
+  act(() => root.unmount());
+  root = createRoot(host);
+  localStorage.setItem('online-openrocket.batch-criteria.v1', JSON.stringify({ minApogee: 1e308, maxApogee: 1e308 }));
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { altitude: 'ft' } }));
+  mount();
+  for (const name of ['Minimum apogee', 'Maximum apogee']) {
+    expect(field(name).value).not.toMatch(/—|Infinity|NaN/);
+    expect(Number.isFinite(Number(field(name).value))).toBe(true);
+  }
+  type(field(label), '100');
+  act(() => { field(label).dispatchEvent(new FocusEvent('focusout', { bubbles: true })); });
+  const repaired = JSON.parse(localStorage.getItem('online-openrocket.batch-criteria.v1')!);
+  expect(Number.isFinite(repaired.minApogee / 0.3048)).toBe(true);
+  expect(Number.isFinite(repaired.maxApogee / 0.3048)).toBe(true);
+});
+
+it('r5 keeps the sibling rod-exit criterion displayable after a unit change or reload', () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { velocity: 'm/s' } }));
+  mount();
+  type(field('Minimum rod-exit velocity'), '1e308');
+  const stored = JSON.parse(localStorage.getItem('online-openrocket.batch-criteria.v1') ?? '{}');
+  expect(stored.minRodExit == null || Number.isFinite(stored.minRodExit * 3.6)).toBe(true);
+  act(() => root.unmount()); root = createRoot(host);
+  localStorage.setItem('online-openrocket.batch-criteria.v1', JSON.stringify({ minRodExit: 1e308 }));
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { velocity: 'km/h' } }));
+  mount();
+  expect(field('Minimum rod-exit velocity').value).not.toMatch(/—|Infinity|NaN/);
+});
+
 const checkbox = (text: string) => [...host.querySelectorAll('label')].find(l => l.textContent?.trim().endsWith(text))!.querySelector<HTMLInputElement>('input')!;
 
 it.each([4, 6])('r3 explicitly targets the %s ring tubes and exposes mixed controls beside a kept centre', n => {
@@ -199,6 +236,19 @@ it('J1 locks sweep-defining filters and delay/mix controls while a sweep is runn
   expect(checkbox('include OOP').disabled).toBe(true);
   expect(host.querySelector('fieldset')?.disabled).toBe(true);
   act(() => stopBtn()!.click());
+});
+
+it.each(['CSV', 'XLSX'])('r3 keeps a failed batch %s export local and retains the finished flights', async format => {
+  sweep.mockResolvedValue({ rows: [row('a', 'Acme E20', 300)], stopped: false });
+  mount(); await start();
+  vi.mocked(downloadBlob).mockImplementationOnce(() => { throw new Error('blocked download'); });
+  const button = buttons().find(b => b.textContent?.includes(format))!;
+  await act(async () => button.click());
+  expect(host.textContent).toContain('Batch-table export failed: blocked download');
+  expect(host.querySelector('.batch-failed')).toBeNull();
+  expect(bodyRows()).toHaveLength(1);
+  await act(async () => button.click());
+  expect(host.textContent).not.toContain('Batch-table export failed');
 });
 
 it('141 opens the saved combination object and closes on the top saved row in table order', async () => {

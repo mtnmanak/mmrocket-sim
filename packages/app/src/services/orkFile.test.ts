@@ -4,6 +4,30 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { INITIAL_UNITS, noticeQuantity } from '../prefs/units.js';
+
+it('r5 retains negative default and named configuration event heights', () => {
+  const imported = importOrk(MULTI.replaceAll(/<deployaltitude>[^<]+/g, '<deployaltitude>-10')
+    .replaceAll(/<separationaltitude>[^<]+/g, '<separationaltitude>-10'));
+  const heights = imported.configs.flatMap(c => [
+    ...Object.values(c.deployments ?? {}).map(d => d.deployAltitude),
+    ...Object.values(c.separations ?? {}).map(d => d.separationAltitude),
+  ]).filter(h => h !== undefined);
+  expect(heights.length).toBeGreaterThan(0);
+  expect(heights.every(h => h === -10)).toBe(true);
+  expect(imported.notes.join(' ')).not.toContain('outside the displayable altitude range');
+});
+
+it('J6 bounds named configuration event heights before they reach the editor', () => {
+  const imported = importOrk(MULTI.replace('<deployaltitude>150.0</deployaltitude>', '<deployaltitude>1e308</deployaltitude>')
+    .replaceAll('<separationaltitude>200.0</separationaltitude>', '<separationaltitude>1e308</separationaltitude>'));
+  const heights = imported.configs.flatMap(c => [
+    ...Object.values(c.deployments ?? {}).map(d => d.deployAltitude),
+    ...Object.values(c.separations ?? {}).map(d => d.separationAltitude),
+  ]).filter(h => h !== undefined);
+  expect(heights.length).toBeGreaterThan(0);
+  expect(heights.every(h => Number.isFinite(h / 0.3048))).toBe(true);
+  expect(imported.notes.join(' ')).toContain('outside the displayable altitude range');
+});
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS, kernelSimOptions, PANEL_TIME_STEP_FLOOR_S } from '../components/LaunchPanel.js';
 import { conditionsKeyOf } from './simReport.js';

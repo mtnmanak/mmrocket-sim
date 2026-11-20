@@ -1,6 +1,7 @@
 import { Note } from './Note.js';
 import { ISA_RADIUS_M, ISA_TOP_M, usesGeopotentialIsa } from '../services/atmosphere.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { noteText } from '../services/noteField.js';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { DragSweep, OrkRocket, StaticInfo } from '@online-openrocket/engine';
@@ -8,6 +9,7 @@ import { usePrefs } from '../prefs/PrefsContext.js';
 import { DEFAULT_DRAG_ANALYSIS, type DragAnalysisPrefs } from '../prefs/dragAnalysis.js';
 import { fmtSi, niceStep, noticeQuantity, siToUi, uiToSi, type UnitSelection } from '../prefs/units.js';
 import { NumField } from './NumField.js';
+import { MAX_EVENT_ALTITUDE_M } from '../tree/schema.js';
 import { UnitChip } from './UnitChip.js';
 import { REFERENCE_DASH, chartInk, seriesStyle, slotOf } from '../chartTheme.js';
 import { useChartPalette } from '../useChartPalette.js';
@@ -418,8 +420,8 @@ function rollDependentCp(info: StaticInfo): number | null {
 }
 
 /** Downloads the Drag table (.csv): the text is services/dragTable.ts's. */
-function exportCsv(sweep: DragSweep, meta: DragTableMeta) {
-  downloadBlob(new Blob([dragTableCsv(sweep, meta)], { type: 'text/csv' }),
+async function exportCsv(sweep: DragSweep, meta: DragTableMeta) {
+  await downloadBlob(new Blob([dragTableCsv(sweep, meta)], { type: 'text/csv' }),
     stampedName(meta.design, 'drag-table', 'csv'));
 }
 
@@ -514,6 +516,7 @@ function SweepAltitudeBox({ altM, altUnit, onCommit }: {
       }}>
       <NumField
         ariaLabel={`Sweep altitude (${altUnit})`}
+        max={siToUi('altitude', altUnit, MAX_EVENT_ALTITUDE_M)}
         validate={(v) => Number.isFinite(toSi(v))}
         value={altM > 0 ? siToUi('altitude', altUnit, altM) : undefined}
         step={niceStep(siToUi('altitude', altUnit, 100))}
@@ -568,6 +571,7 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, effectiveKbf, 
   fileMachAlt?: MachAlt;
 }) {
   const [ownOpen, setOwnOpen] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const open = openProp ?? ownOpen;
   const setOpen = (next: boolean) => { setOwnOpen(next); onOpenChange?.(next); };
   const { prefs, setPrefs } = usePrefs();
@@ -811,6 +815,8 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, effectiveKbf, 
         </button>
       </div>
 
+      {/* Mounted with the panel, so the export failure is announced when it appears (liveRegions.scan). */}
+      <div role="alert">{open && exportError && <Note tier="danger" as="p">{exportError}</Note>}</div>
       {open && (!sweep ? null : 'error' in sweep ? (
         <Note as="p" tier="danger" className="stability-bad">{sweep.error}</Note>
       ) : (
@@ -860,7 +866,9 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, effectiveKbf, 
             <button className="file-btn" title="The full aerodynamic-coefficient table (CD power-off/on, CP, CNα) against Mach number — a static property of the geometry, NOT a time series. Opens with comment lines naming the design, the aero model and the conditions it ran in."
               // Held for the moment an edit's sweep is waiting (sweepRocket): the
               // table on screen is the last design's, and a file must not be.
-              disabled={pending} onClick={() => exportCsv(sweep, {
+              disabled={pending} onClick={() => { void (async () => {
+                setExportError(null);
+                try { await exportCsv(sweep, {
               design: designName || 'Rocket',
               // Same wording as the launch report's "Aero model" row — the
               // model the sweep actually ran on, not a fixed string.
@@ -875,7 +883,10 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, effectiveKbf, 
               // The CP chart's angle, when above 0: one more cp column, named
               // for the angle (services/dragTable.ts). At 0 the file is unchanged.
               aoaCp: aoaCpSweep ? { aoaDeg: cpAoa, sweep: aoaCpSweep } : null,
-            })}>⬇ Drag table (.csv)</button>
+                }); } catch (e) {
+                  setExportError(`Drag-table export failed: ${noteText(e instanceof Error ? e.message : String(e))}`);
+                }
+              })(); }}>⬇ Drag table (.csv)</button>
           </div>
 
           <div className="chart-toolbar">

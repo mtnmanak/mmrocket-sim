@@ -19,6 +19,31 @@ import type { MountMotor } from '../model/design.js';
 import { DEFAULT_CONDITIONS } from './LaunchPanel.js';
 import { gradeBatchRun, type Criteria } from '../services/batchCriteria.js';
 import type { FlightResult, StaticInfo } from '@online-openrocket/engine';
+import * as fileName from '../services/fileName.js';
+import * as xlsx from '../services/xlsx.js';
+
+it.each(['csv', 'xlsx'].flatMap(format => [false, true].map(rejected => [format, rejected] as const)))('r3 keeps run-table %s download failures local and permits a retry (promise %s)', async (format, rejected) => {
+  const download = vi.spyOn(fileName, 'downloadBlob').mockImplementationOnce(() => {
+    if (rejected) return Promise.reject(new Error('blocked object URL'));
+    throw new Error('blocked object URL');
+  }).mockImplementation(async () => {});
+  render(<SimHistory runs={[run()]} onRunsChange={() => {}} />);
+  const button = [...host.querySelectorAll('button')].find(b => b.textContent?.includes(`Run table (.${format})`))!;
+  await act(async () => button.click());
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('Run-table export failed: blocked object URL');
+  await act(async () => button.click());
+  expect(host.querySelector('[role="alert"]')?.textContent ?? '').not.toContain('Run-table export failed');
+  expect(download).toHaveBeenCalledTimes(2);
+  download.mockRestore();
+});
+
+it('r3 catches run-table workbook allocation failures', () => {
+  const workbook = vi.spyOn(xlsx, 'tableToXlsx').mockImplementationOnce(() => { throw new Error('allocation failed'); });
+  render(<SimHistory runs={[run()]} onRunsChange={() => {}} />);
+  act(() => [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Run table (.xlsx)'))!.click());
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('Run-table export failed: allocation failed');
+  workbook.mockRestore();
+});
 
 /**
  * Two things this file pins, both of them copy the user reads on the busiest

@@ -480,7 +480,7 @@ describe('flight comparisons wiring', () => {
     const fullFlight = structuredClone(flight);
     fullFlight.series['Cdf'] = [0.01, 0.02, 0.03, 0.02, 0.01];
     fullFlight.branches![0]!.series = fullFlight.series;
-    const full = vi.fn(async () => fullFlight); const download = vi.spyOn(fileName, 'downloadBlob').mockImplementation(() => {});
+    const full = vi.fn(async () => fullFlight); const download = vi.spyOn(fileName, 'downloadBlob').mockImplementation(async () => {});
     render(flight, full); select('Comparison chart', 'phase'); select('Flight branch', '1'); wheel(overlay());
     await act(async () => [...host.querySelectorAll('button')].find((b) => b.textContent?.includes('Flight data (.csv)'))!.click());
     expect(full).toHaveBeenCalledOnce(); const blob = download.mock.calls[0]![0] as Blob; const csv = await blob.text();

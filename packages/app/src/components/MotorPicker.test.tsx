@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { MotorPicker } from './MotorPicker.js';
+import * as motorLoad from '../services/motorLoad.js';
 
 /**
  * Quick Picks, ruled by Eric on 2026-09-21 (`issues-2026-09-18a` item 15):
@@ -19,6 +20,7 @@ let root: Root;
 
 beforeEach(() => {
   localStorage.clear();
+  vi.restoreAllMocks();
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
@@ -30,6 +32,7 @@ afterEach(() => {
 });
 
 const render = (props: { boreMm: number; showQuickPicks: boolean; selectedLabel?: string;
+  beginSelection?: () => (() => boolean) & { settled?: () => void };
   recoveryAdviceFor?: (delay: number, auto: boolean) => string | null }) => {
   act(() => root.render(
     <PrefsProvider>
@@ -38,6 +41,7 @@ const render = (props: { boreMm: number; showQuickPicks: boolean; selectedLabel?
         maxMotorLengthM={null}
         selectedLabel={props.selectedLabel ?? ''}
         onSelect={() => {}}
+        beginSelection={props.beginSelection}
         showQuickPicks={props.showQuickPicks}
         recoveryAdviceFor={props.recoveryAdviceFor}
       />
@@ -51,6 +55,37 @@ const quickPicks = (): HTMLSelectElement | null =>
     HTMLSelectElement | null;
 
 const options = (): string[] => [...(quickPicks()?.options ?? [])].map((o) => o.textContent ?? '');
+
+it.each(['failure', 'cancel', 'changed delay'])('r5 reports browser selection loading until %s', async outcome => {
+  let fail!: (error: Error) => void;
+  const gate = new Promise<never>((_, reject) => { fail = reject; });
+  vi.spyOn(motorLoad, 'loadMotorForMount').mockReturnValueOnce(gate);
+  let pending = false;
+  const beginSelection = () => {
+    pending = true;
+    return Object.assign(() => true, { settled: () => { pending = false; } });
+  };
+  render({ boreMm: 18, showQuickPicks: true, beginSelection });
+  act(() => { [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Browse motors'))!.click(); });
+  const row = [...host.querySelectorAll<HTMLTableRowElement>('tbody tr')]
+    .find(tr => tr.cells[1]?.textContent === 'Estes' && tr.cells[0]?.textContent?.trim() === 'C6')!;
+  act(() => row.click());
+  await act(async () => { host.querySelector<HTMLButtonElement>('.motor-load-row button')!.click(); });
+  expect(pending).toBe(true);
+  if (outcome === 'cancel') {
+    act(() => { [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Close'))!.click(); });
+    expect(pending).toBe(false);
+  }
+  if (outcome === 'changed delay') {
+    act(() => {
+      const delay = host.querySelector<HTMLSelectElement>('.motor-load-row select')!;
+      delay.value = '0'; delay.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(pending).toBe(false);
+  }
+  await act(async () => { fail(new Error('motor unavailable')); await gate.catch(() => {}); });
+  expect(pending).toBe(false);
+}, 30_000);
 
 it('W2-WARN keeps recovery ownership advice when opening the motor browser', () => {
   render({ boreMm: 18, showQuickPicks: true, recoveryAdviceFor: (delay, auto) => delay === 0 && !auto ? 'Recovery at burnout.' : null });

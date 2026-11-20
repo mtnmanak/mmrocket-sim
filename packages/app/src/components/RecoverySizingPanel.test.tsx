@@ -257,6 +257,8 @@ describe('RecoverySizingPanel', () => {
     const load = vi.spyOn(presetService, 'loadPresets').mockRejectedValueOnce(new Error('offline'));
     await mount();
     expect(text()).toContain('Parts catalogue could not be loaded');
+    expect(text()).toContain('Save this tab’s design as an .ork file');
+    expect(text()).toContain('reload the page');
     expect(text()).not.toContain('Looking through');
     expect(sizeLine(0)).not.toBe('');
     const retry = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Retry')!;

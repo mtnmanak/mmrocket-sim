@@ -2360,6 +2360,15 @@ describe('RockSim <SimulationEventList> — dual deploy actually deploys dually 
       + '<EngineCode>F26FJ</EngineCode><EngineMfg>AeroTech</EngineMfg><MountSerialNo>1</MountSerialNo>'
       + '<EjectionDelay>6.</EjectionDelay></EngineSet></Stage3Engines></SimulationResults></SimulationResultsList>');
 
+  it('r2 bounds a simulation-only deployment height before any display-unit conversion', () => {
+    const { r, main } = chutes(withSim(ev(12, 4), ev(12, 5, 1e308)));
+    const altitude = r.configs[0]!.deployments[main.id!]!.deployAltitude!;
+    expect(Number.isFinite(altitude / 0.3048)).toBe(true);
+    expect(r.notes.join(' ')).toContain('set to');
+    expect(r.notes.join(' ')).toContain('outside the display range in ft');
+    expect(r.notes.join(' ')).not.toMatch(/— ft|Infinity|NaN/);
+  });
+
   it('keeps design recovery and reports the opened simulation resolved settings', () => {
     const { r, main, drogue } = chutes(withSim(ev(12, 5, 152.4) + ev(13, 4), ev(0, 0) + ev(12, 1) + ev(13, 4)));
     expect(r.chosenConfigId).toBe('rocksim-sim-1');

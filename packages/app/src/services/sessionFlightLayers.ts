@@ -2,7 +2,7 @@ import type { FlightOverrides, IgnitionTuple, MountMotor } from '../model/design
 import type { SessionState } from './session.js';
 import { carryFlags, cautionNote, noteFlags } from './importNotes.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
-import { canonicalEnum, SEPARATION_EVENT_VALUES } from '../tree/schema.js';
+import { applyFieldLimit, canonicalEnum, fieldLimit, SEPARATION_EVENT_VALUES } from '../tree/schema.js';
 import type { OrkMotorRef } from './orkFile.js';
 import { validStoredExDefinition } from './exMotors.js';
 
@@ -33,7 +33,9 @@ export function sanitizeSessionFlightLayers(input: SessionState): SessionState {
         }
         if (key === 'separationEvent') value = canonicalEnum(SEPARATION_EVENT_VALUES, value)!;
       } else if (!finite(value)) { repaired = true; return undefined; }
-      out[key] = typeof value === 'number' ? Math.max(0, value) : value;
+      const limit = key === 'deployAltitude' ? fieldLimit('parachute', key)
+        : key === 'separationAltitude' ? fieldLimit('stage', key) : undefined;
+      out[key] = typeof value === 'number' ? limit ? applyFieldLimit(limit, value) : Math.max(0, value) : value;
     }
     if (sameFields(v, out)) return v;
     repaired = true;

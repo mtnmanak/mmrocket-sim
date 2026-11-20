@@ -186,7 +186,8 @@ function FilterChip({ on, onToggle, children }: {
   );
 }
 
-export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClose, loadedMotors, recoveryAdviceFor }: {
+export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClose, loadedMotors, recoveryAdviceFor, beginSelection }: {
+  beginSelection?: () => (() => boolean) & { settled?: () => void };
   recoveryAdviceFor?: (delay: number, auto: boolean) => string | null;
   mountDiameterMm: number;
   /** Mount max motor length (SI m); null = no limit. */
@@ -217,7 +218,8 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
    * cancelled and moving the design's mass, CG and stability.
    */
   const loadAbort = useRef<AbortController | null>(null);
-  useEffect(() => () => loadAbort.current?.abort(), []);
+  const pendingSelection = useRef<{ settled?: () => void } | null>(null);
+  useEffect(() => () => { loadAbort.current?.abort(); pendingSelection.current?.settled?.(); }, []);
   const catalogueAgeDays = Math.max(0, Math.floor((Date.now() - Date.parse(MOTOR_DB_DATE)) / 86_400_000));
   const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
 
@@ -270,6 +272,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     if (!loadAbort.current) return;
     loadAbort.current.abort();
     loadAbort.current = null;
+    pendingSelection.current?.settled?.();
     // A bundled-curve chunk can ignore abort; release this choice immediately.
     setBusy(false);
   }, [picked, delay, customDelay]);
@@ -293,7 +296,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const importing = useRef<AbortController | null>(null);
   // Close cancels a pending catalogue load and EX import itself, so neither can
   // reach the design even if the host keeps this component mounted.
-  const close = () => { importing.current?.abort(); loadAbort.current?.abort(); onClose(); };
+  const close = () => { importing.current?.abort(); loadAbort.current?.abort(); pendingSelection.current?.settled?.(); onClose(); };
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; importing.current?.abort(); };
@@ -522,6 +525,9 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     if (invalid) { invalid.focus(); return; }
     if (!picked) return;
     loadAbort.current?.abort();
+    pendingSelection.current?.settled?.();
+    const mayLand: (() => boolean) & { settled?: () => void } = beginSelection?.() ?? (() => true);
+    pendingSelection.current = mayLand;
     const ctrl = new AbortController();
     loadAbort.current = ctrl;
     setBusy(true);
@@ -548,7 +554,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       // Closed while the download was in flight: the abort above fires, but a
       // cached spec can also resolve without ever touching the network, so the
       // check is on the signal rather than on the throw.
-      if (superseded()) return;
+      if (superseded() || !mayLand()) return;
       onSelect(loaded.label, loaded.spec, loaded.meta);
       close();
     } catch (e) {
@@ -557,6 +563,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       if (superseded()) return;
       setError(String(e instanceof Error ? e.message : e));
     } finally {
+      mayLand.settled?.();
       if (loadAbort.current === ctrl) setBusy(false);
     }
   };

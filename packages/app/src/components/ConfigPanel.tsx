@@ -17,7 +17,8 @@ export const CONFIG_DELETE_LOSS = 'Its name, its entry in the list and any simul
 
 /** The active flight owns the controls below this bar. Native select is deliberate. */
 export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, refusedMountIds, unmatchedRefs, detachedOverrides = NO_OVERRIDES,
-  onApply, onClear, onCreate, onDuplicate, onRename, onDelete, onResetOverrides, deletionUnprotected = false }: {
+  onApply, onClear, onCreate, onDuplicate, onRename, onDelete, onResetOverrides, deletionUnprotected = false, configurationLoading = false }: {
+  configurationLoading?: boolean;
   configs: SavedConfig[];
   /**
    * Whether a Delete would lose work no file holds: the design has unsaved
@@ -102,6 +103,7 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, 
     <div className="config-bar" aria-current={active ? 'true' : undefined}>
       <label className="config-chooser">Flight configuration
         <select ref={chooser} aria-label="Flight configuration" value={active?.id ?? (working ? '__working__' : '')}
+          disabled={configurationLoading} title={configurationLoading ? 'Wait for the motor to finish loading' : undefined}
           aria-describedby={summaryId} onChange={e => {
             setEditing(null); setDeleting(null); setResetting(false);
             if (!e.target.value) onClear();
@@ -122,19 +124,20 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, 
           <option value="motor-desc">Motor Z–A</option>
         </select>
       </label>
-      <button className="file-btn" disabled={!hasMotors || atLimit}
-        title={!hasMotors ? 'Load a motor before creating a configuration.' : atLimit
+      <button className="file-btn" disabled={configurationLoading || !hasMotors || atLimit}
+        title={configurationLoading ? 'Wait for the motor to finish loading' : !hasMotors ? 'Load a motor before creating a configuration.' : atLimit
           ? `The ${MAX_ORK_CONFIGURATIONS}-configuration limit has been reached.`
           : 'Keep the loaded motors and flight settings as a new configuration; the previous configuration keeps its stored settings.'}
         onClick={() => { const id = onCreate(); if (id) { setDeleting(null); setEditing(id); } }}>
         + New from loaded motors
       </button>
-      <button className="file-btn" disabled={!active || atLimit} onClick={onDuplicate}
-        title={atLimit ? `The ${MAX_ORK_CONFIGURATIONS}-configuration limit has been reached.` : 'Copy the active configuration and its settings'}>Duplicate</button>
+      <button className="file-btn" disabled={configurationLoading || !active || atLimit} onClick={onDuplicate}
+        title={configurationLoading ? 'Wait for the motor to finish loading' : atLimit ? `The ${MAX_ORK_CONFIGURATIONS}-configuration limit has been reached.` : 'Copy the active configuration and its settings'}>Duplicate</button>
       <button className="file-btn" ref={renameButton} disabled={!active}
         aria-label={active ? `Rename ${labelOf(active)}` : 'Rename configuration'}
         onClick={() => { setDeleting(null); setEditing(active!.id); }}>Rename</button>
-      <button className="file-btn" ref={deleteButton} disabled={!active}
+      <button className="file-btn" ref={deleteButton} disabled={configurationLoading || !active}
+        title={configurationLoading ? 'Wait for the motor to finish loading' : undefined}
         aria-label={active ? `Delete ${labelOf(active)}` : 'Delete configuration'}
         onClick={() => { setEditing(null); setDeleting(active!.id); }}>Delete</button>
       {editingConfig && <ConfigNameEditor key={editingConfig.id} config={editingConfig} label={labelOf(editingConfig)}
