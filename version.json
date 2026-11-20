@@ -1,5 +1,5 @@
 {
-  "version": "0.212",
-  "released": "2026-11-19",
-  "note": "A tab waiting to update keeps its design through download failures, share links and offline repairs: its Reload buttons ask you to save first instead of reloading at once. No flight number moves."
+  "version": "0.213",
+  "released": "2026-11-20",
+  "note": "Motor-fit Cautions; Batch rows with a Danger warning no longer pass; Batch keeps a mount’s ignition; Save .ork follows your rocket’s name; many audit fixes. Two of the 139 tester files fly differently as opened (RASAero II launch-stage delay)."
 }
