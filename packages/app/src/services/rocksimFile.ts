@@ -1,5 +1,5 @@
 import { noteField } from './noteField.js';
-import { cautionNote, flagNote, noteFlags, tierLines, zeroBulkDensityNote } from './importNotes.js';
+import { appendNotes, cautionNote, flagNote, noteFlags, tierLines, zeroBulkDensityNote } from './importNotes.js';
 import { KERNEL_DEFAULT_FIN_POINTS, KERNEL_DEFAULT_MATERIALS, kernelNum, kernelRecoveryCd } from '../tree/kernelDefaults.js';
 import { flownTransitionEnds } from '../tree/transitionRadii.js';
 import { tubeFinRadius, tubeFinWall } from '../tree/tubefins.js';
@@ -400,16 +400,21 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
   /** Airfoil fin sets pinned to RockSim's own CalcMass/CalcCG (desktop parity). */
   const airfoilPinned = new Set<ComponentNode>();
   /** Bulkheads the file gives a hole, imported as centering rings with that bore (the file's ID, mm). */
-  const holedBulkheads: { name: string; idMm: number }[] = [];
+  const holedBulkheads: { node: ComponentNode; name: string; idMm: number }[] = [];
   /** RockSim SerialNo → our node id (links EngineSets to mounts). */
   const serialToNode = new Map<string, ComponentNode>();
+  const duplicateSerials = new Set<string>();
+  const recoverySerialToNode = new Map<string, ComponentNode>();
+  const duplicateRecoverySerials = new Set<string>();
   /** Off-axis inner tubes: node → cross-section offset (m), for cluster
    *  reconstruction (RockSim has no cluster concept — files carry N separate
    *  tubes at RadialLoc/RadialAngle). */
   const radialByNode = new Map<ComponentNode, { y: number; z: number }>();
 
   const name = text(design, ':scope > Name') ?? 'Imported RockSim rocket';
-  const stageCount = Math.max(1, Math.min(3, num(design, 'StageCount', 1)));
+  const statedStageCount = num(design, 'StageCount', 1);
+  const stageCount = Math.max(1, Math.min(3, Math.floor(statedStageCount)));
+  if (!Number.isInteger(statedStageCount)) cautionNote(notes, 'I04.stage-count', `The file's StageCount is not an integer; using ${stageCount} stage${stageCount === 1 ? '' : 's'}. Check the imported stages before flying.`);
   /** The name the stage built from RockSim's slot `i` (0 = Stage3Parts, the sustainer) takes. */
   const stageName = (i: number): string => (i === 0 ? 'Sustainer' : stageCount === 2 || i === 1 ? 'Booster' : `Booster ${i}`);
 
@@ -502,7 +507,14 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
       pendingLinks.push({ node, manufacturer: mfg.trim(), partNo: partNo.trim() });
     }
     const serial = text(el, ':scope > SerialNo');
-    if (serial) serialToNode.set(serial, node);
+    if (serial) {
+      if (serialToNode.has(serial)) duplicateSerials.add(serial);
+      serialToNode.set(serial, node);
+      if (node.type === 'parachute' || node.type === 'streamer') {
+        if (recoverySerialToNode.has(serial)) duplicateRecoverySerials.add(serial);
+        recoverySerialToNode.set(serial, node);
+      }
+    }
     const densityType = num(el, 'DensityType', 0);
     const density = num(el, 'Density', NaN);
     if (densityType === 0 && density > 0) node.density = density;
@@ -648,7 +660,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
    * however long the chain.
    */
   const flattenSubAssembly = (
-    el: XmlElement, parent: ComponentNode | null, add: (n: ComponentNode) => void, chain = 1,
+    el: XmlElement, parent: ComponentNode | null, add: (n: ComponentNode) => void, chain = 1, chainOwner?: ComponentNode,
   ) => {
     if (chain > MAX_NESTING) {
       tooDeep = true;
@@ -658,10 +670,10 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
     const wrap = el.querySelector(':scope > AttachedParts');
     for (const sub of Array.from(wrap?.children ?? [])) {
       if (sub.tagName === 'SubAssembly') {
-        flattenSubAssembly(sub, parent, add, chain + 1);
+        flattenSubAssembly(sub, parent, add, chain + 1, chainOwner);
         continue;
       }
-      if (!attachable(sub, parent)) continue;
+      if (!attachable(sub, parent, chainOwner)) continue;
       const node = convertPart(sub, parent);
       if (node) add(node);
     }
@@ -711,6 +723,16 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
     CustomFinSet: { cls: 'fin', word: 'fin set' }, TubeFinSet: { cls: 'external', word: 'tube fin set' },
     LaunchLug: { cls: 'external', word: 'launch lug' }, ExternalPod: { cls: 'assembly', word: 'pod' },
   });
+  // PodHandler/BasePartDTO and native RockSim appearance/metric fields are
+  // not children. Share this list between conversion and loss summaries.
+  const POD_FIELDS = new Set(['Name', 'PartMfg', 'PartNo', 'SerialNo', 'KnownMass', 'KnownCG',
+    'UseKnownMass', 'UseKnownCG', 'CalcMass', 'CalcCG', 'Density', 'DensityType', 'Material',
+    'FinishCode', 'Xb', 'LocationMode', 'Len', 'RadialLoc', 'RadialAngle',
+    'AutoCalcRadialDistance', 'AutoCalcRadialAngle', 'AutoCalcRadialPosition', 'Detachable', 'Removed', 'AttachedParts',
+    'PartDesc', 'WettedSurface', 'PaintedSurface', 'GlueJointLength', 'Texture', 'Opacity',
+    'Specular', 'SpecularPower', 'Ambient', 'Diffuse', 'AbientColor', 'AmbientColor', 'DiffuseColor', 'SpecularColor',
+    'UseSingleColor', 'DisplayFlags', 'MetricsFlags', 'Color', 'BarrowmanCNa', 'BarrowmanXN',
+    'RockSimCNa', 'RockSimXN', 'SimpleColorModel', 'ProduceTemplate', 'TemplateUnits', 'Station', 'Group']);
   const PARENT_HOLDS = lookupTable<(cls: string) => boolean>({
     bodytube: (cls) => cls !== 'body',
     nosecone: (cls) => cls === 'internal' || cls === 'fin',
@@ -725,20 +747,21 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
   // A part with no name is "an unnamed transition", not a transition called “unnamed”.
   const named = (word: string, n: string | null | undefined): string => (n ? `the ${word} “${noteField(n)}”` : `an unnamed ${word}`);
   /** Whether `parent` (null: the stage itself) can carry what `el` becomes; records the part left out if not. */
-  const attachable = (el: XmlElement, parent: ComponentNode | null): boolean => {
+  const attachable = (el: XmlElement, parent: ComponentNode | null, chainOwner?: ComponentNode): boolean => {
     const kind = PART_KIND[el.tagName];
     if (!kind) return true; // Unknown tags go on to convertPart, which ignores them by name.
     const cls = parent === null && el.tagName === 'BodyTube' ? 'body' : kind.cls;
     const holds = parent === null ? cls === 'body' : (PARENT_HOLDS[parent.type]?.(cls) ?? true);
     if (holds) return true;
-    const on = parent === null ? (stageBeingRead ? `the stage “${stageBeingRead}”` : 'the stage')
-      : named((DISPLAY_NAME[parent.type] ?? parent.type).toLowerCase(), parent.name);
+    const owner = chainOwner ?? parent;
+    const on = owner === null ? (stageBeingRead ? `the stage “${stageBeingRead}”` : 'the stage')
+      : named((DISPLAY_NAME[owner.type] ?? owner.type).toLowerCase(), owner.name);
     // A pod may hold its chain directly as well as in AttachedParts (see the ExternalPod branch).
     const carries = (el.querySelector(':scope > AttachedParts')?.children.length ?? 0) > 0
-      || (el.tagName === 'ExternalPod' && Array.from(el.children).some((c) => ['NoseCone', 'BodyTube', 'Transition'].includes(c.tagName)));
+      || (el.tagName === 'ExternalPod' && Array.from(el.children).some((c) => !POD_FIELDS.has(c.tagName)));
     const part = named(kind.word, text(el, ':scope > Name'));
     const attached = carries ? ', with the parts attached to it' : '';
-    leftOut.push({ part: part + attached, text: `${part} on ${on}${attached}`, parent });
+    leftOut.push({ part: part + attached, text: `${part} on ${on}${attached}`, parent: owner });
     return false;
   };
 
@@ -890,7 +913,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
         const n = mk(type);
         if (holed) {
           n['holedBulkhead'] = true;
-          holedBulkheads.push({ name: n.name ?? 'Bulkhead', idMm: id });
+          holedBulkheads.push({ node: n, name: n.name ?? 'Bulkhead', idMm: id });
         }
         n['length'] = num(el, 'Len', 2) / LEN;
         const od = num(el, 'OD', 0);
@@ -1225,6 +1248,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
         // a strap-on booster (ParallelStage).
         const detachable = Math.round(num(el, 'Detachable', 0)) === 1;
         const n = mk(detachable ? 'parallelstage' : 'podset');
+        if (num(el, 'Removed', 0) === 1) cautionNote(notes, 'I06.removed-pod', `“${noteField(n.name ?? 'Pod')}”: Removed=1 is not applied. The pod remains active here, so its mass, drag and motors count in flight. Remove the pod before flying to match its removed state in the file.`);
         n['instanceCount'] = 1;
         n['radiusMethod'] = 'free';
         n['radiusOffset'] = num(el, 'RadialLoc', 0) / LEN;
@@ -1240,19 +1264,20 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
         // document order, then convert them ONE LEVEL DOWN: the pod's chain is
         // its children, so it counts against MAX_NESTING like attached parts.
         const chainEls: XmlElement[] = [];
-        const CHAIN_TAGS = ['NoseCone', 'BodyTube', 'Transition'];
+        // Scalar pod/common fields are not components. Everything else goes
+        // through the same compatibility/unsupported diagnostics as a stage chain.
         for (const sub of Array.from(el.children)) {
-          if (CHAIN_TAGS.includes(sub.tagName)) {
-            chainEls.push(sub);
-          } else if (sub.tagName === 'AttachedParts') {
-            for (const sub2 of Array.from(sub.children)) {
-              if (CHAIN_TAGS.includes(sub2.tagName)) chainEls.push(sub2);
-            }
-          }
+          if (sub.tagName === 'AttachedParts') for (const child of Array.from(sub.children)) chainEls.push(child);
+          else if (!POD_FIELDS.has(sub.tagName)) chainEls.push(sub);
         }
         const chain: ComponentNode[] = [];
         oneLevelDown(chainEls.length > 0, () => {
           for (const sub of chainEls) {
+            if (sub.tagName === 'SubAssembly') {
+              flattenSubAssembly(sub, null, kid => chain.push(kid), 1, n);
+              continue;
+            }
+            if (!attachable(sub, null, n)) continue;
             const kid = convertPart(sub, null);
             if (kid) chain.push(kid);
           }
@@ -1304,17 +1329,21 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
         attachedFinCount++;
         if (attachedFinDetails.length >= 3) continue;
         const names: string[] = [];
+        let truncated = false;
         for (let at = 0; at < parts.length; at++) {
+          if (at >= 256) { truncated = true; break; }
           const part = parts[at]!;
-          const word = PART_KIND[part.tagName]?.word ?? (part.tagName === 'SubAssembly' ? 'sub-assembly' : part.tagName);
-          const partName = text(part, ':scope > Name');
-          names.push(named(word, partName));
+          if (names.length < 5) {
+            const word = PART_KIND[part.tagName]?.word ?? (part.tagName === 'SubAssembly' ? 'sub-assembly' : noteField(part.tagName, 80));
+            const partName = text(part, ':scope > Name');
+            names.push(named(word, partName));
+          }
           for (const c of Array.from(part.children)) {
             if (c.tagName === 'AttachedParts') for (const attached of Array.from(c.children)) parts.push(attached);
-            else if (part.tagName === 'ExternalPod' && ['NoseCone', 'BodyTube', 'Transition'].includes(c.tagName)) parts.push(c);
+            else if (part.tagName === 'ExternalPod' && !POD_FIELDS.has(c.tagName)) parts.push(c);
           }
         }
-        attachedFinDetails.push(`${named(PART_KIND[fin.tagName]?.word ?? 'fin set', text(fin, ':scope > Name'))}: ${names.join('; ')}`);
+        attachedFinDetails.push(`${named(PART_KIND[fin.tagName]?.word ?? 'fin set', text(fin, ':scope > Name'))}: ${names.join('; ')}${parts.length > 5 ? `; and ${truncated ? 'at least ' : ''}${parts.length - 5} more parts` : ''}`);
       }
     }
     stageBeingRead = stage.name ?? '';
@@ -1495,11 +1524,12 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
   const simulationSets = new Map(simEls.map(s => [s, Array.from(s.querySelectorAll('EngineSet')).filter(e => acceptedSets.has(e))]));
   const motorIndex = indexRocksimMotors(doc, design, simulationSets, notes);
   const designRecoveryNotes: string[] = [];
-  const designRecovery = readDeploymentEvents(design, serialToNode, designRecoveryNotes, num);
+  const designRecoveryDiagnostics = newDeploymentNotes();
+  const designRecovery = readDeploymentEvents(design, recoverySerialToNode, designRecoveryNotes, num, duplicateRecoverySerials, designRecoveryDiagnostics);
   const simulationRecoveryNotes = simEls.map(() => [] as string[]);
   const simulationRecovery = simEls.map((el, i) =>
-    readDeploymentEvents(el, serialToNode, simulationRecoveryNotes[i]!, num));
-  const originalSerial = new Map([...serialToNode].map(([serial, node]) => [node, serial]));
+    readDeploymentEvents(el, recoverySerialToNode, simulationRecoveryNotes[i]!, num, duplicateRecoverySerials));
+  const originalSerial = new Map([...recoverySerialToNode].map(([serial, node]) => [node, serial]));
   const deploymentFor = (node: ComponentNode, simulation?: Map<string, RktTrigger>): DeploymentTuple => {
     const serial = originalSerial.get(node) ?? '';
     const trigger = simulation?.get(serial) ?? designRecovery.get(serial);
@@ -1514,7 +1544,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
   /** The motor mount an engine set's MountSerialNo names, when it names one. */
   const namedMount = (engineSet: XmlElement): ComponentNode | undefined => {
     const serial = text(engineSet, ':scope > MountSerialNo');
-    const node = serial ? serialToNode.get(serial) : undefined;
+    const node = serial && !duplicateSerials.has(serial) ? serialToNode.get(serial) : undefined;
     return node?.['motorMount'] === true ? node : undefined;
   };
   /** The first mount of an engine set's stage: where readEngineSet sends a set nothing else places. */
@@ -1567,6 +1597,8 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
    */
   const simSets = simEls.map((sim) => {
     const sets = simulationSets.get(sim)!;
+    // Refused assignments cannot establish different loadouts on real tubes.
+    if (sets.some(el => !!text(el, ':scope > EngineCode') && duplicateSerials.has(text(el, ':scope > MountSerialNo') ?? ''))) return [];
     const taken = new Set(sets.map(namedMount).filter((n): n is ComponentNode => n !== undefined));
     return sets.flatMap((el) => {
       const named = namedMount(el);
@@ -1789,6 +1821,17 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
     }
   };
   reconstructClusters(components);
+  // Cluster twins and their identical subtrees no longer exist. Receipts and
+  // catalogue links must describe only the surviving physical components.
+  const liveNodes = new Set<ComponentNode>();
+  const collectLive = (nodes: ComponentNode[]) => {
+    for (const node of nodes) { liveNodes.add(node); collectLive(node.children ?? []); }
+  };
+  collectLive(components);
+  for (let i = pendingLinks.length - 1; i >= 0; i--) if (!liveNodes.has(pendingLinks[i]!.node)) pendingLinks.splice(i, 1);
+  for (let i = zeroDensityParts.length - 1; i >= 0; i--) if (!liveNodes.has(zeroDensityParts[i]!)) zeroDensityParts.splice(i, 1);
+  for (const node of keptWithoutCGFlag) if (!liveNodes.has(node)) keptWithoutCGFlag.delete(node);
+  for (let i = holedBulkheads.length - 1; i >= 0; i--) if (!liveNodes.has(holedBulkheads[i]!.node)) holedBulkheads.splice(i, 1);
   // A TUBE ON ITS OWN OFF THE AXIS STAYS THERE (seam review of audit
   // 2026-09-22). The schema has carried an inner tube's radialPosition and
   // radialDirection all along (the Design tab's "Distance off centerline"),
@@ -2158,9 +2201,24 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
    * a stage lit at launch over an unpowered one keeps its IgnitionDelay (below).
    */
   const simGroups: { number: number | null; name: string | null; sets: XmlElement[] }[] = [];
+  const siteNum = (el: XmlElement, tag: string): number => {
+    const t = text(el, `:scope > ${tag}`);
+    return t === null ? NaN : parseDecimal(t.trim());
+  };
+  const siteOf = (sim: XmlElement) => ({
+    latitudeDeg: siteNum(sim, 'LaunchLatitude'), longitudeDeg: siteNum(sim, 'LaunchLongitude') });
+  const inRange = (v: number, max: number): boolean => Number.isFinite(v) && v !== 0 && Math.abs(v) <= max;
+  const radianLatitude = (v: number): boolean => Math.abs(v - Math.PI / 2) < 0.001;
+  const poleLatitude = (v: number): boolean => Math.abs(v - 90) < 0.001;
+  const usableSite = (s: { latitudeDeg: number; longitudeDeg: number }): boolean => inRange(s.latitudeDeg, 90)
+    && !radianLatitude(s.latitudeDeg) && !poleLatitude(s.latitudeDeg) && inRange(s.longitudeDeg, 180);
   if (looseSets.length) simGroups.push({ number: null, name: null, sets: looseSets });
   simEls.forEach((s, i) => {
     const sets = simulationSets.get(s)!;
+    if (!sets.some(e => !!text(e, ':scope > EngineCode'))
+      && (simulationRecovery[i]!.size > 0 || simulationRecoveryNotes[i]!.length > 0)) {
+      cautionNote(notes, 'I11.motorless-recovery', `Simulation ${i + 1} recovery settings are not imported because it has no motors. The devices keep their design or default triggers; loading a motor later will use those triggers. Check recovery before flying.`);
+    }
     if (sets.length) {
       simGroups.push({ number: i + 1, name: text(s, ':scope > SimulationName'), sets });
     }
@@ -2225,7 +2283,10 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
       sets.length > (mountCopiesRead.get(mount) ?? 1) || new Set(sets.map(setKey)).size > 1);
     const unsupportedCount = g.sets.filter(es => text(es, ':scope > EngineCode'))
       .map(es => num(es, 'EngineCount', 1)).find(count => count !== 1);
-    const motorLoadoutRefusal = unsupportedCount !== undefined
+    const ambiguous = g.sets.some(es => !!text(es, ':scope > EngineCode') && duplicateSerials.has(text(es, ':scope > MountSerialNo') ?? ''));
+    const motorLoadoutRefusal = ambiguous
+      ? `Launch refused for ${source}: duplicate component serial numbers make the motor assignments ambiguous. No motors from this configuration were loaded. Assign motors to separate mounts before flying.`
+      : unsupportedCount !== undefined
       ? `Launch refused for ${source}: EngineCount ${unsupportedCount} cannot be assigned safely to one mount. `
         + 'Assign each motor to a separate mount on Motors & Configuration. No motors from this configuration were loaded.'
       : missing === undefined ? (duplicate
@@ -2267,6 +2328,8 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
     // Keep the every-delay sentinel distinct from explicit 0 s or plugged −2.
     // Its derived delay/Auto flags are recalculated after gathering evidence.
     const deployments = deploymentsFor(g.number === null ? undefined : simulationRecovery[g.number - 1]);
+    // Launch conditions are document-wide after opening. Site-only differences
+    // do not create flight configurations; keep the first representative's site.
     const key = comparisonText((motorLoadoutRefusal ?? '') + comparisonJson(deployments) + '\n' + entries.map(([id, r]) => [id, r.designation, r.manufacturer, r.rktEveryDelay ? 'every' : r.delay,
       r.ignitionEvent ?? '', statedIgnition.get(r) ?? '', !r.rktEveryDelay && r.autoDelay ? 'auto' : '',
       r.rktEveryDelay ? 'every' : ''].join('|')).sort().join('\n'));
@@ -2439,16 +2502,32 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
   // In the user's unit, as Flight configurations quotes it: this printed the
   // stored metres with a hard-coded "m", so a 500 ft main read "152.4 m".
   const distanceUnit = units?.altitude ?? opts?.distanceUnit ?? INITIAL_UNITS.altitude;
+  const inheritedRecoveryNotes: string[][] = [];
+  const diagnosticSerials = new Set([...designRecoveryDiagnostics.cautions.keys(), ...designRecoveryDiagnostics.pro.keys()]);
+  for (const serials of designRecoveryDiagnostics.unknown.values()) {
+    for (const serial of serials) diagnosticSerials.add(serial);
+  }
+  const inheritedRecoveryCache = new Map<string, string[]>([['[]', designRecoveryNotes]]);
   const recoveryNotesFor = (c: OrkFlightConfig): string[] => {
     const number = cfgSim.get(c)?.number;
+    const overridden = number == null ? undefined : simulationRecovery[number - 1];
+    // Trigger values do not affect inherited diagnostics, only which serials they replace.
+    const key = JSON.stringify([...overridden?.keys() ?? []].filter(serial => diagnosticSerials.has(serial)).sort());
+    let inheritedNotes = inheritedRecoveryCache.get(key);
+    if (!inheritedNotes) {
+      inheritedNotes = [];
+      writeDeploymentNotes(designRecoveryDiagnostics, inheritedNotes, overridden);
+      inheritedRecoveryCache.set(key, inheritedNotes);
+    }
+    inheritedRecoveryNotes.push(inheritedNotes);
     const summary = recoveryNodes.map((n) => {
       const d = c.deployments[n.id!] ?? deploymentFor(n);
       return noteField(n.name ?? n.type) + ' ' + (d.deployEvent === 'altitude'
         ? 'at ' + deployAltitudeText(d.deployAltitude!, distanceUnit) + ' descending' : d.deployEvent === 'apogee'
           ? 'at apogee' : 'at the ejection charge') + (d.deployDelay ? ' + ' + d.deployDelay + ' s' : '');
     });
-    return [...designRecoveryNotes, ...(number == null ? [] : simulationRecoveryNotes[number - 1]!),
-      ...(summary.length ? [simLabel(c) + ' recovery: ' + summary.join('; ') + '.'] : [])];
+    return [...new Set([...inheritedNotes, ...(number == null ? [] : simulationRecoveryNotes[number - 1]!),
+      ...(summary.length ? [simLabel(c) + ' recovery: ' + summary.join('; ') + '.'] : [])])];
   };
   if (!chosen) {
     notes.push(...designRecoveryNotes);
@@ -2526,7 +2605,6 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
       .filter((n): n is string => n !== null);
     configSources[c.id] = [simLabel(c), ...folded].join('; ');
   }
-  if (chosen) notes.push(...configNotes[chosen.id]!);
 
   // THE LAUNCH SITE (board Tier 0 row 80, ruled by Eric 2026-10-11). Each
   // RockSim simulation states <LaunchLatitude>, <LaunchLongitude> and
@@ -2553,62 +2631,70 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
   // negative latitude of either form, so the South Pole is read as written.
   // Read past `num`, whose unreadable-number note would say the import "used
   // its own default" — the note below says what happened instead.
-  const siteNum = (el: XmlElement, tag: string): number => {
-    const t = text(el, `:scope > ${tag}`);
-    return t === null ? NaN : parseDecimal(t.trim());
-  };
-  const openedSim = (chosen ? cfgSim.get(chosen)?.number : null) ?? null;
-  const siteSim = openedSim !== null ? simEls[openedSim - 1] : simEls[0];
-  let launch: OrkImportResult['launch'];
-  let launchSiteRefused = false;
-  let longitudeCheck: OrkImportResult['longitudeCheck'];
-  if (siteSim) {
-    const siteOf = (sim: XmlElement) => ({
-      latitudeDeg: siteNum(sim, 'LaunchLatitude'), longitudeDeg: siteNum(sim, 'LaunchLongitude') });
-    const inRange = (v: number, max: number): boolean => Number.isFinite(v) && v !== 0 && Math.abs(v) <= max;
-    const radianLatitude = (v: number): boolean => Math.abs(v - Math.PI / 2) < 0.001;
-    const poleLatitude = (v: number): boolean => Math.abs(v - 90) < 0.001;
-    const usableSite = (s: { latitudeDeg: number; longitudeDeg: number }): boolean => inRange(s.latitudeDeg, 90)
-      && !radianLatitude(s.latitudeDeg) && !poleLatitude(s.latitudeDeg) && inRange(s.longitudeDeg, 180);
-    const site = siteOf(siteSim);
-    const alt = siteNum(siteSim, 'LaunchAltitude');
-    if (usableSite(site)) {
-      launch = { latitudeDeg: site.latitudeDeg, longitudeDeg: site.longitudeDeg };
-      if (Number.isFinite(alt)) {
-        launch.launchAltitudeM = importLaunchValue(alt, SITE_ALTITUDE_M_RANGE,
-          { what: 'site altitude', field: 'Site altitude', show: (x, against) => noticeQuantity('altitude', x, units, { against }),
-            showField: opts?.distanceUnit === undefined ? undefined : (x) => deployAltitudeText(x, distanceUnit) }, notes);
-      }
-      // Row 44 A: the same offline check a .ork open runs on its simulations.
-      longitudeCheck = checkFileLongitude(site, simEls.filter((s) => s !== siteSim).map(siteOf).filter(usableSite));
-      if (longitudeCheck) notes.push(fileLongitudeNote(longitudeCheck,
-        chosen ? cfgSim.get(chosen)?.name || `Simulation ${cfgSim.get(chosen)?.number ?? 1}` : 'Simulation 1',
-        opts?.horizontalDistanceUnit ?? units.distance));
-    } else {
-      const latRaw = text(siteSim, ':scope > LaunchLatitude');
-      const lonRaw = text(siteSim, ':scope > LaunchLongitude');
-      if (latRaw !== null || lonRaw !== null) {
-        // What the file carried, as it carried it: a number as a number, an
-        // unreadable one quoted, a missing one named.
-        const said = (raw: string | null, v: number, what: string): string => raw === null ? `no ${what}`
-          : Number.isFinite(v) ? `${what} ${String(v)}°` : `${what} “${noteField(raw.trim(), 40)}”`;
-        // The reader names the refused site; the browser separately explains
-        // the conditions it retains (retainedLaunchNote).
-        cautionNote(notes, 'I24.site-retained', `${chosen ? simLabel(chosen) : 'The file’s first simulation'} states its launch site as `
-          + `${said(latRaw, site.latitudeDeg, 'latitude')}, ${said(lonRaw, site.longitudeDeg, 'longitude')}`
-          + `${Number.isFinite(alt) ? `, site altitude ${noticeQuantity('altitude', alt, units)}` : ''}; `
-          + (radianLatitude(site.latitudeDeg) || poleLatitude(site.latitudeDeg)
-            ? `that latitude looks unset — it is ${radianLatitude(site.latitudeDeg)
-              ? 'π/2, 90° written in radians' : '90°, the North Pole'}, a figure many RockSim files carry in `
-              + 'place of a site. The app takes a site only when its latitude and longitude are both non-zero and in '
-              + 'range and the latitude is not 90° (or π/2), and reads'
-            : 'the app takes a site only when its latitude and longitude are both non-zero and in range, and reads')
-          + ' no other launch condition from a '
-          + '.rkt. No launch site was taken from this record. Check the launch conditions before flying.');
-        launchSiteRefused = true;
+  const siteNoteGroups: string[][] = [];
+  // Candidate coordinates are document evidence, shared by every loadout.
+  const sites = new Map(simEls.map(sim => [sim, { site: siteOf(sim), altitude: siteNum(sim, 'LaunchAltitude') }]));
+  const candidateSites = [...sites.values()].map(({ site }) => site).filter(usableSite);
+  const readSite = (chosen: OrkFlightConfig | undefined) => {
+    const notes: string[] = [];
+    siteNoteGroups.push(notes);
+    const openedSim = (chosen ? cfgSim.get(chosen)?.number : null) ?? null;
+    const siteSim = openedSim !== null ? simEls[openedSim - 1] : simEls[0];
+    let launch: OrkImportResult['launch'];
+    let launchSiteRefused = false;
+    let longitudeCheck: OrkImportResult['longitudeCheck'];
+    if (siteSim) {
+      const { site, altitude: alt } = sites.get(siteSim)!;
+      if (usableSite(site)) {
+        launch = { latitudeDeg: site.latitudeDeg, longitudeDeg: site.longitudeDeg };
+        if (Number.isFinite(alt)) {
+          launch.launchAltitudeM = importLaunchValue(alt, SITE_ALTITUDE_M_RANGE,
+            { what: 'site altitude', field: 'Site altitude', show: (x, against) => noticeQuantity('altitude', x, units, { against }),
+              showField: opts?.distanceUnit === undefined ? undefined : (x) => deployAltitudeText(x, distanceUnit) }, notes);
+        }
+        // Row 44 A: the same offline check a .ork open runs on its simulations.
+        // The opened site cannot be its own opposite-sign sibling.
+        longitudeCheck = checkFileLongitude(site, candidateSites);
+        if (longitudeCheck) notes.push(fileLongitudeNote(longitudeCheck,
+          chosen ? cfgSim.get(chosen)?.name || `Simulation ${cfgSim.get(chosen)?.number ?? 1}` : 'Simulation 1',
+          opts?.horizontalDistanceUnit ?? units.distance));
+      } else {
+        const latRaw = text(siteSim, ':scope > LaunchLatitude');
+        const lonRaw = text(siteSim, ':scope > LaunchLongitude');
+        if (latRaw !== null || lonRaw !== null) {
+          // What the file carried, as it carried it: a number as a number, an
+          // unreadable one quoted, a missing one named.
+          const said = (raw: string | null, v: number, what: string): string => raw === null ? `no ${what}`
+            : Number.isFinite(v) ? `${what} ${String(v)}°` : `${what} “${noteField(raw.trim(), 40)}”`;
+          // The reader names the refused site; the browser separately explains
+          // the conditions it retains (retainedLaunchNote).
+          cautionNote(notes, 'I24.site-retained', `${chosen ? simLabel(chosen) : 'The file’s first simulation'} states its launch site as `
+            + `${said(latRaw, site.latitudeDeg, 'latitude')}, ${said(lonRaw, site.longitudeDeg, 'longitude')}`
+            + `${Number.isFinite(alt) ? `, site altitude ${noticeQuantity('altitude', alt, units)}` : ''}; `
+            + (radianLatitude(site.latitudeDeg) || poleLatitude(site.latitudeDeg)
+              ? `that latitude looks unset — it is ${radianLatitude(site.latitudeDeg)
+                ? 'π/2, 90° written in radians' : '90°, the North Pole'}, a figure many RockSim files carry in `
+                + 'place of a site. The app takes a site only when its latitude and longitude are both non-zero and in '
+                + 'range and the latitude is not 90° (or π/2), and reads'
+              : 'the app takes a site only when its latitude and longitude are both non-zero and in range, and reads')
+            + ' no other launch condition from a '
+            + '.rkt. No launch site was taken from this record. Check the launch conditions before flying.');
+          launchSiteRefused = true;
+        }
       }
     }
+    return { data: { launch, ...(launchSiteRefused ? { launchSiteRefused: true as const } : {}), longitudeCheck }, notes };
+  };
+  const configLaunch: NonNullable<OrkImportResult['configLaunch']> = {};
+  for (const config of configs) {
+    const site = readSite(config);
+    configLaunch[config.id] = site.data;
+    configNotes[config.id]!.push(...site.notes);
   }
+  const fallbackSite = chosen ? undefined : readSite(undefined);
+  const { launch, launchSiteRefused, longitudeCheck } = chosen ? configLaunch[chosen.id]! : fallbackSite!.data;
+  if (chosen) notes.push(...configNotes[chosen.id]!);
+  else notes.push(...fallbackSite!.notes);
 
   // Last, because the engine-set and deployment readers above record into the
   // same map. No cause is claimed: none of the 843 readable corpus files carries
@@ -2666,7 +2752,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
     notes,
     // Every producer's record: the opened configuration's lines and every
     // other configuration's (configNotes), which planImport may swap in.
-    noteTiers: [notes, designRecoveryNotes, ...simulationRecoveryNotes, ...stagingNotes.values(), ...foldedDiagnostics.values()].flatMap(noteFlags),
+    noteTiers: [notes, designRecoveryNotes, ...inheritedRecoveryNotes, ...simulationRecoveryNotes, ...siteNoteGroups, ...stagingNotes.values(), ...foldedDiagnostics.values()].flatMap(noteFlags),
     ...(measured ? { measured } : {}),
     ...(launch ? { launch } : {}),
     ...(launchSiteRefused ? { launchSiteRefused: true as const } : {}),
@@ -2675,6 +2761,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
     chosenConfigId,
     configSources,
     configNotes,
+    configLaunch,
   };
 }
 
@@ -2774,48 +2861,82 @@ export function rktEveryDelay(
  * Lists are scoped to the design or ONE simulation. Missing entries inherit
  * the design, then kernel defaults; never another simulation.
  */
+interface RktDeploymentNotes {
+  cautions: Map<string, string[]>;
+  pro: Map<string, string>;
+  unknown: Map<number, Set<string>>;
+}
+const newDeploymentNotes = (): RktDeploymentNotes => ({ cautions: new Map(), pro: new Map(), unknown: new Map() });
+
+/** Filter parsed diagnostics by overridden serial, without querying the XML again. */
+const writeDeploymentNotes = (
+  diagnostics: RktDeploymentNotes, notes: string[], overridden?: ReadonlyMap<string, RktTrigger>,
+): void => {
+  for (const [serial, own] of diagnostics.cautions) if (!overridden?.has(serial)) appendNotes(notes, own);
+  const pro = new Set([...diagnostics.pro].filter(([serial]) => !overridden?.has(serial)).map(([, name]) => name));
+  const unknown = [...diagnostics.unknown].filter(([, serials]) => [...serials].some(serial => !overridden?.has(serial)))
+    .map(([code]) => code);
+  if (pro.size) cautionNote(notes, 'I11.pro-conditions', 'RockSim Pro conditions for ' + [...pro].join(', ') + ' are not supported; '
+    + 'only the simple deployment trigger is read. Check the deployment settings before flying.');
+  if (unknown.length) {
+    const listed = unknown.slice(0, 5).sort((a, b) => a - b);
+    const remaining = unknown.length - listed.length;
+    cautionNote(notes, 'I11.unknown-trigger',
+      `${unknown.length === 1 ? 'One deployment trigger uses' : 'Some deployment triggers use'} a RockSim `
+      + `code this app does not recognise (${listed.join(', ')}${remaining ? ` and ${remaining} more code${remaining === 1 ? '' : 's'}` : ''}); `
+      + `${unknown.length === 1 ? 'that device keeps' : 'those devices keep'} the default trigger — `
+      + 'check the deployment settings before flying.',
+    );
+  }
+};
+
 const readDeploymentEvents = (
   scope: XmlElement,
   serialToNode: Map<string, ComponentNode>,
   notes: string[],
   num: NumReader,
+  ambiguousSerials?: ReadonlySet<string>,
+  diagnostics = newDeploymentNotes(),
 ): Map<string, RktTrigger> => {
   const seen = new Map<string, RktTrigger>();
-  const unknown = new Set<number>();
-  const pro = new Set<string>();
+  const ambiguous = new Set<string>();
+  const ownNotes = (serial: string): string[] => {
+    let own = diagnostics.cautions.get(serial);
+    if (!own) { own = []; diagnostics.cautions.set(serial, own); }
+    return own;
+  };
   for (const ev of Array.from(scope.querySelectorAll(':scope > SimulationEventList > SimulationEvent, :scope > SimulationEvents > SimulationEvent'))) {
     const serial = text(ev, ':scope > PartSerialNo');
-    if (!serial || serial === '0' || seen.has(serial)) continue;
+    if (!serial || serial === '0' || seen.has(serial) || ambiguous.has(serial)) continue;
     const node = serialToNode.get(serial);
     if (!node || (node.type !== 'parachute' && node.type !== 'streamer')) continue;
+    if (Math.round(num(ev, 'Type', 0)) === 0) continue;
+    if (ambiguousSerials?.has(serial)) {
+      cautionNote(ownNotes(serial), 'I11.ambiguous-recovery', `Duplicate component serial “${noteField(serial)}” makes this recovery assignment ambiguous; its trigger was ignored. The affected devices keep their design or default deployment, which can open at a different time. Set recovery on each device before flying.`);
+      ambiguous.add(serial);
+      continue;
+    }
     const hasProCondition = Array.from(ev.children).some((field) =>
       /^Test(?:Type|Condition|Value)/.test(field.tagName)
       && (field.textContent ?? '').split(',').some((raw) => {
         const value = parseDecimal(raw);
         return value !== 0 && !(field.tagName === 'TestType' && value === 28);
       }));
-    if (num(ev, 'ProEvent', 0) !== 0 || hasProCondition) pro.add(noteField(node.name ?? node.type));
+    if (num(ev, 'ProEvent', 0) !== 0 || hasProCondition) diagnostics.pro.set(serial, noteField(node.name ?? node.type));
     const t = rktTrigger(ev, num);
     if (t === null) continue;
     if (typeof t === 'number') {
-      unknown.add(t);
+      const serials = diagnostics.unknown.get(t) ?? new Set<string>();
+      serials.add(serial);
+      diagnostics.unknown.set(t, serials);
       continue;
     }
     seen.set(serial, t);
     if (t.deployEvent === 'apogee' && Math.round(num(ev, 'Type', 0)) === 5) {
-      notes.push(`${noteField(node.name ?? node.type)} ${t.says}.`);
+      cautionNote(ownNotes(serial), 'I11.altitude-trigger', `${noteField(node.name ?? node.type)} ${t.says}. Check deployment before flying.`);
     }
   }
-  if (pro.size) cautionNote(notes, 'I11.pro-conditions', 'RockSim Pro conditions for ' + [...pro].join(', ') + ' are not supported; '
-    + 'only the simple deployment trigger is read. Check the deployment settings before flying.');
-  if (unknown.size) {
-    cautionNote(notes, 'I11.unknown-trigger',
-      `${unknown.size === 1 ? 'One deployment trigger uses' : 'Some deployment triggers use'} a RockSim `
-      + `code this app does not recognise (${[...unknown].sort((a, b) => a - b).join(', ')}); `
-      + `${unknown.size === 1 ? 'that device keeps' : 'those devices keep'} the default trigger — `
-      + 'check the deployment settings before flying.',
-    );
-  }
+  writeDeploymentNotes(diagnostics, notes);
   return seen;
 };
 
@@ -3076,6 +3197,13 @@ export function exportRkt(input: RktExportInput): string {
   notes?.push(...nozzleExportNotes(tree, '.rkt'));
   notes?.push(...filletExportNotes(tree, '.rkt'));
   notes?.push(...simulationExtensionLossNotes(tree, '.rkt'));
+  const noteHoles = (nodes: ComponentNode[]) => {
+    for (const n of nodes) {
+      if ((n.type as string) === 'tubehole') notes?.push(`Tube hole “${noteField(n.name ?? 'Hole')}” (fabrication only) is omitted; save .ork to keep it.`);
+      noteHoles(n.children ?? []);
+    }
+  };
+  noteHoles(tree.components);
   const lines: string[] = [];
   const emit = dryRun ? (): void => undefined : (s: string): void => { lines.push(s); };
   /** A transition's ends as the kernel flies them, automatic ones resolved. */
@@ -3767,7 +3895,7 @@ export function exportRkt(input: RktExportInput): string {
             emitPart(kid, node);
           }
           notes?.push(`“${noteField(node.name ?? 'Tube coupler')}”: its ${kids.length === 1 ? 'part goes' : `${kids.length} parts go`}`
-            + ' into the tube around it, each where it flies — RockSim keeps no parts inside a coupler.');
+            + ' into the tube around it at the same front positions — RockSim keeps no parts inside a coupler. Recovery devices can reopen with different packed dimensions and CG; check the save losses.');
         }
         break;
       }
@@ -4307,7 +4435,7 @@ export function exportRkt(input: RktExportInput): string {
   }
   if (notes && emittedParts > MAX_DESIGN_PARTS) {
     const designParts = countParts(stagesIn);
-    notes.push(designParts > MAX_DESIGN_PARTS
+    cautionNote(notes, 'I03.part-limit', designParts > MAX_DESIGN_PARTS
       ? `This design has ${designParts.toLocaleString('en-US')} parts, above the app's opening limit of `
         + `${MAX_DESIGN_PARTS.toLocaleString('en-US')} parts. Neither .rkt nor .ork will reopen in the app `
         + 'until you remove parts to reach that limit.'

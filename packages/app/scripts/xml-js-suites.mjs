@@ -22,6 +22,8 @@
  * Paths are relative to packages/app.
  */
 export const XML_JS_SUITES = [
+  // J5 import/export regressions must agree under the browser and Worker parsers.
+  'src/services/laneJ5.test.ts',
   // Row 129: selected-simulation maxtime, clamps and round trips under both parsers.
   'src/services/maxFlightTime.test.ts',
   'src/services/asymmetricThrust.tester.test.ts',

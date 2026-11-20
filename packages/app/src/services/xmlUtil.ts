@@ -315,7 +315,19 @@ export function inlineXmlCdata(xml: string): string {
         scan = end + skip.length;
         continue;
       }
-      if (!xml.startsWith(OPEN, open)) { scan = open + 1; continue; }
+      if (!xml.startsWith(OPEN, open)) {
+        // Never repair a CDATA-looking string inside an attribute. Leave
+        // malformed markup for the XML parser to reject on every platform.
+        let quote = '';
+        scan = open + 1;
+        for (; scan < xml.length; scan++) {
+          const ch = xml[scan]!;
+          if (quote) { if (ch === quote) quote = ''; }
+          else if (ch === '"' || ch === "'") quote = ch;
+          else if (ch === '>') { scan++; break; }
+        }
+        continue;
+      }
       const close = xml.indexOf(CLOSE, open + OPEN.length);
       if (close < 0) break;
       // Trailing brackets must not join a following literal > into forbidden ]]> text.

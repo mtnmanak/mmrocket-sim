@@ -27,7 +27,7 @@ import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
 import { applyFieldLimit, fieldLimit } from '../tree/schema.js';
 import {
-  refuseTooManyParts, sanitizeTree, separationEventOf, MAX_DESIGN_PARTS, TOO_MANY_PARTS_ERROR_NAME,
+  refuseTooManyParts, countParts, sanitizeTree, separationEventOf, MAX_DESIGN_PARTS, TOO_MANY_PARTS_ERROR_NAME,
 } from '../tree/sanitize.js';
 import { CLUSTER_POINTS } from '../tree/cluster.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
@@ -295,6 +295,8 @@ export interface OrkDeployOverride {
  * offer a picker and re-import with `{ configId }`.
  */
 export interface OrkImportResult extends OrkTreeImportResult {
+  /** Reader site and diagnostics for each simulation, used when motor matching re-picks it. */
+  configLaunch?: Record<string, Pick<OrkTreeImportResult, 'launch' | 'launchSiteRefused' | 'longitudeCheck'>>;
   /** Set by lossy readers too, so pre-parsed/headless imports use the same notices. */
   sourceFormat?: 'ork' | 'rkt' | 'cdx1';
   /** Transient import warning: the file format is newer than the app understands. */
@@ -494,6 +496,10 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
   const motors: Record<string, OrkMotorRef> = {};
 
   const name = text(rocketEl, ':scope > name') ?? 'Imported rocket';
+  const referenceType = text(rocketEl, ':scope > referencetype');
+  if (referenceType && referenceType !== 'maximum') {
+    cautionNote(notes, 'I06.reference', `The file's reference type “${noteField(referenceType)}” is not supported. The app uses the maximum body diameter for stability calibers and drag normalization. Saving .ork writes maximum and loses the file's reference setting; forces from Cd overrides can differ. Keep the original file for desktop OpenRocket.`);
+  }
 
   // The builder's weighed mass and balance point (our extension; see export).
   // A nonsense value is dropped rather than imported: this drives a "your
@@ -564,7 +570,7 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
     const field = el.querySelector(`:scope > ${tag}`);
     if (!field) return fallback;
     const raw = field.textContent ?? '';
-    const last = parseDecimal(raw.trim().split(/\s+/).pop());
+    const last = automaticDimensionNumber(raw);
     if (Number.isFinite(last)) return last; // plain number, or `auto <lastvalue>`
     if (raw.trim().toLowerCase() !== 'auto') {
       // Desktop leaves malformed centreline radii automatic (audit 2026-10-11, S1a-4).
@@ -818,15 +824,20 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
     // same as the desktop). The flag survives even with no motor loaded.
     node['motorMount'] = true;
     const appIgnitions = new Map<string, IgnitionTuple>();
+    let hasInvalidIgnitions = false;
+    const invalidIgnitions = () => { hasInvalidIgnitions = true; };
     try {
       const rows: unknown = JSON.parse(mountEl.getAttribute('mmrignitions') ?? '[]');
+      if (!Array.isArray(rows)) invalidIgnitions();
       if (Array.isArray(rows)) for (const row of rows) {
         if (!Array.isArray(row) || typeof row[0] !== 'string' || typeof row[1] !== 'string'
-            || typeof row[2] !== 'number' || !Number.isFinite(row[2])) continue;
+            || typeof row[2] !== 'number' || !Number.isFinite(row[2])) { invalidIgnitions(); continue; }
         const event = knownIgnitionEvent(row[1]);
         if (event) appIgnitions.set(row[0], { event, delay: row[2] });
+        else invalidIgnitions();
       }
-    } catch { /* A malformed optional extension cannot supply an override. */ }
+    } catch { invalidIgnitions(); }
+    if (hasInvalidIgnitions) cautionNote(notes, 'I11.ignition-event', `“${noteField(node.name ?? 'Mount')}”: invalid mmrignitions data was ignored; the affected configuration keeps the mount's ignition setting. A motor loaded later can light at a different time. Check ignition before flying.`);
     // Motor overhang (m): aft protrusion past the mount — min-diameter practice.
     const overhang = num(mountEl, 'overhang', 0, notes);
     if (overhang !== 0) node['motorOverhang'] = overhang;
@@ -1481,7 +1492,7 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
             holePosition: num(el, 'axialposition', 0.025, notes, LENGTH),
             angleOffset: num(el, 'angle', 0, notes) * Math.PI / 180,
             holeCount: num(el, 'count', 1, notes),
-            ...(text(el, ':scope > comment') ? { comment: text(el, ':scope > comment') } : {}),
+            ...(el.querySelector(':scope > comment') ? { comment: el.querySelector(':scope > comment')!.textContent ?? '' } : {}),
             ...(text(el, ':scope > color') ? { color: text(el, ':scope > color') } : {}),
           } as ComponentNode);
         }
@@ -1723,8 +1734,7 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
 
   // Desktop numbers axial stages and parallel boosters in tree preorder.
   // Keep node ids so deleting or reordering stages cannot move a flag to another stage.
-  const numberedStages = Array.from(rocketEl.querySelector(':scope > subcomponents')!
-    .querySelectorAll('stage, parallelstage, boosterset'));
+  const numberedStages = [...stageIds.values()];
   for (const c of configs) {
     const flags: Record<string, boolean> = {};
     // Later duplicate declarations override only their stated stage flags (audit 2026-10-11, S1a-8).
@@ -1732,8 +1742,7 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
       for (const el of Array.from(configEl.querySelectorAll(':scope > stage'))) {
         const number = el.getAttribute('number') ?? '';
         if (!/^\d+$/.test(number)) continue;
-        const stageEl = numberedStages[Number(number)];
-        const id = stageEl && stageIds.get(stageEl);
+        const id = numberedStages[Number(number)];
         if (id) flags[id] = /^true$/i.test(el.getAttribute('active') ?? '');
       }
     }
@@ -2756,6 +2765,8 @@ export function exportOrk({
   flightDataDefault, notes, onOmittedMotor, workingOverrides = {}, newId,
 }: OrkTreeExportInput): string {
   const uuid = newId ?? configUuid;
+  const partCount = countParts(tree.components);
+  if (partCount > MAX_DESIGN_PARTS && notes) cautionNote(notes, 'I03.part-limit', `This design has ${partCount.toLocaleString('en-US')} parts; the app cannot reopen this .ork or its share link because its limit is ${MAX_DESIGN_PARTS.toLocaleString('en-US')} parts. Keep the file for desktop OpenRocket, which has no such limit.`);
   // Complete existing owners before minting a custom configuration, including
   // callers that export directly without first syncing the active config.
   if (configs) configs = completeStageMass(configs, tree);
@@ -2972,11 +2983,11 @@ export function exportOrk({
   // otherwise — writing `auto` unconditionally overwrote their dimensions in
   // their own file the first time they hit Save.
   const ringRadii = (depth: number, node: ComponentNode, withInner: boolean) => {
-    const or = node['outerRadius'];
-    emit(depth, `<outerradius>${typeof or === 'number' && or > 0 ? or : 'auto'}</outerradius>`);
+    const or = numOpt(node, 'outerRadius');
+    emit(depth, `<outerradius>${or !== undefined && or >= 0 ? or : 'auto'}</outerradius>`);
     if (!withInner) return;
-    const ir = node['innerRadius'];
-    emit(depth, `<innerradius>${typeof ir === 'number' && ir >= 0 ? ir : 'auto'}</innerradius>`);
+    const ir = numOpt(node, 'innerRadius');
+    emit(depth, `<innerradius>${ir !== undefined && ir >= 0 ? ir : 'auto'}</innerradius>`);
   };
 
   // Mass/CG/Cd overrides, exactly as the desktop RocketComponentSaver writes them.
@@ -4262,7 +4273,7 @@ function makeAutoRadii(rocketEl: XmlElement): AutoRadii {
     const ringRadius = (tag === 'outerradius' || tag === 'innerradius')
       && ['centeringring', 'bulkhead', 'tubecoupler', 'engineblock'].includes(el.tagName);
     const automatic = SYMMETRIC_TAGS.has(el.tagName) && ['radius', 'aftradius', 'foreradius'].includes(tag);
-    const v = ringRadius ? ringRadiusNumber(t) : parseDecimal(automatic ? t.trim().split(/\s+/).pop() : t);
+    const v = ringRadius ? ringRadiusNumber(t) : automatic ? automaticDimensionNumber(t) : parseDecimal(t);
     return Number.isFinite(v) ? v : null;
   };
 
@@ -4467,7 +4478,7 @@ function noteInvalidNumber(notes: string[], note: string): void {
 
 /** Match num's diagnostics for values dropped outside it (audit 2026-10-11, S1a-3/S1a-4). */
 function invalidNumberNote(el: XmlElement, tag: string, notes: string[], action = 'the value was not used'): void {
-  const label = text(el, ':scope > name') ?? el.tagName;
+  const label = numberOwner(el);
   const note = `“${noteField(label)}”: invalid <${tag}> value; ${action}.`;
   noteInvalidNumber(notes, note);
 }
@@ -4496,7 +4507,7 @@ function num(el: XmlElement, tag: string, fallback: number, notes: string[], sho
   if (automatic && t.toLowerCase() === 'auto') return fallback;
   const v = parseDecimal(t);
   if (Number.isFinite(v)) return v;
-  const label = text(el, ':scope > name') ?? el.tagName;
+  const label = numberOwner(el);
   const note = `“${noteField(label)}”: invalid <${tag}> value; ${fallbackAction(fallback, shown, retained)}.`;
   noteInvalidNumber(notes, note);
   return fallback;
@@ -4536,7 +4547,11 @@ function matName_(el: XmlElement, type: string, selector = ':scope > material'):
 function readSoftMaterial(el: XmlElement, node: ComponentNode, kind: 'surface' | 'line',
     densityKey: string, nameKey: string, notes: string[], selector = ':scope > material'): void {
   const m = el.querySelector(selector);
-  if (!m || (m.getAttribute('type') ?? kind) !== kind) return;
+  if (!m) return;
+  if ((m.getAttribute('type') ?? kind) !== kind) {
+    cautionNote(notes, 'I21.material-type', `“${noteField(node.name ?? node.type)}”: ${m.tagName} “${noteField(m.textContent ?? '')}” has type “${noteField(m.getAttribute('type') ?? '')}”, not ${kind}, and was ignored. The selected or default ${kind === 'surface' ? 'fabric' : 'cord'} material is used instead and will be saved; check recovery mass before flying.`);
+    return;
+  }
   const d = parseDecimal(m.getAttribute('density'));
   if (Number.isFinite(d) && d >= 0) node[densityKey] = d;
   else if (m.hasAttribute('density')) invalidNumberNote(el, `${m.tagName} density`, notes);
@@ -4555,7 +4570,7 @@ function readSoftMaterial(el: XmlElement, node: ComponentNode, kind: 'surface' |
  */
 function readRingRadii(el: XmlElement, node: ComponentNode, notes: string[]): void {
   const or = autoNum(el, 'outerradius', notes);
-  if (or !== undefined && or > 0) node['outerRadius'] = or;
+  if (or !== undefined && or >= 0) node['outerRadius'] = or;
   const ir = autoNum(el, 'innerradius', notes);
   if (ir !== undefined && ir >= 0) node['innerRadius'] = ir;
 }
@@ -4652,8 +4667,7 @@ function readFillet(el: XmlElement, node: ComponentNode, notes: string[], units:
  * inverse of the v0.087 bug above, and silently.
  */
 function readMountAngle(el: XmlElement, node: ComponentNode, notes: string[]): void {
-  const deg = num(el, 'angleoffset', NaN, notes);
-  if (Number.isFinite(deg)) node['angleOffset'] = (deg * Math.PI) / 180;
+  readAngularSetters(el, node, notes, node.type === 'launchlug' ? ['angleoffset', 'radialdirection'] : ['angleoffset'], 'angleOffset');
 }
 
 /**
@@ -4675,8 +4689,40 @@ function readRadialPlacement(el: XmlElement, node: ComponentNode, notes: string[
 
 /** Fin-set rotation about the body axis (.ork stores DEGREES; we keep rad). */
 function readFinRotation(el: XmlElement, node: ComponentNode, notes: string[]): void {
-  const deg = num(el, 'rotation', 0, notes);
-  if (deg !== 0) node['rotation'] = (deg * Math.PI) / 180;
+  readAngularSetters(el, node, notes, ['rotation', 'angleoffset'], 'rotation');
+}
+
+function readAngularSetters(el: XmlElement, node: ComponentNode, notes: string[], tags: string[], key: string): void {
+  for (const setter of Array.from(el.children)) {
+    if (!tags.includes(setter.tagName)) continue;
+    const value = parseDecimal(setter.textContent);
+    if (Number.isFinite(value)) {
+      if (key === 'rotation' && value === 0) delete node[key];
+      else node[key] = value * Math.PI / 180;
+    }
+    else invalidNumberNote(el, setter.tagName, notes, 'keeping the previous or default angle');
+  }
+}
+
+/** Desktop accepts one numeric token or a prefix plus one numeric token. */
+function automaticDimensionNumber(raw: string): number {
+  const tokens = raw.trim().split(/\s+/);
+  return tokens.length <= 2 ? parseDecimal(tokens.at(-1)) : NaN;
+}
+
+/** Configuration blocks belong to their immediate component; motors name their designation. */
+function numberOwner(el: XmlElement): string {
+  const own = text(el, ':scope > name') ?? text(el, ':scope > designation');
+  if (own) return own;
+  const blocks = ['motor', 'deploymentconfiguration', 'separationconfiguration', 'ignitionconfiguration', 'motormount', 'stagemassconfiguration'];
+  if (blocks.includes(el.tagName)) {
+    for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+      const name = text(parent, ':scope > name');
+      if (name) return name;
+      if (!blocks.includes(parent.tagName)) return parent.tagName;
+    }
+  }
+  return el.tagName;
 }
 
 /**

@@ -3484,7 +3484,7 @@ export function App() {
         : '';
       try {
         await navigator.clipboard.writeText(url);
-        documentNote(generation, [`Share link copied — opening it loads “${noteField(tree.name ?? 'My Rocket')}” with its motors and launch conditions.${sizeNote}`,
+        documentNote(generation, [`Share link copied for “${noteField(tree.name ?? 'My Rocket')}”.${sizeNote}`,
           ...saveNotes].join('\n'), saveNotes.length ? 'warn' : 'info', undefined, omittedMotor ? 'caution' : highestTier(noteFlags(saveNotes)));
       } catch {
         // Clipboard refused (permissions, iframe embed, non-secure context):

@@ -69,7 +69,7 @@ import {
  * optional.
  */
 export type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors' | 'notes' | 'noteTiers' | 'expand' | 'launch' | 'launchSiteRefused' | 'measured' | 'longitudeCheck' | 'embeddedExMotors'>
-  & Partial<Pick<OrkImportResult, 'configs' | 'chosenConfigId' | 'configSources' | 'configNotes' | 'configLabelNotes' | 'storedSimulations' | 'desktopPredictions' | 'newerFormat'>>
+  & Partial<Pick<OrkImportResult, 'configs' | 'chosenConfigId' | 'configSources' | 'configNotes' | 'configLaunch' | 'configLabelNotes' | 'storedSimulations' | 'desktopPredictions' | 'newerFormat'>>
   // RASAero files carry a Mach-Alt table; the drag panel offers it as a
   // sweep condition so a user can reproduce tunnel-matched Reynolds.
   & {
@@ -412,6 +412,9 @@ export function planImport(
   // working set's references, their matches and the reader's notes — so a
   // re-pick opens the design exactly as if the reader had chosen it.
   const pick = flyablePick(imported, resolved);
+  const pickedLaunch = pick && ownEntry(imported.configLaunch, pick.cfg.id);
+  if (pickedLaunch) imported = { ...imported, launch: pickedLaunch.launch,
+    launchSiteRefused: pickedLaunch.launchSiteRefused, longitudeCheck: pickedLaunch.longitudeCheck };
   const openRefs = pick ? pick.cfg.motors : imported.motors;
   const openMatches = pick ? pick.matches : resolved.working;
   const readerNotes = pick
@@ -1040,9 +1043,11 @@ export function planNewDesign(
 ): { snapshot: DesignSnapshot; mark: string } {
   openSeq?.begin();
   let launch = keep.launch;
-  if (launch.geodeticMethod !== undefined) {
+  if (launch.geodeticMethod !== undefined || launch.timeStepS !== undefined || launch.maxFlightTimeS !== undefined) {
     launch = { ...launch };
     delete launch.geodeticMethod;
+    delete launch.timeStepS;
+    delete launch.maxFlightTimeS;
   }
   const snapshot: DesignSnapshot = {
     tree: emptyTree(),

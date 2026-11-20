@@ -5,6 +5,7 @@ import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
 import { csvCell, unescapeCsvText } from './csvUtil.js';
 import { lookupTable, parseDecimal } from './xmlUtil.js';
 import { numOpt } from '../tree/nodeNum.js';
+import { clusterCount } from '../tree/cluster.js';
 import { blankValue } from '../tree/schema.js';
 import { shapeIsClippable, shapeParamDefault, shapeUsesParameter } from '../tree/shapeProfile.js';
 // The ONE manufacturer alias table + part-number key, shared with the preset
@@ -31,6 +32,8 @@ export interface Preset {
   material?: { name: string; type: string; density: number };
   lineMaterial?: { name: string; type: string; density: number };
   mass?: number;
+  /** Version 2 saves one tube's mass; unversioned saved components retain their original total. */
+  savedComponentVersion?: number;
   [dim: string]: unknown;
 }
 
@@ -295,7 +298,7 @@ export function componentToPreset(node: ComponentNode): Preset {
   const kind = KIND_FOR_TYPE[node.type];
   if (!kind) throw new Error('This component type has no part presets.');
   const p: Preset = {
-    kind, manufacturer: 'My parts', partNo: '', description: node.name ?? '', savedComponent: true,
+    kind, manufacturer: 'My parts', partNo: '', description: node.name ?? '', savedComponent: true, savedComponentVersion: 2,
   };
   const shape = String(flown(node, 'shape'));
   for (const [key, column, scale = 1] of SAVED_FIELDS[node.type] ?? []) {
@@ -319,11 +322,20 @@ export function componentToPreset(node: ComponentNode): Preset {
   };
   p.material = material(surface ? 'surfaceMaterialName' : 'materialName', surface ? 'surfaceDensity' : 'density', surface ? 'SURFACE' : 'BULK');
   if (node.type === 'parachute') p.lineMaterial = material('lineMaterialName', 'lineDensity', 'LINE');
-  if (node['overrideSubcomponentsMass'] !== true) p.mass = numOpt(node, 'overrideMass');
+  if (node['overrideSubcomponentsMass'] !== true) {
+    const mass = numOpt(node, 'overrideMass');
+    const copies = node.type === 'innertube' ? clusterCount(node['cluster'] as string | undefined) : 1;
+    p.mass = mass === undefined ? undefined : mass / copies;
+  }
   return p;
 }
 
 const n = (p: Preset, key: string): number | undefined => numOpt(p, key);
+
+/** Catalogue rows and versioned My parts weigh one tube; legacy My parts already hold the saved total. */
+const presetMassCopies = (p: Preset, node: ComponentNode | undefined): number =>
+  node?.type === 'innertube' && (p['savedComponent'] !== true || p.savedComponentVersion === 2)
+    ? clusterCount(node['cluster'] as string | undefined) : 1;
 
 /**
  * Preset → node patch (editor params, SI). Desktop's semantics for dimensions
@@ -424,7 +436,7 @@ export function presetPatch(
   const weighedAssembly = type !== 'parachute' && held !== undefined && !heldIsCatalogue
     && prior?.node['overrideSubcomponentsMass'] === true;
   if (!weighedAssembly && p.mass !== undefined && p.mass > 0) {
-    set('overrideMass', p.mass);
+    set('overrideMass', p.mass * presetMassCopies(p, prior?.node));
     own('overrideSubcomponentsMass', undefined);
   } else if (!weighedAssembly && (type === 'parachute' || heldIsCatalogue)) {
     own('overrideMass', undefined);
@@ -703,7 +715,7 @@ const CSV_COLS = [
   'aftShoulderDiameter', 'aftShoulderLength', 'diameter', 'dragCoefficient',
   'spillHoleDiameter', 'packedDiameter', 'packedLength', 'lineCount', 'lineLength', 'width',
   'lineMaterialName', 'lineMaterialDensity',
-  'savedComponent', 'shapeParameter', 'clipped', 'shoulderThickness',
+  'savedComponent', 'savedComponentVersion', 'shapeParameter', 'clipped', 'shoulderThickness',
   'foreShoulderThickness', 'aftShoulderThickness',
 ];
 
@@ -910,8 +922,11 @@ export function holdsCatalogueMass(node: ComponentNode, presets: readonly Preset
   const kind = KIND_FOR_TYPE[node.type];
   if (held === undefined || !kind) return false;
   // Corrections cannot turn an old catalogue override into a user weighing.
+  // Before cluster scaling, catalogue picks stored one tube's mass even on a
+  // cluster. Recognize that saved override too; never reinterpret saved My parts.
   const weighsAsRow = (p: Preset) => p.kind === kind
-    && (matchesMass(held, p.mass) || matchesRetiredMass(held, p));
+    && (matchesMass(held / presetMassCopies(p, node), p.mass) || matchesRetiredMass(held / presetMassCopies(p, node), p)
+      || (p['savedComponent'] !== true && (matchesMass(held, p.mass) || matchesRetiredMass(held, p))));
   if (node['presetPartNo'] == null) {
     const name = typeof node.name === 'string' ? node.name.trim() : '';
     return name !== '' && presets.some((p) => weighsAsRow(p) && `${p.manufacturer} ${p.partNo}` === name);
@@ -1202,7 +1217,10 @@ export function catalogueDifferences(node: ComponentNode, row: Preset): Catalogu
   const isCanopy = node.type === 'parachute';
   const byDensity = weighsByDensity(node, patch);
   const heldMass = numOpt(node, 'overrideMass');
+  // A clustered tube's override weighs every tube; a stock preset weighs one.
+  const clusterMass = node.type === 'innertube' && clusterCount(node['cluster'] as string | undefined) > 1;
   if (patch['overrideMass'] === undefined && heldMass !== undefined
+    && !clusterMass
     && node['overrideSubcomponentsMass'] !== true && KIND_FOR_TYPE[node.type] === row.kind
     && matchesRetiredMass(heldMass, row)) {
     out.push({
@@ -1231,6 +1249,7 @@ export function catalogueDifferences(node: ComponentNode, row: Preset): Catalogu
       have = key === 'clipped' ? shapeIsClippable(shape) : shapeParamDefault(shape);
     }
     if (key === 'overrideMass') {
+      if (clusterMass) continue;
       if (node['overrideSubcomponentsMass'] === true) continue;
       have = numOpt(node, 'overrideMass');
       if (have === undefined) continue;
@@ -1479,6 +1498,7 @@ export function applyPresetLinks(
       if (isCanopy && (key === 'cd' || key === 'spillHoleDiameter')
         && !PAIR.every((k) => node[k] !== undefined)) continue;
       if (key === 'overrideMass' && node['overrideSubcomponentsMass'] === true) continue;
+      if (key === 'overrideMass' && node.type === 'innertube' && clusterCount(node['cluster'] as string | undefined) > 1) continue;
       if (DENSITY_KEYS.has(key) && !byDensity) continue;
       if (differsFromCatalogue(field.differs, have, value)) conflicts.push(field.words);
     }

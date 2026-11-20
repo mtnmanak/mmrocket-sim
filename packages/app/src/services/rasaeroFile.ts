@@ -31,7 +31,7 @@ import { MAX_DIMENSION_M } from '../tree/schema.js';
 import {
   isaPressurePa, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, padPressureIssue, SITE_ALTITUDE_M_RANGE,
 } from './atmosphere.js';
-import { findDbMotor, hasMassData, type MotorDbEntry } from './motorDb.js';
+import { findDbMotor, hasMassData, withoutLabelDelay, type MotorDbEntry } from './motorDb.js';
 import { decodeXml, escapeXml as esc, lookupTable, parseDecimal, xmlNum, xmlText as text } from './xmlUtil.js';
 import { gunzipCapped, unzipMember } from './zipMember.js';
 import { MAX_ORK_CONFIGURATIONS, type OrkFlightConfig, type OrkMotorRef } from './orkFile.js';
@@ -622,6 +622,9 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
       } as ComponentNode);
     }
     readProtuberances(el, tube, name);
+    for (const field of ['RailGuideDiameter', 'RailGuideHeight', 'LaunchShoeArea']) {
+      if (num(el, field, 0) !== 0) cautionNote(notes, 'I03.hardware', `“${noteField(name)}”: ${field} is not imported. This external hardware's drag is omitted, which can raise predicted apogee; add the hardware before flying.`);
+    }
     return tube;
   };
 
@@ -961,7 +964,7 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
         const cd = appEnabled && (appDevice === 'Parachute' || appDevice === 'None')
           ? num(recovery, `CD${slot}`, NaN) : NaN;
         const fallback = appEnabled && (appDevice === 'Parachute' || appDevice === 'None')
-          ? `The app uses ${event === 'Apogee' ? 'apogee' : `${noticeNumber(num(recovery, `Altitude${slot}`, 500))} ft`} deployment, a ${noticeNumber(appDevice === 'None' ? 0 : num(recovery, `Size${slot}`, 36))} inch diameter and ${Number.isFinite(cd) && cd !== 0 ? `Cd ${noticeNumber(cd)}` : 'automatic Cd 0.8'} for this slot.`
+          ? `The app uses ${event !== 'Altitude' ? 'apogee' : `${noticeNumber(num(recovery, `Altitude${slot}`, 500))} ft`} deployment, a ${noticeNumber(appDevice === 'None' ? 0 : num(recovery, `Size${slot}`, 36))} inch diameter and ${Number.isFinite(cd) && cd !== 0 ? `Cd ${noticeNumber(cd)}` : 'automatic Cd 0.8'} for this slot.`
           : 'This slot is ignored by the app; no recovery device is added for it.';
         const inputs = fields.map(field => `${field} (“${noteField(rawRecoveryValues(field).find(value => !javaDoubleText(value)) ?? rawRecovery(field) ?? '(missing)')}”)`).join(', ');
         cautionNote(notes, 'I04.recovery-event', `RASAero recovery ${inputs} missing or unreadable; desktop OpenRocket cannot import this file. ${fallback} Repair the named fields and check recovery before flying.`);
@@ -970,7 +973,7 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
     });
     for (const slot of [1, 2] as const) {
       if ((text(recovery, `:scope > Event${slot}`) ?? 'false').toLowerCase() !== 'true') continue;
-      const eventType = text(recovery, `:scope > EventType${slot}`) ?? 'None';
+      let eventType = text(recovery, `:scope > EventType${slot}`) ?? 'None';
       if (eventType === 'None') continue;
       if (slot === 2 && !firstEnabled) {
         cautionNote(notes, 'I04.recovery-disabled', 'RASAero recovery slot 2 is ignored because slot 1 is disabled or has no event. Desktop OR ignores slot 2 when its untrimmed Event1 is false or EventType1 is exactly None, if the file opens there. No recovery device is added for slot 2; check recovery before flying.');
@@ -981,7 +984,11 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
         cautionNote(notes, 'I04.recovery-device', `Unknown RASAero recovery device type “${noteField(deviceType)}” in slot ${slot} — ignored; no recovery device is added for this slot.`);
         continue;
       }
-      if (slot === 2 && eventType === 'Apogee' && text(recovery, ':scope > EventType1') === 'Apogee') {
+      if (eventType !== 'Apogee' && eventType !== 'Altitude') {
+        cautionNote(notes, 'I04.recovery-event', `RASAero recovery slot ${slot}: unknown event “${noteField(eventType)}”; using apogee, as desktop OpenRocket does. Recovery can open at a different time; check deployment before flying.`);
+        eventType = 'Apogee';
+      }
+      if (slot === 2 && text(recovery, ':scope > EventType2') === 'Apogee' && text(recovery, ':scope > EventType1') === 'Apogee') {
         const altitude2 = rawRecovery('Altitude2') ?? '';
         // The shared check requires altitude only for devices desktop creates.
         // Disabled slots and unknown devices may omit it without an exception.
@@ -1140,14 +1147,20 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
     }
     if (!designation || !maker) return null;
     let delay: number | undefined;
-    const dm = designation.match(/-([0-9]+|[pP])$/);
+    const manufacturer = maker.replace(/^\(|\)$/g, '');
+    // A suffix can be part of a catalogue identity (D5-P, B4-4,
+    // BB-54-1750). Retain an exact identity while reading its delay, using
+    // the shared label rule to keep a case's impulse distinct from a delay.
+    const whole = findDbMotor(designation, undefined, opts?.catalogue, manufacturer);
+    const exact = whole?.designation.toLowerCase() === designation.toLowerCase();
+    const dm = exact && withoutLabelDelay(designation.toUpperCase()) === designation.toUpperCase() ? null : designation.match(/-([0-9]+|[pP])$/);
     if (dm) {
-      designation = designation.slice(0, designation.lastIndexOf('-'));
+      if (!exact) designation = designation.slice(0, designation.lastIndexOf('-'));
       delay = /^[0-9]+$/.test(dm[1]!) ? Number(dm[1]) : Infinity;
     }
     const explicitDelay = dm && /^[pP]$/.test(dm[1]!) ? 'plugged' as const
       : Number.isFinite(delay) ? delay : undefined;
-    return { designation, manufacturer: maker.replace(/^\(|\)$/g, ''), delay, explicitDelay };
+    return { designation, manufacturer, delay, explicitDelay };
   };
   /** RASAero's mount for a stage: its aft-most body tube (desktop getMotorMountForStage). */
   const aftTube = (stage: ComponentNode | undefined): ComponentNode | undefined => {
@@ -1305,6 +1318,7 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
       if (p.stageIdx === launchIdx) {
         if (launchIdx === stages.length - 1) {
           p.ref.ignitionEvent = 'automatic';
+          p.ref.ignitionDelay = 0;
         } else {
           // The slot-read delay dies with the rekeying: RASAero measures it
           // from the EXCLUDED stage below's burnout and ignores it when that
@@ -2337,6 +2351,13 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
   tree = resolveFlightState(tree, [], null, overrides, {}).tree;
   notes?.push(...filletExportNotes(tree, '.CDX1'));
   notes?.push(...simulationExtensionLossNotes(tree, '.CDX1'));
+  const noteHoles = (nodes: ComponentNode[]) => {
+    for (const n of nodes) {
+      if ((n.type as string) === 'tubehole') notes?.push(`Tube hole “${noteField(n.name ?? 'Hole')}” (fabrication only) is omitted; save .ork to keep it.`);
+      noteHoles(n.children ?? []);
+    }
+  };
+  noteHoles(tree.components);
   const stagesIn = asStageNodes(tree);
   if (stagesIn.length > 3) throw new Error('RASAero supports at most 3 stages.');
 
@@ -2388,6 +2409,17 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
     };
   });
   const stageEngines = stageSlots.map((s) => s.engine);
+  for (const [i, slot] of stageSlots.entries()) {
+    if (stageEngines.slice(i + 1).some(Boolean)) continue;
+    const stage = stagesIn[i];
+    const entries = (nodes: ComponentNode[]): Cdx1ExportEngine[] => nodes.flatMap(n => [
+      ...(n.id && motors?.[n.id] ? [motors[n.id]!] : []), ...entries(n.children ?? []),
+    ]);
+    for (const motor of entries(stage?.children ?? [])) {
+      if (slot.engine && knownIgnitionEvent(motor.ignitionEvent) === 'burnout') notes?.push(`Motor “${noteField(motor.designation)}” reopens at launch with no delay because there is no exported lower engine; its burnout trigger is not kept. This can turn an unlit motor into a lit motor and change the flight. Save .ork to keep the timing.`);
+    }
+    slot.ignitionDelay = 0;
+  }
   for (const [i, stage] of stagesIn.entries()) if (i > 0 && !stageEngines[i]) {
     notes?.push(`${noteField(stage.name ?? `Stage ${i + 1}`)}: no booster engine is exported, so RASAero excludes this stage. `
       + 'Its weight and CG cells are ignored when reopened; its mass and balance use the computed construction figures. Save .ork to preserve them.');
@@ -3021,11 +3053,11 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
   emit(`<SustainerLaunchWt>${stackWt(0)}</SustainerLaunchWt>`);
   emit(`<SustainerNozzleDiameter>${stageNozzleIn(0)}</SustainerNozzleDiameter>`);
   emit(`<SustainerCG>${stackCg(0)}</SustainerCG>`);
-  emit(`<SustainerIgnitionDelay>${stageIgnitionDelays[0] ?? 0}</SustainerIgnitionDelay>`);
+  emit(`<SustainerIgnitionDelay>${fmt(stageIgnitionDelays[0] ?? 0)}</SustainerIgnitionDelay>`);
   if (stageEngines[1]) emit(`<Booster1Engine>${esc(stageEngines[1])}</Booster1Engine>`);
   emit(`<Booster1LaunchWt>${stackWt(1)}</Booster1LaunchWt>`);
   emit(`<Booster1SeparationDelay>${stageSeparationDelay(1)}</Booster1SeparationDelay>`);
-  emit(`<Booster1IgnitionDelay>${stageIgnitionDelays[1] ?? 0}</Booster1IgnitionDelay>`);
+  emit(`<Booster1IgnitionDelay>${fmt(stageIgnitionDelays[1] ?? 0)}</Booster1IgnitionDelay>`);
   emit(`<Booster1CG>${stackCg(1)}</Booster1CG>`);
   // Gated on the engine exactly as IncludeBooster1 below is, which is what
   // RASAero's own files do: across the 132 simulations in the 66-file corpus

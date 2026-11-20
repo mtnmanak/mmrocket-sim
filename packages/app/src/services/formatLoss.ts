@@ -230,7 +230,9 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
     const parentOf = new Map<ComponentNode, ComponentNode>();
     for (const p of nodes) for (const c of p.children ?? []) parentOf.set(c, p);
     const repacks = (n: ComponentNode): boolean => {
-      const packed = rktPackedChuteSize(parentOf.get(n), num(n, 'diameter', 0.3) / Math.sqrt(rktRecoveryCount(n)));
+      let emittedParent = parentOf.get(n);
+      while (emittedParent?.type === 'tubecoupler') emittedParent = parentOf.get(emittedParent);
+      const packed = rktPackedChuteSize(emittedParent, num(n, 'diameter', 0.3) / Math.sqrt(rktRecoveryCount(n)));
       return Math.abs(num(n, 'packedLength', 0.025) - packed) > 1e-6
         || Math.abs(num(n, 'packedRadius', 0.0125) - packed) > 1e-6;
     };
@@ -363,6 +365,12 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
     }));
     // Automatic is launch only on the bottom active core stage (AxialStage).
     const launchStage = stages.length - 1;
+    for (const [i, ms] of stageMotors.entries()) for (const m of ms) {
+      if (rasaeroManufacturerAbbrev(m.manufacturer) && knownIgnitionEvent(m.ignitionEvent ?? null) === 'burnout'
+        && !stageMotors.slice(i + 1).some(lower => lower.some(motor => rasaeroManufacturerAbbrev(motor.manufacturer)))) {
+        add(true, `Motor “${noteField(m.designation)}” reopens at launch with no delay because there is no exported lower engine; its burnout trigger is not kept. This can turn an unlit motor into a lit motor and change the flight. Save .ork to keep the timing.`);
+      }
+    }
     for (let i = 0; i < launchStage; i++) for (const m of stageMotors[i]!) {
       if (!rasaeroManufacturerAbbrev(m.manufacturer) || (knownIgnitionEvent(m.ignitionEvent ?? null) ?? 'automatic') !== 'automatic') continue;
       const below = stageMotors[i + 1] ?? [];
