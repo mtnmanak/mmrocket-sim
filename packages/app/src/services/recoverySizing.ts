@@ -13,13 +13,15 @@ import { CANOPY_DIAMETER_FALLBACK, ventLimit } from '../tree/canopyVent.js';
 import { num as nnum, numOrNull } from '../tree/nodeNum.js';
 import { flownDeployEvent } from '../tree/deployEvent.js';
 import {
-  findParent, isSeparatingParallelStage, KERNEL_DEFAULT_CD, mountMotorCount, stageIndexOf, suppressingAncestor,
+  findParent, isSeparatingParallelStage, kernelStageIdByNode, KERNEL_DEFAULT_CD, mountMotorCount, nameOr, stageIndexOf, suppressingAncestor,
 } from '../tree/treeModel.js';
 import { padAir, R_AIR, type AtmosphereModel } from './atmosphere.js';
 import type { Preset } from './presets.js';
 import type { RecoveryMass } from './recoveryMass.js';
 import { sustainerScope } from './recoveryMass.js';
 import { SAFETY } from './simReport.js';
+import { sameDeployment } from './deployOverrideNote.js';
+import { recoveryAssembly } from './flightAdvisories.js';
 
 /**
  * RECOVERY SIZING — the answer, not the arithmetic.
@@ -269,7 +271,8 @@ export type DeviceRole = 'main' | 'drogue';
  *  - with none set that way, the LARGEST canopy is the main, because in a
  *    single-deploy rocket the apogee chute IS the landing device and calling it
  *    a drogue would size the whole rocket against the wrong band;
- *  - the largest of what remains is the drogue.
+ *  - the largest canopy on a different deployment tuple is the drogue;
+ *    co-deployed landing canopies remain mains.
  *
  * Streamers are deliberately not classified. A streamer's published Cd is
  * referenced to strip area, not to a diameter, so it cannot be substituted for
@@ -292,7 +295,7 @@ export type DeviceRole = 'main' | 'drogue';
 export function classifyRecoveryDevices(
   tree: RocketTree,
   scope?: readonly ComponentNode[],
-): { main: ComponentNode | null; drogue: ComponentNode | null } {
+): { main: ComponentNode | null; drogue: ComponentNode | null; coDeployedMains?: ComponentNode[] } {
   const chutes: ComponentNode[] = [];
   const walk = (ns: readonly ComponentNode[] | undefined): void => {
     for (const n of ns ?? []) {
@@ -319,8 +322,20 @@ export function classifyRecoveryDevices(
   // "Altitude" flies as the main and is sized as one.
   const atAltitude = chutes.filter((n) => flownDeployEvent(n['deployEvent']) === 'altitude');
   const main = biggest(atAltitude.length > 0 ? atAltitude : chutes);
-  const drogue = biggest(chutes.filter((n) => n !== main));
-  return { main, drogue };
+  const setting = (n: ComponentNode) => ({ deployEvent: String(n['deployEvent'] ?? 'ejection'),
+    deployAltitude: nnum(n, 'deployAltitude', 200), deployDelay: nnum(n, 'deployDelay', 0) });
+  const stageOf = kernelStageIdByNode(tree);
+  const globalTrigger = ['apogee', 'altitude', 'launch'].includes(flownDeployEvent(main!['deployEvent']));
+  // Ejection follows the nearest assembly, including pod sets; other
+  // stage-relative triggers follow the kernel stage.
+  const ejection = flownDeployEvent(main!['deployEvent']) === 'ejection';
+  const coDeploys = (n: ComponentNode): boolean => sameDeployment(setting(n), setting(main!))
+    && (globalTrigger || (ejection
+      ? recoveryAssembly(tree, n.id ?? '')[0] === recoveryAssembly(tree, main!.id ?? '')[0]
+      : stageOf.get(n.id ?? '') === stageOf.get(main!.id ?? '')));
+  const drogue = biggest(chutes.filter((n) => n !== main && !coDeploys(n)));
+  const coDeployedMains = chutes.filter(n => n !== main && coDeploys(n));
+  return { main, drogue, ...(coDeployedMains.length ? { coDeployedMains } : {}) };
 }
 
 /**
@@ -368,9 +383,10 @@ export function recoveryBayBore(
           const wall = nnum(parent, 'thickness', 0.002);
           if (shoulder > 0 && nnum(parent, `${prefix}Length`, 0) > 0) {
             if (parent[`${prefix}Capped`] === true) return 0;
+            if (!(nnum(parent, `${prefix}Thickness`, 0) > 0)) return NaN;
             const shoulderBore = (Number.isFinite(base) ? Math.min(shoulder, base) : shoulder)
-              - nnum(parent, `${prefix}Thickness`, wall);
-            return 2 * (Number.isFinite(base) ? Math.min(base - wall, shoulderBore) : shoulderBore);
+              - nnum(parent, `${prefix}Thickness`, 0);
+            return 2 * shoulderBore;
           }
           return 2 * (base - wall);
         };
@@ -386,12 +402,13 @@ export function recoveryBayBore(
       let radius = baseBore;
       if (shoulder > 0 && shoulderLength > 0) {
         if (parent[nose ? 'shoulderCapped' : 'aftShoulderCapped'] === true) return null;
-        // The kernel caps the shoulder at the base radius; both openings
-        // constrain the canopy even when the stored shoulder is oversized.
+        if (!(nnum(parent, nose ? 'shoulderThickness' : 'aftShoulderThickness', 0) > 0)) return null;
+        // The kernel caps the shoulder's outside at the base radius; its own
+        // wall determines the mouth even when the body has a thicker wall.
         const effectiveShoulder = hasAftRadius ? Math.min(shoulder, aftRadius) : shoulder;
         const shoulderBore = effectiveShoulder - Math.min(effectiveShoulder,
-          nnum(parent, nose ? 'shoulderThickness' : 'aftShoulderThickness', nnum(parent, 'thickness', 0.002)));
-        radius = hasAftRadius ? Math.min(shoulderBore, baseBore) : shoulderBore;
+          nnum(parent, nose ? 'shoulderThickness' : 'aftShoulderThickness', 0));
+        radius = shoulderBore;
       }
       return radius > 0 ? 2 * radius : null;
     }
@@ -477,6 +494,10 @@ function recoveryFitInBay(
   if (bay['filled'] === true) return no('The recovery bay is solid.');
   const cavity = bay.type === 'nosecone' || bay.type === 'transition';
   const transition = bay.type === 'transition';
+  const wallUnknown = (node: ComponentNode, prefix: string): boolean =>
+    nnum(node, `${prefix}Length`, 0) > 0 && nnum(node, `${prefix}Radius`, 0) > 0
+      && node[`${prefix}Capped`] !== true && !(nnum(node, `${prefix}Thickness`, 0) > 0);
+  let uncertain = false;
   const bore = cavity ? recoveryBayBore(tree, device, scope) : packingBore(tree, bay);
   if (!cavity && bore !== null && bore <= 0) return no('The recovery bay has no usable bore.');
   const diameter = numOrNull(preset, 'packedDiameter');
@@ -529,7 +550,7 @@ function recoveryFitInBay(
     // still send hardware through its ends.
     return !nestedTube || chainMember(chain) !== bayMember || chain.includes(bay);
   };
-  let forwardCavity: { start: number; boreAt: ((x: number) => number) | null; opening: number | null } | undefined;
+  let forwardCavity: { start: number; boreAt: ((x: number) => number) | null; opening: number | null; unknownWall: boolean } | undefined;
   if (bay.type === 'bodytube' && bayStart !== undefined) {
     for (const station of stations.values()) {
       const part = station.node;
@@ -551,10 +572,11 @@ function recoveryFitInBay(
         numOrNull(part, 'shapeParameter') ?? undefined, partLength, fore, aft,
         typeof part['clipped'] === 'boolean' ? part['clipped'] : undefined);
       forwardCavity = {
+        unknownWall: wallUnknown(part, prefix),
         start: station.start - bayStart,
         boreAt: radius === null ? null : (x) => 2 * (radius(x + partLength) - nnum(part, 'thickness', 0.002)),
         opening: aft === null ? null
-          : 2 * (Math.min(shoulderRadius, aft) - nnum(part, `${prefix}Thickness`, nnum(part, 'thickness', 0.002))),
+          : 2 * (Math.min(shoulderRadius, aft) - nnum(part, `${prefix}Thickness`, 0)),
       };
       bayMin = forwardCavity.start;
       break;
@@ -562,9 +584,8 @@ function recoveryFitInBay(
   }
   if (length > bayMax - bayMin + 1e-9) return no('The packed length exceeds the bay length.');
   const obstacles: [number, number][] = [];
-  const openings: [number, number, number | null][] = [];
+  const openings: [number, number, number | null, boolean?][] = [];
   let adjacentIntrusion = false;
-  let uncertain = false;
   const ancestors = new Set<ComponentNode>([bay]);
   let parent = bay.id ? findParent(tree, bay.id) : null;
   while (parent && parent !== 'stage') {
@@ -594,8 +615,8 @@ function recoveryFitInBay(
         }
       }
       if (PACKED_TYPES.has(child.type) || child.type === 'masscomponent') {
-        sharedItems.add(child.name || ({ shockcord: 'shock cord', streamer: 'streamer', parachute: 'another parachute',
-          masscomponent: 'mass component' } as Record<string, string>)[child.type]!);
+        sharedItems.add(nameOr(child, ({ shockcord: 'shock cord', streamer: 'streamer', parachute: 'another parachute',
+          masscomponent: 'mass component' } as Record<string, string>)[child.type]!));
       }
       if (child['filled'] === true && !OBSTRUCTION_TYPES.has(child.type)
         && !PACKED_TYPES.has(child.type) && child.type !== 'masscomponent') addObstacle(a, b, child);
@@ -617,7 +638,7 @@ function recoveryFitInBay(
         const base = numOrNull(child, isNose ? 'aftRadius' : `${side}Radius`);
         const outer = base === null ? r : Math.min(r, base);
         openings.push([start, end,
-          Math.max(0, 2 * (outer - nnum(child, `${prefix}Thickness`, nnum(child, 'thickness', 0.002))))]);
+          Math.max(0, 2 * (outer - nnum(child, `${prefix}Thickness`, 0))), wallUnknown(child, prefix)]);
         if (stageIndexOf(tree, child.id ?? '') !== bayStage) adjacentIntrusion = true;
       };
       shoulder(a - fore, a, 'fore');
@@ -631,7 +652,7 @@ function recoveryFitInBay(
     : undefined;
   const starts = [...(anchor === undefined ? [] : [anchor]), bayMin, bayMax - length,
     ...(forwardCavity ? [0, -length] : []),
-    ...(transition ? [0, bayLength - length] : []),
+    ...(cavity ? [0, bayLength - length] : []),
     ...[...obstacles, ...openings].flatMap(([a, b]) => [b, a - length])];
   const overlaps = (x: number, a: number, b: number): boolean => x < b - 1e-9 && x + length > a + 1e-9;
   const clears = (x: number): boolean => x >= bayMin - 1e-9 && x + length <= bayMax + 1e-9
@@ -650,6 +671,7 @@ function recoveryFitInBay(
         && (boreAt === null || diameter <= Math.min(boreAt(start), boreAt(0)) + 1e-9)));
     if (!freeStarts.length) return no('The packed bundle exceeds the adjoining cavity taper or shoulder opening.');
   }
+  let knownCavityStarts: Set<number> | undefined;
   if (cavity) {
     const aft = nnum(bay, 'aftRadius', nose ? 0.012 : NaN);
     const fore = nnum(bay, 'foreRadius', NaN);
@@ -661,45 +683,51 @@ function recoveryFitInBay(
     const innerRadius = (x: number): number => {
       if (x < 0 || x > bayLength) {
         const prefix = nose ? 'shoulder' : x < 0 ? 'foreShoulder' : 'aftShoulder';
-        return nnum(bay, `${prefix}Radius`, 0) - nnum(bay, `${prefix}Thickness`, nnum(bay, 'thickness', 0.002));
+        const base = nose ? aft : x < 0 ? fore : aft;
+        return Math.min(nnum(bay, `${prefix}Radius`, 0), base) - nnum(bay, `${prefix}Thickness`, 0);
       }
       return radius(x) - nnum(bay, 'thickness', 0.002);
     };
-    if (transition) {
+    {
       const endOpening = (side: 'fore' | 'aft', base: number): number => {
-        const prefix = `${side}Shoulder`;
+        const prefix = nose ? 'shoulder' : `${side}Shoulder`;
+        if (nose && (side === 'fore') !== flipped) return 0;
         const shoulderR = nnum(bay, `${prefix}Radius`, 0);
         if (nnum(bay, `${prefix}Length`, 0) > 0 && shoulderR > 0) {
           if (bay[`${prefix}Capped`] === true) return 0;
           return 2 * (Math.min(shoulderR, base)
-            - nnum(bay, `${prefix}Thickness`, nnum(bay, 'thickness', 0.002)));
+            - nnum(bay, `${prefix}Thickness`, 0));
         }
         return 2 * (base - nnum(bay, 'thickness', 0.002));
       };
-      const foreOpening = endOpening('fore', fore);
-      const aftOpening = endOpening('aft', aft);
+      const foreOpening = endOpening('fore', ends.fore);
+      const aftOpening = endOpening('aft', ends.aft);
+      const foreKnown = !wallUnknown(bay, nose ? 'shoulder' : 'foreShoulder');
+      const aftKnown = !wallUnknown(bay, nose ? 'shoulder' : 'aftShoulder');
       // Profiles are monotonic; endpoints and shoulder steps bound the entire
       // insertion path, not just the diameter where the bundle finally sits.
       const rangeBore = (start: number, end: number): number => Math.min(
-        ...(start < 0 ? [foreOpening] : []), ...(end > bayLength ? [aftOpening] : []),
-        ...(end >= 0 && start <= bayLength
+        ...(start < -1e-9 ? [foreOpening] : []), ...(end > bayLength + 1e-9 ? [aftOpening] : []),
+        ...(end > 1e-9 && start < bayLength - 1e-9
           ? [2 * innerRadius(Math.max(0, start)), 2 * innerRadius(Math.min(bayLength, end))] : []),
       );
-      freeStarts = freeStarts.filter((start) => diameter <= rangeBore(start, start + length) + 1e-9
-        && ((diameter <= foreOpening + 1e-9 && diameter <= rangeBore(bayMin, start + length) + 1e-9)
-          || (diameter <= aftOpening + 1e-9 && diameter <= rangeBore(start, bayMax) + 1e-9)));
-      if (!freeStarts.length) return no('No open transition end reaches a span that clears the packed bundle and cavity taper.');
-    } else {
-      const spanBore = (start: number): number => 2 * Math.min(...[start, start + length, 0, bayLength]
-        .filter((x) => x >= start && x <= start + length).map(innerRadius));
-      freeStarts = freeStarts.filter((start) => diameter <= spanBore(start) + 1e-9);
-      if (!freeStarts.length) return no('The packed bundle exceeds the cavity taper over its length.');
+      knownCavityStarts = new Set();
+      freeStarts = freeStarts.filter((start) => {
+        if (diameter > rangeBore(start, start + length) + 1e-9) return false;
+        const throughFore = diameter <= foreOpening + 1e-9 && diameter <= rangeBore(bayMin, start + length) + 1e-9;
+        const throughAft = diameter <= aftOpening + 1e-9 && diameter <= rangeBore(start, bayMax) + 1e-9;
+        if ((throughFore && foreKnown && (start + length <= bayLength + 1e-9 || aftKnown))
+          || (throughAft && aftKnown && (start >= -1e-9 || foreKnown))) knownCavityStarts!.add(start);
+        return throughFore || throughAft;
+      });
+      if (!freeStarts.length) return no('No open cavity end reaches a span that clears the packed bundle and taper.');
     }
   }
-  if (!transition && bore === null) return unknown('The bay opening is closed or unknown.');
-  if (!freeStarts.some((x) => !openings.some(([a, b, opening]) => opening === null && overlaps(x, a, b))
-    && (x >= 0 || !forwardCavity || (forwardCavity.boreAt !== null && forwardCavity.opening !== null)))) uncertain = true;
-  if (uncertain) return unknown('An internal opening or position is automatic or unknown.');
+  if (!transition && bore === null) return unknown('The bay opening or shoulder wall is unknown. A blank or zero shoulder wall does not verify a physical opening; measure it before choosing a canopy.');
+  if (!freeStarts.some((x) => (!knownCavityStarts || knownCavityStarts.has(x))
+    && !openings.some(([a, b, opening, unknownWall]) => (opening === null || unknownWall) && overlaps(x, a, b))
+    && (x >= 0 || !forwardCavity || (!forwardCavity.unknownWall && forwardCavity.boreAt !== null && forwardCavity.opening !== null)))) uncertain = true;
+  if (uncertain) return unknown('An internal opening, shoulder wall or position is unknown. A blank or zero shoulder wall does not verify a physical opening; measure it before choosing a canopy.');
   // Clearing the minimum bore throughout this uninterrupted span also bounds
   // pi * packedDiameter^2 * packedLength / 4 by the usable cavity volume.
   return { fits: true, known: true, checked: true, ...note(), reason: anchor !== undefined && !clears(anchor)
@@ -815,6 +843,7 @@ export type RecoverySizing =
     boreM: number | null;
     main: BandAdvice;
     drogue: BandAdvice;
+    coDeployedMainCount?: number;
   };
 
 export interface RecoverySizingInput {
@@ -1204,7 +1233,7 @@ export function recoverySizing(input: RecoverySizingInput): RecoverySizing {
   // come down together, not over the whole stack. The default is the
   // sustainer's group; the per-stage panel passes each booster group in turn.
   const scope = input.scope ?? sustainerScope(tree);
-  const { main, drogue } = classifyRecoveryDevices(tree, scope);
+  const { main, drogue, coDeployedMains } = classifyRecoveryDevices(tree, scope);
   // Each canopy has to fit the bay it actually rides in.
   const boreM = recoveryBayBore(tree, main, scope);
   const drogueBoreM = recoveryBayBore(tree, drogue, scope);
@@ -1235,5 +1264,7 @@ export function recoverySizing(input: RecoverySizingInput): RecoverySizing {
     boreM,
     main: mainAdvice,
     drogue: drogueAdvice,
+    ...(coDeployedMains ? { coDeployedMainCount: [main!, ...coDeployedMains]
+      .reduce((total, device) => total + deviceInstances(tree, device), 0) } : {}),
   };
 }

@@ -3,7 +3,7 @@ import type { FlightOverrides, FlightTree, SavedConfig } from '../model/design.j
 import type { NoticeSeverity } from '../components/NoticeBar.js';
 import { motorLengthLimit } from '../tree/motorLength.js';
 import { mountBore } from '../tree/scaleRocket.js';
-import { findNode, launchMountOf, motorMounts, mountMotorCount, stageIndexOf, stages } from '../tree/treeModel.js';
+import { findNode, launchMountOf, motorMounts, mountMotorCount, nameOr, stageIndexOf, stages } from '../tree/treeModel.js';
 import { buildDesign, KERNEL_HANDLES } from './buildDesign.js';
 import { CD_REFERENCE_MACH, designCdOf } from './designCd.js';
 import { currentSetKeyOf, designBuildInputOf, effectiveSupersonicOf, mountNamesOf } from './designDerivation.js';
@@ -345,7 +345,7 @@ export async function describeFile(
       key: `m${i + 1}`,
       name: names[m.id!]!,
       stageIndex,
-      stageName: stageList[stageIndex]?.name ?? (stageIndex === 0 ? 'Sustainer' : `Booster ${stageIndex}`),
+      stageName: nameOr(stageList[stageIndex], stageIndex === 0 ? 'Sustainer' : `Booster ${stageIndex}`),
       diameterM: mountBore(node),
       maxMotorLengthM: motorLengthLimit(node),
       count: mountMotorCount(tree, m.id!),

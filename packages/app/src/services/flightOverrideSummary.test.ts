@@ -13,6 +13,17 @@ const tree: FlightTree = { components: [{ type: 'stage', id: 'sustainer', name: 
 const motor = { ignition: { event: 'automatic', delay: 0 } } as MountMotor;
 
 describe('launch override summary', () => {
+  it('J4 r3 gives blank names readable fallbacks in recorded override labels', () => {
+    const t = structuredClone(tree);
+    t.components[1]!.name = '   ';
+    t.components[1]!.children![0]!.name = '   ';
+    t.components[1]!.children![2]!.name = '   ';
+    const summary = describeFlightOverrides(t, { deployments: { a: flown },
+      separations: { stage: { separationEvent: 'never', separationDelay: 0, separationAltitude: 0 } },
+      ignitions: { mount: { event: 'launch', delay: 2 } } }, { mount: motor }, null, 'm')!;
+    expect(summary.records.map(r => r.partName)).toEqual(['stage', 'parachute', 'motor mount']);
+    expect(summary.text).not.toContain('“   ”');
+  });
   it('RES-1 batch drops only the swept mount ignition and preserves all other families', () => {
     const expanded: FlightTree = { ...tree, components: [...tree.components,
       { type: 'innertube', id: 'other', name: 'Other mount', motorMount: true }] };

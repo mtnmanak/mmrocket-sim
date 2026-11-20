@@ -35,6 +35,17 @@ import { checkFormatLoss } from './formatLoss.js';
 const restoreTier = (restored: ReturnType<typeof designStateFromSession>, text: string) =>
   tierLines(restored.restoreNotes, restored.restoreNoteTiers).find(note => note.text === text)?.tier;
 
+it.each(['type', 'propellant', 'motorCase'])('J4 r3 restores accepted nullable catalogue metadata %s', key => {
+  const spec = exToMotorSpec(parseEng('Test 29 100 5 0.05 0.1 Home\n0 0\n0.5 40\n1 0')[0]!, 5);
+  const motor = { spec, meta: { [key]: null }, label: 'Test' };
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), motor: spec, motorMeta: motor.meta,
+    mountMotors: { m: motor }, savedConfigs: [{ id: 'c', name: 'C', motors: { m: motor } }] }));
+  const restored = loadSession()!;
+  expect(restored.mountMotors?.m).toBeDefined();
+  expect(restored.savedConfigs![0]!.motors.m).toBeDefined();
+  expect(restored.motor).toBeDefined();
+});
+
 /** Minimal but loadSession-valid state — the save path never inspects more. */
 const state = () => ({
   tree: { name: 'Test', components: [] } as RocketTree,
@@ -48,6 +59,34 @@ const state = () => ({
     pressureHPa: null,
     latitudeDeg: 45,
   } as LaunchConditions,
+});
+
+it.each([{ toString: 0 }, '5', undefined])('J4 S1d-g1 keeps the design but refuses unreadable motor delay %j', delay => {
+  const spec = { ...exToMotorSpec(parseEng('Test 29 100 5 0.05 0.1 Home\n0 0\n0.5 40\n1 0')[0]!, 5), ejectionDelay: delay };
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), mountMotors: { m: { spec, meta: {}, label: 'Test' } } }));
+  const read = loadSession()!;
+  expect(read.tree.name).toBe('Test');
+  expect(read.mountMotors?.m).toBeUndefined();
+  expect(read.treeRestoreNotes?.join(' ')).toMatch(/motor/i);
+});
+
+it.each(['label', 'type', 'propellant', 'motorCase', 'autoDelay', 'highPower', 'motorCount'])('J4 S1d-g1 refuses unreadable motor meta %s', key => {
+  const spec = exToMotorSpec(parseEng('Test 29 100 5 0.05 0.1 Home\n0 0\n0.5 40\n1 0')[0]!, 5);
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), mountMotors: { m: { spec, meta: { [key]: {} }, label: 'Test' } } }));
+  expect(loadSession()!.mountMotors?.m).toBeUndefined();
+});
+
+it.each([null, 'Infinity'])('J4 S1d-g1 revives the legacy plugged delay %j', delay => {
+  const spec = { ...exToMotorSpec(parseEng('Test 29 100 P 0.05 0.1 Home\n0 0\n0.5 40\n1 0')[0]!, Infinity), ejectionDelay: delay };
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), motor: spec, motorMeta: {}, motorLabel: 'Test' }));
+  expect(loadSession()!.motor!.ejectionDelay).toBe(Infinity);
+});
+
+it('J4 S3c-g5 bounds restored measured CG consistently with file import', () => {
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), measured: { massKg: 1, cgM: 2000 } }));
+  const read = loadSession()!;
+  expect(read.measured!.cgM).toBe(1000);
+  expect(read.treeRestoreNotes?.join(' ')).toContain('measured CG');
 });
 
 it('HF2 clears oversized measurement strings rather than coercing them', () => {

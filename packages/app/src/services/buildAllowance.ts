@@ -4,7 +4,7 @@ import { numOpt } from '../tree/nodeNum.js';
 import { applyFieldLimit } from '../tree/schema.js';
 import { POSITION_LIMIT } from '../tree/sanitize.js';
 import { axialLength, offsetForStart } from '../tree/position.js';
-import { addChild, ancestorsOf, findNode, findParent, makeNode, removeNode, suppressingAncestor, updateNode } from '../tree/treeModel.js';
+import { addChild, ancestorsOf, findNode, findParent, makeNode, mountMotorCount, removeNode, suppressingAncestor, updateNode } from '../tree/treeModel.js';
 
 /**
  * "Measured mass & CG" — turning what your scale and balance point say into a
@@ -132,7 +132,7 @@ export function bareWithoutAllowance(
   const station = covering?.id
     ? componentInfo(covering.id).positionX + numOpt(covering, 'overrideCGX')!
     : ci.positionX + ci.cgX;
-  return withoutAllowance(massKg, cgM, ci.mass, station);
+  return withoutAllowance(massKg, cgM, ci.mass * mountMotorCount(tree, allowanceId), station);
 }
 
 /** The existing allowance, if this design already carries one. */

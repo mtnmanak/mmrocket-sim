@@ -44,12 +44,15 @@ describe('limitPatch — a preset patch brought inside the limits table', () => 
   it("reads a CSV's numbers as decimals, as every design-file reader does", () => {
     // Number() read "0x10" as 16 — a 16 m canopy from a hex typo — where the
     // file readers' parseDecimal (audit 2026-09-22) and desktop's
-    // Double.parseDouble both refuse it; a refused cell is a blank one.
+    // Double.parseDouble both refuse it; the numeric caution refuses the import.
+    const notes: string[] = [];
     const [row] = csvToPresets('kind,manufacturer,partNo,description,diameter,lineCount,lineLength\n'
-      + 'Parachute,Me,HEX,Typo,0x10,0b110,1.5e-1\n') as Preset[];
-    expect(row!['diameter']).toBeUndefined();
-    expect(row!['lineCount']).toBeUndefined();
-    expect(row!['lineLength']).toBe(0.15);
+      + 'Parachute,Me,HEX,Typo,0x10,0b110,1.5e-1\n', notes) as Preset[];
+    expect(row).toBeUndefined();
+    expect(notes.join(' ')).toMatch(/HEX.*diameter.*dot-decimal/);
+    expect(notes.join(' ')).toContain('This row was skipped');
+    const valid = csvToPresets('kind,manufacturer,partNo,lineLength\nParachute,Me,EXP,1.5e-1\n');
+    expect(valid[0]!['lineLength']).toBe(0.15);
   });
 
   /**

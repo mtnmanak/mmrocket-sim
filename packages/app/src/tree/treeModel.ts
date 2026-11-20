@@ -658,10 +658,12 @@ export function clearStageNozzles(tree: RocketTree): RocketTree {
  */
 export function stagesWithNozzle(tree: RocketTree): { id: string; name: string; exitDiameterM: number }[] {
   const out: { id: string; name: string; exitDiameterM: number }[] = [];
+  let axial = 0;
   nozzleStages(tree).forEach((s, i) => {
+    if (s.type === 'stage') axial++;
     const d = s['nozzleExitDiameter'];
     if (typeof d !== 'number' || !Number.isFinite(d) || d <= 0) return;
-    out.push({ id: s.id ?? `stage-${i}`, name: s.name ?? `Stage ${i + 1}`, exitDiameterM: d });
+    out.push({ id: s.id ?? `stage-${i}`, name: nameOr(s, s.type === 'parallelstage' ? 'Strap-on' : `Stage ${axial}`), exitDiameterM: d });
   });
   return out;
 }

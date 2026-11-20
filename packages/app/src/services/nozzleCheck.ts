@@ -1,4 +1,5 @@
 import type { RocketTree } from '@online-openrocket/engine';
+import { noteField } from './noteField.js';
 import type { MountMotor } from '../model/design.js';
 import { noticeEqual } from '../prefs/units.js';
 import { kernelStageIdByNode, nozzleMotorCount, stagesWithNozzle } from '../tree/treeModel.js';
@@ -124,7 +125,7 @@ export function nozzleOversizeText(w: NozzleOversize, len: (m: number) => string
   const bound = w.motorCount > 1
     ? `the ${len(w.casingEquivalentM)} its ${w.motorCount} motors add up to (exit areas summed, as the field expects)`
     : `the ${len(w.casingEquivalentM)} casing of the motor loaded in it`;
-  return `${w.stageName}: the nozzle exit diameter is ${len(w.exitDiameterM)}, wider than ${bound}`
+  return `${noteField(w.stageName)}: the nozzle exit diameter is ${len(w.exitDiameterM)}, wider than ${bound}`
     + ' — a nozzle cannot be wider than the motor it comes out of. This value now raises thrust as'
     + ' the rocket climbs as well as trimming base drag, so an overstated exit overstates apogee.'
     + ' Check it beside the stage’s motors on Motors & Configuration, where it is edited.';

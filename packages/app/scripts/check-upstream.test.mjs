@@ -3,13 +3,13 @@ import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   checkMotorCorrections, checkOpenMeteoShape, checkThrustCurve, checkOpenMeteoTerms, main, motorCorrectionVerdicts, OPEN_METEO_HOURLY_UNITS,
-  openMeteoHourlyProblems, DEFAULT_CHECKS, checkCorrections,
+  openMeteoHourlyProblems, DEFAULT_CHECKS, checkCorrections, checkWatch,
 } from '../../../scripts/check-upstream.mjs';
 import {
   auditFix, checkAdvisories, npmAdvisories, runtimeNodes, wranglerAdvisories, wranglerPins,
 } from '../../../scripts/upstream-advisories.mjs';
 import { MOTOR_CORRECTIONS } from './motor-corrections.mjs';
-import { MATERIAL_CORRECTIONS } from './apply-preset-corrections.mjs';
+import { CORRECTIONS, MATERIAL_CORRECTIONS, UPSTREAM_WATCH } from './apply-preset-corrections.mjs';
 import { createThrustcurveFetch, ThrustcurveChallengeError, ThrustcurveUnavailableError } from './thrustcurve-client.mjs';
 import * as thrustcurveClient from './thrustcurve-client.mjs';
 
@@ -59,6 +59,43 @@ function runSection(npm = result(audit, 1), gh = result(github), read = reader) 
 }
 
 afterEach(() => vi.restoreAllMocks());
+
+it.each([
+  ['NB20-2', 'mm', '0.422', 0, 'still the known-bad value'],
+  ['NB20-2', 'in', '0.710', 1, 'UPSTREAM HAS FIXED THIS'],
+  ['NB50-2', 'in', '0.950', 1, 'UPSTREAM HAS FIXED THIS'],
+  ['NB80-4', 'in', '2.558', 1, 'UPSTREAM HAS FIXED THIS'],
+  ['NB80-4', 'mm', '64.9732', 1, 'UPSTREAM HAS FIXED THIS'],
+  ['NB80-4', 'furlong', '2.558', 1, 'upstream changed'],
+])('J4 r3 watches %s diameter units %s', async (partNo, unit, value, status, message) => {
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  const correction = CORRECTIONS.find(c => c.upstream?.file === 'BMS.ORC' && c.upstream.partNo === partNo);
+  const xml = `<BulkHead><PartNumber>${partNo}</PartNumber><OutsideDiameter Unit="${unit}">${value}</OutsideDiameter></BulkHead>`;
+  expect(await main([() => checkCorrections(async () => xml, [correction])], () => {})).toBe(status);
+  expect(log.mock.calls.flat().join('\n')).toContain(message);
+});
+
+it.each([
+  ['CenteringRing|balsamachining|cr5060w', 'OutsideDiameter', 'mm', '40.4622', 'UPSTREAM HAS FIXED THIS'],
+  ['CenteringRing|balsamachining|cr5060w', 'OutsideDiameter', 'mm', '1.283', 'upstream changed'],
+  ['TubeCoupler|semroc|htc11', 'InsideDiameter', 'mm', '27.6352', 'UPSTREAM HAS FIXED THIS'],
+  ['NoseCone|rocketarium|bt80knosecone825long', 'Mass', 'kg', '0.072', 'UPSTREAM HAS FIXED THIS'],
+])('J4 r3 watches equivalent units for sibling %s', async (key, tag, unit, value, message) => {
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  const correction = CORRECTIONS.find(c => c.key === key);
+  const { element, partNo } = correction.upstream;
+  const xml = `<${element}><PartNumber>${partNo}</PartNumber><${tag} Unit="${unit}">${value}</${tag}></${element}>`;
+  expect(await main([() => checkCorrections(async () => xml, [correction])], () => {})).toBe(1);
+  expect(log.mock.calls.flat().join('\n')).toContain(message);
+});
+
+it.each(['in', 'mm'])('J4 r3 watches the uncorrected ring unit %s', async unit => {
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  const watch = UPSTREAM_WATCH[0];
+  const xml = watch.partNos.map(partNo => `<CenteringRing><PartNumber>${partNo}</PartNumber><OutsideDiameter Unit="${unit}">1.238</OutsideDiameter></CenteringRing>`).join('');
+  expect(await main([() => checkWatch(async () => xml, [watch])], () => {})).toBe(unit === 'in' ? 0 : 1);
+  expect(log.mock.calls.flat().join('\n')).toContain(unit === 'in' ? 'unchanged' : 'upstream moved a row we watch');
+});
 
 describe('recovery material upstream watch', () => {
   const descriptor = { file: 'giantleaprocketry.orc', name: 'Rip stop nylon', bad: '0.06685', units: 'g/m2' };

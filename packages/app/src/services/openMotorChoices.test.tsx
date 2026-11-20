@@ -50,6 +50,41 @@ async function fixture() {
 }
 
 describe('ask at open choices', () => {
+  it.each([false, true])('J4 S7a-g6 preserves explicit Auto or applies the chosen every-delay default (%s)', async every => {
+    const { state, groups } = await fixture();
+    const old = { ...state.mountMotors.m!, meta: { ...state.mountMotors.m!.meta, autoDelay: true },
+      spec: { ...state.mountMotors.m!.spec, ejectionDelay: 0 } };
+    const row = { ...MOTOR_DB.find(m => m.motorId !== old.meta.motorId)!, motorId: 'choice-test', delays: '0,3,5' };
+    const source = { ...ref, autoDelay: true as const, ...(every ? { rktEveryDelay: true as const } : {}) };
+    const group = { ...groups[0]!, locations: [{ configId: null, mountId: 'm', ref: source }] };
+    const next = await applyOpenMotorChoices({ ...state, mountMotors: { m: old } }, null,
+      [group], { [group.key]: { kind: 'catalogue', motor: row } }, fetchSpec);
+    expect(next.mountMotors.m!.spec.ejectionDelay).toBe(5);
+    expect(next.mountMotors.m!.meta.autoDelay === true).toBe(!every);
+  });
+  it.each([['', '0,3,5', false, 5], ['0,3,5', '', true, 0]] as const)(
+    'J4 r2 S7a-g6 recomputes every-delay Auto after refreshing %s to %s', async (before, after, auto, delay) => {
+      const original = { ...MOTOR_DB[0]!, delays: before };
+      const changed = { ...original, delays: after };
+      const install = (row: typeof original) => setCatalogueOverlay({ baseGenerated: MOTOR_DB_DATE,
+        fetchedAt: new Date().toISOString(), liveCount: MOTOR_DB.length, added: [],
+        changed: [{ motorId: original.motorId, before: MOTOR_DB[0]!, after: row, fields: ['delays'] }], removed: [], rejected: [] });
+      install(original);
+      const source = { ...ref, rktEveryDelay: true as const };
+      const group = { key: 'refresh', ref: source, candidates: [original], carriedBy: [],
+        locations: [{ configId: null, mountId: 'm', ref: source }] };
+      const load = vi.fn<typeof fetchSpecByDigest>(async (row, picked) => {
+        await Promise.resolve();
+        if (load.mock.calls.length === 1) install(changed);
+        return fetchSpec(row, picked);
+      });
+      const next = await applyOpenMotorChoices({ tree: { components: [] }, mountMotors: {}, savedConfigs: [], unmatchedRefs: {} },
+        null, [group], { refresh: { kind: 'catalogue', motor: original } }, load);
+      expect(load).toHaveBeenCalledTimes(2);
+      expect(next.mountMotors.m!.spec.ejectionDelay).toBe(delay);
+      expect(next.mountMotors.m!.meta.autoDelay === true).toBe(auto);
+    });
+
   it.each(['offered', 'same-maker'] as const)('saves the chosen %s motor without the original digest or type', async kind => {
     const { state, groups } = await fixture();
     const row = groups[0]!.candidates.find(m => m.motorId !== state.mountMotors.m!.meta.motorId)!;

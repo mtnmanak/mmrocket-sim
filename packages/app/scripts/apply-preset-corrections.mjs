@@ -59,6 +59,23 @@ const RETIRED_MASSES_PATH = join(here, '..', 'src', 'data', 'retiredPresetMasses
  * third party sources."*
  */
 export const CORRECTIONS = [
+  // BMS CONES1.asp (19 November 2026), nose-block OD in inches.
+  // bms-legacy.orc has no NB rows; its BHT80 siblings confirm 2.558 in.
+  ...[
+    ['NB20-2', 0.000422, '0.422', '0.710', 0.018034],
+    ['NB50-2', 0.00095, '0.950', '0.950', 0.02413],
+    ['NB55-2', 0.001283, '1.283', '1.283', 0.0325882],
+    ['NB55-3', 0.001283, '1.283', '1.283', 0.0325882],
+    ['NB60-4', 0.001595, '1.595', '1.595', 0.040513],
+    ['NB70-4', 0.00218, '2.180', '2.180', 0.055372],
+    ['NB80-4', 0.002558, '2.558', '2.558', 0.0649732],
+  ].map(([partNo, bad, rawBad, inches, good]) => ({
+    key: `BulkHead|balsamachining|${partNo.toLowerCase().replaceAll('-', '')}`,
+    why: `https://www.balsamachining.com/CONES1.asp lists ${partNo} at ${inches} inches OD. BMS.ORC labels inch figures as mm; NB20-2 also copies NB10's 0.422. Lengths are already correct. Desktop 24.12 bms-legacy.orc contains no NB rows; BHT80-F/W agree on 2.558 inches for BT80.`,
+    fields: { outsideDiameter: { bad, good } },
+    upstream: { file: 'BMS.ORC', element: 'BulkHead', partNo,
+      fields: { OutsideDiameter: { bad: rawBad, good: String(Number((good * 1000).toFixed(7))) } } },
+  })),
   // Tier 0 row 148, owner ruling 2026-11-18: use computed tube masses.
   {
     key: 'BodyTube|apogee|10064',
@@ -432,7 +449,7 @@ export const UPSTREAM_WATCH = [
   {
     file: 'ROCKETARIUM.ORC', element: 'CenteringRing',
     partNos: ['CR5055-P', 'CR5055-F', 'CR5055-W', 'CR50H55-W'],
-    field: 'OutsideDiameter', expect: '1.238',
+    field: 'OutsideDiameter', expect: '1.238', unit: 'in',
     why: 'upstream issue #5 is unfixed for Rocketarium BT-55 rings — each row ships OD 1.238 in under a Description that says 1.283 (verified live 2026-08-31)',
   },
 ];
@@ -441,10 +458,24 @@ export const UPSTREAM_WATCH = [
 function getAt(obj, path) {
   return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
 }
-function setAt(obj, path, value) {
+function expectedMaterial(key, parent) {
+  if (parent === 'lineMaterial' && key.startsWith('Parachute|fruitychutes|')) return { name: 'Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]', type: 'LINE' };
+  if (key.startsWith('Parachute|semroc|pn')) return { name: 'Rip Stop Nylon', type: 'SURFACE' };
+  if (key.startsWith('NoseCone|locprecision|')) return { name: '[material:[material:polystyrene PS]]', type: 'BULK' };
+  if (key === 'Transition|locprecision|ptc390') return { name: '[material:[material:Polystyrene PS]]', type: 'BULK' };
+  if (key.startsWith('TubeCoupler|quest|')) return { name: 'Kraft Phenolic', type: 'BULK' };
+  if (key.startsWith('Parachute|semroc|cp') || key === 'Parachute|estes|302262' || key === 'Streamer|publicmissiles|pmltbd123') return { name: 'Polyethylene LDPE', type: 'SURFACE' };
+  throw new Error(`Missing expected material contract for ${key} ${parent}`);
+}
+export function setAt(obj, path, value) {
   const keys = path.split('.');
   const last = keys.pop();
-  const target = keys.reduce((o, k) => (o[k] ??= {}), obj);
+  const target = keys.reduce((o, k) => {
+    if (!o || typeof o[k] !== 'object' || o[k] === null || Array.isArray(o[k])) {
+      throw new Error(`MISSING PARENT at ${path}`);
+    }
+    return o[k];
+  }, obj);
   target[last] = value;
 }
 
@@ -478,6 +509,14 @@ function main() {
       process.exit(1);
     }
     for (const [field, { bad, good }] of Object.entries(c.fields)) {
+      if (field.includes('.') && bad === undefined) {
+        const parent = field.split('.')[0];
+        const material = row[parent];
+        const expected = expectedMaterial(c.key, parent);
+        if (!material || material.name !== expected.name || material.type !== expected.type) {
+          throw new Error(`UNEXPECTED MATERIAL at ${c.key} ${field}: expected ${expected.type} ${expected.name}`);
+        }
+      }
       // `field` may be a dotted path — 'material.density' — since 2026-09-05,
       // when six upstream MATERIAL definitions turned out to be impossible
       // (paper at 0.0011 kg/m3, fiberglass at balsa density, a kraft tube

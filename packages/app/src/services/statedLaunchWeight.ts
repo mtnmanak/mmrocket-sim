@@ -3,6 +3,7 @@ import { noticeChange, noticeEqual } from '../prefs/units.js';
 import { cautionNote } from './importNotes.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { numOpt } from '../tree/nodeNum.js';
+import { nameOr } from '../tree/treeModel.js';
 import { axialLength } from '../tree/position.js';
 import { IMPULSE_PREFIX, looseDesignation, prefixWithoutSplit } from './designationText.js';
 
@@ -484,7 +485,7 @@ export function restateBackedOutMotor(
     return null;
   }
 
-  const name = stage.name ?? 'Stage';
+  const name = nameOr(stage, 'Stage');
   const who = `“${noteField(motor.designation)}”`;
   const next: ComponentNode = { ...unrecorded };
   // Rejection by the loaded fallback must not spend the launch inputs: a
@@ -580,7 +581,7 @@ export function reconcileIncludedMotor(
     return { tree: replaceStage(tree, index, cleared), note: null, severity: 'info' };
   }
   delete cleared[STATED_STAGE_FIGURES];
-  const name = stage.name ?? 'Stage';
+  const name = nameOr(stage, 'Stage');
   const who = `“${noteField(named)}”`;
 
   const stated = cleared['overrideMass'];

@@ -212,7 +212,7 @@ async function mountApp(): Promise<HTMLElement> {
   await act(async () => { root.render(<PrefsProvider><App /></PrefsProvider>); });
   return host;
 }
-it('keeps an unreadable restored motor delay unknown in the motor card', async () => {
+it('refuses an unreadable restored motor delay and leaves the mount empty with a caution', async () => {
   const tree = defaultTree();
   const id = motorMounts(tree)[0]!.id!;
   const db = MOTOR_DB.find(m => m.diameter === 18 && m.delays?.split(',').includes('5'))!;
@@ -224,9 +224,9 @@ it('keeps an unreadable restored motor delay unknown in the motor card', async (
   await openTab(host, 'Motors & Configuration');
   const plugged = [...host.querySelectorAll<HTMLInputElement>('input[type=checkbox]')]
     .find(box => box.closest('label')?.textContent?.trim() === 'plugged')!;
-  expect(plugged).toBeDefined();
-  expect(plugged.checked).toBe(false);
-  expect(host.querySelector<HTMLInputElement>(`#ejection-delay-${id}`)?.placeholder).toBe('unknown');
+  expect(plugged).toBeUndefined();
+  expect(host.querySelector<HTMLInputElement>(`#ejection-delay-${id}`)).toBeNull();
+  expect(host.textContent).toContain('Unreadable motor records were removed');
 });
 
 async function unmountAll(): Promise<void> {
@@ -2759,6 +2759,24 @@ const podTree = (t: RocketTree): RocketTree => {
     } as ComponentNode],
   } as ComponentNode);
 };
+
+it('J4 r3 image exports disclose an unresolved imported motor beside a loaded motor', async () => {
+  const tree = podTree(defaultTree());
+  const core = motorMounts(tree).find(m => m.id !== 'pod-mmt')!.id!;
+  const motor = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [core]: motor },
+    unmatchedRefs: { 'pod-mmt': { designation: 'ZQ9999X', manufacturer: 'Home', diameter: 0.018, length: 0.07, delay: 5 } },
+    launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now(), configLayers: 1 }));
+  const host = await mountApp();
+  expect([...host.querySelectorAll('.tree-schematic svg text')].some(el => el.textContent === 'CG')).toBe(true);
+  await act(async () => { button(host, '⬇ SVG').click(); });
+  const svg = vi.mocked(downloadImage).mock.calls.at(-1)![0];
+  expect(svg).toContain('Complete-loadout mass, CG and stability unavailable');
+  expect(svg).toContain('Unresolved motor mount: Pod MMT');
+  expect(svg).not.toContain('data-loadout-figures');
+  expect(svg).not.toContain('Launch mass');
+  expect(svg).not.toContain('some motors could not be installed');
+}, 30_000);
 
 /**
  * WHAT A Save .ork HANDS THE WRITER FOR EACH MOTOR (audit 2026-09-30, item 23).

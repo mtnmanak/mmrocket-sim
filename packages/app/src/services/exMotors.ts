@@ -7,6 +7,7 @@ import { clearCurveCache, flownCurve, isSampleList, MAX_MOTOR_THRUST_N, repairSa
 import { parseDecimal } from './xmlUtil.js';
 import { backUpUnreadableStore } from './storeBackup.js';
 import { parseXml, type XmlElement } from './xmlParse.js';
+import { usableMotorMasses } from './motorMass.js';
 import { EX_MOTOR_COUNT_NOTE, EX_SAMPLE_LIMIT_NOTE, MAX_EX_IMPORT_MOTORS, MAX_EX_MOTOR_SAMPLES } from './exMotorLimits.js';
 import type { MotorSpec } from '@online-openrocket/engine';
 
@@ -145,10 +146,14 @@ function storedMassNote(name: string, notes?: string[]): void {
 export function repairFlightSnapshot<T extends ExFlightSnapshot>(snapshot: T, notes?: string[], header?: Pick<ExMotor, 'totalWeightG' | 'propWeightG'>, force = false): T {
   // A captured, already-valid curve may intentionally differ from its source.
   if (!force && validFlightSnapshot(snapshot)) return snapshot;
-  // Repair arithmetic is independent of admission: oversized results remain refused.
+  // An out-of-range snapshot is refused as a whole. Do not feed its weights
+  // into the bounded burn-off converter while trying an optional repair.
+  if (!motorWithinRepresentabilityLimits(snapshot)) return snapshot;
+  // Retain unrecoverable snapshots for the caller's whole-motor refusal.
   if (!repairableSnapshot(snapshot, header, header ? MAX_STATED_MASS_KG : Infinity)) return snapshot;
   const total = header ? header.totalWeightG / 1000 : snapshot.masses[0]!;
   const dry = header ? (header.totalWeightG - header.propWeightG) / 1000 : Math.min(total, snapshot.masses.at(-1)!);
+  if (!usableMotorMasses(header?.totalWeightG ?? total * 1000, header?.propWeightG ?? (total - dry) * 1000)) return snapshot;
   const samples = snapshot.times.map((time, i) => ({ time, thrust: snapshot.thrusts[i]! }));
   const fallback = samplesToMotorSpec({ motorId: 'ex:snapshot', manufacturerAbbrev: 'EX', commonName: snapshot.designation,
     impulseClass: '', avgThrustN: 0, maxThrustN: 0, totImpulseNs: 0, burnTimeS: 0, availability: 'regular',
@@ -534,7 +539,9 @@ export function addExMotors(added: ExMotor[]): ExImport {
     const name = motor.designation;
     if (!validExMotor(motor)) throw new Error(refusedExMotorNote(name));
   }
+  const library = loadExMotors();
   const batch = new Map<string, ExMotor>();
+  const batchNames = new Set<string>();
   const duplicates: string[] = [];
   const identities = new Map<string, Set<string>>();
   const nextSuffix = new Map<string, number>();
@@ -546,12 +553,19 @@ export function addExMotors(added: ExMotor[]): ExImport {
     identities.set(m.motorId, seen);
     let id = boundedExId(m.motorId);
     let n = nextSuffix.get(m.motorId) ?? 2;
-    while (batch.has(id)) id = boundedExId(m.motorId, `~${n++}`);
+    const sameName = (other: ExMotor) => other.realManufacturer === m.realManufacturer && other.designation === m.designation;
+    // Slugs discard punctuation and non-ASCII text. Re-import a real identity,
+    // but never replace a different maker/name that happens to share its slug.
+    const prior = library.find(other => (other.motorId === id || other.motorId.startsWith(`${id}~`)) && sameName(other));
+    if (prior) id = prior.motorId;
+    const rawName = JSON.stringify([m.realManufacturer, m.designation]);
+    const duplicate = batchNames.has(rawName);
+    batchNames.add(rawName);
+    while (batch.has(id) || library.some(other => other.motorId === id && !sameName(other))) id = boundedExId(m.motorId, `~${n++}`);
     nextSuffix.set(m.motorId, n);
-    if (id !== m.motorId) duplicates.push(m.designation);
+    if (duplicate) duplicates.push(m.designation);
     batch.set(id, id === m.motorId ? m : { ...m, motorId: id });
   }
-  const library = loadExMotors();
   const replaced = library.filter((m) => batch.has(m.motorId)).map((m) => m.designation);
   const kept = library.filter((m) => !batch.has(m.motorId));
   return { ...persist([...kept, ...batch.values()]), replaced, duplicates };

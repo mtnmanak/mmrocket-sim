@@ -31,7 +31,7 @@ export const mutations = [
   ['rkt-evidence-multiple-sets', 'rocksimMotorEvidence.ts', "useKnownMass !== 1 || !sim\n    || engineSetCount(sim, index) !== 1", 'useKnownMass !== 1 || !sim\n    || false'],
   ['rkt-cluster', 'rocksimMotorEvidence.ts', "|| value(engineSet, 'EngineCount') !== 1) return undefined;", ') return undefined;'],
   ['rkt-ignition', 'rocksimMotorEvidence.ts', "const burn = value(sim, 'TimeToBurnout') - ignition;", "const burn = value(sim, 'TimeToBurnout');"],
-  ['rkt-context', 'rocksimFile.ts', 'const matchContext = rocksimMotorEvidence(engineSet, motorIndex);', 'const matchContext = undefined;'],
+  ['rkt-context', 'rocksimFile.ts', "const matchContext = rocksimMotorEvidence(engineSet, motorIndex, elementByNode.get(mount) ?? null);", 'const matchContext = undefined;'],
   ['config-evidence-folding', 'rocksimFile.ts', '(kept.foldedPhysical ??= []).push(physical);', 'void physical;'],
   ['config-evidence-splitting', 'rocksimFile.ts', 'if (kept?.physical && incoming && evidenceGatedMotorId(ref.designation, ref.manufacturer)) {', 'if (false) {'],
   ['every-delay-context', 'rocksimFile.ts', 'findDbMotor(designation, undefined, catalogue, manufacturer, context)', 'findDbMotor(designation, undefined, catalogue, manufacturer)'],

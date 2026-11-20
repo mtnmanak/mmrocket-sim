@@ -238,6 +238,11 @@ function ObjectSection({ label, sizing, note, catalogueReady, catalogueFailed, f
         )}.
       </p>
 
+      {sizing.coDeployedMainCount && <p className="recovery-sizing-hint">
+        {sizing.coDeployedMainCount} landing parachutes deploy together. The main size below considers{' '}
+        {sizing.main.instances > 1 ? `all ${sizing.main.instances} instances of the selected main` : 'the selected main'};
+        it does not include the combined drag of the other landing canopies. No co-deployed landing canopy is treated as a drogue.
+      </p>}
       {[sizing.main, sizing.drogue].map((advice) => (
         <BandSection
           key={advice.role}

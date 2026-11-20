@@ -88,6 +88,17 @@ describe('digestCurveNote with injected files', () => {
     expect(await digestCurveNote(ref(), motor, async () => files)).toBeUndefined();
   });
 
+  it.each(['absent', 'unknown'] as const)('J4 S1c-2 discloses the actual unbundled curve when the saved digest is %s', async named => {
+    const note = await digestCurveNote(ref(hex('c')), motor, async () => [], {
+      motorId: motor.motorId, origin: 'cache', files: [a], flown: a, usual: a,
+      digest: { value: hex('c'), named }, cacheFallback: 'offline',
+    });
+    expect(note).toContain('desktop OR thrust curve');
+    expect(note).toContain('/simfiles/aaa111/');
+    expect(note).toContain('before flying');
+    if (named === 'unknown') expect(note).toContain('offline');
+  });
+
   it.each(['gen-c6', 'abc', hex('A'), hex('c') + '0', hex('c').slice(1)])(
     'is silent on a digest desktop does not write (%s), even with files to fly', async (digest) => {
       expect(pickSampleFile(files, motor)).not.toBeNull();

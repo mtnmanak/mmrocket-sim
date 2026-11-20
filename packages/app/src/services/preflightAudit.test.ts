@@ -21,6 +21,21 @@ const masses: AuditMasses = { body: 0.1 };
 const kinds = (tree: RocketTree, baseline: AuditMasses = masses) =>
   preflightAudit(tree, baseline).findings.map(f => f.kind);
 
+it('J4 r3 does not flag a measured elastic density under the upstream name', () => {
+  const cord: ComponentNode = { type: 'shockcord', id: 'cord', lineMaterialName: 'Elastic cord (flat 19 mm, 3/4 in)', lineDensity: 0.0123 };
+  expect(preflightAudit(design(part({ children: [cord] })), masses).findings.some(f => f.reason.includes('suspect low density'))).toBe(false);
+});
+
+it.each(['Elastic cord (flat 19 mm, 3/4 in)', 'Elastic cord (flat 25 mm, 1 in)'])('J4 S7e-2 discloses suspect elastic material %s', lineMaterialName => {
+  const density = lineMaterialName.includes('25 mm') ? 0.0016 : 0.0012;
+  const cord: ComponentNode = { type: 'shockcord', id: 'cord', length: 9.144, lineDensity: density, lineMaterialName };
+  const finding = preflightAudit(design(part({ children: [cord] })), masses).findings.find(f => f.part.id === 'cord');
+  expect(finding).toMatchObject({ kind: 'material-density', tier: 'information' });
+  expect(finding!.reason).toContain('canopy that is too small');
+  expect(finding!.reason).toContain('corrected');
+  expect(cord['lineDensity']).toBe(density);
+});
+
 describe('preflight design advice (N028)', () => {
   it.each([0, 0.009, 1.01])('flags an extreme own mass override of %s kg with its part and both figures', mass => {
     const findings = preflightAudit(design(part({ overrideMass: mass })), masses).findings;

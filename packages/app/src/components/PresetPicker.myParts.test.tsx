@@ -41,6 +41,15 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); });
 
 describe('M2.3 My parts picker', () => {
+  it('J4 r4 imports valid CSV rows while preserving the stored malformed identity', async () => {
+    saveCustomPresets([CUSTOM]);
+    await render();
+    await importCsv('kind,manufacturer,partNo,length\nBodyTube,My parts,Good,0.8\nBodyTube,My parts,M1,oops\n');
+    expect(loadCustomPresets()).toEqual([CUSTOM, expect.objectContaining({ partNo: 'Good', length: 0.8 })]);
+    expect(host.textContent).toContain('Imported 1 preset(s)');
+    expect(host.querySelector('.message-caution')?.textContent).toMatch(/row 3.*M1.*length/);
+    expect(host.textContent).not.toContain('No parts were imported');
+  });
   it.each([false, true])('H1 cancels an older CSV read (close=%s)', async closing => {
     await render();
     let resolve!: (text: string) => void;
@@ -212,6 +221,12 @@ describe('M2.3 My parts picker', () => {
     act(() => root.render(<PrefsProvider><PresetPicker type="bodytube" node={node} onApply={apply} onClose={close} /></PrefsProvider>));
     await flush();
     await importCsv(`kind,manufacturer,partNo,savedComponent,outsideDiameter\nBodyTube,My parts,BLANK,TRUE,${outsideDiameter}\n`);
+    if (outsideDiameter) {
+      expect(host.textContent).toContain('This row was skipped');
+      expect(loadCustomPresets()).toEqual([]);
+      expect(apply).not.toHaveBeenCalled();
+      return;
+    }
     expect(host.textContent).toContain('Imported 1 preset(s)');
     act(() => rows()[1]!.click());
     expect({ ...node, ...apply.mock.calls[0]![0] }).toMatchObject({ outerRadius: 0.027 });

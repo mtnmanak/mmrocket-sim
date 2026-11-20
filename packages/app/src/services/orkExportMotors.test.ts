@@ -499,8 +499,10 @@ describe('orkMotorSet', () => {
     expect([delayIn(''), delayIn('constructor'), delayIn('__proto__')]).toEqual([5, 5, 5]);
     // Even where what it inherits has a number under the mount's id: read
     // through the prototype, "constructor" is Object, whose `length` is 1.
+    const lengthTree = structuredClone(tree);
+    motorMounts(lengthTree)[0]!.id = 'length';
     const inherited = orkMotorSet({
-      records: { length: motor({ meta: { autoDelay: true } }) }, tree, flown: {}, configKey: 'constructor',
+      records: { length: motor({ meta: { autoDelay: true } }) }, tree: lengthTree, flown: {}, configKey: 'constructor',
       exLibrary: noLibrary, first: 'refs',
     });
     expect(inherited.length!.delay).toBe(5);
@@ -518,7 +520,7 @@ describe('orkMotorSet', () => {
 
   // The rank decides these, whichever order a caller hands the set in.
   for (const first of ['records', 'refs'] as const) {
-    it(`keeps the weighed pad mass on the primary mount alone (${first} first)`, () => {
+    it(`J4 S1a-g1 keeps pad mass on the primary and omits deleted mount records (${first} first)`, () => {
       const { tree, core } = podTree();
       const out = orkMotorSet({
         records: {
@@ -530,7 +532,7 @@ describe('orkMotorSet', () => {
       });
       expect(out[core]!.padMassKg).toBe(0.25);
       expect(out['pod-mmt']).not.toHaveProperty('padMassKg');
-      expect(out.gone).not.toHaveProperty('padMassKg');
+      expect(out.gone).toBeUndefined();
     });
 
     it(`writes a reference only on a mount the tree has, with nothing loaded on it (${first} first)`, () => {

@@ -1,4 +1,5 @@
 import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
+import { usableMotorMasses } from './motorMass.js';
 import type { TcMotor } from './thrustcurve.js';
 import type { CatalogueSnapshotRef } from './catalogueClient.js';
 import { lookupTable } from './xmlUtil.js';
@@ -1230,9 +1231,5 @@ export function manufacturersForMount(
  * database look wrong.
  */
 export function hasMassData(m: Pick<TcMotor, 'totalWeightG' | 'propWeightG'>): boolean {
-  return (
-    Number.isFinite(m.totalWeightG) &&
-    Number.isFinite(m.propWeightG) &&
-    m.propWeightG <= m.totalWeightG
-  );
+  return usableMotorMasses(m.totalWeightG, m.propWeightG);
 }

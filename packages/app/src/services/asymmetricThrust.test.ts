@@ -12,6 +12,13 @@ const site = (y: number, peak = 100, burn = 2): ThrustSite => ({
 });
 
 describe('row 127 thrust balance', () => {
+  it('J4 r2 S7b-g4 gives a whitespace-only serial stage warning a readable name', () => {
+    const tree = balanceTree(2);
+    tree.components[0]!.name = '   ';
+    tree.components.push({ type: 'stage', id: 'lower', children: [] });
+    const warning = asymmetricThrustWarnings(tree, entries([balanceMotor()]))[0]!;
+    expect(warning.message).toMatch(/^Stage Stage:/);
+  });
   it('gives exact zero for identical symmetric motors and opposite pairs of different motors', () => {
     expect(thrustImbalance([site(1), site(-1)]).fraction).toBe(0);
     expect(asymmetricThrustWarnings(balanceTree(), entries())).toEqual([]);

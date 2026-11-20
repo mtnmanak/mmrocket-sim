@@ -9,7 +9,7 @@ import {
   stageRecoveryById,
   type ClusterSplit,
 } from '../tree/treeModel.js';
-import { equivalentExitDiameterM } from './nozzleFollow.js';
+import { equivalentExitDiameterM, stageMotors } from './nozzleFollow.js';
 import { numOrNull } from '../tree/nodeNum.js';
 import { noteText } from './noteField.js';
 import { nozzleForMotorId } from './nozzleDb.js';
@@ -587,8 +587,8 @@ export async function runBatchSweep(
   // renames no stage and moves no recovery part, so the editing tree answers for every candidate.
   const recoveryStages = stagesWithRecoveryDevice(tree);
   const recoveryByStage = stageRecoveryById(tree);
-  const stageNameOfTarget = tree.components
-    .find((st) => st.id === stageIdOfTarget)?.name ?? 'Sustainer';
+  const stageNameOfTarget = stageMotors(tree, [])
+    .find(st => st.stageId === stageIdOfTarget)?.stageName ?? 'Stage';
   const handlePool = (base: RocketTree, exclude: string[]) => {
     const pool = new Map<string, OrkRocket>();
     return (equivM: number | null): OrkRocket => {

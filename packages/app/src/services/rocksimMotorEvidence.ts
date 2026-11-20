@@ -28,12 +28,14 @@ export interface RocksimMotorIndex {
 /** One design walk per import; duplicate serials remain ambiguous. */
 export function indexRocksimMotors(
   doc: XmlDocument, design: XmlElement, simulationSets: RocksimMotorIndex['simulationSets'], notes: string[] = [],
+  importedParts?: ReadonlySet<XmlElement>,
 ): RocksimMotorIndex {
   const mountsBySerial = new Map<string, XmlElement | null>();
   let records = 0;
   let characters = 0;
   let omitted = false;
   for (const el of design.querySelectorAll('SerialNo')) {
+    if (importedParts && (!el.parentElement || !importedParts.has(el.parentElement))) continue;
     if (el.parentElement?.tagName === 'SerialNo') continue;
     // Never read descendant text: nested serials otherwise share and amplify it.
     if (el.children.length > 0) { omitted = true; continue; }
@@ -101,10 +103,12 @@ export function rocksimBurnTime(engineSet: XmlElement, index: RocksimMotorIndex)
  * they are deliberately ineligible rather than guessed from the magnitude.
  * An enabled single-stage dry-mass override is the only accepted dry mass.
  */
-export function rocksimMotorEvidence(engineSet: XmlElement, index: RocksimMotorIndex): MotorMatchContext {
+export function rocksimMotorEvidence(engineSet: XmlElement, index: RocksimMotorIndex, resolvedMount?: XmlElement | null): MotorMatchContext {
   const context: MotorMatchContext = { source: 'rocksim' };
+  // A resolved node has identity even when its serial is absent or duplicated.
+  // Explicit null means resolution failed; only standalone callers use raw serials.
   const serial = engineSet.querySelector(':scope > MountSerialNo')?.textContent?.trim();
-  const mount = serial === undefined ? null : index.mountsBySerial.get(serial) ?? null;
+  const mount = resolvedMount !== undefined ? resolvedMount : serial === undefined ? null : index.mountsBySerial.get(serial) ?? null;
   const facts = mountFacts(mount, index);
   const bore = facts?.bore ?? NaN;
   if (facts?.tagName === 'BodyTube' && facts.isMotorMount === 1 && bore > 0 && Number.isFinite(bore)) context.mountBoreMm = bore;

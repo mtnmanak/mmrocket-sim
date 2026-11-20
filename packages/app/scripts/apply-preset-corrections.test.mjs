@@ -5,7 +5,13 @@ import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { presetKey } from './manufacturers.mjs';
-import { PARTS_RECOVERY_CORRECTIONS } from './apply-preset-corrections.mjs';
+import { CORRECTIONS, setAt } from './apply-preset-corrections.mjs';
+
+it('J4 r2 S10b-g1 watches the corrected upstream decimal strings without float residue', () => {
+  const target = partNo => CORRECTIONS.find(c => c.upstream?.partNo === partNo).upstream.fields.OutsideDiameter.good;
+  expect(target('NB20-2')).toBe('18.034');
+  expect(target('NB80-4')).toBe('64.9732');
+});
 
 const here = dirname(fileURLToPath(import.meta.url));
 // Scratch copies live in the OS temp folder, as every other script test's do: a
@@ -50,11 +56,16 @@ const recoveryCorrections = [
   ...['stc236', 'std440', 'std660'].map(p => [`Streamer|fliskits|${p}`, 90, 0.09]),
   ...['rs118', 'rs124', 'rs136', 'rs224', 'rs236', 'rsw36', 'sm1a'].map(p => [`Streamer|semroc|${p}`, 90, 0.09]),
   ...['24', '36', '48', '60', '72', '84'].map(p => [`Parachute|giantleap|tac${p}`, 0.00006685, 0.06685]),
-  ...PARTS_RECOVERY_CORRECTIONS.map(c => {
-    const [field, { bad, good }] = Object.entries(c.fields)[0];
-    return [c.key, bad, good, field.split('.')[0]];
-  }),
+  ['Parachute|estes|302262', undefined, 0.0235],
+  ...['12', '16', '20', '24', '32'].map(p => [`Parachute|semroc|cp${p}`, undefined, 0.0235]),
+  ['Streamer|publicmissiles|pmltbd123', undefined, 0.046952679179544],
+  ...['14', '18', '24', '30', '36'].map(p => [`Parachute|semroc|pn${p}`, undefined, 0.06685]),
+  ...['036', '048', '060', '072', '084', '096', '120'].map(p => [`Parachute|fruitychutes|ifc${p}n`, undefined, 0.003718285, 'lineMaterial']),
 ];
+
+it('J4 V211-5 setAt refuses a missing dotted parent with its path', () => {
+  expect(() => setAt({}, 'material.density', 0.0235)).toThrow('material.density');
+});
 
 describe('recovery material density corrections CLI', () => {
   let dir, path, script, db;
@@ -84,7 +95,7 @@ describe('recovery material density corrections CLI', () => {
     writeFileSync(path, serialize(db));
     const first = run();
     expect(first.status, first.stdout + first.stderr).toBe(0);
-    expect(first.stdout).toContain(`${recoveryCorrections.length} field(s) applied`);
+    expect(first.stdout).toContain('35 field(s) applied');
     for (const [key, , good, field = 'material'] of recoveryCorrections) db.presets.find(p => presetKey(p) === key)[field].density = good;
     expect(readFileSync(path, 'utf8')).toBe(serialize(db));
     const second = run();
@@ -100,6 +111,18 @@ describe('recovery material density corrections CLI', () => {
     const result = run();
     expect(result.status, result.stdout + result.stderr).toBe(1);
     expect(result.stderr).toContain(`UNEXPECTED VALUE at ${key} ${field}.density`);
+    expect(readFileSync(path, 'utf8')).toBe(raw);
+  });
+
+  it.each(['missing', 'name', 'type'])('J4 V211-5 refuses a %s corrected material without writing', surprise => {
+    const row = db.presets.find(p => presetKey(p) === 'Parachute|semroc|cp12');
+    if (surprise === 'missing') delete row.material;
+    else row.material[surprise] = 'unexpected';
+    const raw = serialize(db);
+    writeFileSync(path, raw);
+    const result = run();
+    expect(result.status, result.stdout + result.stderr).not.toBe(0);
+    expect(result.stderr).toContain('Parachute|semroc|cp12 material.density');
     expect(readFileSync(path, 'utf8')).toBe(raw);
   });
 

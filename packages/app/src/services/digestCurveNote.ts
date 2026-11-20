@@ -2,7 +2,7 @@ import { noteField } from './noteField.js';
 import type { OrkMotorRef } from './orkFile.js';
 import {
   bundledSimFiles, fileImpulseNs, flownCurve, fliesTheSame, pickDigestFile, pickSampleFile,
-  type TcMotor, type TcSimFile,
+  lastCurveFiles, type CurveFiles, type TcMotor, type TcSimFile,
 } from './thrustcurve.js';
 
 /** Desktop's digest: the MD5 of the file it loaded, lowercase hex (scripts/motor-digest.mjs md5Hex). */
@@ -32,8 +32,22 @@ const describe = (f: TcSimFile): string => `${noteField(f.source ?? 'unknown sou
 export async function digestCurveNote(
   ref: OrkMotorRef, motor: TcMotor,
   files: () => Promise<TcSimFile[]> = () => bundledSimFiles(motor.motorId),
+  actual: CurveFiles | undefined = lastCurveFiles(motor.motorId),
 ): Promise<string | undefined> {
   if (!ref.digest) return undefined;
+  // The last read is usable only for this request's digest; a previous browse
+  // on the same motor must not describe an unrelated curve selection.
+  if (actual?.digest?.value === ref.digest && DESKTOP_DIGEST.test(ref.digest)) {
+    if (actual.digest.named === 'unknown') {
+      return `Motor “${noteField(ref.designation)}”: the saved desktop OR thrust curve could not be checked${actual.cacheFallback === 'offline' ? ' while offline' : ''}. `
+        + `It flies the cached curve (${describe(actual.flown)}). Check this curve before flying.`;
+    }
+    if (actual.origin !== 'bundle' && actual.digest.named === 'absent') {
+      return `Motor “${noteField(ref.designation)}”: the saved desktop OR thrust curve is absent from the available files. `
+        + `It flies the app’s pick (${describe(actual.flown)}). Check this curve before flying.`;
+    }
+    files = () => Promise.resolve(actual.files);
+  }
   const all = await files().catch(() => []);
   const named = pickDigestFile(all, ref.digest, motor);
   const usual = pickSampleFile(all, motor);

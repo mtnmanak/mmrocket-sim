@@ -20,6 +20,8 @@ export interface ExportData {
   /** Full span diameter incl. fins/pods (m) — from the 2D view's measure. */
   spanM?: number;
   withMotors: boolean;
+  omittedMotors?: readonly string[];
+  unresolvedMotors?: readonly string[];
   appVersion: string;
 }
 
@@ -27,6 +29,12 @@ export interface ExportData {
 export function dataHeaderLines(d: ExportData): string[] {
   const u = d.units;
   const lines: string[] = [d.name];
+  const incomplete = !!(d.omittedMotors?.length || d.unresolvedMotors?.length);
+  if (incomplete) {
+    lines.push('Complete-loadout mass, CG and stability unavailable: some motors were refused or remain unresolved.');
+    lines.push(...(d.omittedMotors ?? []).map(name => `Omitted motor mount: ${name}`));
+    lines.push(...(d.unresolvedMotors ?? []).map(name => `Unresolved motor mount: ${name}`));
+  }
   if (d.info) {
     const i = d.info;
     const dims = [
@@ -35,7 +43,7 @@ export function dataHeaderLines(d: ExportData): string[] {
       ...(d.spanM ? [`span ${fmtSi('length', u.length, d.spanM, 3)} ${u.length}`] : []),
     ];
     lines.push(dims.join(', '));
-    lines.push(d.withMotors
+    if (!incomplete) lines.push(d.withMotors
       ? `Launch mass ${fmtSi('mass', u.mass, i.mass)} ${u.mass} (dry ${fmtSi('mass', u.mass, i.massEmpty)} ${u.mass})`
       : `Dry mass ${fmtSi('mass', u.mass, i.massEmpty)} ${u.mass} — no motors loaded`);
     // The CP is the SAME forward, roll-swept one the margin beside it is
@@ -48,7 +56,7 @@ export function dataHeaderLines(d: ExportData): string[] {
     // normal force at any roll angle the CP and the margin are artefacts, not
     // answers (hasAerodynamicForce): a bare tube printed "CP 0 mm, margin
     // -6.25 cal". The header now says "no lift yet", as the tiles do.
-    lines.push(hasAerodynamicForce(i)
+    if (!incomplete) lines.push(hasAerodynamicForce(i)
       ? `CG ${fmtSi('length', u.length, i.cg, 3)} ${u.length}, `
         + `CP ${fmtSi('length', u.length, shownCp(i), 3)} ${u.length} from nose tip, `
         // A printed template is read away from the app, so it carries BOTH
@@ -109,6 +117,9 @@ export function schematicSvg(
   svgEl: SVGSVGElement, pxPerM: number, viewW: number, viewH: number, d: ExportData,
 ): string {
   const clone = svgEl.cloneNode(true) as SVGSVGElement;
+  if (d.omittedMotors?.length || d.unresolvedMotors?.length) {
+    clone.querySelectorAll('[data-loadout-figures]').forEach(node => node.remove());
+  }
   // Identity view: exports always show the whole rocket, whatever the
   // on-screen zoom/pan state.
   const zoomG = clone.querySelector(':scope > g');

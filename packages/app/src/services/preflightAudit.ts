@@ -8,6 +8,7 @@ import { flownDeployEvent } from '../tree/deployEvent.js';
 import { numOpt } from '../tree/nodeNum.js';
 import { DISPLAY_NAME } from '../tree/schema.js';
 import { engineTree, suppressingAncestor } from '../tree/treeModel.js';
+import { elasticCordNote } from './elasticCordNote.js';
 
 // N028: tenfold differences catch likely unit/decimal slips without treating a
 // normal measured/catalogue mass as an error. The 1 g floor avoids tiny parts.
@@ -153,6 +154,8 @@ export function preflightAudit(
       }
     }
     for (const field of densityFields(node)) {
+      const elasticNote = field === LINE ? elasticCordNote(node[field.name], numOpt(node, field.field)) : undefined;
+      if (elasticNote) add(node, { kind: 'material-density', tier: 'information', reason: elasticNote });
       const value = numOpt(node, field.field);
       // N028: the bridge only applies positive bulk/fillet densities, but accepts
       // every finite recovery surface/line value, including explicit zero.

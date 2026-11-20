@@ -13,6 +13,7 @@ import {
 import { correctMotorRow } from '../../scripts/motor-corrections.mjs';
 import { bundledSnapshot } from './bundledSnapshot.js';
 import { noteField, noteText } from './noteField.js';
+import { MAX_STATED_MASS_KG } from '../tree/schema.js';
 
 /**
  * "Check for newer motors" — the user's way round a stale shipped catalogue,
@@ -129,8 +130,8 @@ export function screenEntry(m: Partial<MotorDbEntry>, units: UnitSelection = INI
     return m.length == null ? 'no length' : `length ${Number.isFinite(m.length) ? noticeQuantity('motorDimensions', m.length! / 1000, units) : `"${noteField(String(m.length))}"`} is not a motor`;
   }
   const tw = m.totalWeightG; const pw = m.propWeightG;
-  if (tw !== undefined && tw !== null && !(Number.isFinite(tw) && tw > 0)) return `loaded weight ${Number.isFinite(tw) ? noticeQuantity('mass', tw / 1000, units) : `"${noteField(String(tw))}"`}`;
-  if (pw !== undefined && pw !== null && !(Number.isFinite(pw) && pw >= 0)) return `propellant weight ${Number.isFinite(pw) ? noticeQuantity('mass', pw / 1000, units) : `"${noteField(String(pw))}"`}`;
+  if (tw !== undefined && tw !== null && !(Number.isFinite(tw) && tw > 0 && tw / 1000 <= MAX_STATED_MASS_KG)) return `loaded weight ${Number.isFinite(tw) ? noticeQuantity('mass', tw / 1000, units) : `"${noteField(String(tw))}"`}`;
+  if (pw !== undefined && pw !== null && !(Number.isFinite(pw) && pw > 0 && pw / 1000 <= MAX_STATED_MASS_KG)) return `propellant weight ${Number.isFinite(pw) ? noticeQuantity('mass', pw / 1000, units) : `"${noteField(String(pw))}"`}`;
   if (Number.isFinite(tw) && Number.isFinite(pw) && (pw as number) > (tw as number) && !noticeEqual((pw as number) / 1000, (tw as number) / 1000)) {
     const [propellant, loaded] = noticeComparison('mass', (pw as number) / 1000, (tw as number) / 1000, units, { parenthesized: true });
     return propellant.startsWith('just ') ? `slightly more propellant than loaded mass (${loaded})` : `more propellant (${propellant}) than loaded mass (${loaded})`;

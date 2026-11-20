@@ -1,7 +1,7 @@
 import type { ComponentNode, EngineWarning, FlightResult, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
 import { aftLayout } from '../tree/aftLayout.js';
-import { findNode, motorMounts, mountName, stages } from '../tree/treeModel.js';
+import { findNode, motorMounts, mountName, nameOr, stages } from '../tree/treeModel.js';
 import { noteField } from './noteField.js';
 import { fmtSig } from '../prefs/units.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
@@ -172,7 +172,7 @@ export function asymmetricThrustWarnings(
     ? ' The flight ended before every motor\'s ignition could be checked. Check the ignition settings and fly again.'
     : ' Includes an airstart whose time the app cannot tell before you fly; it is checked again on the launch report.';
   for (const [stage, sites] of groups) {
-    const prefix = serial.length > 1 ? `Stage ${noteField(stage?.name || 'Stage')}: ` : '';
+    const prefix = serial.length > 1 ? `Stage ${noteField(nameOr(stage, 'Stage'))}: ` : '';
     const sets = new Map<string, ThrustSite[]>();
     for (const site of sites.filter(s => s.ignition === null)) {
       const key = triggerKey(site.mountId);

@@ -8,6 +8,7 @@ import {
 import { numOrNull } from '../tree/nodeNum.js';
 import { applyStageNozzles, findNode } from '../tree/treeModel.js';
 import { exMotorRevision, getExMotor, subscribeExMotors } from '../services/exMotors.js';
+import { noteField } from '../services/noteField.js';
 
 /**
  * THE NOZZLE EXIT DIAMETER FOLLOWS THE MOTOR (Eric, 2026-09-13).
@@ -43,6 +44,9 @@ export interface NozzleCleared { previousLabel: string; previousM: number }
 
 /** One stage's loadout as the follow bookkeeping records it. */
 interface Seen { key: string; label: string }
+
+const loadoutLabel = (s: StageMotors): string => s.motors
+  .map(m => m.count > 1 ? `${m.count} × ${noteField(m.label)}` : noteField(m.label)).filter(Boolean).join(' + ');
 
 /** A resolved value belongs only to the source key it was read from. */
 interface ResolvedNozzle { key: string; entry: Pick<NozzleEntry, 'exitDiameterM'> | null }
@@ -131,7 +135,7 @@ export function useNozzleFollow(opts: {
       for (const s of loadout) {
         seen.current.set(s.stageId, {
           key: keys.get(s.stageId)!,
-          label: s.motors[0]?.label ?? '',
+          label: loadoutLabel(s),
         });
       }
       // Stages the tree no longer has: drop them, or a deleted-then-recreated
@@ -144,6 +148,24 @@ export function useNozzleFollow(opts: {
       // goes. An ACTED stage keeps its old record until its decision lands.
       const firstSight = loadout.filter((s) => !previous.has(s.stageId));
       const gone = [...decided.current.keys()].filter((id) => !seen.current.has(id));
+      for (const s of firstSight) for (const m of s.motors) {
+        const ex = getExMotor(m.motorId);
+        if (ex) nozzleValues.current.set(m.motorId, {
+          key: motorKeys.get(m.motorId)!,
+          entry: ex.exitDiameterM === undefined ? null : { exitDiameterM: ex.exitDiameterM },
+        });
+      }
+      const forgottenNotes = [...gone, ...loadout.filter(s => {
+        const node = findNode(treeRef.current, s.stageId);
+        return decided.current.get(s.stageId)?.key === keys.get(s.stageId)
+          && node !== null && numOrNull(node, 'nozzleExitDiameter') !== null;
+      }).map(s => s.stageId)];
+      if (forgottenNotes.length) setCleared(prev => {
+        if (!forgottenNotes.some(id => Object.hasOwn(prev, id))) return prev;
+        const next = lookupTable({ ...prev });
+        for (const id of forgottenNotes) delete next[id];
+        return next;
+      });
       if (firstSight.length > 0 || gone.length > 0) {
         const next = new Map(decided.current);
         for (const s of firstSight) next.set(s.stageId, seen.current.get(s.stageId)!);
@@ -271,11 +293,17 @@ export function useNozzleFollow(opts: {
           entry: ex.exitDiameterM === undefined ? null : { exitDiameterM: ex.exitDiameterM },
         });
       }
-      const v = { key: stageMotorKey(s, nozzleKeys.current), label: s.motors[0]?.label ?? '' };
+      const v = { key: stageMotorKey(s, nozzleKeys.current), label: loadoutLabel(s) };
       seen.current.set(s.stageId, v);
       next.set(s.stageId, v);
     }
     decided.current = next;
+    setCleared(prev => {
+      if (!stages.some(s => Object.hasOwn(prev, s.stageId))) return prev;
+      const next = lookupTable({ ...prev });
+      for (const s of stages) delete next[s.stageId];
+      return next;
+    });
   }, []);
   /**
    * UNDO AFTER A MOTOR CHANGE (audit 2026-09-22, from review). The undo stack

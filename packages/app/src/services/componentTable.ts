@@ -3,7 +3,7 @@ import { clusterCount } from '../tree/cluster.js';
 import { numOpt } from '../tree/nodeNum.js';
 import { DISPLAY_NAME, FIELDS, type FieldDef } from '../tree/schema.js';
 import { shroudEnds } from '../tree/shroud.js';
-import { asStageNodes, flownInstanceCount, kernelStageIdByNode } from '../tree/treeModel.js';
+import { asStageNodes, flownInstanceCount, kernelStageIdByNode, nameOr } from '../tree/treeModel.js';
 import { siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
 import { csvCell } from './csvUtil.js';
 import type { Cell } from './xlsx.js';
@@ -122,7 +122,7 @@ export function componentTable(
   const nameStages = (nodes: ComponentNode[]) => {
     for (const n of nodes) {
       if ((n.type === 'stage' || n.type === 'parallelstage') && n.id) {
-        stageNames.set(n.id, n.name ?? DISPLAY_NAME[n.type] ?? n.type);
+        stageNames.set(n.id, nameOr(n, n.type === 'parallelstage' ? 'Strap-on' : 'Stage'));
       }
       nameStages(n.children ?? []);
     }
@@ -182,7 +182,7 @@ export function componentTable(
         return v === undefined ? '' : round(v);
       };
       rows.push([
-        n.name ?? DISPLAY_NAME[n.type] ?? n.type,
+        nameOr(n, DISPLAY_NAME[n.type] ?? n.type),
         DISPLAY_NAME[n.type] ?? n.type,
         (kStage !== undefined ? stageNames.get(kStage) : undefined) ?? stageName,
         parentName,
@@ -199,12 +199,12 @@ export function componentTable(
         ['trapezoidfinset', 'ellipticalfinset', 'freeformfinset'].includes(n.type)
           && (numOpt(n, 'filletRadius') ?? 0) > 0 ? material('filletMaterialName') : '',
       ]);
-      walk(n.children ?? [], stageName, n.name ?? DISPLAY_NAME[n.type] ?? n.type, mult * copiesInside(n));
+      walk(n.children ?? [], stageName, nameOr(n, DISPLAY_NAME[n.type] ?? n.type), mult * copiesInside(n));
     }
   };
 
   for (const stage of asStageNodes(tree)) {
-    const stageName = stage.name ?? 'Stage';
+    const stageName = nameOr(stage, 'Stage');
     walk(stage.children ?? [], stageName, stageName, 1);
   }
 

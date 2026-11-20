@@ -29,6 +29,22 @@ it('warns when saving a named material sets an unreadable library aside', () => 
   expect(loadUserMaterials()).toEqual([{ kind: 'bulk', name: 'My mix', density: 900 }]);
 });
 const treeOf = (...children: ComponentNode[]): RocketTree => ({ name: 'Materials', components: [{ type: 'stage', id: 's', children }] });
+it('J4 r4 names a blank stage covering a component override', () => {
+  const node = tube('t', { overrideMass: 0.1 });
+  const tree = treeOf(node);
+  Object.assign(tree.components[0]!, { name: '   ', overrideMass: 1, overrideSubcomponentsMass: true });
+  show(node, tree);
+  expect(host.querySelector('.override-suppressed strong')?.textContent).toBe('Stage');
+});
+it.each(['Elastic cord (flat 19 mm, 3/4 in)', 'Elastic cord (flat 25 mm, 1 in)'])('J4 S7e-2 shows the suspect elastic caution beside the picker for %s', lineMaterialName => {
+  show({ type: 'shockcord', id: 'cord', lineMaterialName, lineDensity: lineMaterialName.includes('25 mm') ? 0.0016 : 0.0012 });
+  expect(host.textContent).toContain('canopy that is too small');
+  expect(host.textContent).toContain('Elastic cord, corrected');
+});
+it('J4 r3 does not warn about a measured elastic density under an exchange name', () => {
+  show({ type: 'shockcord', id: 'cord', lineMaterialName: 'Elastic cord (flat 19 mm, 3/4 in)', lineDensity: 0.0123 });
+  expect(host.textContent).not.toContain('suspect low density');
+});
 it.each([
   ['surface', 'parachute', 'Canopy material', 'surfaceDensity'],
   ['line', 'shockcord', 'Cord material', 'lineDensity'],

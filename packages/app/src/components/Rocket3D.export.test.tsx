@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { act, Children, forwardRef, isValidElement, StrictMode, useEffect, useImperativeHandle, type ReactNode } from 'react';
-import { PerspectiveCamera } from 'three';
+import { Group, PerspectiveCamera, Scene } from 'three';
 import { OrbitControls as ThreeOrbitControls } from 'three-stdlib';
 import { OrbitControls } from '@react-three/drei';
 import { createRoot, type Root } from 'react-dom/client';
@@ -41,7 +41,7 @@ const fakeRenderer = () => {
   const camera = new PerspectiveCamera();
   camera.position.set(1, 1, 1);
   return {
-    scene: {},
+    scene: new Scene(),
     camera,
     gl: {
       domElement: canvas,
@@ -215,6 +215,35 @@ const startExport = () => {
 };
 
 describe('the 3D image export', () => {
+  it('J4 r4 retains both live marker systems for an unresolved imported reference', () => {
+    const info = { cg: 0.2, cp: 0.3, cna: 2, stabilityCalibers: 2, refDiameter: 0.05, length: 0.4 } as never;
+    act(() => root.render(<PrefsProvider><Rocket3D tree={TREE} info={info}
+      exportData={{ name: 'T', unresolvedMotors: ['Mount'] } as never} /></PrefsProvider>));
+    const labels = (children: ReactNode): string[] => Children.toArray(children).flatMap(child => {
+      if (!isValidElement<{ text?: string; children?: ReactNode }>(child)) return [];
+      return [...(child.props.text ? [child.props.text] : []), ...labels(child.props.children)];
+    });
+    expect(labels(canvasChildren)).toEqual(expect.arrayContaining(['CG', 'CP']));
+  });
+  it.each([false, true])('J4 r4 hides incomplete export figures and restores their visibility (render error=%s)', async fail => {
+    const state = r3fState as ReturnType<typeof fakeRenderer>;
+    const figures = new Group();
+    figures.name = 'loadout-figures';
+    state.scene.add(figures);
+    const visibility: boolean[] = [];
+    vi.spyOn(state.gl, 'render').mockImplementation(() => {
+      visibility.push(figures.visible);
+      if (fail && visibility.length === 1) throw new Error('render failed');
+    });
+    const errors: string[] = [];
+    act(() => root.render(<PrefsProvider><Rocket3D tree={TREE} info={null}
+      exportData={{ name: 'T', unresolvedMotors: ['Mount'] } as never} onError={e => errors.push(e)} /></PrefsProvider>));
+    const done = startExport();
+    expect(visibility).toEqual([false, true]);
+    expect(figures.visible).toBe(true);
+    if (!fail) await act(async () => { finishEncode(new Blob(['x'])); await done; });
+    else { await done; expect(errors.join(' ')).toContain('render failed'); }
+  });
   it('puts the renderer back BEFORE the encode, not after it', async () => {
     mount(false);
     const done = startExport();

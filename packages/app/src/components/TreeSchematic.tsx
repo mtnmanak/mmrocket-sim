@@ -597,13 +597,14 @@ export function TreeSchematic({ tree, info, motors, hiddenIds, onPatchNode, maxH
   ));
 
   const aero = !!info && hasAerodynamicForce(info);
-  const cgX = info ? ctx.x0 + info.cg * scale : null;
+  const completeLoadout = !exportData?.omittedMotors?.length;
+  const cgX = info && completeLoadout ? ctx.x0 + info.cg * scale : null;
   // No aerodynamic normal force = no CP, only the kernel's 0: drawn, that was a
   // red CP marker and callout at the front of a bare body tube — a violently
   // unstable-looking rocket beside tiles saying "no lift yet" (audit
   // 2026-09-22). The margin text already needed the force; now the CP does too.
-  const cpX = info && aero ? ctx.x0 + shownCp(info) * scale : null;
-  const stab = info && aero ? stabilityState(shownStability(info)) : null;
+  const cpX = info && aero && completeLoadout ? ctx.x0 + shownCp(info) * scale : null;
+  const stab = info && aero && completeLoadout ? stabilityState(shownStability(info)) : null;
   // One builder for both views — components/stabilityWording.ts. The 3D
   // callout printed the bare number until v0.105, so the whole verdict rode on
   // colour there while this view spelled it out.
@@ -780,7 +781,7 @@ export function TreeSchematic({ tree, info, motors, hiddenIds, onPatchNode, maxH
               of its own silently ate the click. Same rule the callout group
               below already follows. */}
           {cgX !== null && (
-            <g pointerEvents="none">
+            <g pointerEvents="none" data-loadout-figures="">
               <circle cx={cgX} cy={ctx.cy} r={MARKER_R} fill="var(--surface-1)" stroke="var(--text-primary)" strokeWidth="1.5" />
               <path d={`M ${cgX} ${ctx.cy} L ${cgX + MARKER_R} ${ctx.cy} A ${MARKER_R} ${MARKER_R} 0 0 1 ${cgX} ${ctx.cy + MARKER_R} Z`} fill="var(--text-primary)" />
               <path d={`M ${cgX} ${ctx.cy} L ${cgX - MARKER_R} ${ctx.cy} A ${MARKER_R} ${MARKER_R} 0 0 1 ${cgX} ${ctx.cy - MARKER_R} Z`} fill="var(--text-primary)" />
@@ -792,13 +793,13 @@ export function TreeSchematic({ tree, info, motors, hiddenIds, onPatchNode, maxH
               light stage: --accent-graphic for the marks (5.30 on mist, 5.15 on
               navy, 6.13 on Daylight white), --accent-text for the label. */}
           {cpX !== null && (
-            <g pointerEvents="none">
+            <g pointerEvents="none" data-loadout-figures="">
               <circle cx={cpX} cy={ctx.cy} r={MARKER_R} fill="none" stroke="var(--accent-graphic)" strokeWidth="2" />
               <circle cx={cpX} cy={ctx.cy} r={3.5} fill="var(--accent-graphic)" />
             </g>
           )}
           {(callouts.cg || callouts.cp) && (
-            <g pointerEvents="none">
+            <g pointerEvents="none" data-loadout-figures="">
               {callouts.cg && (
                 <>
                   <line x1={callouts.cg.x} y1={callouts.cg.leaderY1} x2={callouts.cg.x} y2={callouts.cg.leaderY2}

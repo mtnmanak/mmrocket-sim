@@ -24,7 +24,7 @@ import {
 } from '../tree/schema.js';
 import {
   bodyDragReference, fairingCd, fairingDeliveredCd, fairingFrontalArea, findParent,
-  mountName, mountRadiusOf, protuberanceCd, protuberanceClass, protuberanceDeliveredCd,
+  mountName, mountRadiusOf, nameOr, protuberanceCd, protuberanceClass, protuberanceDeliveredCd,
   protuberanceExplicitCd, protuberanceFrontalArea, suppressingAncestor, updateNode,
 } from '../tree/treeModel.js';
 import { anchorStarts, axialLength, offsetForStart, positionOf, snapStart, startFromPosition } from '../tree/position.js';
@@ -62,6 +62,7 @@ import { usePrefs } from '../prefs/PrefsContext.js';
 import { printerName, toPrinterVolume } from '../prefs/printers.js';
 import { noticeComparison, noticeQuantity, fmtFieldValue, fmtSi, fmtSig, niceStep, QUANTITY_LABEL, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
 import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
+import { elasticCordNote } from '../services/elasticCordNote.js';
 import { PresetPicker } from './PresetPicker.js';
 import { SaveMyPartDialog } from './SaveMyPartDialog.js';
 import {
@@ -122,7 +123,7 @@ const RAILBUTTON_DEFAULTS: Record<string, number> = {
  * above this one" / "a part above").
  */
 const blockerName = (n: ComponentNode): string =>
-  n.name || DISPLAY_NAME[n.type] || 'a part above this one';
+  nameOr(n, DISPLAY_NAME[n.type] || 'a part above this one');
 
 /**
  * "Your drag number is not reaching the flight" — shared by the protuberance
@@ -387,6 +388,7 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, t
           </option>)}
         </optgroup>}
       </select>
+      {kind === 'line' && elasticCordNote(node[nameKey], numOpt(node, densityKey)) && <p className="prefs-hint">{elasticCordNote(node[nameKey], numOpt(node, densityKey))}</p>}
       {!named && <div className="field">
         <label htmlFor={`${id}-name`}>{label} name</label>
         <input id={`${id}-name`} maxLength={80} value={draft} placeholder="Optional"

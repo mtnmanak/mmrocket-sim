@@ -45,6 +45,12 @@ afterEach(() => {
 });
 
 /** Computed airframe: 1.000 kg balancing 500 mm from the nose tip, 1 m long. */
+it('J4 r3 names a whitespace-only blocking stage consistently', () => {
+  show({ massKg: 1.1, cgM: 0.5 }, { blockedBy: { name: '   ' }, onPinStage: () => {} });
+  expect(host.querySelector('.measured-verdict strong')?.textContent).toBe('Stage');
+  expect(host.textContent).toContain('Pin “Stage” to my measured mass & CG');
+});
+
 const show = (measured: MeasuredFigures, block?: { blockedBy: { name?: string; kind?: 'mass' | 'cg' }; onPinStage?: () => void }) =>
   act(() => root.render(
     <PrefsProvider>
@@ -76,6 +82,11 @@ const type = (input: HTMLInputElement, text: string) => act(() => {
 });
 
 describe('MeasuredMassBox — metric (the startup default: g and mm)', () => {
+  it('J4 S3c-g5 caps typed measured CG in the displayed length unit', () => {
+    show({ massKg: 1, cgM: null });
+    type(cgBox(), '2000000');
+    expect(changes.at(-1)?.cgM).toBe(1000);
+  });
   it('HF2 caps typed measured dry mass in preferred units', async () => {
     const { MAX_STATED_MASS_KG } = await import('../tree/schema.js');
     show({ massKg: null, cgM: null });
@@ -143,6 +154,15 @@ describe('MeasuredMassBox — the accessible names carry the visible labels', ()
 describe('MeasuredMassBox — imperial (oz and in)', () => {
   const imperial = () => localStorage.setItem(
     PREFS_KEY, JSON.stringify({ units: { mass: 'oz', length: 'in' } }));
+
+  it.each(['80000', '39370.079'])('J4 r4 keeps clamped CG %s in within the SI ceiling', async value => {
+    const { MAX_DIMENSION_M } = await import('../tree/schema.js');
+    imperial();
+    show({ massKg: 1, cgM: null });
+    type(cgBox(), value);
+    expect(changes.at(-1)!.cgM).toBeLessThanOrEqual(MAX_DIMENSION_M);
+    expect(changes.at(-1)!.cgM).toBe(MAX_DIMENSION_M);
+  });
 
   it('converts ounces to kilograms and inches to metres', () => {
     imperial();

@@ -1,4 +1,20 @@
 // @vitest-environment happy-dom
+// J4 r4: NozzleField 8 -> 9 is the static phrase "at least one loaded
+// motor" in the multi-mount cleared-nozzle caution. It changes attribution,
+// not a numeric threshold; the mounted mixed-known/unknown-source test covers it.
+// J4 r3: MeasuredMassBox 18 -> 17 removes the prose fallback "A stage above
+// it" in favor of nameOr(..., "Stage"). This is a label, not a numerical
+// threshold; MeasuredMassBox's whitespace-blocker regression pins the label.
+// J4: MeasuredMassBox 17 -> 18 and session 6 -> 7 reuse MAX_DIMENSION_M
+// for measured CG; mounted typing and stored-CG tests cover the same 1000 m
+// limit as file import. RecoverySizingPanel 17 -> 18 is a static disclosure
+// that co-deployed mains are not a drogue (recoverySizing J4 tuple tests).
+// recoverySizing 6 -> 5 merges nose/transition fit refusals; J4 shoulder-only,
+// absent/zero-wall parity and existing taper/obstacle tests cover the changes.
+// elasticCordNote adds one static consequence/remedy (no density changes),
+// covered by preflightAudit's two named upstream-material regressions.
+// motorMass adds the existing noticeEqual comparison, now shared by file and
+// catalogue weights; motorMass.test covers zero, extreme mass and ULP residue.
 // PRFL-1: census unchanged. The owner-defined 0.85–1.15 display band and
 // unity crossings describe the sampled flight, with no verdict or flight
 // threshold change. rollPitchResonance.test covers interval boundaries,

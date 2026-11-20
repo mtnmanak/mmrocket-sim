@@ -193,6 +193,47 @@ const settle = async (ms = 0) => { await act(async () => {
 const loadButton = (h: Harness) => Array.from(h.host.querySelectorAll('button'))
   .find((b) => /Load motor|Loading/.test(b.textContent ?? ''));
 
+it('J4 S3a-g2 refuses Load while the custom delay draft is invalid', async () => {
+  const h = openBrowser({ mountDiameterMm: 24 });
+  onTestFinished(() => closeBrowser(h));
+  search(h, 'C6'); click(rowFor(h, 'Estes', 'C6')!);
+  act(() => { delaySelect(h)!.value = 'custom'; delaySelect(h)!.dispatchEvent(new Event('change', { bubbles: true })); });
+  const field = h.host.querySelector<HTMLInputElement>('input[aria-label="Custom delay (s)"]')!;
+  act(() => field.focus());
+  typeInto(field, '7'); typeInto(field, '75');
+  expect(field.getAttribute('aria-invalid')).toBe('true');
+  click(loadButton(h)!); await settle(100);
+  expect(h.selected).toEqual([]);
+  expect(document.activeElement).toBe(field);
+});
+
+it('J4 r2 S3a-g2 preserves an invalid delay through pointer focus before Load', async () => {
+  const h = openBrowser({ mountDiameterMm: 24 });
+  onTestFinished(() => closeBrowser(h));
+  search(h, 'C6'); click(rowFor(h, 'Estes', 'C6')!);
+  act(() => { delaySelect(h)!.value = 'custom'; delaySelect(h)!.dispatchEvent(new Event('change', { bubbles: true })); });
+  const field = h.host.querySelector<HTMLInputElement>('input[aria-label="Custom delay (s)"]')!;
+  act(() => field.focus());
+  typeInto(field, '7'); typeInto(field, '7x');
+  const button = loadButton(h)!;
+  const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 });
+  act(() => { button.dispatchEvent(down); });
+  // Browser default focus happens between mousedown and click.
+  if (!down.defaultPrevented) act(() => { button.focus(); });
+  click(button); await settle(100);
+  expect(h.selected).toEqual([]);
+  expect(field.getAttribute('aria-invalid')).toBe('true');
+  expect(document.activeElement).toBe(field);
+});
+
+it('J4 S3a-g4 exposes every propellant filter, including lower-ranked makers', () => {
+  const h = openBrowser({ mountDiameterMm: 75, filters: { showAll: true, fitsOnly: false } });
+  onTestFinished(() => closeBrowser(h));
+  const expected = new Set(MOTOR_DB.filter(m => m.propInfo && m.diameter <= 76 && m.availability !== 'OOP').map(m => m.propInfo));
+  const text = h.host.textContent!;
+  for (const propellant of expected) expect(text).toContain(propellant);
+});
+
 it('W2-WARN previews catalogue and custom zero-delay recovery as Caution while allowing selection', () => {
   const h = openBrowser({ mountDiameterMm: 24, recoveryAdviceFor: (delay, auto) => delay === 0 && !auto ? 'Zero delay triggers recovery at burnout.' : null });
   onTestFinished(() => closeBrowser(h));

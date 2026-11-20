@@ -2570,6 +2570,9 @@ describe('RASAero export — booster fins are located on the whole booster body'
     }
     // A named booster is still quoted.
     expect(() => exportCdx1(booster([]))).toThrow(/^Stage “Booster” has no body tube/);
+    const spaces = booster([]);
+    spaces.tree.components[1]!.name = '   ';
+    expect(() => exportCdx1(spaces)).toThrow(/^Stage 2 \(RASAero’s Booster 1\) has no body tube/);
   });
 });
 
@@ -2739,6 +2742,13 @@ describe('RASAero import — a part hung under a tube does not copy its siblings
 
 
 describe('S1b-4 RASAero pod geometry', () => {
+  it.each(['geometry', 'location'])('J4 r3 names a blank pod in a %s refusal', placement => {
+    const pod: ComponentNode = { type: 'podset', name: '   ', instanceCount: 1, radiusMethod: 'free', radiusOffset: 0,
+      children: [{ type: 'bodytube', length: 0.1, outerRadius: 0.01 }] };
+    const host: ComponentNode = { type: 'bodytube', length: 0.4, outerRadius: 0.03, children: placement === 'geometry' ? [pod] : [] };
+    const tree: RocketTree = { components: [{ type: 'stage', children: [host, ...(placement === 'location' ? [pod] : [])] }] };
+    expect(() => exportCdx1({ name: 'T', tree })).toThrow(/cannot represent pod set “Pod set”/);
+  });
   it.each(['booster tube', 'stage child', 'transition', 'nested pod', 'strap-on'])(
     'ROUND3 refuses an assembly the writer would drop: %s', (placement) => {
       const pod = { type: 'podset', name: 'Inline sleeve', instanceCount: 1, radiusMethod: 'free', radiusOffset: 0,

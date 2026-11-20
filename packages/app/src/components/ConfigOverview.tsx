@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { savedConfigLabel, type FlightTree, type SavedConfig } from '../model/design.js';
-import { motorMounts, stages } from '../tree/treeModel.js';
+import { motorMounts, nameOr, stages } from '../tree/treeModel.js';
+import { DISPLAY_NAME } from '../tree/schema.js';
 import { deploymentTuple } from '../services/foreignConfigLayers.js';
 import { describeIgnitionTuple, separationTuple } from '../services/flightOverrideText.js';
 import { describeFlownDeployment, describeFlownSeparation } from '../services/flightOverrideSummary.js';
@@ -55,7 +56,7 @@ export function ConfigOverview({ configs, activeConfigId, tree, onApply, onShowP
         <table className="config-table">
           <caption className="sr-only">Effective settings for every saved flight configuration</caption>
           <thead><tr><th scope="col">Configuration</th>{parts.map(p => <th key={p.node.id} scope="col">
-            {p.node.name || p.node.type}<br />{p.family === 'ignition' ? 'Motor · ignition' : p.family === 'recovery' ? 'Recovery' : 'Separation'}
+            {nameOr(p.node, DISPLAY_NAME[p.node.type])}<br />{p.family === 'ignition' ? 'Motor · ignition' : p.family === 'recovery' ? 'Recovery' : 'Separation'}
           </th>)}</tr></thead>
           <tbody>{configs.map((config, index) => {
             // The active configuration is already applied. Re-applying it resets
@@ -73,7 +74,7 @@ export function ConfigOverview({ configs, activeConfigId, tree, onApply, onShowP
               </th>
               {parts.map(part => {
                 const value = partValue(part, config, tree, prefs.units.altitude);
-                const what = `${part.node.name || part.node.type}: ${value.text}${value.override ? ' — override' : ''}`;
+                const what = `${nameOr(part.node, DISPLAY_NAME[part.node.type])}: ${value.text}${value.override ? ' — override' : ''}`;
                 return <td key={part.node.id}><button className="file-btn" onClick={() => {
                   if (!active) onApply(config);
                   onShowPart(part.node.id!, part.family);

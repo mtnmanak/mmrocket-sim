@@ -9,6 +9,46 @@ import { numOpt } from '../tree/nodeNum.js';
 import { centeringRingBore, ringOuterRadius } from '../tree/solidMesh.js';
 
 const db = (presetsJson as { presets: Preset[] }).presets;
+it('J4 S7c-1 screens stored and direct malformed aliases before linking a design', () => {
+  const p = { kind: 'BodyTube', manufacturer: 'Home', partNo: 'T', description: '', outsideDiameter: 0.05,
+    altPartNos: [{ toString: 0 }, 'alias'] };
+  vi.stubGlobal('localStorage', { getItem: () => JSON.stringify([p]) });
+  const restored = loadCustomPresets();
+  expect(restored[0]!['altPartNos']).toEqual(['alias']);
+  const node: ComponentNode = { type: 'bodytube' };
+  expect(() => applyPresetLinks([{ node, manufacturer: 'Home', partNo: 'alias' }], [p], [])).not.toThrow();
+  expect(node['presetPartNo']).toBe('T');
+  vi.unstubAllGlobals();
+});
+
+it.each(['oops', '"0,05"', '50 mm', '0x10'])('J4 S7c-2 S7c-g7 refuses malformed numeric cell %s with row and column', bad => {
+  const notes: string[] = [];
+  expect(csvToPresets(`kind,manufacturer,partNo,mass\nParachute,Home,P,${bad}\n`, notes)).toEqual([]);
+  expect(notes.join(' ')).toMatch(/row 2.*P.*mass/);
+  expect(csvToPresets('kind,manufacturer,partNo,mass\nParachute,Home,P, \n')).toHaveLength(1);
+});
+
+it('J4 S7c-g7 rejects an unclosed quote and preserves literal inch marks', () => {
+  const notes: string[] = [];
+  expect(csvToPresets('kind,partNo,description\nBodyTube,T,"unclosed\nBodyTube,U,lost', notes)).toEqual([]);
+  expect(notes.join(' ')).toContain('unclosed');
+  expect(csvToPresets('kind,partNo,description\nBodyTube,T,"bad"tail', notes)).toEqual([]);
+  expect(notes.join(' ')).toContain('closing quote');
+  expect(csvToPresets('kind,partNo,description\nBodyTube,T,3" coupler\nBodyTube,U,kept')).toHaveLength(2);
+});
+it('J4 r4 S7c-2 refuses only malformed numeric rows in a mixed CSV', () => {
+  const notes: string[] = [];
+  const parsed = csvToPresets('kind,manufacturer,partNo,mass\nParachute,Home,Good,0.1\nParachute,Home,Bad,oops\n', notes);
+  expect(parsed.map(p => p.partNo)).toEqual(['Good']);
+  expect(notes.join(' ')).toContain('This row was skipped');
+  expect(notes.join(' ')).toMatch(/row 3.*Bad.*mass/);
+});
+it('J4 r4 accepts whitespace before quoted comma and multiline cells', () => {
+  const notes: string[] = [];
+  const parsed = csvToPresets('kind,manufacturer,partNo,description\nBodyTube,Home,T, "a, b"\nBodyTube,Home,U, \t"two\nlines"\n', notes);
+  expect(parsed.map(p => p.description)).toEqual(['a, b', 'two\nlines']);
+  expect(notes).toEqual([]);
+});
 it('does not count an inverted foreign ring as a catalogue match', () => {
   const p: Preset = { kind: 'CenteringRing', manufacturer: 'EX', partNo: 'BAD', description: '', outsideDiameter: 0.025, insideDiameter: 0.029 };
   const node: ComponentNode = { type: 'centeringring', name: 'My ring', outerRadius: 0.03, innerRadius: 0.019 };
