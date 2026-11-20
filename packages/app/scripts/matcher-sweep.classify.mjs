@@ -74,10 +74,14 @@ export function audit(meta, records) {
   return { pass: failures.length === 0, failures, files: pairs.size, rawReferences, baselineFoldedReferences, currentFoldedReferences,
     table, noteChanges, changes, e31, excluded, unsupportedFiles, unmatchedImporterRefs };
 }
+export function parseResults(text) {
+  return text.split('\n').filter(line => line.trim()).map(JSON.parse);
+}
+
 if (isMain(import.meta.url)) {
   const out = process.argv[2];
   if (!out) throw new Error('Usage: node packages/app/scripts/matcher-sweep.classify.mjs OUTPUT_DIRECTORY');
-  const report = audit(JSON.parse(readFileSync(`${out}/meta.json`, 'utf8')), readFileSync(`${out}/results.jsonl`, 'utf8').trim().split('\n').map(JSON.parse));
+  const report = audit(JSON.parse(readFileSync(`${out}/meta.json`, 'utf8')), parseResults(readFileSync(`${out}/results.jsonl`, 'utf8')));
   writeFileSync(`${out}/classification.json`, JSON.stringify(report, null, 2));
   console.log(JSON.stringify({ ...report, changes: report.changes.length, e31: report.e31.length, excluded: report.excluded.length, unsupportedFiles: report.unsupportedFiles.length, unmatchedImporterRefs: report.unmatchedImporterRefs.length }, null, 2));
   process.exitCode = report.pass ? 0 : 1;

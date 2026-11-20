@@ -205,6 +205,19 @@ describe('the AeroTech rows, one per drawing and then one per motor', () => {
     expect(k.provenance.assemblyDrawings).toEqual([NEW_SHEET, OLD_SHEET].sort());
   });
 
+  it('retains three exits when two alternatives share a part number', async () => {
+    const { aerotechDrawingRows, oneRowPerMotor } = await builder();
+    const raw = RAW();
+    const { rows } = aerotechDrawingRows(raw, aerotechOf(CATALOGUE()));
+    const group = rows.filter(r => r.motorId === 'at-k1100');
+    const alternative = group.find(r => r.nozzlePartNo === '01650');
+    const third = { ...alternative, exitDiameterIn: 1.0458, exitDiameterM: round6(inToM(1.0458)) };
+    const k = oneRowPerMotor([...group, third, third], raw.assemblies)[0];
+    expect(k.alternatives.map(a => a.exitDiameterIn)).toEqual([0.812, 1.0458]);
+    expect(k.confidenceNote).toContain('01650 0.812 in, 01650 1.0458 in');
+    expect(k.confidenceNote).toContain('three nozzles');
+  });
+
   it('lets a sheet\'s own dated nozzle revision outrank its filename', async () => {
     const { aerotechDrawingRows, oneRowPerMotor } = await builder();
     const raw = RAW();

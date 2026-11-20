@@ -349,14 +349,29 @@ def tmt_delays(rows, where):
         if out is not None:
             raise SystemExit(f'{where}: two "Delay Time Data" rows')
         out = {}
-        lines = [c[1:]] + [cells(r) for r in rows[i + 1:]]
-        for line in lines:
-            if len(line) != 2 or not NOMINAL_CELL.match(line[0]):
+        # Preserve both column positions: a measured-only row is an incomplete
+        # continuation, even when its nominal cell is entirely missing.
+        nominal_words = [w for w in row if w[2] == c[1].split()[0]] if len(c) > 1 else []
+        nominal_x = nominal_words[0][0] if nominal_words else None
+        measured_words = [w for w in row if w[2] == c[2].split()[0]
+                          and nominal_x is not None and w[0] > nominal_x] if len(c) > 2 else []
+        column_xs = [x for x in (nominal_x, measured_words[0][0] if measured_words else None) if x is not None]
+        lines = [(c[1:], True)] + [(cells(r), bool(r) and any(
+                  abs(r[0][0] - x) <= CELL_GAP_PT for x in column_xs)) for r in rows[i + 1:]]
+        for line, in_column in lines:
+            if in_column and line and all(cell == 'n.a.' for cell in line):
+                continue
+            nominal_match = NOMINAL_CELL.fullmatch(line[0]) if line else None
+            if not nominal_match:
+                if in_column:
+                    raise SystemExit(f'{where}: malformed delay continuation {line!r}')
                 break
+            if len(line) != 2:
+                raise SystemExit(f'{where}: malformed delay continuation {line!r}')
             m = VALUES_CELL.match(line[1])
             if not m:
                 raise SystemExit(f'{where}: delay cell {line[1]!r} beside {line[0]!r} is not a list of seconds')
-            nominal = int(NOMINAL_CELL.match(line[0]).group(1))
+            nominal = int(nominal_match.group(1))
             if nominal in out:
                 raise SystemExit(f'{where}: nominal {nominal} s twice')
             out[nominal] = [float(t) for t in re.findall(r'\d*\.\d+|\d+', m.group(1))]
@@ -952,6 +967,7 @@ def read_all(source, motors_path, join=None, transcriptions=DEFAULT_TRANSCRIPTIO
                 if len(rows) != 1:
                     raise SystemExit(f'{rel}: JOIN {join[rel]} matches {len(rows)} catalogue rows')
                 motor = rows[0]
+                check_hardware(rel, motor)
                 if rel not in urls:
                     raise SystemExit(f'{rel}: not in Download-CertDocs.ps1, so its URL is unknown')
                 if motor['motorId'] in motors:
@@ -1003,7 +1019,7 @@ def check_hardware(rel, motor):
     """A source folder must describe the catalogue motor's hardware class."""
     folder = rel.rsplit('/', 1)[0]
     hardware = ('SU' if re.search(r'Single[- ]Use', folder, re.I) else
-                'reload' if re.search(r'RMS-|reload', folder, re.I) else None)
+                'reload' if re.search(r'RMS-|reload|KBA A-C', folder, re.I) else None)
     if hardware is None or hardware != motor.get('type'):
         raise SystemExit(f'{rel}: HARDWARE_MISMATCH: folder class {hardware!r}, '
                          f'catalogue {motor["designation"]} type {motor.get("type")!r}')

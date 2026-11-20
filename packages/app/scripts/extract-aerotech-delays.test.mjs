@@ -344,7 +344,7 @@ describe.skipIf(!hasPyMuPDF)('text-layer printed averages', { timeout: 30_000 },
   });
 
   it('refuses a text average joined to a motor with measured samples', () => {
-    const result = run({ [textPath]: narSummary(), 'NAR/Test/Measured.pdf': report() }, undefined, [], 'SU',
+    const result = run({ [textPath]: narSummary(), 'NAR/Test Single-Use/Measured.pdf': report() }, undefined, [], 'SU',
       { averageJoin: { [textPath]: textJoin[textPath] } });
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('measured data wins');
@@ -393,7 +393,7 @@ describe.skipIf(!hasPyMuPDF)('printed scan averages', { timeout: 30_000 }, () =>
   });
 
   it('refuses an average joined to a motor with individual measurements', () => {
-    const result = run({ [scanPath]: { scan: report() }, 'NAR/Test/Measured.pdf': report() },
+    const result = run({ [scanPath]: { scan: report() }, 'NAR/Test Single-Use/Measured.pdf': report() },
       { documents: [], unread: [averageTranscription()] });
     expect(result.status).not.toBe(0);
     expect(result.stdout + result.stderr).toContain('measured data wins');
@@ -463,11 +463,82 @@ print(json.dumps(m.join_averages({rel: {4: 4.34}}, {('AeroTech', 'G25W'): [row]}
 // Each case spawns Python twice (build the PDFs, then extract); under a full-suite
 // load that has run past Vitest's 5 s default (extract-aerotech-certified.test.mjs).
 describe.skipIf(!hasPyMuPDF)('extract-aerotech-delays.py reads each motor\'s delay by position', { timeout: 30_000 }, () => {
+  it.each([false, true])('refuses a measured-only TMT continuation with later valid row=%s', later => {
+    const result = run({ 'TRA/Test Single-Use/E99W.pdf': [
+      [[72, 'Number of Motors Tested'], [288, '9']],
+      [[72, 'Delay Time Data'], [216, '5 s'], [324, '4.946, 4.507, 5.158 s']],
+      [[324, '7.239, 6.558, 7.341 s']],
+      ...(later ? [[[216, '11 s'], [324, '10.912, 11.044, 10.881 s']]] : []),
+      [[72, 'Casing Temp.'], [360, 'Passed']],
+    ] });
+    expect(result.status).not.toBe(0);
+    expect(result.stdout + result.stderr).toContain('malformed delay continuation');
+    expect(result.json).toBeNull();
+  });
+
+  it.each([1, 2])('accepts %s no-delay cells on the first TMT line', count => {
+    const path = 'TRA/Test Single-Use/E99W.pdf';
+    const result = run({ [path]: [
+      [[72, 'Delay Time Data'], ...[216, 324].slice(0, count).map(x => [x, 'n.a.'])],
+      [[72, 'Casing Temp.'], [360, 'Passed']],
+    ] }, undefined, [], 'SU', { unmeasured: [path] });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.motors).toEqual({});
+  });
+
+  it.each([1, 2])('accepts %s no-delay cells on a TMT continuation without losing readings', count => {
+    const result = run({ 'TRA/Test Single-Use/E99W.pdf': [
+      [[72, 'Number of Motors Tested'], [288, '6']],
+      [[72, 'Delay Time Data'], [216, '5 s'], [324, '4.946, 4.507, 5.158 s']],
+      [216, 324].slice(0, count).map(x => [x, 'n.a.']),
+      [[216, '8 s'], [324, '7.239, 6.558, 7.341 s']],
+      [[72, 'Casing Temp.'], [360, 'Passed']],
+    ] });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.motors['id-e99w'].delays.map(d => d.nominalS)).toEqual([5, 8]);
+  });
+
+  it('refuses trailing text in a TMT nominal cell', () => {
+    const result = run({ 'TRA/Test Single-Use/E99W.pdf': [
+      [[72, 'Number of Motors Tested'], [288, '6']],
+      [[72, 'Delay Time Data'], [216, '5 s'], [324, '4.946, 4.507, 5.158 s']],
+      [[216, '8 s junk'], [324, '7.239, 6.558, 7.341 s']],
+    ] });
+    expect(result.status).not.toBe(0);
+    expect(result.stdout + result.stderr).toContain('malformed delay continuation');
+    expect(result.json).toBeNull();
+  });
+
+  it('refuses a split measured cell after a valid TMT delay row', () => {
+    const result = run({ 'TRA/Test Single-Use/E99W.pdf': [
+      [[72, 'Number of Motors Tested'], [288, '6']],
+      [[72, 'Delay Time Data'], [216, '5 s'], [324, '4.946, 4.507, 5.158 s']],
+      [[216, '8 s'], [324, '7.239,'], [440, '6.558 7.341 s']],
+      [[72, 'Casing Temp.'], [360, 'Passed']],
+    ] });
+    expect(result.status).not.toBe(0);
+    expect(result.stdout + result.stderr).toContain('malformed delay continuation');
+    expect(result.json).toBeNull();
+  });
+
+  it.each(['JOIN', 'reviewed'])('refuses wrong hardware on the measured %s path', form => {
+    const result = form === 'JOIN'
+      ? run({ [scanPath]: report() }, undefined, [], 'reload')
+      : run({ [scanPath]: { scan: report() } }, transcription(), [], 'reload');
+    expect(result.status).not.toBe(0);
+    expect(result.stdout + result.stderr).toContain('HARDWARE_MISMATCH');
+    expect(result.json).toBeNull();
+  });
+
+  it('accepts measured reload delays from a KBA A-C folder', () => {
+    const result = run({ 'TRA/KBA A-C/E99W.pdf': report() }, undefined, [], 'reload');
+    expect(result.status, result.stderr).toBe(0);
+  });
   it('reads the delay under the Delay heading, and leaves a motor with none out rather than taking its mass', () => {
-    const { status, stderr, json } = run({ 'NAR/Test/E99W.pdf': report() });
+    const { status, stderr, json } = run({ 'NAR/Test Single-Use/E99W.pdf': report() });
     expect(status, stderr).toBe(0);
     expect(json.motors['id-e99w']).toMatchObject({
-      designation: 'E99W', manufacturer: 'AeroTech', document: 'NAR/Test/E99W.pdf', form: 'nar',
+      designation: 'E99W', manufacturer: 'AeroTech', document: 'NAR/Test Single-Use/E99W.pdf', form: 'nar',
       url: 'https://example.invalid/0.pdf',
       delays: [{ nominalS: 4, measuredS: [4.4, 4.6] }, { nominalS: 7, measuredS: [6.9, 7.1] }],
     });
@@ -476,19 +547,19 @@ describe.skipIf(!hasPyMuPDF)('extract-aerotech-delays.py reads each motor\'s del
 
   it('stops when a value does not average to what the document prints, rather than shipping it', () => {
     const { status, stdout, stderr, json } = run({
-      'NAR/Test/E99W.pdf': report({ averages: [
+      'NAR/Test Single-Use/E99W.pdf': report({ averages: [
         [[72, 'Delay Time(sec.)'], [200, '4'], [250, '7']],
         [[72, 'Delay(sec.)'], [200, '4.50'], [250, '7.40']],
       ] }),
     });
     expect(status).not.toBe(0);
-    expect(stdout + stderr).toMatch(/NAR\/Test\/E99W\.pdf: AVERAGE_DISAGREES lists \[\], the document gives \[7\]/);
+    expect(stdout + stderr).toMatch(/NAR\/Test Single-Use\/E99W\.pdf: AVERAGE_DISAGREES lists \[\], the document gives \[7\]/);
     expect(json).toBeNull();
   });
 
   it('stops when the summary prints different delays from the motor table for the same setting', () => {
     const { status, stdout, stderr } = run({
-      'NAR/Test/E99W.pdf': report({ summary: [
+      'NAR/Test Single-Use/E99W.pdf': report({ summary: [
         [[72, 'Range'], [140, 'Indicated'], [200, 'Actual'], [240, 'Actual'], [280, 'Average']],
         [[72, '4'], [100, '2.5 to 5.5'], [200, '4.40'], [240, '4.60'], [280, '4.50']],
         [[72, '7'], [100, '5.5 to 8.5'], [200, '6.40'], [240, '7.60'], [280, '7.00']],
@@ -506,13 +577,13 @@ describe.skipIf(!hasPyMuPDF)('extract-aerotech-delays.py reads each motor\'s del
       [[216, '8 s'], [324, '7.239, 6.558 7.341 s']],
       [[72, 'Casing Temp.'], [360, 'Passed']],
     ];
-    const ok = run({ 'TRA/Test/E99W.pdf': letter });
+    const ok = run({ 'TRA/Test Single-Use/E99W.pdf': letter });
     expect(ok.status, ok.stderr).toBe(0);
     expect(ok.json.motors['id-e99w'].delays).toEqual([
       { nominalS: 5, measuredS: [4.946, 4.507, 5.158] },
       { nominalS: 8, measuredS: [7.239, 6.558, 7.341] },
     ]);
-    const tooMany = run({ 'TRA/Test/E99W.pdf': letter.map((l) => (l[0][1] === 'Number of Motors Tested' ? [l[0], [288, '5']] : l)) });
+    const tooMany = run({ 'TRA/Test Single-Use/E99W.pdf': letter.map((l) => (l[0][1] === 'Number of Motors Tested' ? [l[0], [288, '5']] : l)) });
     expect(tooMany.status).not.toBe(0);
     expect(tooMany.stdout + tooMany.stderr).toMatch(/6 delays read, 5 motors tested/);
   });
@@ -534,7 +605,7 @@ function transcription() {
 describe.skipIf(!hasPyMuPDF)('reviewed scan transcriptions', { timeout: 30_000 }, () => {
   it.each([
     ['a new scan without any inventory', []],
-    ['a scan omitted from a partial inventory', [{ document: 'TRA/Test/Listed.pdf', reason: 'No agreeing delay summary' }]],
+    ['a scan omitted from a partial inventory', [{ document: 'TRA/Test Single-Use/Listed.pdf', reason: 'No agreeing delay summary' }]],
   ])('refuses %s without writing output', (_name, unread) => {
     const docs = { [scanPath]: { scan: report() } };
     for (const entry of unread) docs[entry.document] = { scan: report() };
@@ -545,7 +616,7 @@ describe.skipIf(!hasPyMuPDF)('reviewed scan transcriptions', { timeout: 30_000 }
   });
 
   it('accounts separately for accepted and unread scans in a complete inventory', () => {
-    const unreadPath = 'TRA/Test/Unread.pdf';
+    const unreadPath = 'TRA/Test Single-Use/Unread.pdf';
     const data = transcription();
     data.unread.push({ document: unreadPath, reason: 'No agreeing delay summary' });
     const result = run({ [scanPath]: { scan: report() }, [unreadPath]: { scan: report() } }, data);

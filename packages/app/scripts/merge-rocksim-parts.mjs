@@ -224,7 +224,7 @@ export function mapShape(s) {
   if (t === '' || t === 'conical' || t === 'cone' || t === 'conic') return 'CONICAL';
   if (t === 'ogive') return 'OGIVE';
   if (t === 'elliptical') return 'ELLIPSOID';
-  if (t === 'parabolic') return 'PARABOLIC';
+  if (t === 'parabolic') return 'ELLIPSOID';
   if (t === 'sears-haack') return 'HAACK';
   if (t === 'power-series' || t === 'ps') return 'POWER';
   return undefined;
@@ -380,6 +380,15 @@ export function massOf(massCell, unitCell) {
 const close = (a, b, tol = 0.02) =>
   Math.abs(a - b) <= tol * Math.max(Math.abs(a), Math.abs(b));
 
+const PROFILE_KINDS = new Set(['NoseCone', 'Transition']);
+const construction = p => p.filled === true ? 'solid'
+  : p.filled === false || p.thickness > 0 ? 'hollow' : undefined;
+const compatibleProfile = (kind, a, b) => !PROFILE_KINDS.has(kind)
+  || (a.shape !== undefined && a.shape === b.shape
+    && a.shapeParameter === b.shapeParameter
+    && construction(a) !== undefined && construction(a) === construction(b)
+    && (a.thickness === undefined || b.thickness === undefined || close(a.thickness, b.thickness)));
+
 // ---------------------------------------------------------------- main
 
 /**
@@ -485,6 +494,13 @@ need this to regenerate it.`);
           (d) => typeof fields[d] === 'number' && typeof samePart[d] === 'number',
         );
         const mismatched = comparable.filter((d) => !close(fields[d], samePart[d]));
+        if (PROFILE_KINDS.has(spec.kind)) {
+          if (fields.shape !== samePart.shape) mismatched.push('shape');
+          if (fields.shapeParameter !== samePart.shapeParameter) mismatched.push('shapeParameter');
+          if (construction(fields) !== construction(samePart)) mismatched.push('filled');
+          if (fields.thickness !== undefined && samePart.thickness !== undefined
+            && !close(fields.thickness, samePart.thickness)) mismatched.push('thickness');
+        }
         if (mismatched.length === 0) {
           stats.duplicates++;
         } else {
@@ -499,6 +515,7 @@ need this to regenerate it.`);
 
       // 2. Same dimensions under a different part number? (>=2 comparable dims)
       const dimDup = candidates.find((p) => {
+        if (!compatibleProfile(spec.kind, fields, p)) return false;
         const comparable = dims.filter(
           (d) => typeof fields[d] === 'number' && typeof p[d] === 'number',
         );
@@ -517,7 +534,8 @@ need this to regenerate it.`);
       // part-number column (or vice versa). A row is a duplicate if a
       // previously added row of this kind+manufacturer has the same primary
       // dimensions AND shares an identifier (part number or description).
-      const dimSig = dims.map((d) => fields[d] ?? '').join('|');
+      const identity = PROFILE_KINDS.has(spec.kind) ? [...dims, 'shape', 'shapeParameter', 'filled', 'thickness'] : dims;
+      const dimSig = identity.map((d) => fields[d] ?? '').join('|');
       const ids = [...new Set([npart, normPart(r[2])].filter(Boolean))];
       const sigs = ids.map((id) => `${key}|${id}|${dimSig}`);
       if (sigs.some((s) => addedIndex.has(s))) {

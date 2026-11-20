@@ -1,7 +1,30 @@
 import { describe, expect, it } from 'vitest';
-import { audit, classify } from './matcher-sweep.classify.mjs';
+import { audit, classify, parseResults } from './matcher-sweep.classify.mjs';
+import { matcherBoosterEnabled, simulationNumbers } from './matcher-inventory.mjs';
+import { Window } from 'happy-dom';
 import { mutations, replaceMutationAnchor, runMutations } from './matcher-sweep.mutate.mjs';
 import { readFileSync } from 'node:fs';
+
+it('handles stray boosters outside a simulation without an inventory error', async () => {
+  const win = new Window();
+  try {
+    const doc = new win.DOMParser().parseFromString('<RASAero><Booster1Engine>G80</Booster1Engine>'
+      + '<Booster2Engine>G80</Booster2Engine><SimulationList><Simulation>'
+      + '<IncludeBooster1>true</IncludeBooster1><Booster1Engine>G80</Booster1Engine>'
+      + '</Simulation></SimulationList></RASAero>', 'text/xml');
+    const owners = new WeakMap();
+    simulationNumbers(doc, 'Simulation', owners);
+    const engines = [...doc.querySelectorAll('Booster1Engine, Booster2Engine')];
+    expect(engines.map(el => matcherBoosterEnabled(el, owners.get(el)))).toEqual([false, false, true]);
+  } finally { await win.happyDOM.close(); }
+});
+
+it('classifies empty JSONL as an incomplete manifest rather than a JSON error', () => {
+  const report = audit({ selectedFiles: 0, expectedFiles: 1 }, parseResults('\n \n'));
+  expect(report.pass).toBe(false);
+  expect(report.failures).toContain('Partial manifest');
+  expect(parseResults('{"key":"one"}\n\n')).toEqual([{ key: 'one' }]);
+});
 
 describe('mutation harness anchor guards', () => {
   it('guards retained folded evidence with a live source anchor', () => {

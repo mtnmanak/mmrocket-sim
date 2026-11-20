@@ -355,6 +355,11 @@ export function round(v) {
  * Parse the <Materials> section of one .orc file into a Map of
  * name -> { TYPE -> density(SI) }. Appends any problems to `warnings`.
  */
+const NUMERIC_TOKEN = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+function numericToken(text) {
+  return NUMERIC_TOKEN.test(text.trim()) ? Number(text.trim()) : NaN;
+}
+
 export function parseMaterials(xml, fileName, warnings) {
   const materials = new Map();
   const materialsBlock = extractBlock(xml, 'Materials');
@@ -367,7 +372,7 @@ export function parseMaterials(xml, fileName, warnings) {
         const densEl = get('Density');
         const type = (get('Type')?.text || '').toUpperCase();
         if (!name || !densEl || !type) throw new Error('missing Name/Density/Type');
-        const raw = Number.parseFloat(densEl.text);
+        const raw = numericToken(densEl.text);
         if (!Number.isFinite(raw)) throw new Error(`bad density "${densEl.text}"`);
         const uom = densEl.attrs.UnitsOfMeasure || attrs.UnitsOfMeasure;
         const density = round(convertDensity(raw, uom, type, `material "${name}" in ${fileName}`));
@@ -456,7 +461,7 @@ export function parseOrc(xml, fileName, globalMaterials) {
           if (tag === 'Material') material = mat;
           else lineMaterial = mat;
         } else if (MASS_FIELDS.has(tag)) {
-          const v = Number.parseFloat(el.text);
+          const v = numericToken(el.text);
           if (!Number.isFinite(v)) throw new Error(`bad ${tag} "${el.text}"`);
           dims[camel(tag)] = round(convertMass(v, unit, ctx));
         } else if (BOOL_FIELDS.has(tag)) {
@@ -464,21 +469,22 @@ export function parseOrc(xml, fileName, globalMaterials) {
         } else if (STRING_FIELDS.has(tag)) {
           dims[camel(tag)] = el.text;
         } else if (COUNT_FIELDS.has(tag)) {
-          const v = Number.parseFloat(el.text);
+          const v = numericToken(el.text);
           if (!Number.isFinite(v)) throw new Error(`bad ${tag} "${el.text}"`);
           dims[camel(tag)] = v;
         } else if (LENGTH_FIELDS.has(tag)) {
-          const v = Number.parseFloat(el.text);
+          const v = numericToken(el.text);
           if (!Number.isFinite(v)) throw new Error(`bad ${tag} "${el.text}"`);
           dims[camel(tag)] = round(convertLength(v, unit, ctx));
         } else {
           // Unknown field: keep it rather than lose data. Numbers with a
           // Unit attribute are treated as lengths; bare numbers/strings pass
           // through; booleans are parsed.
-          const num = Number.parseFloat(el.text);
+          const num = numericToken(el.text);
+          if (unit && !Number.isFinite(num)) throw new Error(`bad ${tag} "${el.text}"`);
           if (/^(true|false)$/i.test(el.text)) {
             dims[camel(tag)] = /^true$/i.test(el.text);
-          } else if (Number.isFinite(num) && /^[\s+-.\d eE]+$/.test(el.text)) {
+          } else if (Number.isFinite(num)) {
             dims[camel(tag)] = unit ? round(convertLength(num, unit, ctx)) : num;
           } else {
             dims[camel(tag)] = el.text;

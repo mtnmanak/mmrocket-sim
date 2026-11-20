@@ -48,13 +48,13 @@ describe('printed delay averages', () => {
     expect(text).not.toContain('motor');
   });
 
-  it('matches every average source folder hardware class to its catalogue type', () => {
+  it('matches every measured and average source folder hardware class to its catalogue type', () => {
     const catalogue = new Map(motorsJson.motors.map(m => [m.motorId, m]));
-    for (const [id, motor] of Object.entries(data.averages)) {
-      for (const document of motor.documents) {
+    for (const [id, motor] of [...Object.entries(data.averages), ...Object.entries(data.motors)]) {
+      for (const document of ('documents' in motor ? motor.documents : [motor.document])) {
         const folder = document.slice(0, document.lastIndexOf('/'));
         const hardware = /Single[- ]Use/i.test(folder) ? 'SU'
-          : /RMS-|reload/i.test(folder) ? 'reload' : null;
+          : /RMS-|reload|KBA A-C/i.test(folder) ? 'reload' : null;
         expect(hardware, document).not.toBeNull();
         expect(catalogue.get(id)?.type, `${motor.designation}: ${document}`).toBe(hardware);
       }

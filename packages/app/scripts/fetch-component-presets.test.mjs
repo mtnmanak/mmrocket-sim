@@ -25,6 +25,36 @@ const FT = 12 * IN;
 const LB = 0.45359237;
 const OZ = LB / 16;
 
+it.each([
+  ['OutsideDiameter', '18,5'], ['Length', '100junk'], ['Mass', '25g'],
+  ['Thickness', '1/16'], ['LineCount', '3oops'], ['Length', ''],
+  ['Length', '1 2'], ['Length', '0x10'], ['Mystery', '1 2'],
+])('rejects the whole malformed numeric token <%s>%s', (tag, value) => {
+  const unit = ['Mass', 'LineCount'].includes(tag) ? '' : ` Unit="${tag === 'Thickness' ? 'in' : 'mm'}"`;
+  const result = parseOrc(`<Components><BodyTube><Manufacturer>Test</Manufacturer><PartNumber>T</PartNumber>`
+    + `<${tag}${unit}>${value}</${tag}></BodyTube></Components>`, 'bad.orc', new Map());
+  expect(result.presets).toEqual([]);
+  expect(result.skippedComponents).toBe(1);
+  expect(result.warnings.join('\n')).toContain(`bad ${tag}`);
+});
+
+it('keeps a bare unknown multi-token value as text rather than its numeric prefix', () => {
+  const result = parseOrc('<Components><BodyTube><Mystery>1 2</Mystery></BodyTube></Components>', 'text.orc', new Map());
+  expect(result.presets[0].mystery).toBe('1 2');
+});
+
+it.each([' +18.5 ', '1.85e1', '.185e2'])('accepts a complete decimal/scientific token %s', value => {
+  const result = parseOrc(`<Components><BodyTube><Length Unit="mm">${value}</Length></BodyTube></Components>`, 'valid.orc', new Map());
+  expect(result.presets[0].length).toBeCloseTo(0.0185, 12);
+});
+
+it('rejects comma density rather than accepting its numeric prefix', () => {
+  const warnings = [];
+  expect(parseMaterials('<Materials><Material><Name>Test</Name><Type>BULK</Type>'
+    + '<Density>0,067</Density></Material></Materials>', 'bad.orc', warnings).size).toBe(0);
+  expect(warnings.join('\n')).toContain('bad density');
+});
+
 it('refuses an unclosed comment without rescanning later openers', () => {
   expect(stripComments('<r><!-- closed --><x/></r>')).toBe('<r><x/></r>');
   expect(() => stripComments('<r>' + '<!--'.repeat(20_000))).toThrow(/unclosed.*comment/i);
@@ -284,6 +314,14 @@ describe('main', () => {
     expect(code).toBe(0);
     expect(written.presets.map((p) => p.partNo)).toEqual(['BT-20', 'BT-5']);
     expect(written.presets[0].length).toBe(0.1);
+  });
+
+  it('counts malformed numeric rows toward the partial-output refusal', async () => {
+    const result = await run({ fetchImpl: async url => url.includes('api.github.com')
+      ? { ok: true, json: async () => [{ type: 'file', name: 'a.orc', download_url: 'https://raw/a.orc' }] }
+      : { ok: true, text: async () => orc('BT-5').replace('100</Length>', '100junk</Length>') } });
+    expect(result.code).toBe(2);
+    expect(result.written).toBeNull();
   });
 
   it('writes NOTHING and exits 2 when a file fails to download', async () => {
