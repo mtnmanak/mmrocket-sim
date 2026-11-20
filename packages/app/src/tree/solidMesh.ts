@@ -19,15 +19,17 @@ import { num, numOpt } from './nodeNum.js';
 import { axialLength } from './position.js';
 import { enclosesArea, signedArea } from './polygon.js';
 import { outerProfile } from './shapeProfile.js';
+import { displayTransitionEnds } from './transitionRadii.js';
 import { tubeFinRadius, tubeFinWall } from './tubefins.js';
 import { finRootChord, finTabSpan } from './finTab.js';
+import { MAX_FIN_OUTLINE_POINTS } from './finOutline.js';
 import { isTailCone, noseEnds } from './tailCone.js';
 import { finOnMount, type MountedFin, type MountSurface } from './finRoot.js';
 import {
   finMacFromOutline, finSectionLaw, finSectionSpec, printableHalf, PRINT_MIN_EDGE, sectionHalfThickness,
   sectionProfile, type FinSectionLaw, type FinSectionSpec,
 } from './finSection.js';
-import { chordOutline, chordRatioStations, finSectionFlatReason, seatedChordPoints } from './finChords.js';
+import { chordOutline, chordRatioStations, finSectionFlatReason, seatedChordPoints, sectionMacPoints } from './finChords.js';
 
 export interface SolidMesh {
   /** xyz triples, meters */
@@ -561,6 +563,7 @@ export function finPlanformPoints(node: ComponentNode): Array<[number, number]> 
  * depth is clamped to; both exporters pass solidContextFor's.
  */
 export function finCutContours(node: ComponentNode, ctx: SolidContext = {}): Array<Array<[number, number]>> | null {
+  if (node.type === 'freeformfinset' && Array.isArray(node['points']) && node['points'].length > MAX_FIN_OUTLINE_POINTS) return null;
   const planform = finPlanformPoints(node);
   if (!planform) return null;
   let pts = planform;
@@ -1218,7 +1221,8 @@ function shapedFinFor(node: ComponentNode, ctx: SolidContext): { shape: FinPrint
   const chordPts = node.type === 'freeformfinset' && ctx.finMount
     ? seatedChordPoints(pts, ctx.finFront ?? 0, ctx.finMount)
     : pts;
-  const spec = finSectionSpec(node, finMacFromOutline(chordPts));
+  const macPts = node.type === 'freeformfinset' ? sectionMacPoints(pts, ctx.finFront ?? 0, ctx.finMount) : pts;
+  const spec = finSectionSpec(node, finMacFromOutline(macPts));
   const built = shapedFinSolid(node, ctx, pts, chordPts, spec);
   if ('fail' in built) return { shape: { kind: 'fallback', law, reason: built.fail } };
   return { shape: { kind: 'shaped', law, minEdge: PRINT_MIN_EDGE, tab: built.tab }, mesh: built.mesh };
@@ -1338,6 +1342,17 @@ export function ringOuterRadius(node: ComponentNode, ctx: SolidContext): { r: nu
   return { r: FALLBACK_RADIUS, assumed: true };
 }
 
+/** A stated bore is never replaced with an automatic one when it cannot fit. */
+export function unusableStatedRingBore(node: ComponentNode, ctx: SolidContext): boolean {
+  if (node.type !== 'centeringring') return false;
+  const bore = numOpt(node, 'innerRadius');
+  const outer = ringOuterRadius(node, ctx);
+  return bore !== undefined && (bore < 0 || (!outer.assumed && outer.r > EPS && bore >= outer.r - EPS));
+}
+
+export const UNUSABLE_RING_BORE_NOTE = 'The stated inside diameter leaves no ring to cut or print at the resolved outside diameter. '
+  + 'Check the source part dimensions and the containing tube before fabrication.';
+
 /**
  * The bore (m) a centering ring of outer radius `R` is cut to, before the
  * fits-inside-R check its two callers (componentLoop, the DXF writer) make —
@@ -1357,7 +1372,10 @@ export function ringOuterRadius(node: ComponentNode, ctx: SolidContext): { r: nu
 export function centeringRingBore(node: ComponentNode, ctx: SolidContext, R: number): number | null | undefined {
   const own = numOpt(node, 'innerRadius');
   if (ctx.mountLayoutUnresolved) return null;
-  if (own !== undefined && own >= 0 && own < R - EPS) return own;
+  if (own !== undefined) {
+    if (unusableStatedRingBore(node, ctx)) return null;
+    return own < R - EPS ? own : undefined;
+  }
   return ctx.mountOuterRadius;
 }
 
@@ -1404,8 +1422,7 @@ export function componentLoop(
       const fore = numOpt(node, 'foreRadius') ?? ctx.foreRadius;
       const aft = numOpt(node, 'aftRadius') ?? ctx.aftRadius;
       const assumed = fore === undefined || aft === undefined;
-      const Rf = fore ?? FALLBACK_RADIUS;
-      const Ra = aft ?? FALLBACK_RADIUS;
+      const { fore: Rf, aft: Ra } = displayTransitionEnds({ ...node, foreRadius: fore, aftRadius: aft });
       const wall = kernelNum(node, 'thickness');
       const { shape, param } = shapeOf(node);
       // node['clipped'] (.ork <shapeclipped>) MUST ride along, exactly as

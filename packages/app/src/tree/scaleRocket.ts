@@ -6,7 +6,7 @@ import {
 } from '../services/motorDb.js';
 import { OVERRIDE_INCLUDES_MOTOR, STATED_STAGE_FIGURES } from '../services/statedLaunchWeight.js';
 import { kernelDefault, kernelNum, KERNEL_DEFAULT_FIN_POINTS } from './kernelDefaults.js';
-import { finOutlineProblem, kernelFinPoints, MAX_FIN_POINT_M, type FinOutlinePoint } from './finOutline.js';
+import { finCoordinateProblem, finOutlineProblem, kernelFinPoints, MAX_FIN_POINT_M, MAX_FIN_OUTLINE_POINTS, type FinOutlinePoint } from './finOutline.js';
 import { ancestorsOf, findParent, motorMounts, mountName } from './treeModel.js';
 import { axialLength, positionOf, startFromPosition } from './position.js';
 import { lookupTable } from '../services/xmlUtil.js';
@@ -636,7 +636,9 @@ export function scaledFinProblems(tree: RocketTree, factor: number, units: UnitS
     for (const n of nodes) {
       if (n.type === 'freeformfinset') {
         const problem = (points: FinOutlinePoint[]) => {
-          const invalid = finOutlineProblem(points, units);
+          // Retained large outlines still get the linear dimension/snap checks.
+          const invalid = points.length > MAX_FIN_OUTLINE_POINTS
+            ? finCoordinateProblem(points, units) : finOutlineProblem(points, units);
           if (invalid) return invalid;
           const [x0, y0] = points[0] ?? [0, 0];
           const relative = points.map(([x, y]): FinOutlinePoint => [x - x0, y - y0]);

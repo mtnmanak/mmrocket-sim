@@ -1,4 +1,30 @@
 // @vitest-environment happy-dom
+// J7 r4: units 19 -> 23 handles angle comparisons hidden by rounding;
+// sanitize 37 -> 39 handles scalar rounding and binary32 Haack boundary
+// serialization without a spurious repair. shroudConvert 3 -> 5 refuses
+// native dimensions outside the existing schema limits, retaining the fin.
+// geometryRound4J7 tests both angle signs, real/noisy scalar excesses and
+// each refused envelope. No flight threshold or numerical tolerance changed.
+// J7 r3: sanitize 36 -> 37 applies existing noticeEqual residue handling to
+// the load vent repair, matching its patch sibling. geometryRound3J7 tests
+// exact 95% (0.665 / 0.7 m) and a real 1 mm excess; no limit changed.
+// J7 r2: meshExportNotes 2 -> 3 discloses the existing 5,000-point validation
+// ceiling and omitted fins; geometryRound2J7 and PropertyPanel.inputs cover
+// preservation, bounded fabrication and visible simulation/mesh differences.
+// No flight threshold changed. Haack/vent repairs now report the final limit
+// once; geometryRound2J7 covers load and patch paths with original values.
+// J7: finOutline 5 -> 6 adds the existing file-reader point ceiling to editor
+// validation (retains source data, no flight threshold). schema 5 -> 7 names
+// the simulator's existing 2.5 m shroud limit; sanitize 31 -> 36 formats
+// angle and cross-field vent repairs in selected units. meshExportNotes adds
+// two comparison producers for effective vs specified width, using the shared
+// precision-aware comparison formatter. geometryAuditJ7, PropertyPanel.inputs
+// and meshExportNotes tests cover loaded/typed limits, clipped tabs and widths.
+// J7 sweep: shroudConvert 2 -> 3 discloses retained oversized outlines;
+// solidMesh 5 -> 6 supplies the common invalid-bore refusal. printPack and
+// shroudConvert regressions cover these messages. No flight threshold moved.
+// The final two sanitize producers cover the same vent repair on patch/scale
+// writes; scaleRocket's 100x load-boundary identity regression covers the cap.
 // PRFL-1: census unchanged. The owner-defined 0.85–1.15 display band and
 // unity crossings describe the sampled flight, with no verdict or flight
 // threshold change. rollPitchResonance.test covers interval boundaries,

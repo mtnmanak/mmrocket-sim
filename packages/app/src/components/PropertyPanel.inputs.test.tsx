@@ -44,6 +44,51 @@ const show = (tree: RocketTree, node: ComponentNode, info?: ComponentInfo,
 
 const inputNamed = (name: string): HTMLInputElement =>
   host.querySelector<HTMLInputElement>(`input[aria-label="${name}"]`)!;
+
+it.each(['podset', 'parallelstage'] as const)('r4 S4a-b3 displays a restored special radial reference on %s without exposing new choices', type => {
+  for (const method of ['surface', 'coaxial']) {
+    const node: ComponentNode = { type, id: 'restored', radiusMethod: method, radiusOffset: 0.09 };
+    show(treeOf(tube('host', { children: [node] })), node);
+    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Radial reference"]')!;
+    expect(select.value).toBe(method);
+    expect(select.selectedIndex).toBeGreaterThanOrEqual(0);
+    expect(select.selectedOptions[0]!.textContent).toContain('restored');
+    expect(select.selectedOptions[0]!.disabled).toBe(true);
+    expect(inputNamed('Radial distance (mm)')).toBeNull();
+    expect([...select.options].filter(o => !o.disabled).map(o => o.value)).toEqual(['relative', 'free']);
+  }
+});
+
+it('r2 S4b-b2 discloses an oversized fin without mounting the coordinate table', () => {
+  const f: ComponentNode = { type: 'freeformfinset', id: 'huge', thickness: 0.004, crossSection: 'rounded',
+    points: Array.from({ length: 12000 }, (_, i) => [i / 120000, Math.sin(Math.PI * i / 11999) * 0.02]) };
+  show(treeOf(tube('host', { children: [f] })), f);
+  expect(host.querySelector('.fin-print-scope')?.textContent).toMatch(/3D view.*mesh exports.*still.*simulat/);
+  expect(host.querySelector('.fin-table')).toBeNull();
+});
+
+it.each(['DXF', 'STL'])('r3 S4b-b2 explains the large-outline limit when %s export is refused', async format => {
+  const f: ComponentNode = { type: 'freeformfinset', id: 'huge', thickness: 0.004, crossSection: 'rounded',
+    points: Array.from({ length: 12000 }, (_, i) => [i / 120000, Math.sin(Math.PI * i / 11999) * 0.02]) };
+  show(treeOf(tube('host', { children: [f] })), f);
+  const button = [...host.querySelectorAll('button')].find(b => b.textContent?.includes(format))!;
+  await act(async () => { button.click(); });
+  const message = [...host.querySelectorAll('[role="alert"]')].map(a => a.textContent).join(' ');
+  expect(message).toContain('5,000');
+  expect(message).not.toContain('crosses itself');
+});
+
+it('r3 S4a-b2 measures shroud width on the drawn unresolved transition', () => {
+  const shroud: ComponentNode = { type: 'fairing', id: 'sh', width: 0.03 };
+  const a: ComponentNode = { type: 'transition', id: 'a', length: 0.1, foreRadius: 0.01, children: [shroud] };
+  const b: ComponentNode = { type: 'transition', id: 'b', length: 0.1, aftRadius: 0.03 };
+  show(treeOf(a, b), shroud);
+  expect(host.textContent).not.toContain('view and mesh exports use a width');
+  // A genuinely capped width still agrees with the same 25 mm drawn radius.
+  const wide = { ...shroud, width: 0.06 };
+  show(treeOf({ ...a, children: [wide] }, b), wide);
+  expect(host.textContent).toContain('view and mesh exports use a width of 49 mm');
+});
 /** The ▴ (0) or ▾ (1) spinner beside a named NumField. */
 const spinner = (name: string, i: 0 | 1): HTMLButtonElement =>
   inputNamed(name).closest('.numfield')!.querySelectorAll('button')[i] as HTMLButtonElement;
@@ -63,6 +108,45 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
   localStorage.clear();
+});
+
+describe('J7 consistent drawn and flown inputs', () => {
+  const typeField = (label: string, value: string) => {
+    const input = document.getElementById(labelStarting(label).htmlFor) as HTMLInputElement;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  };
+  it.each(['25', '-25'])('S4a-g2 clamps a typed cant of %s degrees', value => {
+    const fin: ComponentNode = { type: 'trapezoidfinset', id: 'f', rootChord: 0.1, tipChord: 0.05, height: 0.03 };
+    show(treeOf(tube('b', { children: [fin] })), fin);
+    typeField('Cant angle', value);
+    expect(patches.at(-1)?.cant).toBeCloseTo(Math.sign(Number(value)) * Math.PI / 12, 12);
+  });
+  it('S4a-g6 clamps a typed plate angle and resets the parameter when shape changes', () => {
+    const plate = { type: 'protuberance', id: 'p', dragClass: 'plate' } as unknown as ComponentNode;
+    show(treeOf(tube('b', { children: [plate] })), plate);
+    typeField('Plate angle', '120');
+    expect(patches.at(-1)?.plateAngle).toBeCloseTo(Math.PI / 2, 12);
+    const cone: ComponentNode = { type: 'nosecone', id: 'n', shape: 'ogive', shapeParameter: 1 };
+    show(treeOf(cone), cone);
+    const shape = host.querySelector<HTMLSelectElement>('select[aria-label="Shape"]')!;
+    act(() => { shape.value = 'haack'; shape.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(patches.at(-1)).toEqual({ shape: 'haack', shapeParameter: undefined });
+  });
+  it('S4a-b2 shows the effective shroud width beside its properties', () => {
+    const shroud: ComponentNode = { type: 'fairing', id: 's', width: 0.025 };
+    show(treeOf(tube('b', { outerRadius: 0.012, children: [shroud] })), shroud);
+    expect(host.textContent).toMatch(/view and mesh exports use a width of 23.52 mm/);
+  });
+  it('S4a-g8 sends only the selected fin parent to alignment', () => {
+    const f: ComponentNode = { type: 'trapezoidfinset', id: 'f' };
+    const selected: string[] = [];
+    show(treeOf(tube('target', { children: [f, { ...f, id: 'second' }] })), f, undefined, { onAutoAlignFins: id => selected.push(id) });
+    click([...host.querySelectorAll('button')].find(b => b.textContent?.includes('Auto-align fin sets'))!);
+    expect(selected).toEqual(['target']);
+  });
 });
 
 describe('PropertyPanel recovery and ballast radial placement', () => {

@@ -1,12 +1,12 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { finRootChord, finTabFront } from './finTab.js';
+import { finRootChord, finTabSpan } from './finTab.js';
 import { num, numOpt } from './nodeNum.js';
 import { axialLength, positionOf, startFromPosition } from './position.js';
 import { outerProfile } from './shapeProfile.js';
 import type { SolidContext } from './solidMesh.js';
 import { noseEnds } from './tailCone.js';
 import { kernelDefault, kernelNum } from './kernelDefaults.js';
-import { resolveTransitionRadii } from './transitionRadii.js';
+import { displayTransitionEnds, resolveTransitionRadii } from './transitionRadii.js';
 import { flatMount } from './finRoot.js';
 import { profileMountOf } from './schematicLayout.js';
 import { clusterCount } from './cluster.js';
@@ -92,7 +92,7 @@ export function solidContextFor(tree: RocketTree, node: ComponentNode, purpose: 
       ctx.finMount = flatMount(num(parent, 'outerRadius', 0.012), len);
     } else if (parent.type === 'transition' || parent.type === 'nosecone') {
       const ends = parent.type === 'nosecone' ? noseEnds(parent, num(parent, 'aftRadius', 0.012))
-        : { fore: num(parent, 'foreRadius', 0.025), aft: num(parent, 'aftRadius', 0.025) };
+        : displayTransitionEnds(parent);
       ctx.finMount = profileMountOf(parent, len, ends.fore, ends.aft);
     }
   }
@@ -216,6 +216,9 @@ function boreAt(chain: ComponentNode[], i: number, child: ComponentNode, fabrica
       // neighbouring part — and is not read as 0 here: that came out 17.2 mm
       // where the kernel flies 18.0, unflagged. Unresolved, the part is
       // labelled "(assumed size)" instead. The snapshot above resolves neighbours.
+      // A drawing placeholder is useful for a fin's seat/tab, but cannot
+      // certify the bore that internal stock must fit.
+      if (host.type === 'transition' && (numOpt(host, 'foreRadius') === undefined || numOpt(host, 'aftRadius') === undefined)) return undefined;
       const len = axialLength(child);
       const pos = positionOf(child);
       const start = startFromPosition(pos, len, axialLength(host));
@@ -248,8 +251,8 @@ function boreAt(chain: ComponentNode[], i: number, child: ComponentNode, fabrica
 /**
  * A nose cone's or transition's OUTER radius at stations `xs` (m from its
  * front), each clamped into its length as `Transition.getRadius` clamps it —
- * or undefined for any other part, or when a transition radius it omits is
- * AUTOMATIC (taken from the neighbouring part, which this does not resolve).
+ * or undefined for any other part. The caller resolves automatic neighbours;
+ * remaining unresolved ends use the same placeholder as the drawn fin root.
  * A field the node omits reads the kernel bridge's own default
  * (ComponentFactory: nose 70 mm long, 12 mm aft radius, ogive; transition
  * 50 mm, conical), or "the way the kernel resolves it" is not true of a
@@ -260,10 +263,9 @@ function profileRadiiAt(host: ComponentNode, xs: readonly number[]): number[] | 
   const nose = host.type === 'nosecone';
   const L = axialLength(host);
   // A nose cone's base is its aft end — or, flipped into a tail cone, its fore end.
-  const ends = nose ? noseEnds(host, num(host, 'aftRadius', 0.012)) : null;
-  const foreR = ends ? ends.fore : numOpt(host, 'foreRadius');
-  const aftR = ends ? ends.aft : numOpt(host, 'aftRadius');
-  if (foreR === undefined || aftR === undefined) return undefined;
+  const ends = nose ? noseEnds(host, num(host, 'aftRadius', 0.012)) : displayTransitionEnds(host);
+  const foreR = ends.fore;
+  const aftR = ends.aft;
   const at = xs.map((x) => Math.min(Math.max(x, 0), L));
   const shape = typeof host['shape'] === 'string' ? (host['shape'] as string) : nose ? 'ogive' : 'conical';
   const param = numOpt(host, 'shapeParameter');
@@ -295,8 +297,10 @@ const TABBED_FINS = new Set(['trapezoidfinset', 'ellipticalfinset', 'freeformfin
  */
 function tabMaxDepth(parent: ComponentNode, fin: ComponentNode): number | undefined {
   if (parent.type === 'bodytube') return num(parent, 'outerRadius', 0.012);
+  const tab = finTabSpan(fin, finRootChord(fin), undefined);
+  if (!tab) return undefined;
   const pos = positionOf(fin);
-  const front = startFromPosition(pos, axialLength(fin), axialLength(parent)) + finTabFront(fin, finRootChord(fin));
-  const radii = profileRadiiAt(parent, [front, front + num(fin, 'tabLength', 0)]);
+  const start = startFromPosition(pos, axialLength(fin), axialLength(parent));
+  const radii = profileRadiiAt(parent, [start + tab.x0, start + tab.x1]);
   return radii ? Math.min(...radii) : undefined;
 }

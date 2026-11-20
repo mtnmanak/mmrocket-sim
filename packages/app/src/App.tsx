@@ -181,6 +181,7 @@ import { noBoreReason } from './tree/motorRoom.js';
 import { MotorLengthReadout } from './components/MotorLengthField.js';
 import { NozzleField } from './components/NozzleField.js';
 import { autoAlignFinSets } from './tree/finAlign.js';
+import { meshExportNotes } from './services/meshExportNotes.js';
 import { addNewComponent } from './services/addComponent.js';
 import { convertShrouds, type ShroudCandidate } from './tree/shroudConvert.js';
 import { mountBore } from './tree/scaleRocket.js';
@@ -2835,7 +2836,7 @@ export function App() {
     const generation = documentGeneration.current;
     try {
       const { rocketToObj } = await import('./services/objExport.js');
-      await download(rocketToObj(tree, tree.name ?? 'Rocket'), 'obj', '', [], undefined, generation);
+      await download(rocketToObj(tree, tree.name ?? 'Rocket'), 'obj', '', meshExportNotes(tree, prefs.units), undefined, generation);
     } catch (e) {
       documentNote(generation, `OBJ export failed: ${noteText(e instanceof Error ? e.message : String(e))}`, 'error', undefined, 'danger');
     }
@@ -2845,7 +2846,7 @@ export function App() {
     const generation = documentGeneration.current;
     try {
       const { rocketToGlb } = await import('./services/gltfExport.js');
-      await download(new Uint8Array(await rocketToGlb(tree, tree.name ?? 'Rocket')), 'glb', '', [], undefined, generation);
+      await download(new Uint8Array(await rocketToGlb(tree, tree.name ?? 'Rocket')), 'glb', '', meshExportNotes(tree, prefs.units), undefined, generation);
     } catch (e) {
       documentNote(generation, `glTF export failed: ${noteText(e instanceof Error ? e.message : String(e))}`, 'error', undefined, 'danger');
     }
@@ -2859,7 +2860,7 @@ export function App() {
         import('./services/stlExport.js'),
       ]);
       const { pieces } = buildPieces(tree);
-      await download(piecesToStl(pieces, tree.name ?? 'Rocket'), 'stl', '', [], undefined, generation);
+      await download(piecesToStl(pieces, tree.name ?? 'Rocket'), 'stl', '', meshExportNotes(tree, prefs.units), undefined, generation);
     } catch (e) {
       documentNote(generation, `STL export failed: ${noteText(e instanceof Error ? e.message : String(e))}`, 'error', undefined, 'danger');
     }
@@ -4905,8 +4906,8 @@ export function App() {
               rocketInfo={built?.info ?? null}
               onPatch={(patch) => setTree(updateNode(tree, selectedNode.id!, patch))}
               onPatchAll={(patch) => setTree(updateAllNodes(tree, patch))}
-              onAutoAlignFins={() => {
-                const res = autoAlignFinSets(tree, prefs.units);
+              onAutoAlignFins={(parentId) => {
+                const res = autoAlignFinSets(tree, prefs.units, parentId);
                 if (res.caution) {
                   setFileNote(res.caution, 'warn', true, 'caution');
                 } else if (res.changes.length) {

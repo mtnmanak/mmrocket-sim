@@ -9,6 +9,20 @@ import { findNode } from './treeModel.js';
 
 const PTS: [number, number][] = [[0, 0], [0, 0.02], [0.08, 0.02], [0.08, 0]];
 
+it('S4b-b2 retains oversized source data instead of scanning or converting it', () => {
+  const points = Array.from({ length: 12000 }, (_, i) => [i / 120000, Math.sin(Math.PI * i / 11999) * 0.02]);
+  const source = freeform({ id: 'large', name: 'Camera shroud', points });
+  const result = convertShrouds(wrap([source]), ['large']);
+  expect(findNode(result.tree, 'large')!.type).toBe('freeformfinset');
+  expect(findNode(result.tree, 'large')!.points).toBe(points);
+  expect(result.notes.join(' ')).toMatch(/5,000.*kept/i);
+});
+
+it('r2 P4 names cleared shrouds in conversion notes', () => {
+  const result = convertShrouds(wrap([freeform({ id: 'blank', name: '' })]), ['blank']);
+  expect(result.notes[0]).toContain('“Camera shroud”');
+});
+
 it.each(['rounded', 'airfoil'])('round-trips stored CG without applying it to a converted %s shroud', async crossSection => {
   const { engineTree } = await import('./treeModel.js');
   const source = freeform({ id: 'cam', crossSection, overrideMass: 0.04, overrideCGX: 0.01,

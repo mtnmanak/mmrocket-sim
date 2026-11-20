@@ -39,6 +39,21 @@ const thicknessAt = (mesh: SolidMesh, x: number, y: number): number => {
 };
 const FLOOR = PRINT_MIN_EDGE / 2;
 
+it('S4b-b1 prints chamfers using the curved-root MAC, not the exposed-edge MAC', async () => {
+  const points: [number, number][] = [[0, 0], [0, 0.021], [0.1, 0.021], [0.1, 0]];
+  const n: ComponentNode = { type: 'freeformfinset', id: 'curved', points, thickness: 0.004,
+    crossSection: 'airfoil', airfoilSection: 'hexagonal', airfoilLeDiamond: 0.01 };
+  const parent: ComponentNode = { type: 'transition', id: 'flare', shape: 'ogive', shapeParameter: 1,
+    foreRadius: 0.01, aftRadius: 0.03, length: 0.1, children: [n] };
+  const solid = (await componentSolid(n, solidContextFor({ components: [parent] }, n)))!;
+  expect(solid).not.toBeNull();
+  expect(isWatertight(solid.mesh)).toBe(true);
+  // At x=5 mm in the linear LE chamfer: half thickness = (t/2)*x/(LE/MAC*c).
+  // The 48-strip Java root calculation is 59.660 mm for this fixture.
+  const expected = 0.004 * 0.005 / (0.01 / 0.059660 * 0.1);
+  expect(thicknessAt(solid.mesh, 0.005, 0.0205)).toBeCloseTo(expected, 6);
+});
+
 const trap = (extra: Record<string, unknown> = {}): ComponentNode => ({
   id: 'f', type: 'trapezoidfinset', rootChord: 0.1, tipChord: 0.05, sweep: 0.05, height: 0.06, thickness: T, ...extra,
 } as ComponentNode);

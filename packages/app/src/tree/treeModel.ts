@@ -37,6 +37,7 @@ import { ventLimit } from './canopyVent.js';
 import { KERNEL_DEFAULT_CD, kernelNum } from './kernelDefaults.js';
 import { resolveTransitionRadii } from './transitionRadii.js';
 import { boundedNozzleDiameter } from './nozzles.js';
+import { reducePi } from './mountAngle.js';
 
 /**
  * Immutable tree-editing helpers. Every node carries a unique editor id
@@ -1645,7 +1646,7 @@ export function engineTree(tree: RocketTree): RocketTree {
         // radius — and therefore the 6DOF response to wind. Emitted
         // unconditionally with a 0 fallback so the carrier agrees with the
         // drawings, which all read num(child, 'angleOffset', 0).
-        angleOffset: num(n, 'angleOffset', 0),
+        angleOffset: reducePi(num(n, 'angleOffset', 0)),
         overrideCD: (cd * area) / Math.max(aRef, 1e-9),
         // KEPT, and still the number the property panel quotes: it is the
         // Mach-0.3 value, and it is what the kernel charges if the ratio below
@@ -1766,6 +1767,9 @@ export function engineTree(tree: RocketTree): RocketTree {
       } as ComponentNode;
     }
     let next: ComponentNode = n.children ? ({ ...n, children: walk(n.children, n) } as ComponentNode) : n;
+    if (n.type === 'launchlug' || n.type === 'railbutton') {
+      next = { ...next, angleOffset: reducePi(num(n, 'angleOffset', 0)) };
+    }
     // The panel's "Classic (from cross section)" option stores the EMPTY
     // string, and the bridge validates any airfoilSection it is handed — so
     // picking a section and then Classic again threw "Unknown airfoilSection
@@ -1815,10 +1819,10 @@ export function engineTree(tree: RocketTree): RocketTree {
         // a default as if it were an entry. Rides along like `cdNominal` —
         // ComponentFactory reads named keys only and ignores this one.
         next = {
-          ...next, cd: base * (1 - (hole / D) ** 2), cdNominal: base,
+          ...next, spillHoleDiameter: hole, cd: base * (1 - (hole / D) ** 2), cdNominal: base,
           ...(typedBase ? {} : { cdAuto: true }),
         } as ComponentNode;
-      }
+      } else next = { ...next, spillHoleDiameter: 0 };
     }
     return next;
   });

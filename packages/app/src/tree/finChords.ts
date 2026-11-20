@@ -43,6 +43,11 @@ import { enclosesArea } from './polygon.js';
 
 type P2 = readonly [number, number];
 
+/** Physics-resolution root for section MAC; chord shaping still uses the exposed-edge chain. */
+export function sectionMacPoints(points: readonly P2[], front = 0, mount?: MountSurface): readonly P2[] {
+  return mount ? finOnMount(points, front, mount, 100).outline : points;
+}
+
 /** Two root-line points within this (m) of one height are one run (finRoot's ON_BODY). */
 const RUN_TOL = 1e-9;
 

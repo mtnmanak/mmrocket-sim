@@ -21,8 +21,22 @@ const node = (type: string, params: Record<string, unknown>): ComponentNode =>
 
 const H2D = toPrinterVolume(printerFromPreset('bambu-h2d')!)!;
 
+it('S4b-4 gives the bed rotation required by a diagonal fit in the visible offer', () => {
+  const printer = { x: 0.236, y: 0.236, z: 0.378, margin: 0.008 };
+  const offer = printOffer(node('bodytube', { length: 0.4, outerRadius: 0.02, thickness: 0.002 }), {}, printer);
+  expect(offer.kind).toBe('single');
+  expect(offer.note).toMatch(/footprint.*rotated.*bed/);
+});
+
+it('S4b-1 explains an unusable stated bore before the export click', () => {
+  const offer = printOffer(node('centeringring', { outerRadius: 0.02, innerRadius: 0.02, length: 0.003 }),
+    { mountOuterRadius: 0.0095 }, null);
+  expect(offer.tone).toBe('warn');
+  expect(offer.note).toMatch(/inside diameter.*outside diameter/i);
+});
+
 it('prints a readable angle for the 220.5 mm bed without losing the fit', () => {
-  const printer = { x: 0.2205, y: 0.2205, z: 0.389, margin: 0 };
+  const printer = { x: 0.2205, y: 0.06, z: 0.389, margin: 0 };
   const offer = printOffer(node('bodytube', { length: 0.4, outerRadius: 0.03, thickness: 0.002 }), {}, printer);
   expect(offer.note).toContain('leaned 24.5\u00b0');
   const angle = Number(offer.note!.match(/leaned ([\d.]+)/)![1]) * Math.PI / 180;
@@ -31,7 +45,7 @@ it('prints a readable angle for the 220.5 mm bed without losing the fit', () => 
 });
 
 it('offers a fractional lean whose printed angle fits the printer', () => {
-  const printer = { x: 0.221421066, y: 0.221421066, z: 0.388593035, margin: 0 };
+  const printer = { x: 0.221421066, y: 0.06, z: 0.388593035, margin: 0 };
   const offer = printOffer(node('bodytube', { length: 0.4, outerRadius: 0.03, thickness: 0.002 }), {}, printer);
   const angle = Number(offer.note!.match(/leaned ([\d.]+)/)![1]) * Math.PI / 180;
   expect(0.4 * Math.sin(angle) + 0.06 * Math.cos(angle)).toBeLessThanOrEqual(printer.x + 1e-9);
@@ -165,7 +179,7 @@ describe('printOffer — no printer configured (the compatibility guarantee)', (
 describe('printOffer — printer set, part fits', () => {
   it('rounds a fractional lean in the printer advice', () => {
     const offer = printOffer(node('bodytube', { length: 0.4, outerRadius: 0.03 }), {},
-      { x: 0.221066483, y: 0.221066483, z: 0.389059730, margin: 0 }, 'Custom');
+      { x: 0.221066483, y: 0.06, z: 0.389059730, margin: 0 }, 'Custom');
     expect(offer.note).toMatch(/leaned 24\.\d°/);
     expect(offer.note).not.toMatch(/24\.\d{2}/);
   });

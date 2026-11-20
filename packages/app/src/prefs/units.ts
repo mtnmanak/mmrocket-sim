@@ -231,7 +231,12 @@ export function noticeQuantity(quantity: Quantity | 'area' | 'surfaceDensity' | 
   if (quantity === 'angle') {
     const symbol = typeof units === 'string' ? units : units.angle;
     const text = (sym: string) => `${noticeNumber(siToUi('angle', sym, si), sym === 'rad' ? 3 : 1)}${sym === '°' ? '' : ' '}${sym}`;
-    return symbol === 'rad' ? `${text(symbol)} (${text('°')})` : text('°');
+    const shown = symbol === 'rad' ? `${text(symbol)} (${text('°')})` : text('°');
+    if (options.against !== undefined && !noticeEqual(si, options.against)) {
+      const bound = noticeQuantity('angle', options.against, units, { ...options, against: undefined });
+      if (shown === bound) return `just ${si > options.against ? 'above' : 'below'} ${bound}`;
+    }
+    return shown;
   }
   const derived = quantity === 'area' || quantity === 'surfaceDensity' || quantity === 'lineDensity';
   const selected = typeof units === 'string' ? units : units[quantity === 'area' ? 'length' : derived ? 'density' : quantity as Quantity];

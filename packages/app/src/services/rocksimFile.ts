@@ -1,7 +1,7 @@
 import { noteField } from './noteField.js';
 import { cautionNote, flagNote, noteFlags, tierLines, zeroBulkDensityNote } from './importNotes.js';
 import { KERNEL_DEFAULT_FIN_POINTS, KERNEL_DEFAULT_MATERIALS, kernelNum, kernelRecoveryCd } from '../tree/kernelDefaults.js';
-import { flownTransitionEnds } from '../tree/transitionRadii.js';
+import { displayTransitionEnds, flownTransitionEnds } from '../tree/transitionRadii.js';
 import { tubeFinRadius, tubeFinWall } from '../tree/tubefins.js';
 import { INITIAL_UNITS, noticeEqual, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
@@ -10,7 +10,7 @@ import { filletExportNotes } from './filletExport.js';
 import { simulationExtensionLossNotes } from './orkExtensions.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
 import { repairImportedFinOutline } from './importFinOutline.js';
-import { asStageNodes, flownInstanceCount, freshId, mountsIn } from '../tree/treeModel.js';
+import { asStageNodes, findNode, flownInstanceCount, freshId, mountsIn } from '../tree/treeModel.js';
 import { mountBore } from '../tree/scaleRocket.js';
 import { CLUSTER_POINTS, clusterCount, clusterOffsets } from '../tree/cluster.js';
 import { resolveAssemblyRadius } from '../tree/assembly.js';
@@ -22,7 +22,7 @@ import { finCountOf } from '../tree/counts.js';
 import { airfoilFinMassEstimate } from '../tree/finMassEstimate.js';
 import { spansOverlap } from '../tree/finAlign.js';
 import { isFinSet } from '../tree/mountAngle.js';
-import { axialLength, positionOf, startFromPosition } from '../tree/position.js';
+import { axialLength, positionOf, resolveAbsolutePositions, startFromPosition } from '../tree/position.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, inlineXmlCdata, lookupTable, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
 import { gunzipCapped, unzipMember } from './zipMember.js';
 import { shapeParamDefault } from '../tree/shapeProfile.js';
@@ -2052,11 +2052,13 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
       + "on each set; clear those to go back to the app's own calculation, which then follows any "
       + 'change you make to the fins.');
   }
+  const airfoilTree = airfoilPinned.size ? resolveAbsolutePositions(sanitizeTree({ components })) : null;
   for (const n of airfoilPinned) {
     // Only recovery nodes were sanitized above; fins are sanitized at return.
     // Read a repaired copy without changing the pin or duplicating repair notes.
-    const flown = sanitizeTree({ components: [n] }).components[0]!;
-    const est = airfoilFinMassEstimate(flown);
+    const flown = findNode(airfoilTree!, n.id!)!;
+    const seat = solidContextFor(airfoilTree!, flown, 'file');
+    const est = airfoilFinMassEstimate(flown, seat.finMount, seat.finFront);
     const pinned = numOpt(flown, 'overrideMass');
     if (est === undefined || pinned === undefined || pinned >= 0.1 * est || noticeEqual(pinned, 0.1 * est)) continue;
     const material = flownMaterial(flown, 'density', 'materialName', KERNEL_DEFAULT_MATERIALS.bulk);
@@ -3621,12 +3623,12 @@ export function exportRkt(input: RktExportInput): string {
         common(node, parent, 'Transition');
         emit(`<Len>${axialLength(node) * LEN}</Len>`);
         // An automatic end goes out at the radius the kernel takes from the
-        // neighbour (resolveTransitionRadii); it was written as 12 / 9 mm
-        // whatever the neighbours were. The placeholders stay only for two
-        // automatic ends facing each other, which the kernel cannot resolve.
+        // neighbour (resolveTransitionRadii). Two automatic ends facing each
+        // other use the same disclosed display/fabrication placeholder.
         const ends = transitionEnds(node);
-        emit(`<FrontDia>${(ends.fore ?? 0.012) * RAD}</FrontDia>`);
-        emit(`<RearDia>${(ends.aft ?? 0.009) * RAD}</RearDia>`);
+        const displayed = displayTransitionEnds({ ...node, foreRadius: ends.fore, aftRadius: ends.aft });
+        emit(`<FrontDia>${displayed.fore * RAD}</FrontDia>`);
+        emit(`<RearDia>${displayed.aft * RAD}</RearDia>`);
         emit(`<WallThickness>${nnum(node, 'thickness', 0.002) * LEN}</WallThickness>`);
         emit(`<ShapeCode>${NOSE_SHAPE_TO_CODE[String(node['shape'] ?? 'conical')] ?? 0}</ShapeCode>`);
         // MUST follow <ShapeCode>: desktop's reader is SAX and its ShapeParameter

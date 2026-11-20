@@ -3122,6 +3122,46 @@ describe('RockSim airfoil fin sets take the file’s own computed mass and CG', 
 
   const implausible = (xml: string) => importRkt(xml).noteTiers?.filter(n => n.kind === 'I18.airfoil-mass-implausible') ?? [];
 
+  it('r2 S4b-g1 seats nose-tip-positioned airfoils in the parent frame', async () => {
+    const { solidContextFor } = await import('../tree/solidContext.js');
+    const { resolveAbsolutePositions } = await import('../tree/position.js');
+    const xml = design('<CalcMass>0.001</CalcMass><LocationMode>1</LocationMode><Xb>500</Xb>')
+      .replace('</BodyTube>', '</Transition>')
+      .replace('<BodyTube>', '<NoseCone><Len>200</Len><BaseDia>20</BaseDia></NoseCone><BodyTube><Len>300</Len><OD>20</OD></BodyTube><Transition>')
+      .replace('<Name>Tube</Name><Len>300</Len><OD>50</OD><ID>48</ID>', '<Name>Flare</Name><Len>100</Len><FrontDia>20</FrontDia><RearDia>60</RearDia>');
+    const loaded = importRkt(xml);
+    const tree = resolveAbsolutePositions(loaded.tree);
+    const fin = flatten(tree.components).find(n => n.type === 'freeformfinset')!;
+    const ctx = solidContextFor(tree, fin, 'file');
+    expect(ctx.finFront).toBeCloseTo(0, 12);
+    const seated = airfoilFinMassEstimate(fin, ctx.finMount, ctx.finFront)!;
+    const flat = airfoilFinMassEstimate(fin)!;
+    expect(seated).toBeLessThan(flat);
+    const pin = (flat + seated) / 20;
+    const corrected = importRkt(xml.replace('<CalcMass>0.001</CalcMass>', `<CalcMass>${pin * 1000}</CalcMass>`));
+    expect(corrected.noteTiers?.filter(n => n.kind === 'I18.airfoil-mass-implausible') ?? []).toHaveLength(0);
+    expect(flatten(corrected.tree.components).find(n => n.type === 'freeformfinset')!.overrideMass).toBeCloseTo(pin, 12);
+    expect(implausible(xml)).toHaveLength(1);
+  });
+
+  it('S4b-g1 compares a flare-mounted airfoil pin with its seated area', async () => {
+    const { solidContextFor } = await import('../tree/solidContext.js');
+    const xml = design('<CalcMass>0.001</CalcMass>')
+      .replace('<BodyTube>', '<Transition>').replace('</BodyTube>', '</Transition>')
+      .replace('<Len>300</Len><OD>50</OD><ID>48</ID>', '<Len>100</Len><FrontDia>20</FrontDia><RearDia>60</RearDia>');
+    const loaded = importRkt(xml);
+    const fin = flatten(loaded.tree.components).find(n => n.type === 'freeformfinset')!;
+    const ctx = solidContextFor(loaded.tree, fin, 'file');
+    const flat = airfoilFinMassEstimate(fin)!;
+    const seated = airfoilFinMassEstimate(fin, ctx.finMount, ctx.finFront)!;
+    expect(seated).toBeLessThan(flat);
+    const pin = (flat + seated) / 20;
+    const corrected = importRkt(xml.replace('<CalcMass>0.001</CalcMass>', `<CalcMass>${pin * 1000}</CalcMass>`));
+    expect(corrected.noteTiers?.filter(n => n.kind === 'I18.airfoil-mass-implausible') ?? []).toHaveLength(0);
+    expect(flatten(corrected.tree.components).find(n => n.type === 'freeformfinset')!.overrideMass).toBeCloseTo(pin, 12);
+    expect(implausible(xml)).toHaveLength(1);
+  });
+
   it('warns below one tenth of the outline estimate without changing the pin', () => {
     expect(implausible(design('<CalcMass>0.93</CalcMass>'))).toHaveLength(1);
     expect(finsOf('<CalcMass>0.93</CalcMass>')['overrideMass']).toBeCloseTo(0.00093, 10);
