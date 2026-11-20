@@ -9,6 +9,7 @@ import {
   saveSessionDebounced,
   sessionPredatesThisBuild,
   sessionSaveFailing,
+  allowSessionReplacement,
 } from './session.js';
 import { APP_VERSION } from '../version.js';
 import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
@@ -48,6 +49,78 @@ const state = () => ({
     pressureHPa: null,
     latitudeDeg: 45,
   } as LaunchConditions,
+});
+
+it('J6 repairs non-boolean Auto policies in working, legacy and saved motors', () => {
+  const spec = { designation: 'T', times: [0, 1], thrusts: [0, 0], masses: [0.1, 0.05],
+    diameter: 0.02, length: 0.1, cgX: 0.05, ejectionDelay: 5 };
+  const mm = { spec, meta: { autoDelay: 'false' }, label: 'T' };
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), motor: spec,
+    motorMeta: mm.meta, mountMotors: { m: mm }, savedConfigs: [{ id: 'a', motors: { m: mm } }] }));
+  const s = loadSession()!;
+  expect(s.motorMeta?.autoDelay).toBeUndefined();
+  expect(s.mountMotors?.m?.meta.autoDelay).toBeUndefined();
+  expect(s.savedConfigs?.[0]?.motors.m?.meta.autoDelay).toBeUndefined();
+  expect(s.treeRestoreNotes?.join(' ')).toMatch(/delay/i);
+});
+
+it('J6 restores a deeply nested autosave without a recursive JSON reviver', () => {
+  const depth = 1600;
+  const tree = '{"type":"bodytube","children":['.repeat(depth) + '{"type":"bodytube"}' + ']}'.repeat(depth);
+  localStorage.setItem('online-openrocket.session.v1', '{"tree":{"name":"Deep","components":[' + tree + ']},"launch":{}}');
+  const s = loadSession();
+  expect(s).not.toBeNull();
+  expect(s?.tree.name).toBe('Deep');
+});
+
+it('J6 repairs negative restored wind rather than flying a reversed wind', () => {
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), launch: { ...state().launch, windAverage: -5 } }));
+  expect(loadSession()!.launch.windAverage).toBe(DEFAULT_CONDITIONS.windAverage);
+});
+
+it('J6 preserves unreadable existing autosave bytes until a deliberate replacement', () => {
+  discardSession();
+  localStorage.setItem('online-openrocket.session.v1', '{broken');
+  expect(loadSession()).toBeNull();
+  const restored = designStateFromSession(null, { legacyMaxMotorLengthM: null });
+  expect(restored.refused).toBe(true);
+  expect(restored.restoreNotes.join(' ')).toContain('could not be read');
+  saveSessionDebounced(state()); flushSession();
+  expect(localStorage.getItem('online-openrocket.session.v1')).toBe('{broken');
+  allowSessionReplacement(); flushSession();
+  expect(JSON.parse(localStorage.getItem('online-openrocket.session.v1')!).tree.name).toBe('Test');
+});
+
+it('r2 distinguishes blocked storage from unreadable existing autosave bytes', () => {
+  discardSession();
+  const read = vi.spyOn(localStorage, 'getItem').mockImplementation(() => { throw new DOMException('Blocked', 'SecurityError'); });
+  try {
+    expect(loadSession()).toBeNull();
+    expect(designStateFromSession(null, { legacyMaxMotorLengthM: null }).refused).toBe(false);
+    expect(designStateFromSession(null, { legacyMaxMotorLengthM: null }).restoreNotes.join(' ')).not.toContain('original bytes');
+    saveSessionDebounced(state()); flushSession();
+    expect(sessionSaveFailing()).toBe(true);
+  } finally { read.mockRestore(); }
+});
+
+it('r3 retains a named catalogue snapshot for the build to refuse when its mass curve ends negative', () => {
+  const mm = { spec: { designation: 'T', times: [0, 1], thrusts: [0, 0], masses: [0.1, -0.05],
+    diameter: 0.02, length: 0.1, cgX: 0.05, ejectionDelay: 5 }, meta: { motorId: 'catalogue' }, label: 'T' };
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), mountMotors: { m: mm } }));
+  expect(loadSession()!.mountMotors?.m).toEqual({ ...mm, ignition: { event: 'automatic', delay: 0 } });
+});
+
+it('J6 bounds saved and detached event heights as well as the component defaults', () => {
+  const deployments = { chute: { deployEvent: 'altitude', deployAltitude: 1e308, deployDelay: 0 } };
+  const separations = { stage: { separationEvent: 'launch', separationAltitude: 1e308, separationDelay: 0 } };
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), configLayers: 1,
+    savedConfigs: [{ id: 'a', motors: {}, deployments, separations }], detachedOverrides: { deployments, separations } }));
+  const s = loadSession()!;
+  for (const layer of [s.savedConfigs![0]!, s.detachedOverrides!]) {
+    expect(Number.isFinite(layer.deployments!.chute!.deployAltitude! / 0.3048)).toBe(true);
+    expect(Number.isFinite(layer.separations!.stage!.separationAltitude! / 0.3048)).toBe(true);
+  }
+  expect(s.treeRestoreNotes?.join(' ')).toContain('flight settings');
 });
 
 it('HF2 clears oversized measurement strings rather than coercing them', () => {
@@ -1342,6 +1415,13 @@ describe('the weather provenance record in the session', () => {
     saveSessionDebounced({ ...state(), weather: snapshot() as never });
     vi.runAllTimers();
     expect(loadSession()!.weather).toEqual(snapshot());
+  });
+
+  it('r3 retains an older weather receipt with absent prior atmosphere fields', () => {
+    const weather = { ...snapshot(), before: {} };
+    saveSessionDebounced({ ...state(), weather: weather as never });
+    vi.runAllTimers();
+    expect(loadSession()!.weather).toEqual(weather);
   });
 
   it('drops a malformed one — and nothing else', () => {

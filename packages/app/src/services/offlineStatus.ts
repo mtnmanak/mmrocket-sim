@@ -77,6 +77,13 @@ export function createOfflineStatusStore() {
     updateCallbacks: Pick<NonNullable<Parameters<Register>[0]>, 'onNeedReload' | 'onNeedRefresh'> = {}): () => void {
     let sw: ServiceWorkerContainer | undefined;
     const check = () => { void recheck(); };
+    let checkingLifecycle = false;
+    const lifecycle = () => {
+      if (checkingLifecycle) return;
+      checkingLifecycle = true;
+      void recheck().finally(() => { checkingLifecycle = false; });
+    };
+    const visible = () => { if (document.visibilityState === 'visible') lifecycle(); };
     try {
       sw = navigator.serviceWorker;
       if (!sw) {
@@ -84,6 +91,10 @@ export function createOfflineStatusStore() {
         return () => {};
       }
       sw.addEventListener('controllerchange', check);
+      globalThis.window?.addEventListener('pageshow', lifecycle);
+      globalThis.window?.addEventListener('online', lifecycle);
+      globalThis.window?.addEventListener('offline', lifecycle);
+      globalThis.document?.addEventListener('visibilitychange', visible);
       check();
       register({
         immediate: true,
@@ -112,6 +123,10 @@ export function createOfflineStatusStore() {
     return () => {
       ++generation;
       try { sw?.removeEventListener('controllerchange', check); } catch { /* browser denied access */ }
+      globalThis.window?.removeEventListener('pageshow', lifecycle);
+      globalThis.window?.removeEventListener('online', lifecycle);
+      globalThis.window?.removeEventListener('offline', lifecycle);
+      globalThis.document?.removeEventListener('visibilitychange', visible);
     };
   }
 

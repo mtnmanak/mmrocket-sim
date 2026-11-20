@@ -65,6 +65,12 @@ beforeEach(() => {
   root = createRoot(host);
 });
 
+it('r2 does not warn for consistent 11/8/3 mm rail-button dimensions', () => {
+  mount(onBody({ id: 'rail', type: 'railbutton', totalHeight: 11 * 0.001,
+    baseHeight: 8 * 0.001, flangeHeight: 3 * 0.001 }));
+  expect(host.textContent).not.toContain('The stored dimensions conflict');
+});
+
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
@@ -72,6 +78,23 @@ afterEach(() => {
 });
 
 describe('PropertyPanel — an entry that converts to infinity is refused', () => {
+  it.each(['°', 'rad'])('J6 typed signed cant matches the kernel in %s', angle => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { angle } }));
+    mount(onBody({ id: 'fin', type: 'freeformfinset', points: [[0, 0], [0.02, 0.03], [0.06, 0]], crossSection: 'rounded' }));
+    const input = host.querySelector<HTMLInputElement>('input[type="text"][aria-label^="Cant angle"]')!;
+    for (const sign of [-1, 1]) {
+      type(input, String(sign * (angle === 'rad' ? Math.PI / 9 : 20)));
+      expect(patches.at(-1)?.cant).toBeCloseTo(sign * Math.PI / 12, 14);
+    }
+  });
+
+  it('J6 applies the thickness limit to a derived tube-fin inner diameter', () => {
+    const design = onBody({ id: 'tf', type: 'tubefinset', finCount: 3 });
+    design.tree.components[0]!.children![1]!.outerRadius = 300;
+    mount(design);
+    type(box('Inner diameter'), '0');
+    expect(patches.at(-1)?.thickness).toBe(1000);
+  });
   // CFG-3: the deployment altitude is edited on Motors & Configuration now
   // (ruling D2a); its overflow check moved with it to ConfigPartEditors.test.
   it('offers no deployment-altitude box on Design to overflow', () => {

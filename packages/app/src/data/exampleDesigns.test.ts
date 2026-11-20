@@ -20,6 +20,12 @@ import { BULK_MATERIALS } from './materials.js';
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
+it('J6 explains a rejected example chunk download', async () => {
+  await expect(loadExampleFile({ ...EXAMPLE_DESIGNS[0]!, asset: async () => {
+    throw new TypeError('Failed to fetch dynamically imported module: https://example.invalid/old.js');
+  } })).rejects.toThrow(/could not be loaded/);
+});
+
 it('cancels an unread HTTP refusal body', async () => {
   const cancel = vi.fn();
   vi.stubGlobal('fetch', vi.fn(async () => new Response(new ReadableStream<Uint8Array>({ cancel }), { status: 503 })));

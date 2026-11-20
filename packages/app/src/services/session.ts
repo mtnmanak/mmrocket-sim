@@ -8,7 +8,7 @@ import { isAeroModel, validHybridBand } from './aeroProvenance.js';
 import { sanitizeDesignProvenance } from './designProvenance.js';
 import { sanitizeDocumentMaterials } from './documentMaterials.js';
 import type { ComponentNode, MotorSpec } from '@online-openrocket/engine';
-import { DEFAULT_CONDITIONS, flownMaxFlightTimeS, GEODETIC_METHODS, type LaunchConditions } from './launchConditions.js';
+import { DEFAULT_CONDITIONS, flownMaxFlightTimeS, GEODETIC_METHODS, validStoredLaunchNumber, type LaunchConditions } from './launchConditions.js';
 import type { FlightTree, FlightOverrides, MountMotor, SavedConfig } from '../model/design.js';
 import { savedConfigLabel } from '../model/design.js';
 import { shortHash, type MotorMeta } from './simReport.js';
@@ -377,15 +377,15 @@ const finiteNumber = (v: unknown): v is number => typeof v === 'number' && Numbe
 function repairStoredLaunch(l: Record<string, unknown>): boolean {
   let repaired = false;
   for (const key of REQUIRED_LAUNCH_NUMBERS) {
-    if (!finiteNumber(l[key])) { l[key] = DEFAULT_CONDITIONS[key]; repaired = true; }
+    if (!validStoredLaunchNumber(key, l[key])) { l[key] = DEFAULT_CONDITIONS[key]; repaired = true; }
   }
   for (const key of ['temperatureC', 'pressureHPa', 'longitudeDeg']) {
-    if (key in l && l[key] !== null && !finiteNumber(l[key])) { l[key] = null; repaired = true; }
+    if (key in l && l[key] !== null && !validStoredLaunchNumber(key, l[key])) { l[key] = null; repaired = true; }
   }
   const drop = (key: string, ok: (v: unknown) => boolean) => {
     if (key in l && !ok(l[key])) { delete l[key]; repaired = true; }
   };
-  drop('launchRodAimDeg', finiteNumber);
+  drop('launchRodAimDeg', v => validStoredLaunchNumber('launchRodAimDeg', v));
   drop('maxFlightTimeS', finiteNumber);
   if (finiteNumber(l['maxFlightTimeS'])) {
     const bounded = flownMaxFlightTimeS({ maxFlightTimeS: l['maxFlightTimeS'] });
@@ -468,21 +468,37 @@ export function loadSession(): SessionState | null {
   return readSession(true);
 }
 
+let unreadableSession = false;
+export const sessionUnreadable = () => unreadableSession;
+/** A deliberate New/Open releases the unreadable slot for the new design. */
+export function allowSessionReplacement(): void { unreadableSession = false; }
+
 function readSession(restoreRoot: boolean): SessionState | null {
+  let hadRecoveryBytes = false;
+  if (restoreRoot) unreadableSession = false;
   try {
     const raw = localStorage.getItem(KEY);
+    hadRecoveryBytes = !!raw;
     // What this tab has now seen in the slot — the baseline writeNow checks
     // the slot against before it overwrites anything (see `seenStamp`).
     seenStamp = stampOf(raw);
     if (!raw) return null;
     // Older autosaves may carry warning source IDs from a different open.
-    let s = JSON.parse(raw, (key, value) =>
-      key === 'simWarnings' ? restoredWarnings(value) : value) as SessionState;
+    let s = JSON.parse(raw) as SessionState;
+    // JSON.parse's reviver recurses before the tree-depth repair can run.
+    // Walk warning owners iteratively, within the same supported tree depth.
+    const queue: { value: unknown; depth: number }[] = [{ value: s, depth: 0 }];
+    while (queue.length) {
+      const { value, depth } = queue.pop()!;
+      if (!value || typeof value !== 'object' || depth > 128) continue;
+      for (const [key, child] of Object.entries(value)) {
+        if (key === 'simWarnings') Object.assign(value, { simWarnings: restoredWarnings(child) });
+        else if (child && typeof child === 'object') queue.push({ value: child, depth: depth + 1 });
+      }
+    }
     if (!s || typeof s !== 'object' || Array.isArray(s)) {
-      // Unusable payload: drop it rather than re-parsing the same wreck on
-      // every load, and so a corrupted autosave cannot follow the user around.
-      clearSession();
-      seenStamp = null;
+      // Keep unreadable recovery bytes until the user deliberately replaces them.
+      if (restoreRoot) unreadableSession = true;
       return null;
     }
     delete s.treeRestoreNotes;
@@ -554,6 +570,11 @@ function readSession(restoreRoot: boolean): SessionState | null {
     const validMotor = (mm: unknown): mm is MountMotor => {
       if (!isTable(mm)) return false;
       const spec = mm['spec'], meta = mm['meta'];
+      if (isTable(meta) && meta['autoDelay'] !== undefined && typeof meta['autoDelay'] !== 'boolean') {
+        delete meta['autoDelay'];
+        const note = 'An unreadable motor Auto delay policy was cleared; check its delay before flying.';
+        if (!(s.treeRestoreNotes ??= []).includes(note)) cautionNote(s.treeRestoreNotes, 'G04.motors-removed', note);
+      }
       return isTable(spec) && isTable(meta) && typeof spec['designation'] === 'string'
         && ['times', 'thrusts', 'masses'].every(key => Array.isArray(spec[key])
           && spec[key].length >= 2 && spec[key].length === (spec['times'] as unknown[]).length
@@ -859,6 +880,10 @@ function readSession(restoreRoot: boolean): SessionState | null {
     }
     return s;
   } catch {
+    if (restoreRoot) {
+      unreadableSession = hadRecoveryBytes;
+      if (!hadRecoveryBytes) setSaveFailing(true);
+    }
     return null;
   }
 }
@@ -965,6 +990,7 @@ function evictDisposableCache(): number {
 
 function writeNow(): void {
   if (pending === null) return;
+  if (unreadableSession) { setSaveFailing(true); return; }
   try {
     // Plugged motors carry ejectionDelay = Infinity; JSON.stringify would
     // silently turn that into null, so round-trip it as a string.
@@ -982,7 +1008,7 @@ function writeNow(): void {
     const payload = `${STAMP_PREFIX}${stamp}",${over}${content.slice(1, -1)},"savedAt":${Date.now()}}`;
     // Read before writing — see "ONE SLOT, SEVERAL TABS" above.
     const inSlot = stampOf(localStorage.getItem(KEY));
-    if (inSlot !== null && seenStamp !== undefined && inSlot !== seenStamp && inSlot !== stamp) {
+    if (inSlot !== null && seenStamp !== undefined && inSlot !== seenStamp && inSlot !== stamp && inSlot !== overwriting) {
       // Another tab wrote since this one last looked. Keep `pending` — it is
       // what "Keep this tab's design" writes — and leave the slot alone.
       setConflicted(true);
@@ -1056,6 +1082,8 @@ export function flushSession(): void {
  * — even when it has not written since and never will.
  */
 export function takeOverSession(): void {
+  const previousStamp = seenStamp;
+  const previousConflict = conflicted;
   let replacing: string | null = null;
   try {
     replacing = stampOf(localStorage.getItem(KEY));
@@ -1066,6 +1094,10 @@ export function takeOverSession(): void {
   setConflicted(false);
   overwriting = replacing || null;
   flushSession();
+  if (pending !== null || saveFailing) {
+    seenStamp = previousStamp;
+    setConflicted(previousConflict);
+  }
 }
 
 /**
@@ -1164,6 +1196,7 @@ export function autosaveIsAnotherTabs(): boolean {
  * opens the other tab's design.
  */
 export function discardSession(): void {
+  unreadableSession = false;
   if (timer) { clearTimeout(timer); timer = null; }
   const othersInSlot = autosaveIsAnotherTabs();
   pending = null;

@@ -9,7 +9,7 @@ import { Note } from './Note.js';
 import { overrideFor } from '../services/flightState.js';
 import { separationTuple, type ComponentFlightTuple } from '../services/flightOverrideText.js';
 import { hasParallelStage, stages } from '../tree/treeModel.js';
-import { DEPLOY_EVENTS, SEPARATION_EVENTS } from '../tree/schema.js';
+import { DEPLOY_EVENTS, SEPARATION_EVENTS, MAX_EVENT_ALTITUDE_M } from '../tree/schema.js';
 import { flownDeployEvent } from '../tree/deployEvent.js';
 import { configurationParts } from './ConfigOverview.js';
 import { NumField } from './NumField.js';
@@ -191,6 +191,7 @@ function PartRow({ node, family, stageName, override, configLabel, overrideLabel
           <NumField id={`${uid}-altitude`} ariaLabel={`${name} ${verb} altitude (${unit})`}
             onEditStart={onEditStart} onEditEnd={() => onEditEnd(node, scope, shown)} onEditCancel={onEditCancel}
             value={siToUi('altitude', unit, values.altitude)}
+            max={siToUi('altitude', unit, MAX_EVENT_ALTITUDE_M)}
             validate={v => Number.isFinite(uiToSi('altitude', unit, v))}
             onCommit={(v, typing) => { if (v !== null) edit('altitude', uiToSi('altitude', unit, v), typing); }} />
         </div>

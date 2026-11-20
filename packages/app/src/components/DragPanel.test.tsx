@@ -9,6 +9,7 @@ import type { DragSweep, OrkRocket } from '@online-openrocket/engine';
 import { PrefsProvider, usePrefs } from '../prefs/PrefsContext.js';
 import { INITIAL_UNITS, IMPERIAL_UNITS, LOCALE_DECIMAL_COMMA } from '../prefs/units.js';
 import { DRAG_SWEEP_IDLE_MS, DragPanel } from './DragPanel.js';
+import * as saveFile from '../services/saveFile.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -93,6 +94,16 @@ describe('DragPanel — sweep conditions', () => {
   const openPanel = () => act(() => {
     (host.querySelector('button[aria-expanded]') as HTMLButtonElement).click();
   });
+  it('r3 reports a drag-table download failure locally and permits retry', async () => {
+    mount(); openPanel();
+    const download = vi.spyOn(saveFile, 'downloadBlob').mockImplementationOnce(() => { throw new Error('blocked download'); }).mockImplementation(async () => {});
+    const button = [...host.querySelectorAll('button')].find(b => b.textContent?.includes('⬇ Drag table (.csv)'))!;
+    await act(async () => button.click());
+    expect(host.textContent).toContain('Drag-table export failed: blocked download');
+    await act(async () => button.click());
+    expect(host.textContent).not.toContain('Drag-table export failed');
+    expect(download).toHaveBeenCalledTimes(2);
+  });
   const condSelect = () => host.querySelector('select[aria-label="Sweep conditions"]') as HTMLSelectElement;
   const altInput = () => host.querySelector('input[aria-label^="Sweep altitude"]') as HTMLInputElement | null;
   const setSelect = (el: HTMLSelectElement, value: string) => act(() => {
@@ -108,6 +119,21 @@ describe('DragPanel — sweep conditions', () => {
   });
   const caption = () => Array.from(host.querySelectorAll('p'))
     .map((p) => p.textContent ?? '').find((t) => t.startsWith('Conditions:')) ?? '';
+
+  it('r5 keeps a typed sweep altitude displayable after changing units', () => {
+    mount(); openPanel(); setSelect(condSelect(), 'altitude');
+    type(altInput()!, '1e308');
+    const stored = JSON.parse(localStorage.getItem('online-openrocket.prefs.v1')!);
+    expect(Number.isFinite((stored.dragAnalysis?.altM ?? 0) / 0.3048)).toBe(true);
+  });
+
+  it('r5 bounds a persisted sweep altitude before displaying feet', () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { altitude: 'ft' },
+      dragAnalysis: { conditions: 'altitude', altM: 1e308 } }));
+    mount(); openPanel();
+    expect(altInput()!.value).not.toMatch(/—|Infinity|NaN/);
+    expect(Number.isFinite(Number(altInput()!.value))).toBe(true);
+  });
 
   // The default preferences leave KBF on, and an effective KBF uses the
   // corrected (geopotential) ISA, so the ceiling here is 86 km; the plain

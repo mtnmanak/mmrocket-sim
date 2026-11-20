@@ -26,6 +26,7 @@ import { clearRuns, deleteRun, restoreRun, runsToCsv, runsToTable } from '../ser
 import { formatWarning } from '../services/simWarnings.js';
 import { CSV_BOM, downloadBlob, stampedName } from '../services/fileName.js';
 import { tableToXlsx, XLSX_MIME } from '../services/xlsx.js';
+import { noteText } from '../services/noteField.js';
 import { DEFAULT_RUN_COLUMNS, RUN_SUMMARY_COLUMNS, summaryCell, summaryUnitSuffix } from '../services/runSummaryColumns.js';
 
 /**
@@ -582,6 +583,7 @@ export function SimHistory({
    * offers Undo instead, one level deep.
    */
   const [confirmClear, setConfirmClear] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   // No provenance work while collapsed, and no repeat comparisons for unrelated renders.
   const statuses = useMemo(() => open
     ? new Map(runs.map(run => [run, runStatus(run, provenance)])) : null, [open, runs, provenance]);
@@ -610,14 +612,20 @@ export function SimHistory({
   // The last run deleted: the table has gone, its Undo has not.
   if (runs.length === 0) return <div className="panel" style={{ marginTop: 10 }}><div hidden />{undoLine}</div>;
 
-  const downloadCsv = () => downloadBlob(
-    new Blob([CSV_BOM, runsToCsv(runs, prefs.units, undefined, provenance)], { type: 'text/csv;charset=utf-8' }),
-    stampedName(designName, 'run-table', 'csv'));
-  const downloadXlsx = () => {
-    const { headers, rows } = runsToTable(runs, prefs.units, undefined, provenance);
-    downloadBlob(
-      new Blob([tableToXlsx(headers, rows, 'Simulations') as BlobPart], { type: XLSX_MIME }),
-      stampedName(designName, 'run-table', 'xlsx'));
+  const exportTable = async (format: 'csv' | 'xlsx') => {
+    setExportError(null);
+    try {
+      if (format === 'csv') {
+        await downloadBlob(new Blob([CSV_BOM, runsToCsv(runs, prefs.units, undefined, provenance)], { type: 'text/csv;charset=utf-8' }),
+          stampedName(designName, 'run-table', 'csv'));
+      } else {
+        const { headers, rows } = runsToTable(runs, prefs.units, undefined, provenance);
+        await downloadBlob(new Blob([tableToXlsx(headers, rows, 'Simulations') as BlobPart], { type: XLSX_MIME }),
+          stampedName(designName, 'run-table', 'xlsx'));
+      }
+    } catch (e) {
+      setExportError(`Run-table export failed: ${noteText(e instanceof Error ? e.message : String(e))}`);
+    }
   };
 
   return (
@@ -627,11 +635,11 @@ export function SimHistory({
         {/* Every button names its DATA; the format is the parenthetical. Three
             different datasets on this tab used to be labelled "⬇ CSV". */}
         <span className="download-caption">All saved runs — one row each, summary numbers only:</span>
-        <button className="file-btn" onClick={downloadCsv}
+        <button className="file-btn" onClick={() => { void exportTable('csv'); }}
           title="One row per saved run with its summary numbers — the motor-comparison table, not flight data.">
           ⬇ Run table (.csv)
         </button>
-        <button className="file-btn" onClick={downloadXlsx}
+        <button className="file-btn" onClick={() => { void exportTable('xlsx'); }}
           title="The same run table as an Excel workbook: typed cells (no date mangling), bold frozen header, filter.">
           ⬇ Run table (.xlsx)
         </button>
@@ -640,6 +648,7 @@ export function SimHistory({
           onClick={() => setOpen(!open)}>{open ? 'Hide' : 'Show'}</button>
       </div>
       {undoLine}
+      <div role="alert">{exportError && <Note tier="danger" as="p">{exportError}</Note>}</div>
       <details style={{ marginTop: 8 }}>
         <summary>Summary columns</summary>
         <p className="chart-comparison-note">Recorded summaries for the sustainer stack. Old runs leave unavailable values blank.

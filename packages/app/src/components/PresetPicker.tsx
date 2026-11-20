@@ -16,6 +16,8 @@ import { sessionDebugLog } from '../services/sessionDebugLog.js';
 import { numOpt } from '../tree/nodeNum.js';
 import { canopyCdA } from '../services/recoverySizing.js';
 import { Modal } from './Modal.js';
+import { CHUNK_LOAD_GUIDANCE, isChunkLoadError } from '../services/lazyLoadFailure.js';
+import { noteText } from '../services/noteField.js';
 
 const ROW_CAP = 300;
 const MY_PARTS_FILTER_KEY = 'online-openrocket.preset-my-parts-only.v1';
@@ -101,7 +103,12 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose: notif
           setNote(restoreNotes.join(' '));
         }
       })
-      .catch((e: unknown) => { if (live) setNote(`Could not load presets: ${e instanceof Error ? e.message : String(e)}`); });
+      .catch((e: unknown) => {
+        if (!live) return;
+        setNoteTier('danger');
+        setNote(isChunkLoadError(e) ? `The parts catalogue could not be downloaded. ${CHUNK_LOAD_GUIDANCE}`
+          : `Could not load presets: ${noteText(e instanceof Error ? e.message : String(e))}`);
+      });
     return () => { live = false; };
   }, []);
 
@@ -172,9 +179,15 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose: notif
       .filter(Boolean).join(' ') + ` ${lenSym}`;
   };
 
-  const exportCsv = () => {
-    downloadBlob(new Blob([presetsToCsv(rows)], { type: 'text/csv' }),
-      `presets-${kind}.csv`, 'Comma-separated values');
+  const exportCsv = async () => {
+    setNote(null);
+    try {
+      await downloadBlob(new Blob([presetsToCsv(rows)], { type: 'text/csv' }),
+        `presets-${kind}.csv`, 'Comma-separated values');
+    } catch (e) {
+      setNoteTier('danger');
+      setNote(`Parts export failed: ${noteText(e instanceof Error ? e.message : String(e))}`);
+    }
   };
 
   /**
@@ -282,8 +295,9 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose: notif
       setAll(null);
       loadPresets().then(setAll, (err: unknown) => {
         setAll(before);
-        setNote(`${imported} The list could not be reloaded (${err instanceof Error ? err.message : String(err)})`
-          + ' — close and reopen the presets to see the new rows.');
+        setNoteTier('caution');
+        setNote(`${imported} ${isChunkLoadError(err) ? CHUNK_LOAD_GUIDANCE
+          : `The list could not be reloaded (${noteText(err instanceof Error ? err.message : String(err))}) — close and reopen the presets to see the new rows.`}`);
       });
       setNote(imported);
     } catch (e) {
@@ -349,7 +363,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose: notif
             {kind} presets
             <span className="motor-db-meta">{myPartsOnly ? 'My parts' : 'openrocket-database'}{all ? ` · ${ofKind.length} parts` : ''}</span>
           </h2>
-          <button className="file-btn" onClick={exportCsv}
+          <button className="file-btn" onClick={() => { void exportCsv(); }}
             title={`Export all ${rows.length} row(s) matching the search — not just the ${ROW_CAP} the table shows`}>⬇ CSV</button>
           {/* Visually hidden, NOT display:none (audit 2026-09-22): the App
               header's Open… rule (styles.css .file-btn-input) — display:none

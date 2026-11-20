@@ -2,7 +2,7 @@ import { couplerRingFitNote, ringFitFor } from './ringFit.js';
 import { GlossaryHelp } from './GlossaryHelp.js';
 import { componentTerm, fieldTerm } from '../tree/glossaryTerms.js';
 import { Note, type NoteTier } from './Note.js';
-import { noteField } from '../services/noteField.js';
+import { noteField, noteText } from '../services/noteField.js';
 import { PaperTemplateButton } from './PaperTemplateButton.js';
 import { PAPER_TEMPLATE_TYPES } from '../services/paperTemplates.js';
 import { MotorLengthField } from './MotorLengthField.js';
@@ -34,6 +34,9 @@ import { shroudEnds } from '../tree/shroud.js';
 import { finTabFit, shoulderFit } from '../tree/fitHelpers.js';
 import { ventLimit } from '../tree/canopyVent.js';
 import { num, numOpt } from '../tree/nodeNum.js';
+import { effectiveRailButtonHeights } from '../tree/numericFieldRules.js';
+import { isChunkLoadError } from './View3DBoundary.js';
+import { CHUNK_LOAD_GUIDANCE } from '../services/lazyLoadFailure.js';
 import { KERNEL_DEFAULT_MATERIALS, kernelDefault, kernelNum } from '../tree/kernelDefaults.js';
 import { tubeFinRadius, tubeFinWall } from '../tree/tubefins.js';
 import { RAIL_BUTTON_AFT_GAP, railButtonPlacement } from '../services/railButtonPlacement.js';
@@ -60,7 +63,7 @@ import { buildPrintPack, printOffer, SINGLE_BUTTON, ZIP_MIME } from '../services
 import { AERO_NAME } from '../prefs/aeroChoice.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { printerName, toPrinterVolume } from '../prefs/printers.js';
-import { noticeComparison, noticeQuantity, fmtFieldValue, fmtSi, fmtSig, niceStep, QUANTITY_LABEL, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
+import { noticeComparison, noticeEqual, noticeQuantity, fmtFieldValue, fmtSi, fmtSig, niceStep, QUANTITY_LABEL, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
 import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
 import { PresetPicker } from './PresetPicker.js';
 import { SaveMyPartDialog } from './SaveMyPartDialog.js';
@@ -1404,8 +1407,12 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
           const stem = `${safeName(node.name ?? 'fin', 'fin')}-template`;
           if (format === 'svg-white' || format === 'svg-transparent') {
             setExportNote(null);
-            downloadBlob(new Blob([svg], { type: 'image/svg+xml' }),
-              `${stem}${format === 'svg-transparent' ? '-transparent' : ''}.svg`, 'SVG cut template');
+            try {
+              await downloadBlob(new Blob([svg], { type: 'image/svg+xml' }),
+                `${stem}${format === 'svg-transparent' ? '-transparent' : ''}.svg`, 'SVG cut template');
+            } catch (e) {
+              setExportNote(`SVG export failed: ${noteText(e instanceof Error ? e.message : String(e))}`);
+            }
             return;
           }
           // The raster is the WHITE svg drawn on svgToImage's white canvas, at
@@ -1421,7 +1428,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
             const img = await svgToImage(svg, width, format, height);
             const bytes = withDpi(new Uint8Array(await img.arrayBuffer()), format, FIN_TEMPLATE_DPI);
             setExportNote(null);
-            downloadBlob(new Blob([bytes as BlobPart], { type: `image/${format}` }),
+            await downloadBlob(new Blob([bytes as BlobPart], { type: `image/${format}` }),
               `${stem}-${FIN_TEMPLATE_DPI}dpi.${format === 'png' ? 'png' : 'jpg'}`,
               `${format === 'png' ? 'PNG' : 'JPG'} cut template`);
           } catch (e) {
@@ -1449,31 +1456,35 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
         <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
           // audit 2026-10-11, CR-3/CR-5: use the dialog label and drawing-unit word.
           title={`Flat 1:1 cut profile as R12 DXF in ${dxfUnitWord(dxfUnitFor(prefs.units.length))} — it follows your ${QUANTITY_LABEL.length} unit (Preferences → Units of measure): inches for in or ft, millimetres otherwise. For laser/router/waterjet CAM and Fusion 360 sketch import. Fin sets export ONE fin as a single closed contour with the through-the-wall tab merged into it (airfoil shaping, cant and sweep-into-the-tube are NOT represented); rings, bulkheads and couplers take their own stated diameter, else the bore of the tube, coupler, nose or transition they sit in (the label says so when neither can be found), and a centering ring's bore from its own stated ID, else the motor mount. Cut geometry is on the CUT layer only — REFERENCE (root chord, centre marks) and TEXT are guides; switch them off before cutting.`}
-          onClick={() => {
-            const dxf = componentDxf(node, solidContextFor(tree, node), tree.name ?? 'Rocket',
-              dxfUnitFor(prefs.units.length), tree);
-            // Same reason as the STL button below: componentDxf returns null for
-            // a planform that collapses under three distinct corners, and a
-            // button that silently does nothing reads as a broken button.
-            if (!dxf) {
-              const ctx = solidContextFor(tree, node);
-              setExportNote(node.type === 'centeringring' && centeringRingBore(node, ctx, ringOuterRadius(node, ctx).r) === null
-                ? ctx.mountCouplerTooWide
-                  ? ctx.mountOuterRadius !== undefined
-                    ? "No DXF: a tube held in a coupler is wider than the ring's direct mount tube. The app cannot lay out the holes for this ring. Lay out the holes by hand before cutting."
-                    : "No DXF: a tube held in a coupler is wider than this ring's hole. The tube cannot pass through it. Check the tube and hole dimensions before cutting."
-                  : 'The app cannot lay out this mount’s holes; one centred opening would not fit. Lay out the holes by hand. The ring’s stated ID cannot place off-axis holes.'
-                : noParentBore ? noBoreNote
-                : node.type.endsWith('finset')
-                ? 'This fin outline crosses itself or encloses no area — fix the '
-                  + 'fin points before exporting.'
-                : 'Nothing to cut for this component.');
-              return;
+          onClick={() => { void (async () => {
+            try {
+              const dxf = componentDxf(node, solidContextFor(tree, node), tree.name ?? 'Rocket',
+                dxfUnitFor(prefs.units.length), tree);
+              // Same reason as the STL button below: componentDxf returns null for
+              // a planform that collapses under three distinct corners, and a
+              // button that silently does nothing reads as a broken button.
+              if (!dxf) {
+                const ctx = solidContextFor(tree, node);
+                setExportNote(node.type === 'centeringring' && centeringRingBore(node, ctx, ringOuterRadius(node, ctx).r) === null
+                  ? ctx.mountCouplerTooWide
+                    ? ctx.mountOuterRadius !== undefined
+                      ? "No DXF: a tube held in a coupler is wider than the ring's direct mount tube. The app cannot lay out the holes for this ring. Lay out the holes by hand before cutting."
+                      : "No DXF: a tube held in a coupler is wider than this ring's hole. The tube cannot pass through it. Check the tube and hole dimensions before cutting."
+                    : 'The app cannot lay out this mount’s holes; one centred opening would not fit. Lay out the holes by hand. The ring’s stated ID cannot place off-axis holes.'
+                  : noParentBore ? noBoreNote
+                  : node.type.endsWith('finset')
+                  ? 'This fin outline crosses itself or encloses no area — fix the '
+                    + 'fin points before exporting.'
+                  : 'Nothing to cut for this component.');
+                return;
+              }
+              setExportNote(null);
+              await downloadBlob(new Blob([dxf.text], { type: DXF_MIME }),
+                `${safeName(node.name ?? dxf.label, safeName(dxf.label))}-cut.dxf`, 'DXF cut profile');
+            } catch (e) {
+              setExportNote(`DXF export failed: ${noteText(e instanceof Error ? e.message : String(e))}`);
             }
-            setExportNote(null);
-            downloadBlob(new Blob([dxf.text], { type: DXF_MIME }),
-              `${safeName(node.name ?? dxf.label, safeName(dxf.label))}-cut.dxf`, 'DXF cut profile');
-          }}>
+          })(); }}>
           ✂ DXF (CNC/laser, 1:1)
         </button>
       )}
@@ -1502,7 +1513,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
                   const pack = await buildPrintPack(offer.split, name, vol, printerName(printer), prefs.units);
                   // A successful retry supersedes the earlier failure (audit 2026-10-11, S3a-3).
                   setExportNote(null);
-                  downloadBlob(new Blob([pack.bytes as BlobPart], { type: ZIP_MIME }),
+                  await downloadBlob(new Blob([pack.bytes as BlobPart], { type: ZIP_MIME }),
                     pack.filename, 'ZIP of printable segments');
                 } else {
                   const ctx = solidContextFor(tree, node);
@@ -1532,11 +1543,13 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
                   // namespace, and this panel renders on the design screen.
                   const { solidToStl, STL_MIME } = await import('../services/stlExport.js');
                   const stl = solidToStl(solid.mesh, node.name ?? solid.label);
-                  downloadBlob(new Blob([stl as BlobPart], { type: STL_MIME }),
+                  await downloadBlob(new Blob([stl as BlobPart], { type: STL_MIME }),
                     `${safeName(node.name ?? solid.label, safeName(solid.label))}-print.stl`, 'STL 3D print');
                 }
               } catch (e) {
-                setExportNote(`Couldn't export this part: ${e instanceof Error ? e.message : String(e)}`);
+                setExportNote(isChunkLoadError(e)
+                  ? `The export code could not be downloaded. ${CHUNK_LOAD_GUIDANCE}`
+                  : `Couldn't export this part: ${noteText(e instanceof Error ? e.message : String(e))}`);
               }
             }}>
             {offer?.button ?? SINGLE_BUTTON}
@@ -1811,7 +1824,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
                     onCommit={(v) => {
                       if (v === null) return;
                       const idSi = uiToSi(idQuantity, idSym, v);
-                      onPatch({ thickness: Math.max(0, outerR - idSi / 2) });
+                      onPatch(limitPatch(node, { thickness: Math.max(0, outerR - idSi / 2) }));
                     }}
                   />
                 </div>
@@ -2213,6 +2226,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
               onPatch={onPatch}
               fmtValue={(v) => fmtSig(v, 3, 3)}
             />
+            {['innertube', 'tubecoupler', 'centeringring', 'bulkhead', 'engineblock', 'masscomponent', 'parachute', 'streamer', 'shockcord'].includes(node.type) && <p className="hint">
+              This internal part&rsquo;s Cd override does not affect flight. Set the Cd on an outside part or stage to change aerodynamic drag.
+            </p>}
           </div>
         </div>
         <p className="hint">
@@ -2240,6 +2256,12 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
       </div>
       )}
 
+      {node.type === 'railbutton' && (() => {
+        const effective = effectiveRailButtonHeights(node);
+        return !noticeEqual(effective.total, num(node, 'totalHeight', 0.0097))
+          || !noticeEqual(effective.base, num(node, 'baseHeight', 0.002)) || !noticeEqual(effective.flange, num(node, 'flangeHeight', 0.002))
+          ? <p className="hint">The simulation uses total height {noticeQuantity('length', effective.total, prefs.units)}, base height {noticeQuantity('length', effective.base, prefs.units)} and flange height {noticeQuantity('length', effective.flange, prefs.units)}. The stored dimensions conflict; the drawing uses the stored dimensions, so check these fields before flying.</p> : null;
+      })()}
       {positionable && (
         <div style={{ marginTop: 10 }}>
           <h3 style={{ marginTop: 0 }}>Position (in parent)</h3>

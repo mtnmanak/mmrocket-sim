@@ -248,6 +248,7 @@ export function NozzleField({
           from the published figure or check a typed value against it.
           {exitDiameterM === null && ' Blank means the pressure-thrust term and the power-on base-drag reduction are both off for this stage.'}
           {' '}The connection may have dropped, or the app may have been updated since this page loaded.
+          {' '}Save this tab&rsquo;s design as an .ork file before reloading: another tab may have replaced the shared autosave, and reloading can lose this tab&rsquo;s design.
           {' '}
           <ReloadPageButton />
         </p>

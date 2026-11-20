@@ -477,6 +477,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   // filter in `loadRuns` deliberately does not police field values. Both tests
   // are needed — `1e16` is finite AND an Invalid Date.
   ['Date', (r) => {
+    if (!Number.isFinite(r.when)) return '';
     const d = new Date(r.when);
     return Number.isFinite(r.when) && !Number.isNaN(d.getTime()) ? d.toISOString() : '';
   }],

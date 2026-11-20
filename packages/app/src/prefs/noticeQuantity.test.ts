@@ -1,6 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import { INITIAL_UNITS, IMPERIAL_UNITS, noticeComparison, noticeQuantity, fmtSig, uiToSi } from './units.js';
 
+it.each([INITIAL_UNITS, IMPERIAL_UNITS])('r3 describes an overflowing rejected altitude without a missing value (%j)', units => {
+  const text = noticeQuantity('altitude', 1e308, units);
+  expect(text).toContain('1e+308 m');
+  expect(text).toContain('outside the display range');
+  expect(text).not.toMatch(/—|Infinity|NaN/);
+});
+it.each(['°', 'rad'])('r3 describes a rejected angle that overflows degrees (%s)', angle => {
+  const text = noticeQuantity('angle', 1e308, { ...INITIAL_UNITS, angle });
+  expect(text).toContain('1e+308 rad');
+  expect(text).toContain('outside the display range in °');
+  expect(text).not.toMatch(/—|Infinity|NaN/);
+});
+
+it.each(['lineDensity', 'surfaceDensity'] as const)('J6 preserves tiny positive %s in warnings', quantity => {
+  expect(noticeQuantity(quantity, 5e-13, INITIAL_UNITS)).toContain('0.0000000000005');
+  expect(noticeQuantity(quantity, 1e-21, INITIAL_UNITS)).toContain('1e-21');
+});
+
 describe('notice quantities near zero', () => {
   it.each([
     [INITIAL_UNITS, '+0 g (+0 oz)', '+0 mm (+0 in)', '0 g (0 oz)', '0 mm (0 in)'],
@@ -55,12 +73,15 @@ it('chooses the sign after grouping rounds a displayed difference to zero', () =
 
 it.each([
   ['area', '0 mm² (0 in²)'],
-  ['surfaceDensity', '0 kg/m² (0 lb/ft²)'],
-  ['lineDensity', '0 kg/m (0 lb/ft)'],
 ] as const)('normalizes %s residue in display and comparison', (quantity, zero) => {
   expect(noticeQuantity(quantity, -1e-25, INITIAL_UNITS)).toBe(zero);
   expect(noticeQuantity(quantity, -0, INITIAL_UNITS)).toBe(zero);
   expect(noticeComparison(quantity, -1e-25, 0, INITIAL_UNITS)).toEqual([zero, zero]);
+});
+
+it.each(['surfaceDensity', 'lineDensity'] as const)('r2 preserves nonzero %s rather than assuming residue', quantity => {
+  expect(noticeQuantity(quantity, -1e-25, INITIAL_UNITS)).toContain('-1e-25');
+  expect(noticeQuantity(quantity, -0, INITIAL_UNITS)).toMatch(/^0 kg/);
 });
 
 it('treats tiny residue as equality while retaining huge rejected lengths', () => {

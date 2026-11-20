@@ -524,7 +524,7 @@ export function Rocket3D({ tree, info, motors, hiddenIds, exportData, onError }:
       // safeName, not an inline copy of its regex: the copy had no fallback,
       // so a design named in Cyrillic saved "_-3d.png" and an empty name
       // "-3d.png" (AUDIT row 399, the last of the three copies).
-      downloadImage(blob, `${safeName(exportData.name)}-3d.${IMAGE_FORMAT_EXT[format]}`);
+      await downloadImage(blob, `${safeName(exportData.name)}-3d.${IMAGE_FORMAT_EXT[format]}`);
     } catch (e) {
       onError?.(`Image export failed: ${e instanceof Error ? e.message : String(e)} — try a smaller width.`);
     }

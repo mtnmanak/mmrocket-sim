@@ -20,6 +20,12 @@ import type { MountMotor } from '../model/design.js';
 import { densityAltitudeM } from './atmosphere.js';
 import { INITIAL_UNITS, IMPERIAL_UNITS, uiToSi } from '../prefs/units.js';
 
+it('J6 formats an uncoercible stored timestamp without constructing a Date', () => {
+  const when = { toString: 0 } as unknown as number;
+  expect(formatRunWhen(when)).toBe('an unknown time');
+  expect(formatRunWhenProse(when)).toBe('at an unknown time');
+});
+
 const info: StaticInfo = {
   length: 0.37, lengthAerodynamic: 0.37, mass: 0.051, massEmpty: 0.027, cgEmpty: 0.19, cg: 0.26,
   rotationalInertia: 1.2e-4, longitudinalInertia: 3.4e-3,

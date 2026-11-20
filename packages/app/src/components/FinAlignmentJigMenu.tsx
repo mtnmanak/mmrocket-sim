@@ -42,7 +42,7 @@ export function FinAlignmentJigMenu({ tree, tube, fin }: { tree: RocketTree; tub
         blob = new Blob([bytes as BlobPart], { type: `image/${format}` });
       }
       const stem = `${safeName(fin.name ?? 'fins', 'fins')}-alignment-jig${format === 'svg-transparent' ? '-transparent' : ''}${raster ? `-${FIN_TEMPLATE_DPI}dpi` : ''}`;
-      downloadBlob(blob, `${stem}.${raster ? format === 'png' ? 'png' : 'jpg' : 'svg'}`, 'Fin alignment jig');
+      await downloadBlob(blob, `${stem}.${raster ? format === 'png' ? 'png' : 'jpg' : 'svg'}`, 'Fin alignment jig');
       setStatus('Fin alignment jig prepared.');
     } catch (e) {
       setStatus(null);

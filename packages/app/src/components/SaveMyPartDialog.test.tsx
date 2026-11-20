@@ -44,6 +44,13 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); });
 
 describe('M2.2 save dialog', () => {
+  it('r3 explains how to recover from an unavailable parts chunk', async () => {
+    vi.mocked(loadBundledPresets).mockRejectedValueOnce(new TypeError('Failed to fetch dynamically imported module'));
+    input('Part number', 'A'); await save();
+    expect(host.textContent).toContain('Save this tab’s design as an .ork file');
+    expect(host.textContent).toContain('reload the page');
+    expect(saved).not.toHaveBeenCalled();
+  });
   it.each(['parachute', 'streamer'] as const)('S3c-2 saves and restores a zero-density %s', async type => {
     act(() => root.render(<SaveMyPartDialog node={{ type, surfaceDensity: 0, lineDensity: 0 }} onClose={close} />));
     input('Part number', 'ZERO'); await save();

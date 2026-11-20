@@ -267,6 +267,15 @@ describe('the 3D image export', () => {
     // The renderer was still put back.
     expect(log.slice(-3)).toEqual(['ratio 2', 'size 800x400', 'render']);
   });
+  it('r3 reports an asynchronous image-download rejection through onError', async () => {
+    const { snapshotWithHeader } = await import('../services/schematicExport.js');
+    vi.mocked(snapshotWithHeader).mockResolvedValueOnce(new Blob(['image']));
+    vi.mocked(downloadImage).mockRejectedValueOnce(new Error('blocked image download'));
+    const errors: string[] = [];
+    act(() => root.render(<PrefsProvider><Rocket3D tree={TREE} info={null} exportData={EXPORT} onError={m => errors.push(m)} /></PrefsProvider>));
+    await act(async () => { await pick!(); });
+    expect(errors).toEqual(['Image export failed: blocked image download — try a smaller width.']);
+  });
 });
 
 /**

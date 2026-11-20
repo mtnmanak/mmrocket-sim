@@ -84,6 +84,8 @@ function fieldLabel(type: string, key: string, fallback?: string): string {
 const sig = (v: number): string => String(Number(v.toPrecision(6)));
 
 function fmt(kind: LimitKind, v: number, units: UnitSelection = INITIAL_UNITS, key = '', against?: number): string {
+  if (key === 'cant') return noticeQuantity('angle', v, units, { digits: 6, against });
+  if (key === 'deployAltitude' || key === 'separationAltitude') return noticeQuantity('altitude', v, units, { against });
   switch (kind) {
     case 'count':
     case 'scalar': return sig(v);
@@ -237,7 +239,7 @@ function sanitizeOwn(n: ComponentNode, found: Finding[], units: UnitSelection = 
     // NaN cannot be clamped and must not produce a repair (audit 2026-10-11, S4a-6).
     if (!Number.isFinite(raw) || fixed === raw) continue;
     edit()[key] = fixed;
-    if (limit.kind === 'count' || limit.kind === 'scalar' || !noticeEqual(raw, fixed)) found.push(limitFinding(n, key, limit, raw, fixed, units));
+    if (limit.kind === 'count' || (limit.kind === 'scalar' && key !== 'cant') || !noticeEqual(raw, fixed)) found.push(limitFinding(n, key, limit, raw, fixed, units));
   }
   const pos = n.position;
   if (pos !== undefined && (!pos || typeof pos !== 'object' || Array.isArray(pos)

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { filletMaterialPatch, numericFieldRules } from './numericFieldRules.js';
-import { FIELDS } from './schema.js';
+import { FIELDS, fieldLimit, applyFieldLimit } from './schema.js';
 import { applyStageNozzles } from './treeModel.js';
 import { MAX_DIMENSION_M } from './schema.js';
 
@@ -13,6 +13,15 @@ it('bounds nozzle values installed from a saved configuration', () => {
 const field = (node: ComponentNode, key: string) => FIELDS[node.type]!.find(f => f.key === key)!;
 const rules = (node: ComponentNode, key: string, bodyRadius: number | null = null) =>
   numericFieldRules(node, field(node, key), bodyRadius);
+
+it.each(['freeformfinset', 'ellipticalfinset', 'trapezoidfinset'] as const)('J6 bounds signed cant for %s at the flown limit', type => {
+  const limit = fieldLimit(type, 'cant')!;
+  expect(limit).toBeDefined();
+  for (const sign of [-1, 1]) {
+    expect(applyFieldLimit(limit, sign * Math.PI / 12)).toBeCloseTo(sign * Math.PI / 12, 14);
+    expect(applyFieldLimit(limit, sign * Math.PI / 9)).toBeCloseTo(sign * Math.PI / 12, 14);
+  }
+});
 
 it('treats a non-finite tube-fin radius as automatic when editing count', () => {
   expect(rules({ type: 'tubefinset', outerRadius: Infinity }, 'finCount', 0.02).maxCount).toBe(8);

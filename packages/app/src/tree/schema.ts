@@ -369,6 +369,8 @@ const SIGNED_LEN: FieldLimit = { kind: 'length', hmin: -MAX_DIMENSION_M, hmax: M
 const POSITIVE_LEN: FieldLimit = { kind: 'length', hmin: MIN_POSITIVE_DIMENSION_M, hmax: MAX_DIMENSION_M };
 // Representability ceilings, many orders above rocket masses or recovery materials.
 export const MAX_STATED_MASS_KG = 1e15;
+// Leaves headroom for conversion to every Altitude unit (feet is the largest).
+export const MAX_EVENT_ALTITUDE_M = Number.MAX_VALUE / 4;
 export const MAX_RECOVERY_DENSITY = 1e15; // kg/m² (canopy) or kg/m (line).
 const MASS: FieldLimit = { kind: 'mass', hmin: 0, hmax: MAX_STATED_MASS_KG };
 /**
@@ -424,6 +426,10 @@ const MAX_CLUSTER_SCALE = Math.sqrt(Number.MAX_VALUE / (16 * MAX_COMPONENT_MASS_
   / (8 * MAX_DIMENSION_M * MAX_EXPANDED_INSTANCES);
 
 const LIMITS_BY_KEY: Record<string, FieldLimit> = lookupTable<FieldLimit>({
+  cant: { kind: 'scalar', hmin: -Math.PI / 12, hmax: Math.PI / 12 },
+  // Retain imported negative heights; cap only positive display overflow.
+  deployAltitude: { kind: 'length', hmin: -Number.MAX_VALUE, hmax: MAX_EVENT_ALTITUDE_M },
+  separationAltitude: { kind: 'length', hmin: -Number.MAX_VALUE, hmax: MAX_EVENT_ALTITUDE_M },
   clusterScale: { kind: 'scalar', hmin: 0, hmax: MAX_CLUSTER_SCALE },
   length: LEN, rootChord: LEN, tipChord: LEN, height: LEN, thickness: LEN,
   outerRadius: LEN, innerRadius: LEN, aftRadius: LEN, foreRadius: LEN, radius: LEN,

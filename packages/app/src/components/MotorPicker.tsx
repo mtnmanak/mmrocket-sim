@@ -52,7 +52,7 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
   selectedLabel: string;
   onSelect: (label: string, spec: MotorSpec, meta: MotorMeta) => void;
   /** App owns the choice across tab remounts and retires it on unload/open. */
-  beginSelection?: () => () => boolean;
+  beginSelection?: () => (() => boolean) & { settled?: () => void };
   /** Every motor loaded in the design, so a catalogue check can name the ones it changed. */
   loadedMotors?: readonly { label: string; manufacturer?: string; motorId?: string }[];
   /** Offer the Quick Picks at all — false once the design is no longer the
@@ -101,7 +101,7 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
 
   const pick = async (p: { mfr: string; des: string; delay: number }): Promise<void> => {
     const mine = ++latest.current;
-    const mayLand = beginSelection?.() ?? (() => true);
+    const mayLand: (() => boolean) & { settled?: () => void } = beginSelection?.() ?? (() => true);
     setProblem(null);
     setLoading(pickLabel(p));
     try {
@@ -112,6 +112,7 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
     } catch (e) {
       if (mine === latest.current) setProblem(e instanceof Error ? e.message : String(e));
     } finally {
+      mayLand.settled?.();
       if (mine === latest.current) setLoading(null);
     }
   };
@@ -119,7 +120,6 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
   /** The browser's pick: the latest choice, so it retires any quick pick still loading. */
   const selectFromBrowser = (label: string, spec: MotorSpec, meta: MotorMeta) => {
     latest.current++;
-    beginSelection?.();
     setLoading(null);
     setProblem(null);
     onSelect(label, spec, meta);
@@ -180,6 +180,7 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
       </button>
       {browsing && (
         <MotorBrowser
+          beginSelection={beginSelection}
           mountDiameterMm={mountDiameterMm}
           maxMotorLengthM={maxMotorLengthM}
           onSelect={selectFromBrowser}

@@ -45,6 +45,31 @@ function setup(options: {
   return { worker, reg, container, reload, store, stop, found, ready, changeController, isUntouched, otherTabsOpen, setNow };
 }
 const cleanups: (() => void)[] = [];
+
+it('J6 reloads after a definite registration failure, but waits during registration', async () => {
+  const store = createSwUpdateStore();
+  const reload = vi.fn();
+  await store.applyUpdate();
+  expect(reload).not.toHaveBeenCalled();
+  store.registrationUnavailable(reload, () => false);
+  await store.applyUpdate();
+  expect(reload).toHaveBeenCalledOnce();
+});
+
+it('J6 never auto-applies across a backwards clock correction', async () => {
+  const s = setup({ untouched: true, waiting: false });
+  s.found(-1000);
+  s.ready();
+  await Promise.resolve(); await Promise.resolve();
+  expect(s.worker.postMessage).not.toHaveBeenCalled();
+});
+
+it('J6 rechecks the clock after the other-tab query for an at-load waiting worker', async () => {
+  const s = setup({ untouched: true, waiting: true });
+  s.setNow(-1000);
+  await Promise.resolve(); await Promise.resolve();
+  expect(s.worker.postMessage).not.toHaveBeenCalled();
+});
 it.each(['idle', 'waiting', 'requested'])('r2 retires a terminal repair into the actual %s state', async mode => {
   const s = setup({ waiting: mode === 'waiting', workerVersion: async () => '0.999' });
   if (mode === 'waiting') await vi.waitFor(() => expect(s.store.getSnapshot().readyVersion).toBe('0.999'));

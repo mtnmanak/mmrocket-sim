@@ -1,3 +1,5 @@
+import { MAX_EVENT_ALTITUDE_M } from '../tree/schema.js';
+
 /** Drag-panel inputs only. Computed curves and component ids never belong here. */
 export interface DragAnalysisPrefs {
   machMax: number;
@@ -20,7 +22,7 @@ export function normalizeDragAnalysis(value: unknown): DragAnalysisPrefs | undef
     machMax: typeof p.machMax === 'number' && Number.isFinite(p.machMax) && [1, 2, 3, 5, 10, 25].includes(p.machMax)
       ? p.machMax : DEFAULT_DRAG_ANALYSIS.machMax,
     conditions: p.conditions === 'altitude' || p.conditions === 'file' ? p.conditions : 'sealevel',
-    altM: typeof p.altM === 'number' && Number.isFinite(p.altM) && p.altM >= 0 ? p.altM : 0,
+    altM: typeof p.altM === 'number' && Number.isFinite(p.altM) && p.altM >= 0 ? Math.min(p.altM, MAX_EVENT_ALTITUDE_M) : 0,
     mode: p.mode === 'type' ? 'type' : 'component',
     cpView: p.cpView === 'unit' ? 'unit' : 'pct',
   };

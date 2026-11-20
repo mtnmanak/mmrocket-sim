@@ -60,10 +60,10 @@ export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
       </div>
       <p>Saved in this browser only. Export CSV to keep a copy or move your materials to another browser. Editing this library does not change parts already in a design.</p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        <button className="file-btn" type="button" aria-label="Export CSV of My materials" onClick={() => {
-          try { downloadBlob(new Blob([userMaterialsToCsv(materials)], { type: 'text/csv;charset=utf-8' }), 'my-materials.csv'); }
+        <button className="file-btn" type="button" aria-label="Export CSV of My materials" onClick={() => { void (async () => {
+          try { await downloadBlob(new Blob([userMaterialsToCsv(materials)], { type: 'text/csv;charset=utf-8' }), 'my-materials.csv'); }
           catch { setMessage('The CSV could not be downloaded. Try Export CSV again.'); }
-        }}>⬇ Export CSV</button>
+        })(); }}>⬇ Export CSV</button>
         <button className="file-btn" type="button" aria-label="Import CSV into My materials" disabled={reading} onClick={() => file.current?.click()}>⬆ Import CSV</button>
         <input ref={file} type="file" accept=".csv,text/csv" aria-label="Materials CSV file" hidden
           onChange={e => { void (async () => {

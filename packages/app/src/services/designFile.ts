@@ -12,6 +12,7 @@ import { gunzipCapped, InflatedFileTooLargeError, unzipMember } from './zipMembe
 import { XmlBudgetExceededError } from './xmlParse.js';
 import { cautionNote, noteFlags } from './importNotes.js';
 import { noteField } from './noteField.js';
+import { CHUNK_LOAD_GUIDANCE, isChunkLoadError } from './lazyLoadFailure.js';
 
 /**
  * THE FILE DOOR — what App's Open… does to a design file before any motor is
@@ -50,6 +51,7 @@ class DesignReaderError extends Error {
 
 /** Preserve the public refusal wording, naming the content-selected reader. */
 export function designFileOpenFailure(fileName: string, err: unknown): string {
+  if (isChunkLoadError(err)) return `The code or parts catalogue needed to open the design could not be downloaded. ${CHUNK_LOAD_GUIDANCE}`;
   const detectedFormat = err instanceof Error && 'format' in err ? err.format : undefined;
   const format = detectedFormat === 'ork' || detectedFormat === 'rkt' || detectedFormat === 'cdx1'
     ? detectedFormat : /\.(ork|rkt|cdx1)$/i.exec(fileName)?.[1]?.toLowerCase();
@@ -109,17 +111,33 @@ export function designFormatOf(fileName: string): DesignFormat {
 
 /** Read only the root name, stepping over prolog comments and declarations. */
 export function contentFormat(xml: string): DesignFormat | null {
+  return sniffContent(xml).format;
+}
+
+/** Keep the short-prefix fast path, extending only an unfinished prolog or root. */
+export function contentFormatBytes(bytes: Uint8Array): DesignFormat | null {
+  let sniffLength = Math.min(bytes.length, 16 * 1024);
+  let sniff = decodeXml(bytes.subarray(0, sniffLength)).xml;
+  while (sniffLength < bytes.length && sniffContent(sniff).incomplete) {
+    sniffLength = Math.min(bytes.length, sniffLength * 2);
+    sniff = decodeXml(bytes.subarray(0, sniffLength)).xml;
+  }
+  return contentFormat(sniff);
+}
+
+function sniffContent(xml: string): { format: DesignFormat | null; incomplete: boolean } {
   let at = 0;
   for (;;) {
     while (at < xml.length && /\s/.test(xml[at]!)) at++;
     const endToken = xml.startsWith('<?', at) ? '?>' : xml.startsWith('<!--', at) ? '-->' : null;
     if (!endToken) break;
     const end = xml.indexOf(endToken, at + 2);
-    if (end < 0) return null;
+    if (end < 0) return { format: null, incomplete: true };
     at = end + endToken.length;
   }
   const root = /^<([\w:.-]+)(?=[\s/>])/.exec(xml.slice(at))?.[1];
-  return root === 'openrocket' ? 'ork' : root === 'RockSimDocument' ? 'rkt' : root === 'RASAeroDocument' ? 'cdx1' : null;
+  return { format: root === 'openrocket' ? 'ork' : root === 'RockSimDocument' ? 'rkt' : root === 'RASAeroDocument' ? 'cdx1' : null,
+    incomplete: at === xml.length || /^<([\w:.-]*)$/.test(xml.slice(at)) || ['<', '<!', '<!-', '<?'].includes(xml.slice(at)) };
 }
 
 /**
@@ -155,7 +173,7 @@ export async function parseDesignFile(
   if ((bytes[0] === 0x50 && bytes[1] === 0x4b) || (bytes[0] === 0x1f && bytes[1] === 0x8b)) {
     throw new Error(`Not a readable ${kind} file — nested archives are not supported.`);
   }
-  const format = contentFormat(decodeXml(bytes.subarray(0, 16 * 1024)).xml) ?? namedFormat;
+  const format = contentFormatBytes(bytes) ?? namedFormat;
   let imported: ImportedDesign;
   try {
     imported = await readDesignFile(bytes, format, opts);

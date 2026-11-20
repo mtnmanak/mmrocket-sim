@@ -4495,7 +4495,17 @@ function num(el: XmlElement, tag: string, fallback: number, notes: string[], sho
   const automatic = el.tagName === 'tubefinset' && tag === 'radius';
   if (automatic && t.toLowerCase() === 'auto') return fallback;
   const v = parseDecimal(t);
-  if (Number.isFinite(v)) return v;
+  if (Number.isFinite(v)) {
+    // Named configuration heights live outside the tree sanitizer too.
+    const key = tag === 'deployaltitude' ? 'deployAltitude' : tag === 'separationaltitude' ? 'separationAltitude' : null;
+    const limit = key ? fieldLimit(key === 'deployAltitude' ? 'parachute' : 'stage', key) : undefined;
+    if (limit) {
+      const bounded = applyFieldLimit(limit, v);
+      if (bounded !== v) noteInvalidNumber(notes, `The file's <${tag}> was outside the displayable altitude range; it was limited. Check deployment and separation before flying.`);
+      return bounded;
+    }
+    return v;
+  }
   const label = text(el, ':scope > name') ?? el.tagName;
   const note = `“${noteField(label)}”: invalid <${tag}> value; ${fallbackAction(fallback, shown, retained)}.`;
   noteInvalidNumber(notes, note);

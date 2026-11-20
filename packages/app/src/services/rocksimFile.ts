@@ -33,7 +33,7 @@ import {
   type OrkMotorRef,
 } from './orkFile.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
-import { DISPLAY_NAME, interleaveRotation } from '../tree/schema.js';
+import { DISPLAY_NAME, interleaveRotation, MAX_EVENT_ALTITUDE_M } from '../tree/schema.js';
 import { evidenceGatedMotorId, findDbMotor, type MotorDbEntry } from './motorDb.js';
 import { physicalEvidenceFits, type MotorMatchContext } from './motorMatchPolicy.js';
 import { indexRocksimMotors, rocksimBurnTime, rocksimMotorEvidence } from './rocksimMotorEvidence.js';
@@ -1495,10 +1495,10 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
   const simulationSets = new Map(simEls.map(s => [s, Array.from(s.querySelectorAll('EngineSet')).filter(e => acceptedSets.has(e))]));
   const motorIndex = indexRocksimMotors(doc, design, simulationSets, notes);
   const designRecoveryNotes: string[] = [];
-  const designRecovery = readDeploymentEvents(design, serialToNode, designRecoveryNotes, num);
+  const designRecovery = readDeploymentEvents(design, serialToNode, designRecoveryNotes, num, units);
   const simulationRecoveryNotes = simEls.map(() => [] as string[]);
   const simulationRecovery = simEls.map((el, i) =>
-    readDeploymentEvents(el, serialToNode, simulationRecoveryNotes[i]!, num));
+    readDeploymentEvents(el, serialToNode, simulationRecoveryNotes[i]!, num, units));
   const originalSerial = new Map([...serialToNode].map(([serial, node]) => [node, serial]));
   const deploymentFor = (node: ComponentNode, simulation?: Map<string, RktTrigger>): DeploymentTuple => {
     const serial = originalSerial.get(node) ?? '';
@@ -2779,6 +2779,7 @@ const readDeploymentEvents = (
   serialToNode: Map<string, ComponentNode>,
   notes: string[],
   num: NumReader,
+  units: UnitSelection,
 ): Map<string, RktTrigger> => {
   const seen = new Map<string, RktTrigger>();
   const unknown = new Set<number>();
@@ -2800,6 +2801,11 @@ const readDeploymentEvents = (
     if (typeof t === 'number') {
       unknown.add(t);
       continue;
+    }
+    if (t.deployAltitude !== undefined && t.deployAltitude > MAX_EVENT_ALTITUDE_M) {
+      cautionNote(notes, 'I04.limits', `${noteField(node.name ?? node.type)}: deployment altitude ${noticeQuantity('altitude', t.deployAltitude, units)} exceeds the displayable range; set to ${noticeQuantity('altitude', MAX_EVENT_ALTITUDE_M, units)}. Check the deployment before flying.`);
+      t.deployAltitude = MAX_EVENT_ALTITUDE_M;
+      t.says = `at ${noticeQuantity('altitude', t.deployAltitude, units)}`;
     }
     seen.set(serial, t);
     if (t.deployEvent === 'apogee' && Math.round(num(ev, 'Type', 0)) === 5) {

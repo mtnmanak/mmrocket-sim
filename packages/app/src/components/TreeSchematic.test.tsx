@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { calloutLayout, TreeSchematic } from './TreeSchematic.js';
 import { EXPORT_VARS } from '../services/schematicExport.js';
+import * as schematicExport from '../services/schematicExport.js';
 
 /**
  * CG/CP leader-line callouts (S2): dashed leaders from the centerline markers
@@ -497,6 +498,15 @@ describe('a click is not a pan (the missing movement threshold)', () => {
 });
 
 describe('export failures are reported, not swallowed', () => {
+  it('r3 reports an asynchronous SVG download rejection through onError', async () => {
+    const onError = vi.fn();
+    const download = vi.spyOn(schematicExport, 'downloadImage').mockRejectedValueOnce(new Error('blocked image download'));
+    try {
+      mount(infoOf(1.5), { onError, exportData: { name: 'Rocket', stability: null, motor: null } as never });
+      await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.includes('⬇ SVG'))!.click());
+      expect(onError).toHaveBeenCalledWith('SVG export failed: blocked image download');
+    } finally { download.mockRestore(); }
+  });
   /**
    * svgToImage rejects on a rasterise error, and a large rocket at 3840px can
    * exhaust the canvas. The awaited rejection had nowhere to go, so the button

@@ -68,6 +68,23 @@ describe('FlyScreen', () => {
     localStorage.clear();
   });
 
+  it('J6 names every flown mount in a changed-flight note', () => {
+    mount({ run: { ...RUN, motor: 'M1780NT', manufacturer: 'AeroTech', motorCount: 2,
+      boosterMotors: ['K1499N', 'K1499N'], delayS: 14 }, changedSince: ['wind'] });
+    expect(host.querySelector('.fly-stale')?.textContent).toContain('2×');
+    expect(host.querySelector('.fly-stale')?.textContent).toContain('K1499N + K1499N');
+  });
+
+  it('J6 discloses a stopped flight beside its pad-side figures', () => {
+    mount({ run: { ...RUN, simWarnings: [{ key: 'SIM_ABORT', message: 'TUMBLE_UNDER_THRUST', priority: 'HIGH' }] } });
+    expect(host.querySelector('.fly-col .message-danger')).not.toBeNull();
+  });
+
+  it('J6 discloses active thrust imbalance before Launch', () => {
+    mount({ thrustWarnings: [{ key: 'ASYMMETRIC_THRUST_DANGER', message: 'Unequal motors', priority: 'HIGH' }] });
+    expect(host.querySelector('.message-danger')?.textContent).toContain('Unbalanced thrust');
+  });
+
   it('N032 phone apogee follows Altitude independently of horizontal distance', () => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ daylight: true, units: { altitude: 'ft', distance: 'km' } }));
     const run = { ...RUN, maxAltitude: 304.8 };

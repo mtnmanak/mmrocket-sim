@@ -40,7 +40,7 @@ export function delayMountsOf(assigned: readonly (readonly [string, MountMotor])
   return assigned.map(([id, mm]) => ({
     mountId: id, mountName: Object.hasOwn(names, id) ? names[id]! : id,
     motorIdentity: mm.meta.motorId ?? motorIdentity(mm.meta, mm.spec.designation),
-    mode: mm.meta.autoDelay ? 'auto' : mm.spec.ejectionDelay === Infinity ? 'plugged' : 'manual',
+    mode: mm.meta.autoDelay === true ? 'auto' : mm.spec.ejectionDelay === Infinity ? 'plugged' : 'manual',
     delay: mm.spec.ejectionDelay,
   }));
 }
@@ -107,7 +107,7 @@ export function canReplayDelays(
   }
   const primary = assigned.find(([id]) => id === primaryId)?.[1];
   return !!primary && (assigned.length === 1
-    || (assigned.every(([, mm]) => !mm.meta.autoDelay) && delayS === primary.spec.ejectionDelay));
+    || (assigned.every(([, mm]) => mm.meta.autoDelay !== true) && delayS === primary.spec.ejectionDelay));
 }
 
 function refuse(mounts: readonly DelayMount[], reason: string): never {

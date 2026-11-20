@@ -188,8 +188,8 @@ describe('storage hardening: result tiles', () => {
     expect(sessionDebugLog.text()).not.toContain('"name":"Coast"');
   });
 
-  it('W2-UI drops invalid display choices without discarding independent preferences', () => {
-    localStorage.setItem(STORAGE_KEY, '{"walls2d":"true","fieldPrecision":"4","grid2d":"off","rulerReference2d":"bad","rulerOffset2dM":1e999,"rulerReversed2d":1,"radiusMode":"radius"}');
+  it.each(['1e999', '1e100', '-1e100'])('J6 drops unusable ruler origins (%s) without discarding independent preferences', offset => {
+    localStorage.setItem(STORAGE_KEY, `{"walls2d":"true","fieldPrecision":"4","grid2d":"off","rulerReference2d":"bad","rulerOffset2dM":${offset},"rulerReversed2d":1,"radiusMode":"radius"}`);
     mount();
     for (const key of ['walls2d', 'fieldPrecision', 'grid2d', 'rulerReference2d', 'rulerOffset2dM', 'rulerReversed2d'] as const) {
       expect(seen.prefs[key], key).toBeUndefined();

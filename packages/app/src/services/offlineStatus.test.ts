@@ -35,6 +35,24 @@ beforeEach(() => {
 afterEach(() => { stop?.(); stop = undefined; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 function start() { stop = store.start(register, registered); }
 
+it('J6 notices a removed precache on return without a direct recheck', async () => {
+  const win = new EventTarget();
+  vi.stubGlobal('window', win);
+  sw.controller = controller;
+  start();
+  await settle();
+  expect(store.getSnapshot().kind).toBe('ready');
+  entries.mockResolvedValue([]);
+  win.dispatchEvent(new Event('pageshow'));
+  await settle();
+  expect(store.getSnapshot().kind).toBe('unavailable');
+  stop?.(); stop = undefined;
+  const calls = entries.mock.calls.length;
+  win.dispatchEvent(new Event('online'));
+  await settle();
+  expect(entries).toHaveBeenCalledTimes(calls);
+});
+
 describe('offline copy status', () => {
   it('starts silent; registration and a cache without control cannot prove readiness', async () => {
     expect(offlineStatusText(store.getSnapshot())).toBe('');

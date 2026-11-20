@@ -78,6 +78,13 @@ afterEach(() => {
 });
 
 describe('AppBoundary', () => {
+  it('r3 keeps a failed recovery download local without claiming a backup exists', async () => {
+    renderCrashed();
+    vi.mocked(saveFile).mockRejectedValueOnce(new Error('blocked object URL'));
+    await act(async () => button('Download the autosaved design').click());
+    expect(host.textContent).toContain('Recovery download failed: blocked object URL');
+    expect(host.textContent).not.toContain('Downloaded as');
+  });
   it('M2 shows recovery export cautions after the download', async () => {
     const file = autosaveBackup.autosavedDesignFile()!;
     vi.spyOn(autosaveBackup, 'autosavedDesignFile').mockReturnValue({ ...file,

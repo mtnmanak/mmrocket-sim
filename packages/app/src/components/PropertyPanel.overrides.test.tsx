@@ -48,6 +48,18 @@ const mount = (node: ComponentNode) => act(() => root.render(
 const subsBoxes = (): HTMLInputElement[] =>
   [...host.querySelectorAll('.override-subs input[type=checkbox]')] as HTMLInputElement[];
 
+it('J6 says an internal-part Cd override does not affect flight', () => {
+  mount({ id: 'inner', type: 'innertube', overrideCD: 1 });
+  expect(host.textContent).toContain('does not affect flight');
+  expect(host.textContent).toContain('outside part or stage');
+});
+
+it('J6 shows effective rail-button dimensions for a sub-default total height', () => {
+  mount({ id: 'button', type: 'railbutton', totalHeight: 0 });
+  expect(host.textContent).toContain('The simulation uses');
+  expect(host.textContent).toContain('4 mm');
+});
+
 const boxFor = (quantity: string): HTMLInputElement =>
   subsBoxes().find((b) => (b.getAttribute('aria-label') ?? '').includes(quantity))!;
 

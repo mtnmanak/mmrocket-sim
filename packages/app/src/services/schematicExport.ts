@@ -267,7 +267,7 @@ export function snapshotWithHeader(glCanvas: HTMLCanvasElement, d: ExportData, f
  * would have been invisible. This is the image-specific one: it defaults a bare
  * string to `image/svg+xml` and labels the picker "Image".
  */
-export function downloadImage(blob: Blob | string, filename: string): void {
+export async function downloadImage(blob: Blob | string, filename: string): Promise<void> {
   const b = typeof blob === 'string' ? new Blob([blob], { type: 'image/svg+xml' }) : blob;
-  saveBlob(b, filename, 'Image');
+  await saveBlob(b, filename, 'Image');
 }

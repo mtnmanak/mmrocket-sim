@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { isReloadHeld } from '../services/swUpdate.js';
+import { isRequestedReloadHeld } from '../services/swUpdate.js';
 
 /** Download failures must not bypass the update hold protecting this tab. */
 export function ReloadPageButton() {
   const [saveFirst, setSaveFirst] = useState(false);
   return <>
     <button className="file-btn" onClick={() => {
-      if (isReloadHeld()) { setSaveFirst(true); return; }
+      if (isRequestedReloadHeld()) { setSaveFirst(true); return; }
       window.location.reload();
     }}>↻ Reload the page</button>
     <span role="status">{saveFirst && <> This tab has work to keep. Save this tab&rsquo;s

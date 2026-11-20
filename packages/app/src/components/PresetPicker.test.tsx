@@ -7,6 +7,16 @@ import { PresetPicker } from './PresetPicker.js';
 import { DEFAULT_PREFS, PrefsProvider, usePrefs } from '../prefs/PrefsContext.js';
 import { loadCustomPresets, loadPresets, mergeCustomPresetImport, presetPatch, saveCustomPresets, type Preset } from '../services/presets.js';
 import { sessionDebugLog } from '../services/sessionDebugLog.js';
+import * as saveFile from '../services/saveFile.js';
+
+it('r3 reports a parts CSV download failure locally', async () => {
+  await render();
+  const download = vi.spyOn(saveFile, 'downloadBlob').mockImplementationOnce(() => { throw new Error('blocked download'); });
+  try {
+    await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent === '⬇ CSV')!.click());
+    expect(host.querySelector('.message-danger')?.textContent).toContain('Parts export failed: blocked download');
+  } finally { download.mockRestore(); }
+});
 
 /**
  * The CSV round trip this dialog advertises (⬇ CSV, "Import an edited CSV") is
@@ -41,6 +51,15 @@ vi.mock('../services/presets.js', async (importOriginal) => {
  * cached catalogue, as it did.
  */
 beforeAll(async () => { await loadPresets(); });
+
+it('r3 gives save-and-reload guidance when the parts chunk is unavailable', async () => {
+  vi.mocked(loadPresets).mockRejectedValueOnce(new TypeError('Failed to fetch dynamically imported module: /old-presets.js'));
+  await render();
+  expect(host.textContent).toContain('Save this tab’s design as an .ork file');
+  expect(host.textContent).toContain('reload the page');
+  expect(host.textContent).not.toContain('Failed to fetch dynamically imported module');
+  expect(host.querySelector('.message-danger')).not.toBeNull();
+});
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

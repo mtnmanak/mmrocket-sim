@@ -1,6 +1,6 @@
 import { Note } from './Note.js';
 import { describeRunChanges } from '../services/simReport.js';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { boosterBranches, type FlightResult, type FlightSeries } from '@online-openrocket/engine';
@@ -268,6 +268,10 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
   const [selectedEvents, setSelectedEvents] = useState<string[]>(DEFAULT_PLOT_EVENTS);
   const [fullRecording, setFullRecording] = useState<{ original: FlightResult; full: FlightResult } | null>(null);
   const [plotError, setPlotError] = useState<string | null>(null);
+  const [exportBusy, setExportBusy] = useState<null | 'csv' | 'xlsx' | 'plots'>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const currentResult = useRef(result);
+  useLayoutEffect(() => { currentResult.current = result; }, [result]);
   const [comparisonNote, setComparisonNote] = useState('');
   const recording = fullRecording?.original === result ? fullRecording.full : result;
   const [zoomed, setZoomed] = useState(false);
@@ -276,6 +280,7 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
   if (branchChoice.result !== result) {
     setBranchChoice({ result, index: 0, generation: branchChoice.generation + 1 });
     setZoomed(false); setZoomPct(100);
+    setExportError(null); setPlotError(null); setExportBusy(null);
   }
   const boosters = boosterBranches(recording);
   const branchIndex = branchChoice.result === result ? branchChoice.index : 0;
@@ -354,8 +359,6 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
   // export on the page. That one is gone: it was a lossless subset of this
   // CSV, through the same unit conversion, minus the BOM and minus every
   // booster branch.
-  const [exportBusy, setExportBusy] = useState<null | 'csv' | 'xlsx' | 'plots'>(null);
-  const [exportError, setExportError] = useState<string | null>(null);
 
   /**
    * False once this panel is gone. `onFullSeries` re-flies the whole simulation
@@ -375,16 +378,16 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
     setExportBusy(kind);
     setExportError(null);
     onFullSeries()
-      .then((full) => {
+      .then(async (full) => {
         const blob = kind === 'csv'
           ? new Blob([CSV_BOM, flightDataCsv(full, prefs.units, exportLayout)], { type: 'text/csv;charset=utf-8' })
           : new Blob([flightXlsx(full, prefs.units, exportLayout) as BlobPart], { type: XLSX_MIME });
-        downloadBlob(blob, stampedName(designName, 'flight-data', kind === 'csv' ? 'csv' : 'xlsx'));
+        await downloadBlob(blob, stampedName(designName, 'flight-data', kind === 'csv' ? 'csv' : 'xlsx'));
       })
       .catch((e: unknown) => {
-        if (mounted.current) setExportError(e instanceof Error ? e.message : String(e));
+        if (mounted.current && currentResult.current === result) setExportError(e instanceof Error ? e.message : String(e));
       })
-      .finally(() => { if (mounted.current) setExportBusy(null); });
+      .finally(() => { if (mounted.current && currentResult.current === result) setExportBusy(null); });
   };
 
   return (
@@ -566,9 +569,9 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
           aria-describedby={staleReason || flightRunning ? 'flight-data-stale' : undefined}
           onClick={() => {
             setExportBusy('plots'); setPlotError(null);
-            onFullSeries().then(full => { if (mounted.current) setFullRecording({ original: result, full }); })
-              .catch((e: unknown) => { if (mounted.current) setPlotError(e instanceof Error ? e.message : String(e)); })
-              .finally(() => { if (mounted.current) setExportBusy(null); });
+            onFullSeries().then(full => { if (mounted.current && currentResult.current === result) setFullRecording({ original: result, full }); })
+              .catch((e: unknown) => { if (mounted.current && currentResult.current === result) setPlotError(e instanceof Error ? e.message : String(e)); })
+              .finally(() => { if (mounted.current && currentResult.current === result) setExportBusy(null); });
           }}>{exportBusy === 'plots' ? 'Re-flying…' : 'Load all plot series'}</button>}
         <span className="chart-comparison-note">Choose from this branch's recorded series.{onFullSeries ? ' Load all plot series re-flies the shown flight for additional quantities.' : ''}</span>
         {/* Always mounted (audit 2026-09-22), and sr-only while empty so the

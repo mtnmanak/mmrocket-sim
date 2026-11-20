@@ -79,6 +79,8 @@ it('H1 shows catalogue failure and retries without enabling an empty selector', 
   vi.mocked(loadPresets).mockRejectedValueOnce(new Error('offline'));
   await render();
   expect(alertTexts().join(' ')).toContain('Could not load the catalogue');
+  expect(alertTexts().join(' ')).toContain('Save this tab’s design as an .ork file');
+  expect(alertTexts().join(' ')).toContain('reload the page');
   expect(host.querySelector<HTMLSelectElement>('#scale-tube')!.disabled).toBe(true);
   expect(host.querySelector('#scale-tube')!.textContent).toContain('Catalogue unavailable');
   expect(host.querySelector('#scale-tube')!.textContent).not.toContain('Loading');

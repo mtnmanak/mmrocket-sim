@@ -230,8 +230,16 @@ export function noticeQuantity(quantity: Quantity | 'area' | 'surfaceDensity' | 
   if (si === null || si === undefined || !Number.isFinite(si)) return '—';
   if (quantity === 'angle') {
     const symbol = typeof units === 'string' ? units : units.angle;
-    const text = (sym: string) => `${noticeNumber(siToUi('angle', sym, si), sym === 'rad' ? 3 : 1)}${sym === '°' ? '' : ' '}${sym}`;
-    return symbol === 'rad' ? `${text(symbol)} (${text('°')})` : text('°');
+    const rounded = (sym: string, value: number) => noticeNumber(siToUi('angle', sym, value), options.digits ?? (sym === 'rad' ? 3 : 1));
+    const text = (sym: string) => `${rounded(sym, si)}${sym === '°' ? '' : ' '}${sym}`;
+    if (options.against !== undefined && Number.isFinite(options.against) && !noticeEqual(si, options.against)
+      && rounded(symbol, si) === rounded(symbol, options.against)) {
+      return `just ${si > options.against ? 'above' : 'below'} ${noticeQuantity('angle', options.against, units, { ...options, against: undefined })}`;
+    }
+    const degreeFits = Number.isFinite(siToUi('angle', '°', si));
+    const degreeText = degreeFits ? text('°') : 'outside the display range in °';
+    return symbol === 'rad' ? `${text(symbol)} (${degreeText})`
+      : degreeFits ? degreeText : `${degreeText} (${text('rad')})`;
   }
   const derived = quantity === 'area' || quantity === 'surfaceDensity' || quantity === 'lineDensity';
   const selected = typeof units === 'string' ? units : units[quantity === 'area' ? 'length' : derived ? 'density' : quantity as Quantity];
@@ -268,8 +276,9 @@ export function noticeQuantity(quantity: Quantity | 'area' | 'surfaceDensity' | 
   };
   const shown = (symbol: string, value: number, digits = digitsFor(symbol)): string => {
     const convertedValue = converted(symbol, value);
-    const zeroTolerance = quantity === 'temperature' ? 1e-12
-      : converted(symbol, 1e-12 * (quantity === 'area' ? 1e-6 : derived ? 1 : unitDef(quantity as Quantity, INITIAL_UNITS[quantity as Quantity]).toSI));
+    const zeroTolerance = quantity === 'surfaceDensity' || quantity === 'lineDensity' ? 0 : quantity === 'temperature' ? 1e-12
+      : converted(symbol, 1e-12
+        * (quantity === 'area' ? 1e-6 : derived ? 1 : unitDef(quantity as Quantity, INITIAL_UNITS[quantity as Quantity]).toSI));
     const residue = Math.abs(convertedValue) <= zeroTolerance;
     const number = residue ? 0 : convertedValue;
     const preserveSmall = options.preserveSmall !== false && !options.signed && !residue && (derived || !(unitDef(quantity as Quantity, symbol).offset ?? 0));
@@ -278,6 +287,7 @@ export function noticeQuantity(quantity: Quantity | 'area' | 'surfaceDensity' | 
       || ((quantity === 'altitude' || quantity === 'distance') && Math.abs(number) < 1)
       || Number(noticeNumber(number, digits)) === 0)) {
       const text = fmtSig(number, 3, digits ?? 0);
+      if (Number(text) === 0 && number !== 0) return String(Number(number.toPrecision(6)));
       const capped = Number(Number(text).toPrecision(6));
       return Number(text) === capped ? text : String(capped);
     }
@@ -289,6 +299,7 @@ export function noticeQuantity(quantity: Quantity | 'area' | 'surfaceDensity' | 
     return `just ${si > against ? 'above' : 'below'} ${noticeQuantity(quantity, against, units, { ...options, against: undefined })}`;
   }
   const value = (symbol: string, digits?: number) => {
+    if (Number.isFinite(si) && !Number.isFinite(converted(symbol, si))) return `outside the display range in ${label(symbol)}`;
     const text = shown(symbol, si, digits);
     const display = options.grouped ? Number(text).toLocaleString('en-US', { maximumSignificantDigits: 6 }) : text;
     const n = Number(display.replaceAll(',', ''));

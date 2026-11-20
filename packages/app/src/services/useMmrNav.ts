@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { DEFAULT_MAX_JSON_BYTES, getJsonCapped } from './net.js';
 
 /**
  * The Mountain Man Rockets "Nav Contract" — the site publishes its menu as
@@ -254,15 +255,32 @@ export function writeCachedNav(nav: MmrNav): void {
  */
 export async function fetchNav(signal?: AbortSignal): Promise<MmrNav | null> {
   try {
-    const res = await fetch(CONTRACT, { cache: 'no-cache', signal });
-    if (!res.ok) {
-      void res.body?.cancel().catch(() => { /* already errored */ });
-      return null;
-    }
-    return parseNav(await res.json());
+    const res = await getJsonCapped(CONTRACT, { cache: 'no-cache', signal,
+      timeoutMs: 10_000, maxBytes: DEFAULT_MAX_JSON_BYTES, credentials: 'omit',
+      fetchImpl: async (url, init) => {
+        const response = await fetch(url, init);
+        if (!response.ok) {
+          void response.body?.cancel().catch(() => { /* already errored */ });
+          throw new Error('Navigation request failed.');
+        }
+        return response;
+      } });
+    return res.status >= 200 && res.status < 300 ? parseNav(res.json) : null;
   } catch {
     return null;
   }
+}
+
+const REFRESH_KEY = 'mmr-chrome:v1:refresh';
+export function navRefreshDue(now = Date.now()): boolean {
+  try {
+    const receipt = JSON.parse(localStorage.getItem(REFRESH_KEY) ?? 'null') as { at?: number; wait?: number } | null;
+    const elapsed = now - (receipt?.at ?? NaN);
+    return !(Number.isFinite(elapsed) && elapsed >= 0 && elapsed < (receipt?.wait ?? 0));
+  } catch { return true; }
+}
+function recordRefresh(wait: number) {
+  try { localStorage.setItem(REFRESH_KEY, JSON.stringify({ at: Date.now(), wait })); } catch { /* cache is optional */ }
 }
 
 /**
@@ -290,11 +308,14 @@ export function useMmrNav(fallback: MmrNav = MMR_NAV_FALLBACK): MmrNavState {
   });
 
   useEffect(() => {
+    if (!navRefreshDue()) return;
     let alive = true;
     const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
     fetchNav(ctrl?.signal)
       .then((fresh) => {
-        if (!alive || !fresh) return;
+        if (!alive) return;
+        recordRefresh(fresh ? 5 * 60_000 : 60_000);
+        if (!fresh) return;
         writeCachedNav(fresh);
         // Set unconditionally even when menuVersion matches what we already
         // had: `data-mmr-source` must reach "live" for the spec §7 debugging

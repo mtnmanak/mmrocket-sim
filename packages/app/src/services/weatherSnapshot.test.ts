@@ -15,6 +15,36 @@ import {
 
 const HOT_PAD: LaunchConditions = { ...DEFAULT_CONDITIONS, launchAltitudeM: 1190, windStdDev: 0.7 };
 
+it('r3 retains older nullable atmosphere receipts and Undo restores their absence', () => {
+  const receipt = validWeatherSnapshot(JSON.parse(JSON.stringify(snap({
+    applied: { temperatureC: 20, pressureHPa: 1000 }, before: {},
+  }))));
+  expect(receipt).not.toBeNull();
+  const undone = undoApply({ ...HOT_PAD, temperatureC: 20, pressureHPa: 1000 }, receipt!);
+  expect(undone).not.toHaveProperty('temperatureC');
+  expect(undone).not.toHaveProperty('pressureHPa');
+});
+
+it('r2 retains a newly applied receipt when nullable atmosphere fields were absent', () => {
+  const launch = { ...HOT_PAD };
+  delete (launch as Partial<LaunchConditions>).temperatureC;
+  delete (launch as Partial<LaunchConditions>).pressureHPa;
+  const patch = { temperatureC: 20, pressureHPa: 1000 };
+  const receipt = validWeatherSnapshot(JSON.parse(JSON.stringify(snap({ applied: patch, before: beforeOf(launch, patch) }))));
+  expect(receipt).not.toBeNull();
+  const undone = undoApply(applyProposal(launch, patch), receipt!);
+  expect(undone.temperatureC).toBeNull();
+  expect(undone.pressureHPa).toBeNull();
+});
+
+it.each([null, -5, undefined])('J6 refuses an unsafe Undo wind receipt: %s', wind => {
+  const receipt = snap({ applied: { windAverage: 5 }, before: { windAverage: wind } });
+  const checked = validWeatherSnapshot(JSON.parse(JSON.stringify(receipt)));
+  const launch = { ...HOT_PAD, windAverage: 5 };
+  expect(checked === null ? launch : undoApply(launch, checked)).toEqual(launch);
+  expect(checked).toBeNull();
+});
+
 function snap(over: Partial<WeatherSnapshot> = {}): WeatherSnapshot {
   return {
     v: 1, provider: 'open-meteo', endpoint: 'forecast', model: 'best_match',

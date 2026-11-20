@@ -3,6 +3,22 @@ import { beforeEach, expect, it } from 'vitest';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import { runExportContext, validRunExportContext } from './runExportContext.js';
 import { loadRuns } from './simStore.js';
+import type { WeatherSnapshot } from './weatherSnapshot.js';
+
+it('r3 preserves saved-run export context with an older absent-before weather receipt', () => {
+  const weather: WeatherSnapshot = {
+    v: 1, provider: 'open-meteo', endpoint: 'forecast', model: 'best_match',
+    place: { label: 'Pad', latitudeDeg: 40, longitudeDeg: -119, method: 'coordinates' },
+    grid: { latitudeDeg: 40, longitudeDeg: -119 }, demElevationM: null, forAltitudeM: 0,
+    timezone: 'UTC', validUnix: 1700000000, retrievedAt: '2023-11-14T22:13:20Z',
+    fetched: { temperatureC: 20, pressureHPa: 1000, windSpeedMs: null, windGustMs: null, windFromDeg: null },
+    applied: { temperatureC: 20, pressureHPa: 1000 }, before: {},
+  };
+  const context = runExportContext({ ...DEFAULT_CONDITIONS, temperatureC: 20, pressureHPa: 1000 }, weather);
+  expect(validRunExportContext(context)).toBe(true);
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ id: 'older', exportContext: context }]));
+  expect(loadRuns()[0]?.exportContext).toEqual(context);
+});
 
 beforeEach(() => localStorage.clear());
 

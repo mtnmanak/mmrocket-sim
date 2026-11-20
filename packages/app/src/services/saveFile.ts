@@ -205,19 +205,16 @@ export async function saveFile(data: BlobPart, opts: SaveOptions): Promise<SaveO
 }
 
 /**
- * Fire-and-forget save.
+ * Save for export handlers; await it so download failures reach their local catch.
  *
- * It reports NOTHING back — not where the file went, not that a write failed.
- * That is a real limitation and the reason `saveFile` exists: prefer it
- * wherever the app has a channel to tell the user what happened. This form is
- * for the export buttons that have none (the chart, drag, preset and
- * per-component exports), where a Save-As dialog is still a clear improvement
- * on a silent download and the file's own name is the confirmation.
+ * It does not report the destination or a saved/downloaded success receipt —
+ * use `saveFile` when the caller needs those. Its promise does carry failures
+ * so charts, tables, libraries and per-component exports can explain them.
  */
-export function downloadBlob(blob: Blob, filename: string, description = 'File'): void {
+export async function downloadBlob(blob: Blob, filename: string, description = 'File'): Promise<void> {
   const dot = filename.lastIndexOf('.');
   const ext = dot > 0 ? filename.slice(dot) : '';
-  void saveFile(blob, {
+  await saveFile(blob, {
     suggestedName: filename,
     mime: blob.type || 'application/octet-stream',
     extensions: ext ? [ext] : [],

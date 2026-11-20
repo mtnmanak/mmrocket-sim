@@ -40,7 +40,7 @@ export {
   canonicalRodAimDeg, DEFAULT_CONDITIONS, DEFAULT_MAX_FLIGHT_TIME_S, DEFAULT_TIME_STEP_S, flownMaxFlightTimeS, flownGeodeticMethod, flownLongitudeDeg, flownRodAimDeg,
   GEODETIC_METHODS, importLaunchValue, KERNEL_DEFAULT_LONGITUDE_DEG, kernelSimOptions, LATITUDE_DEG_RANGE,
   LONGITUDE_DEG_RANGE, MAX_FLIGHT_TIME_S_RANGE, normalizeRodAimDeg, PANEL_TIME_STEP_FLOOR_S, ROD_AIM_DEG_RANGE, ROD_ANGLE_DEG_RANGE,
-  ROD_LENGTH_M_RANGE, timeStepCostFactor, WIND_MS_RANGE,
+  ROD_LENGTH_M_RANGE, timeStepCostFactor, validStoredLaunchNumber, WIND_MS_RANGE,
 } from '../services/launchConditions.js';
 export type { LaunchConditions } from '../services/launchConditions.js';
 

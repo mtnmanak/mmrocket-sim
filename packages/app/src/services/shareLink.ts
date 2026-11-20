@@ -1,3 +1,5 @@
+import { CHUNK_LOAD_GUIDANCE, isChunkLoadError } from './lazyLoadFailure.js';
+
 /**
  * Share-link codec: a whole .ork design travels inside the URL FRAGMENT as
  * `#d=<version>.<base64url(deflate-raw(xml))>`.
@@ -142,6 +144,7 @@ function canInflateDeflateRaw(): boolean {
  * reason, so a report quoting it says which it was.
  */
 export function shareLinkOpenFailure(e: unknown): string {
+  if (isChunkLoadError(e)) return `The code or parts catalogue needed to open the link could not be downloaded. ${CHUNK_LOAD_GUIDANCE}`;
   // A design over the part limit (board row 84) decoded fine: not a damaged link either.
   if (e instanceof Error && [UNSUPPORTED_ERROR_NAME, TOO_MANY_PARTS_ERROR_NAME, TOO_MANY_INSTANCES_ERROR_NAME].includes(e.name)) {
     return `Couldn't open the design in this link: ${e.message}`;

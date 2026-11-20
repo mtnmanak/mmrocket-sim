@@ -13,6 +13,13 @@ import { MAX_STORED_WARNINGS } from './storedWarnings.js';
 import { summaryOf } from './storedRunIdentity.js';
 import { escapeXmlAttr } from './xmlUtil.js';
 
+it('J6 leaves the export date empty for an uncoercible stored timestamp', () => {
+  const run = { ...mkRun('bad-date'), when: { toString: 0 } } as unknown as SimRun;
+  const table = runsToTable([run]);
+  expect(table.rows[0]![table.headers.indexOf('Date')]).toBe('');
+  expect(() => runsToCsv([run])).not.toThrow();
+});
+
 /**
  * Store tests exercise the persistence round-trip, not simulation output —
  * the store never inspects most SimRun fields, so a cast partial is enough.

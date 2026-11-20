@@ -2,6 +2,13 @@ import { deflateSync, strToU8 } from 'fflate';
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS, MAX_INFLATED_BYTES, shareLinkOpenFailure } from './shareLink.js';
+
+it('r3 identifies unavailable parts code instead of blaming a share link', () => {
+  const note = shareLinkOpenFailure(new TypeError('Failed to fetch dynamically imported module'));
+  expect(note).toContain('Save this tab’s design as an .ork file');
+  expect(note).toContain('reload the page');
+  expect(note).not.toContain('damaged');
+});
 import { refuseTooManyInstances } from '../tree/sanitize.js';
 import { exportOrk } from './orkFile.js';
 

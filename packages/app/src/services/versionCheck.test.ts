@@ -23,6 +23,22 @@ const jsonRes = (body: unknown, ok = true) => ({
 
 afterEach(() => { vi.restoreAllMocks(); });
 
+it('J6 rechecks on return after the wall clock moves backwards', async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  let time = 100_000;
+  const now = () => time;
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonRes({ version: '0.001' }));
+  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+  const root = createRoot(document.createElement('div'));
+  function Probe() { useVersionCheck(now); return null; }
+  try {
+    await act(async () => root.render(createElement(Probe)));
+    time = 0;
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    expect(fetch).toHaveBeenCalledTimes(2);
+  } finally { act(() => root.unmount()); }
+});
+
 describe('fetchLatestVersion', () => {
   it('cancels an unread HTTP refusal body', async () => {
     const cancel = vi.fn();

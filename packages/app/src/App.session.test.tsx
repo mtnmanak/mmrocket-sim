@@ -295,6 +295,33 @@ async function openSavedRuns(host: HTMLElement): Promise<void> {
 /** Starter motor present in the stored session — the async C6 has landed and been autosaved. */
 const starterStored = () => Object.keys(storedSession()?.mountMotors ?? {}).length > 0;
 
+it.each(['blocked read', 'quota failure'])('r5 permits leaving the unchanged starter with %s but guards subsequent edits', async reason => {
+  const ownRead = localStorage.getItem;
+  const ownWrite = localStorage.setItem;
+  Object.defineProperty(localStorage, 'getItem', { configurable: true, value: (key: string) => {
+    if (reason === 'blocked read' && key === SESSION_KEY) throw new DOMException('blocked', 'SecurityError');
+    return ownRead.call(localStorage, key);
+  } });
+  Object.defineProperty(localStorage, 'setItem', { configurable: true, value: (key: string, value: string) => {
+    if (key === SESSION_KEY) throw new DOMException('full', 'QuotaExceededError');
+    return ownWrite.call(localStorage, key, value);
+  } });
+  onTestFinished(() => {
+    Object.defineProperty(localStorage, 'getItem', { configurable: true, value: ownRead });
+    Object.defineProperty(localStorage, 'setItem', { configurable: true, value: ownWrite });
+  });
+  const host = await mountApp();
+  await waitFor(() => !!host.querySelector('.autosave-warn'), 'failed starter autosave');
+  const leave = () => {
+    const event = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+  expect(leave()).toBe(false);
+  await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'My actual work');
+  expect(leave()).toBe(true);
+}, 30_000);
+
 it.each(['autosave recovery', 'explicit file save'])('guards dirty edits after a failed autosave until %s', async recovery => {
   const host = await mountApp();
   await waitFor(starterStored, 'starter autosave');
