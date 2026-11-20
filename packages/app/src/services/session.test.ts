@@ -31,6 +31,8 @@ import { MAX_EX_MOTOR_SAMPLES } from './exMotorLimits.js';
 import { tierLines } from './importNotes.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import { checkFormatLoss } from './formatLoss.js';
+import { designFileBase } from './designFileName.js';
+import { safeName } from './fileName.js';
 
 const restoreTier = (restored: ReturnType<typeof designStateFromSession>, text: string) =>
   tierLines(restored.restoreNotes, restored.restoreNoteTiers).find(note => note.text === text)?.tier;
@@ -622,6 +624,27 @@ afterEach(() => {
 });
 
 describe('storage hardening: session tree', () => {
+  it.each(['opened', 'saved', 'downloaded'] as const)('restores v0.212 filename suggestions (%s)', via => {
+    for (const stem of [safeName('New Rocket'), 'New Rocket', 'Goblin']) {
+      const tree = { ...state().tree, name: 'Renamed Rocket' };
+      const designFile = { name: `${stem}.ork`, via };
+      localStorage.setItem('online-openrocket.session.v1', JSON.stringify({
+        ...state(), tree, designFile, appVersion: '0.212',
+      }));
+      const restored = loadSession()!;
+      expect(restored.designFile).toEqual({ ...designFile, format: 'ork' });
+      expect(designFileBase(restored.designFile ?? null, restored.tree.name))
+        .toBe(via !== 'opened' && stem === safeName('New Rocket') ? 'Renamed_Rocket' : stem);
+    }
+  });
+
+  it.each(['saved', 'downloaded'] as const)('round-trips the filename following flag (%s)', via => {
+    const designFile = { name: 'New_Rocket.ork', via, format: 'ork' as const, followsRocket: true };
+    saveSessionDebounced({ ...state(), designFile });
+    flushSession();
+    expect(loadSession()?.designFile).toEqual(designFile);
+  });
+
   it.each(['opened', 'saved', 'downloaded'] as const)('round-trips a design file name (%s)', via => {
     const designFile = { name: 'Mon fusée.ork', via, format: 'ork' as const };
     saveSessionDebounced({ ...state(), designFile });

@@ -2317,7 +2317,7 @@ describe('only a full-fidelity save clears the unsaved-work guard', () => {
       expect(saveFile).toHaveBeenCalledOnce();
     });
     expect(saveFile).toHaveBeenCalledOnce();
-    expect(host.querySelector('.design-file-name')?.textContent).toBe('Lossy_test.rkt — RockSim file');
+    expect(host.querySelector('.design-file-name')?.textContent).toBe('Save .rkt offers Lossy_test.rkt — RockSim file');
     expect(host.querySelector('.design-save-status')?.textContent).toBe(`Saved as .rkt — ${listed.length} not kept`);
     expect(document.title).toMatch(/^\*/);
     for (const loss of listed) expect(host.textContent).toContain(loss);
@@ -2589,6 +2589,61 @@ describe('only a full-fidelity save clears the unsaved-work guard', () => {
  * the plan merges.
  */
 describe('an open and ✕ New leave a design that reads saved', () => {
+  it.each(['Save .ork', 'Save .rkt', 'Save .CDX1'])('follows a rocket rename after accepting the suggestion for %s, including autosave', async entry => {
+    let host = await mountApp();
+    await waitFor(starterStored, 'the starter motor to be autosaved');
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'New Rocket');
+    await saveAs(host, entry);
+    await waitFor(() => storedSession()?.designFile !== undefined, 'the saved filename to be autosaved');
+    expect(storedSession()?.designFile).toMatchObject({ followsRocket: true });
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Renamed Rocket');
+    expect(host.querySelector('.design-file-name')?.textContent).toContain('offers Renamed_Rocket.');
+    expect(document.title).toContain('(Renamed_Rocket.');
+    await unmountAll();
+    host = await mountApp();
+    expect(host.querySelector('.design-file-name')?.textContent).toContain('offers Renamed_Rocket.');
+    await saveAs(host, 'Save .ork');
+    expect(vi.mocked(saveFile).mock.lastCall?.[1].suggestedName).toBe('Renamed_Rocket.ork');
+    vi.mocked(saveFile).mockResolvedValueOnce({ kind: 'saved', name: 'Typed choice.ork' });
+    await saveAs(host, 'Save .ork');
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Third rocket');
+    await saveAs(host, 'Save .ork');
+    expect(vi.mocked(saveFile).mock.lastCall?.[1].suggestedName).toBe('Typed choice.ork');
+  }, 30_000);
+
+  it('uses the rocket name at the save snapshot when a rename happens behind the picker', async () => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'the starter motor to be autosaved');
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Before picker');
+    let written!: (out: SaveOutcome) => void;
+    vi.mocked(saveFile).mockImplementationOnce(() => new Promise(resolve => { written = resolve; }));
+    await saveAs(host, 'Save .ork');
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'After picker');
+    await act(async () => { written({ kind: 'saved', name: 'Before_picker.ork' }); });
+    expect(host.querySelector('.design-file-name')?.textContent).toBe('Save .ork offers After_picker.ork');
+    await saveAs(host, 'Save .ork');
+    expect(vi.mocked(saveFile).mock.lastCall?.[1].suggestedName).toBe('After_picker.ork');
+  }, 30_000);
+
+  it.each(['Save .ork', 'Save .rkt', 'Save .CDX1'])('keeps an opened disk stem after accepting its own name in %s and renaming', async entry => {
+    let host = await mountApp();
+    await waitFor(starterStored, 'the starter motor to be autosaved');
+    await pick(host, new File([exportOrk({ name: 'Goblin', tree: { ...defaultTree(), name: 'Goblin' } })], 'Goblin.ork'));
+    await waitFor(() => shownName(host) === 'Goblin', 'Goblin to open');
+    await type(input(host, 'Measured mass'), '31');
+    await saveAs(host, entry);
+    await settle();
+    expect(vi.mocked(saveFile).mock.lastCall?.[1].suggestedName).toMatch(/^Goblin\.(ork|rkt|CDX1)$/);
+    expect(host.querySelector('.design-file-name')?.textContent).not.toContain('offers');
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Goblin Mk2');
+    expect(document.title).toMatch(/\(Goblin\.(ork|rkt|CDX1)\)/);
+    await unmountAll();
+    host = await mountApp();
+    expect(storedSession()?.designFile).toMatchObject({ followsRocket: false });
+    await saveAs(host, 'Save .ork');
+    expect(vi.mocked(saveFile).mock.lastCall?.[1].suggestedName).toBe('Goblin.ork');
+  }, 30_000);
+
   it('keeps the opened file name separate from the rocket name, and remembers a real Save As', async () => {
     let host = await mountApp();
     await waitFor(starterStored, 'the starter motor to be autosaved');
@@ -2613,7 +2668,7 @@ describe('an open and ✕ New leave a design that reads saved', () => {
     await unmountAll();
     host = await mountApp();
     expect(label().textContent).toBe('Chosen name.ork');
-    expect(storedSession()?.designFile).toEqual({ name: 'Chosen name.ork', via: 'saved', format: 'ork' });
+    expect(storedSession()?.designFile).toEqual({ name: 'Chosen name.ork', via: 'saved', format: 'ork', followsRocket: false });
     await act(async () => { button(host, '✕ New').click(); });
     expect(label().textContent).toBe('Not saved to a file');
     expect(document.title).toBe('New Rocket — MMRocket Sim');

@@ -135,6 +135,18 @@ describe('row 122: served headers match the app and its deployed scripts', () =>
     ]);
   });
 
+  it('does not hash JSON-LD data, but still checks executable and unknown script types', () => {
+    for (const attributes of ['type="application/ld+json"', "TYPE = 'APPLICATION/LD+JSON'", 'type=application/ld+json']) {
+      expect(inlineScriptHashes(`<script ${attributes}>{"name":"MMRocket Sim"}</script>`)).toEqual([]);
+      expect(checkServedHeaders(`${html}<script ${attributes}>{}</script>`, headersText)).toEqual([]);
+    }
+    for (const type of ['', 'module', 'text/javascript', 'unknown', 'application/ld+jsonx']) {
+      expect(inlineScriptHashes(`<script type="${type}">paint()</script>`)).toHaveLength(1);
+    }
+    // HTML uses the first duplicate attribute: a later data type cannot hide code.
+    expect(inlineScriptHashes('<script type="module" type="application/ld+json">paint()</script>')).toHaveLength(1);
+  });
+
   it('normalizes CRLF and lone CR to LF before hashing script bodies', () => {
     const expected = inlineScriptHashes('<script>first()\nsecond()\nthird()</script>');
     expect(inlineScriptHashes('<script>first()\r\nsecond()\rthird()</script>')).toEqual(expected);

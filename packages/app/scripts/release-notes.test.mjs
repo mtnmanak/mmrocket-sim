@@ -180,12 +180,12 @@ describe('the service worker leaves the page alone (it is not offline, on purpos
 
   it('the build registers the plugin, and the precache skips the page', () => {
     expect(config).toMatch(/releaseNotesPlugin\(CHANGELOG, PRE_VERSIONING_NOTE\)/);
-    expect(config).toMatch(/globIgnores: \['releases\/\*\*'\]/);
+    expect(config).toMatch(/globIgnores: \['releases\/\*\*', 'sitemap.xml'\]/);
     expect(DELIBERATELY_UNCACHED.some((re) => re.test(RELEASES_FILE))).toBe(true);
   });
 
   it('the navigation fallback does not answer the page address with the app, slash, query or not', () => {
-    expect(config).toMatch(/navigateFallbackDenylist: \[RELEASES_NAVIGATION\]/);
+    expect(config).toMatch(/navigateFallbackDenylist: \[RELEASES_NAVIGATION, SITEMAP_NAVIGATION\]/);
     // Workbox tests the denylist against path + query.
     for (const url of ['/releases', '/releases/', '/releases/index.html', '/releases?utm_source=forum',
       '/releases/?utm_source=forum', '/releases/#v0.151'.split('#')[0]]) {

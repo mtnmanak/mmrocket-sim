@@ -40,8 +40,16 @@ export function inlineScriptHashes(html) {
   const tags = /<!--[\s\S]*?(?:-->|$)|<script(?=[\t\n\f />])((?:"[^"]*"|'[^']*'|[^'">])*)>([\s\S]*?)<\/script\s*>/gi;
   const attributes = /([^\t\n\f "'<>/=]+)(?:[\t\n\f ]*=[\t\n\f ]*(?:"[^"]*"|'[^']*'|[^\t\n\f >]*))?/g;
   return [...html.replace(/\r\n?/g, '\n').matchAll(tags)]
-    .filter((match) => match[1] !== undefined
-      && ![...match[1].matchAll(attributes)].some((attribute) => asciiLower(attribute[1]) === 'src'))
+    .filter((match) => {
+      if (match[1] === undefined) return false;
+      const attrs = [...match[1].matchAll(attributes)];
+      if (attrs.some(attribute => asciiLower(attribute[1]) === 'src')) return false;
+      // JSON-LD is an inert data block. Keep hashing every other type, and
+      // respect HTML's first-duplicate-attribute rule rather than hiding code.
+      const type = attrs.find(attribute => asciiLower(attribute[1]) === 'type');
+      const value = type?.[0].match(/=\s*(?:"([^"]*)"|'([^']*)'|([^\t\n\f >]*))/);
+      return asciiLower(value?.[1] ?? value?.[2] ?? value?.[3] ?? '') !== 'application/ld+json';
+    })
     .map((match) => `sha256-${createHash('sha256').update(match[2], 'utf8').digest('base64')}`);
 }
 

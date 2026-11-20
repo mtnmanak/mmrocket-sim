@@ -8,6 +8,7 @@ import { lazyModulesInEntry } from './scripts/lazy-chunks.mjs';
 import { checkDist, duplicatePrecacheUrls } from './scripts/precache-coverage.mjs';
 import { checkDistHtml } from './scripts/served-headers.mjs';
 import { RELEASES_NAVIGATION, releaseNotesPlugin } from './scripts/release-notes.mjs';
+import { SITEMAP_NAVIGATION, sitemapPlugin } from './scripts/sitemap.mjs';
 import { CHANGELOG, PRE_VERSIONING_NOTE } from './src/changelog';
 import { XML_JS_SETUP, XML_JS_SUITES } from './scripts/xml-js-suites.mjs';
 import { assertWorkspaceLinks } from '../../scripts/check-workspace-links.mjs';
@@ -195,7 +196,7 @@ export default defineConfig({
         id: '/',
         name: 'MMRocket Sim',
         short_name: 'MMRocket Sim',
-        description: 'MMRocket Sim lets you build a rocket model and simulate its flight.',
+        description: 'Free rocket design and flight simulator that runs in your web browser — no install, works on Chromebooks and school computers. OpenRocket-derived physics.',
         theme_color: '#03254F',
         background_color: '#03254F',
         display: 'standalone',
@@ -219,9 +220,9 @@ export default defineConfig({
         // fallback must not answer its URL with the app — without the
         // denylist, anyone who has the app installed would get the app at
         // /releases/ (2026-10-02).
-        globIgnores: ['releases/**'],
+        globIgnores: ['releases/**', 'sitemap.xml'],
         // With or without the slash or a query (RELEASES_NAVIGATION says why).
-        navigateFallbackDenylist: [RELEASES_NAVIGATION],
+        navigateFallbackDenylist: [RELEASES_NAVIGATION, SITEMAP_NAVIGATION],
         // The main chunk is 2.68 MB (measured 2026-10-09; it carries the TeaVM kernel
         // AND the React app, so it grows with both) — well over workbox's 2 MB default.
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
@@ -230,6 +231,7 @@ export default defineConfig({
     lazyTextsStayLazy(),
     // The public release-notes page (scripts/release-notes.mjs; Eric, 2026-10-02).
     releaseNotesPlugin(CHANGELOG, PRE_VERSIONING_NOTE),
+    sitemapPlugin(),
     precacheCoversBuild(),
   ],
   // A worker bundle runs its own plugin list: the brand tokens module must be
