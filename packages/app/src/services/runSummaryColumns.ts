@@ -1,5 +1,6 @@
 import { fmtSi, siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
 import type { SimRun } from './simReport.js';
+import { guideExitValueSource, type GuideExitValue } from './guideExitValues.js';
 
 interface RunColumn {
   id: string;
@@ -7,6 +8,7 @@ interface RunColumn {
   quantity?: Quantity;
   unit?: string;
   loadWindow?: boolean;
+  guideValue?: GuideExitValue;
   value: (run: SimRun) => unknown;
 }
 
@@ -32,10 +34,10 @@ export const RUN_SUMMARY_COLUMNS: RunColumn[] = [
   { id: 'maxRollRateRadS', label: 'Max absolute roll rate', unit: 'rad/s', value: r => r.maxRollRateRadS },
   { id: 'launchMass', label: 'Launch mass', quantity: 'mass', value: r => r.launchMass },
   { id: 'burnoutMass', label: 'Recovery mass', quantity: 'mass', value: r => r.burnoutMass },
-  { id: 'launchCG', label: 'Launch CG', quantity: 'length', value: r => r.launchCG },
-  { id: 'launchCP', label: 'Launch CP', quantity: 'length', value: r => r.launchCP },
-  { id: 'launchStaticMarginCal', label: 'Launch stability', unit: 'cal', value: r => r.launchStaticMarginCal },
-  { id: 'launchStaticMarginPct', label: 'Launch stability by length', unit: '%', value: r => r.launchStaticMarginPct },
+  { id: 'launchCG', label: 'Launch CG', quantity: 'length', guideValue: 'cg', value: r => r.launchCG },
+  { id: 'launchCP', label: 'Launch CP', quantity: 'length', guideValue: 'cp', value: r => r.launchCP },
+  { id: 'launchStaticMarginCal', label: 'Launch stability', unit: 'cal', guideValue: 'stability', value: r => r.launchStaticMarginCal },
+  { id: 'launchStaticMarginPct', label: 'Launch stability by length', unit: '%', guideValue: 'stability', value: r => r.launchStaticMarginPct },
   { id: 'rodExitAoa', label: 'Guide exit angle of attack', quantity: 'angle', value: r => r.rodExitAoa },
   { id: 'thrustToWeightAtRod', label: 'Thrust / weight at guide exit', value: r => r.thrustToWeightAtRod },
   { id: 'maxQ', label: 'Max dynamic pressure (ascent)', loadWindow: true, quantity: 'pressure', value: r => r.loads?.maxQ?.value },
@@ -67,6 +69,8 @@ export function summaryCell(column: RunColumn, run: SimRun, units: UnitSelection
   const value = column.value(run);
   if (typeof value !== 'number' || !Number.isFinite(value)) return '';
   if (column.id === 'maxQAlpha') return fmtSi('pressure', units.pressure, siToUi('angle', units.angle, value));
-  if (column.quantity) return fmtSi(column.quantity, units[column.quantity], value);
-  return column.id === 'optimumDelayS' ? `${value.toFixed(1)}s` : String(Math.round(value * 1000) / 1000);
+  const text = column.quantity ? fmtSi(column.quantity, units[column.quantity], value)
+    : column.id === 'optimumDelayS' ? `${value.toFixed(1)}s` : String(Math.round(value * 1000) / 1000);
+  const source = column.guideValue ? guideExitValueSource(run, column.guideValue) : 'flight sample';
+  return source === 'design estimate; no guide-exit sample' ? `${text} (${source})` : text;
 }

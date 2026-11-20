@@ -4,6 +4,17 @@ import type { SimRun } from './simReport.js';
 import { DEFAULT_RUN_COLUMNS, normalizeRunColumns, RUN_SUMMARY_COLUMNS, summaryCell, summaryUnitSuffix } from './runSummaryColumns.js';
 
 describe('saved-run summary columns (N058)', () => {
+  it('J10 identifies static substitutes in selected numeric history columns', () => {
+    const run = { launchCG: 0.2, launchCP: 0.3, launchStaticMarginCal: 1, launchStaticMarginPct: 10,
+      launchGuideDesignValues: ['cg', 'cp', 'stability'] } as SimRun;
+    for (const id of ['launchCG', 'launchCP', 'launchStaticMarginCal', 'launchStaticMarginPct']) {
+      const column = RUN_SUMMARY_COLUMNS.find(c => c.id === id)!;
+      expect(summaryCell(column, run, INITIAL_UNITS)).toContain('(design estimate; no guide-exit sample)');
+      expect(summaryCell(column, { ...run, launchGuideDesignValues: [] }, INITIAL_UNITS)).not.toContain('estimate');
+      expect(summaryCell(column, { ...run, launchGuideDesignValues: undefined }, INITIAL_UNITS))
+        .toBe(summaryCell(column, { ...run, launchGuideDesignValues: [] }, INITIAL_UNITS));
+    }
+  });
   it('N032 separates apogee, deployment and load heights from landing drift', () => {
     const units = { ...INITIAL_UNITS, altitude: 'ft', distance: 'km' };
     const peak = { value: 1, time: 1, altitude: 304.8, mach: 0.1, aoa: 0.01 };

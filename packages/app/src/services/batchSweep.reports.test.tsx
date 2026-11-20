@@ -55,8 +55,8 @@ it('Round 6 preserves each colliding EX motor name from sweep through both repor
   expect(runConfigurationLabel(run)).toBe(label);
   const tabular = runsToTable([run]);
   expect(tabular.rows[0]?.[tabular.headers.indexOf('Flight config')]).toBe(label);
-  expect(tabular.headers.slice(-2)).toEqual(['Batch candidate mount', 'Batch other mounts']);
-  expect(tabular.rows[0]?.slice(-2)).toEqual(['Mount A', 'EX K500 (2) in Mount B']);
+  expect(tabular.headers.slice(-3)).toEqual(['Batch candidate mount', 'Batch other mounts', 'Guide-exit value sources']);
+  expect(tabular.rows[0]?.slice(-3, -1)).toEqual(['Mount A', 'EX K500 (2) in Mount B']);
   expect(runsToCsv([run])).toContain('Mount A,EX K500 (2) in Mount B');
 
   const host = document.createElement('div');

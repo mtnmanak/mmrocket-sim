@@ -35,6 +35,14 @@ const pick = async (label: string) => {
 beforeEach(() => { localStorage.clear(); host = document.createElement('div'); document.body.append(host); root = createRoot(host); });
 afterEach(() => { act(() => root.unmount()); host.remove(); localStorage.clear(); vi.clearAllMocks(); });
 
+it('J10 describes each disconnected fin region as its own DXF contour', () => {
+  mount();
+  const button = [...host.querySelectorAll('button')].find(b => b.textContent?.includes('DXF'))!;
+  expect(button.title).toContain('one closed contour per disconnected region');
+  expect(button.title).toContain('tab joins regions only where it touches them');
+  expect(button.title).not.toContain('a single closed contour');
+});
+
 it('explains fabrication scope beside the hole fields and offers no physical overrides', () => {
   mount(holes);
   expect(host.textContent).toMatch(/Fabrication only.*mass, CG, drag or any flight number/);

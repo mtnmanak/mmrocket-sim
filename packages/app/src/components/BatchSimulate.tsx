@@ -833,6 +833,10 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
             : `Weighed pad mass: ${weighed.name} on ${mounts.find((m) => m.id === weighed.mountId)?.label ?? 'another mount'} keeps its ${delta} of hardware in every flight; the candidates on this mount fly at their catalogue weight.`;
           return <p className="comp-stats batch-weighed" style={{ margin: '4px 0 0' }}>{text}</p>;
         })()}
+        <p className="comp-stats batch-flight-inputs" style={{ margin: '4px 0 0' }}>
+          Comparing with Launch requires the same complete loadout, ignition, delay policies,
+          aerodynamic model and launch inputs.
+        </p>
         {/* What the sweep does with the design's nozzle exit diameter, said
             only when the design has one — every other design would read it as
             noise about a field it has never touched. Its own line, beside the
@@ -841,12 +845,12 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
         {(anyRowFlewNozzle || (rows.length === 0 && batchModel !== 'eb' && nozzleStages.length > 0)) && (
           <p className="comp-stats batch-nozzle" style={{ margin: '4px 0 0' }}>
             {'Nozzle exit diameter: each candidate flies its OWN published exit where the app has '
-              + 'one, so a motor reads the same here as it does on the design page. Rows that flew '
+              + 'one, matching the nozzle value the design page would use. Rows that flew '
               + 'one are marked · nozzle; the rest have no published exit and fly without it, '
               + 'which is why two motors of similar impulse can sit a few percent apart. '
               + (nozzleStages.length > 0
                 ? `The exit you typed under ${nozzleStages.map((s) => s.name).join(', ')} is used `
-                  + 'for the motor you typed it for, so that row matches your design-page flight exactly.'
+                  + 'for the motor you typed it for, so that row uses the same nozzle value.'
                 : '')}
           </p>
         )}

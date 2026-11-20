@@ -1682,8 +1682,8 @@ describe('runsToCsv', () => {
     expect(hc[configAt + 2]).toBe('Winds aloft (levels)');
     expect(hc[configAt + 3]).toBe('Rail for 15.0 m/s (m)');
     expect(hc[configAt + 4]).toBe('Max dynamic pressure (Pa)');
-    expect(hc.slice(-8)).toEqual(['Hybrid band lower (Mach)', 'Hybrid band upper (Mach)', 'Travel for 15.0 m/s (m)', 'Overrides', 'Status', 'Wind gusts σ at pad (m/s)', 'Batch candidate mount', 'Batch other mounts']);
-    expect(cells(row!).slice(-5)).toEqual(['not recorded', 'Unknown', '0', '', '']);
+    expect(hc.slice(-9)).toEqual(['Hybrid band lower (Mach)', 'Hybrid band upper (Mach)', 'Travel for 15.0 m/s (m)', 'Overrides', 'Status', 'Wind gusts σ at pad (m/s)', 'Batch candidate mount', 'Batch other mounts', 'Guide-exit value sources']);
+    expect(cells(row!).slice(-6, -1)).toEqual(['not recorded', 'Unknown', '0', '', '']);
     expect(cells(row!)[hc.indexOf('Flight config')]).toBe('Club field C6');
     // A run stored before the field existed exports an empty trailing cell.
     const old = buildSimRun({
@@ -1747,6 +1747,7 @@ describe('the launch stability rows all come from one instant', () => {
   it('takes the CG from the sample the CP came from, not from t=0', () => {
     const run = build(rodClearedAtSampleOne());
     expect(run.launchCG).toBeCloseTo(0.25, 12);
+    expect(run.launchGuideDesignValues).toEqual([]);
   });
 
   it('reports the angle of attack at that same instant, which is why CP moved', () => {
@@ -1767,6 +1768,7 @@ describe('the launch stability rows all come from one instant', () => {
     expect(run.launchCG).toBe(info.cg);
     expect(run.launchCP).toBe(info.cp);
     expect(run.launchStaticMarginCal).toBe(info.stabilityCalibers);
+    expect(run).toHaveProperty('launchGuideDesignValues', ['cg', 'cp', 'stability']);
   });
 
   /**
@@ -1799,6 +1801,7 @@ describe('the launch stability rows all come from one instant', () => {
     expect(run.launchCG).toBe(info.cg);
     expect(run.launchCP).toBe(cpWorst);
     expect(run.launchStaticMarginCal).toBe(-5.346);
+    expect(run).toHaveProperty('launchGuideDesignValues', ['cg', 'cp', 'stability']);
     expect(run.comments).toContain('Static margin -5.35 cal — under-stable.');
   });
 

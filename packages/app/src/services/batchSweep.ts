@@ -628,8 +628,9 @@ export async function runBatchSweep(
    * The one case where the database is not the answer: the user has typed
    * their own exit over the published one, and the candidate IS the motor
    * they typed it for. Then that row flies what they typed — which is what
-   * makes "the same motor reads the same in both places" true without
-   * exception, including for a machined-out nozzle the app cannot look up.
+   * keeps the nozzle value the same in both places, including for a
+   * machined-out nozzle the app cannot look up. Flight parity also needs
+   * matching ignition, delays, retained motors and other flight inputs.
    * The field is already the whole stage's equivalent, so it is used as-is.
    */
   const typedStageExitM = (() => {

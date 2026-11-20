@@ -14,6 +14,7 @@ import { normalizeFlightAdvisories } from '../prefs/flightAdvisories.js';
 import { validWindLevels, validWindProfileSource } from './windProfile.js';
 import { batchLoadoutText, batchOtherMountsText, namedBatchMounts, validBatchMounts } from './batchLoadout.js';
 import { noteText } from './noteField.js';
+import { guideExitValueSources } from './guideExitValues.js';
 
 /**
  * Persisted simulation-run history (localStorage). the owner's flight-day flow:
@@ -63,6 +64,10 @@ export function loadRuns(): SimRun[] {
       typeof r === 'object' && r !== null && !Array.isArray(r)
       && typeof (r as { id?: unknown }).id === 'string');
     for (const r of list) {
+      if (!Array.isArray(r.launchGuideDesignValues)
+        || !r.launchGuideDesignValues.every(key => key === 'cg' || key === 'cp' || key === 'stability')) {
+        delete r.launchGuideDesignValues;
+      }
       for (const key of ['motorSetKey', 'designKey', 'conditionsKey', 'motorConfig', 'flightConfig', 'flightConfigId', 'motorType', 'propellant', 'motorCase', 'motorDesignation', 'importedRunId'] as const) {
         if (typeof r[key] !== 'string') delete r[key];
       }
@@ -584,6 +589,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['Batch candidate mount', r => r.batch === true && validBatchMounts(r.batchMounts)
     ? namedBatchMounts(r.batchMounts).filter(m => m.role === 'candidate').map(m => noteText(m.mountName)).join('; ') : ''],
   ['Batch other mounts', batchOtherMountsText],
+  ['Guide-exit value sources', guideExitValueSources],
   ];
 }
 

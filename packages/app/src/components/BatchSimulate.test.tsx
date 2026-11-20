@@ -437,7 +437,7 @@ describe('the batch dialog', () => {
     mount({}, { tree: NOZZLE_TREE });
     const text = host.querySelector('.batch-nozzle')?.textContent ?? '';
     expect(text).toContain('its OWN published exit');
-    expect(text).toContain('the same here as it does on the design page');
+    expect(text).toContain('matching the nozzle value the design page would use');
     // Partial coverage has to be named, or it reads as an inconsistency.
     expect(text).toContain('· nozzle');
     expect(text).toContain('no published exit');
