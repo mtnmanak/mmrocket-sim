@@ -163,6 +163,8 @@ it('says "hypothetical charge" in the flown-delay cell of a plugged motor flown 
   const probed = (m: object) => ({ ...resolution(m as never), probes: 1 });
   const plugged = renderToStaticMarkup(<MountDelayReport resolution={probed({ ...auto, exception: 'plugged-on-charge' })} />);
   expect(plugged).toMatch(/<td>7 s<span class="simdet-delay-mark"> · hypothetical charge \(motor sold plugged\)<\/span><\/td>/);
+  expect(plugged).toContain('Auto (hypothetical charge)');
+  expect(plugged).not.toContain('charge recovery');
   const plain = renderToStaticMarkup(<MountDelayReport resolution={probed(auto)} />);
   expect(plain).toContain('<td>7 s</td>');
   expect(plain).not.toContain('hypothetical charge');

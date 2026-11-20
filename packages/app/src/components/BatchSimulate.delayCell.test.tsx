@@ -1,6 +1,15 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vitest';
 import { batchDelayCell, PLUGGED_DELAY_MARK } from './BatchSimulate.js';
+import { testMotor, testResolution } from '../services/autoDelay.testSupport.js';
+
+it('r4 names the retained hypothetical charge without marking the charged candidate delay', () => {
+  const delayResolution = testResolution([['candidate', testMotor(false, 7)], ['kept', testMotor(true, Infinity)]], [7, 9]);
+  Object.assign(delayResolution.mounts[1]!, { mountName: 'Side mount', exception: 'plugged-on-charge' });
+  const html = renderToStaticMarkup(<>{batchDelayCell({ delayS: 7, delayResolution }, true)}</>);
+  expect(html).toContain('Hypothetical charge: Side mount: 9s');
+  expect(html).not.toContain(`7s<span class="motor-db-meta">${PLUGGED_DELAY_MARK}`);
+});
 
 /**
  * D7 §5, L20: a plugged-only motor flown at its optimum fires a charge the

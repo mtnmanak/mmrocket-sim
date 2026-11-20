@@ -493,6 +493,14 @@ describe('planImport — one plan, applied and marked', () => {
 });
 
 describe('planConfigSwitch — one switch, applied and noted', () => {
+  it.each(['override', 'default'])('r3 seeds stated nozzles with resolved %s ignition', source => {
+    const next = tree();
+    const target: SavedConfig = { ...B, ignitions: source === 'override' ? { m2: { event: 'never', delay: 0 } } : undefined };
+    if (source === 'default') Object.assign(next, { ignitionDefaults: { m2: { event: 'never', delay: 0 } } });
+    const plan = planConfigSwitch({ savedConfigs: [target], activeConfigId: null,
+      mountMotors: {}, unmatchedRefs: {}, tree: next }, target, TEXT);
+    expect(plan.nozzleStated).toMatchObject([{ stageId: 's2', motors: [] }]);
+  });
   const tree = (): RocketTree => ({
     name: 'two',
     components: [

@@ -8,6 +8,16 @@ import { exportRkt, rktComponentInfo } from './rocksimFile.js';
 import { exportCdx1 } from './rasaeroFile.js';
 
 describe('lossy fix regressions', () => {
+  it('r3 does not claim translated charge-relative staging was discarded', () => {
+    const d = input();
+    d.tree.components.push({ type: 'stage', id: 'lower', children: [{ type: 'bodytube', id: 'boost', length: 0.3, outerRadius: 0.03 }] });
+    d.motors.b = { designation: 'Upper', manufacturer: 'AeroTech', diameter: 0.024, length: 0.1, delay: 5, ignitionEvent: 'ejectioncharge', ignitionDelay: 1.5 };
+    d.motors.boost = { designation: 'Lower', manufacturer: 'AeroTech', diameter: 0.024, length: 0.1, delay: 3, autoDelay: true };
+    expect(exportCdx1({ name: 'Timers', tree: d.tree, motors: d.motors })).toContain('<SustainerIgnitionDelay>4.5</SustainerIgnitionDelay>');
+    expect(checkFormatLoss('cdx1', d).losses.join(' ')).not.toContain('ignition trigger/timing is not kept');
+    d.motors.boost!.delay = Infinity;
+    expect(checkFormatLoss('cdx1', d).losses.join(' ')).toContain('ignition trigger/timing is not kept');
+  });
   it.each(['rkt', 'cdx1'] as const)('129 discloses a nondefault Maximum flight time lost by %s', format => {
     const d = input();
     expect(checkFormatLoss(format, d).losses.join(' ')).not.toContain('Maximum flight time');

@@ -45,6 +45,23 @@
 // shroudConvert regressions cover these messages. No flight threshold moved.
 // The final two sanitize producers cover the same vent repair on patch/scale
 // writes; scaleRocket's 100x load-boundary identity regression covers the cap.
+// J1 r5: census unchanged. Detached-stack membership and finite sold-plugged
+// Auto evidence add no measurement comparison, threshold or tolerance.
+// Real two/three-stage and Launch/card regressions cover the new guards.
+// J1 r4: MountDelayReport 3 -> 2 and designPrintReport 25 -> 24 remove
+// the mode-label arrow and the false charge-recovery claim. Hypothetical
+// charge is independent of the recovery trigger; both table tests cover it.
+// Reviewed carrier membership, sold-delay classification and safe provisional
+// exports: no measurement threshold or tolerance changes.
+// J1 r3: reviewed unchanged census. Ring subsets and ignition topology compare
+// membership, not measurement thresholds. Mixed-delay labels and charge-timer
+// loss recognition introduce no numeric notice producer or tolerance.
+// J1 r2: batchSweep 4 -> 3 removes the false "no deployment at all"
+// assertion from hypothetical-charge copy. Recovery outcomes and numerical
+// thresholds are unchanged; batchSweep r2 covers electronics and kept charges.
+// J1: BatchSimulate 19 -> 18 replaces the single-primary optimum formatter
+// with recorded per-group delay text. This changes display scope, no verdict
+// threshold or tolerance. Mixed-delay export and per-group regressions cover it.
 // PRFL-1: census unchanged. The owner-defined 0.85–1.15 display band and
 // unity crossings describe the sampled flight, with no verdict or flight
 // threshold change. rollPitchResonance.test covers interval boundaries,

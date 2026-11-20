@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
 import { equivalentExitDiameterM, followNozzle, stageMotorKey, stageMotors } from './nozzleFollow.js';
+import { motorisedStagesWithNozzle } from '../tree/treeModel.js';
 import { addExMotors, parseEng } from './exMotors.js';
 
 afterEach(() => localStorage.clear());
@@ -42,6 +43,30 @@ const design = (stagesIn: { id: string; name?: string; mounts: [string, string?]
 });
 
 describe('stageMotors', () => {
+  it('r2 excludes a build-refused motor from the same nozzle sum Launch and Batch use', () => {
+    const tree = design([{ id: 's', mounts: [['a'], ['b']] }]);
+    expect(stageMotors(tree, [['a', mm('a')], ['b', mm('b')]], ['b'])[0]!.motors.map(m => m.mountId)).toEqual(['a']);
+  });
+  it.each(['never', 'burnout', 'ejectioncharge'])('r2 omits a launch-stage %s motor from nozzle stamps', event => {
+    const tree = design([{ id: 's', mounts: [['a']] }]);
+    tree.components[0]!.nozzleExitDiameter = 0.02;
+    expect(motorisedStagesWithNozzle(tree, [['a', { ignition: { event } }]])).toEqual([]);
+  });
+  it('J1 keeps an ID-less installed exit unknown and removes unlit exits from the follow key', () => {
+    const tree = design([{ id: 'sus', mounts: [['m1'], ['m2']] }]);
+    const legacy = mm('');
+    const both = stageMotors(tree, [['m1', mm('known')], ['m2', legacy]])[0]!;
+    expect(both.motors).toHaveLength(2);
+    expect(both.motors.find(m => m.mountId === 'm2')?.motorId).toBe('');
+    const changed = stageMotors(tree, [['m1', mm('known')], ['m2', { ...legacy,
+      spec: { ...legacy.spec, designation: 'Another legacy motor' } }]])[0]!;
+    expect(stageMotorKey(changed)).not.toBe(stageMotorKey(both));
+    for (const event of ['never', 'burnout', 'ejectioncharge'] as const) {
+      const unlit = stageMotors(tree, [['m1', mm('known')], ['m2', { ...legacy, ignition: { event, delay: 0 } }]])[0]!;
+      expect(unlit.motors.map(m => m.mountId)).toEqual(['m1']);
+      expect(stageMotorKey(unlit)).not.toBe(stageMotorKey(both));
+    }
+  });
   it('lists every stage, including one with no motor at all', () => {
     // A stage that dropped out of the list when its motor was removed would be
     // indistinguishable from one that never changed — and "the motor was

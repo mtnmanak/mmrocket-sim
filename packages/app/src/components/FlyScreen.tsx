@@ -1,6 +1,6 @@
 import { savedConfigLabel, type SavedConfig } from '../model/design.js';
 import { recordedConfiguration, runConfigurationLabel } from '../services/runConfiguration.js';
-import { batchLoadoutText } from '../services/batchLoadout.js';
+import { batchLoadoutText, candidateDelayText, flownLoadoutText } from '../services/batchLoadout.js';
 import { noSavedConfigurationsText } from '../services/flightState.js';
 import { LaunchOverrideWarning, type LaunchOverrideProps } from './LaunchOverrideWarning.js';
 import { GroundWindNote } from './GroundWindNote.js';
@@ -96,6 +96,7 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
   const stab = info && hasAerodynamicForce(info)
     ? stabilityGlyphClass(shownStability(info)) : null;
   const descent = run ? (run.landingRate ?? run.groundHitVelocity) : null;
+  const mixedOptimum = run ? candidateDelayText(run, 'rawOptimum', v => `${v.toFixed(1)} s`) : null;
 
   const stat = (label: string, value: string, unit?: string, opts?: { muted?: boolean; title?: string }) => (
     <div className="fly-stat" title={opts?.title}>
@@ -164,8 +165,8 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
           <div className="fly-stats">
             {stat('Apogee', run ? fmtSi('altitude', prefs.units.altitude, run.maxAltitude) : '—',
               run ? prefs.units.altitude : undefined)}
-            {stat('Optimum delay', typeof run?.optimumDelayS === 'number' && Number.isFinite(run.optimumDelayS) ? run.optimumDelayS.toFixed(1) : '—',
-              Number.isFinite(run?.optimumDelayS) ? 's' : undefined)}
+            {stat('Optimum delay', mixedOptimum ?? (typeof run?.optimumDelayS === 'number' && Number.isFinite(run.optimumDelayS) ? run.optimumDelayS.toFixed(1) : '—'),
+              !mixedOptimum && Number.isFinite(run?.optimumDelayS) ? 's' : undefined)}
             {stat('Descent', descent != null ? fmtSi('velocity', prefs.units.velocity, descent) : '—',
               descent != null ? prefs.units.velocity : undefined)}
             {stat('Max velocity', run ? fmtSi('velocity', prefs.units.velocity, run.maxVelocity) : '—',
@@ -205,7 +206,7 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
                 }
               }}>
               {configs.map(c => <option key={c.id} value={`config:${c.id}`}>
-                {savedConfigLabel(c)}{c.isDefault ? ' — file default' : ''}
+                {savedConfigLabel(c, tree)}{c.isDefault ? ' — file default' : ''}
               </option>)}
               {hasWorkingSettings && !configs.some(c => c.id === activeConfigId)
                 && <option value="working" disabled>Working settings (not saved)</option>}
@@ -289,13 +290,16 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
  * report's header names it instead, with no delay.
  */
 function flownMotorLabel(run: SimRun): string {
+  const frozen = flownLoadoutText(run);
+  if (frozen) return frozen;
+  const others = run.boosterMotors?.length ? ` + ${run.boosterMotors.join(' + ')}` : '';
   if (run.motorConfig?.startsWith('mixed')) {
     // A stored run can lack its motor (closure audit of v0.194, row E); '—' as below.
-    return `${run.motor || '—'}${run.manufacturer ? ` (${run.manufacturer})` : ''}`;
+    return `${run.motor || '—'}${run.manufacturer ? ` (${run.manufacturer})` : ''}${others}`;
   }
   // A stored run's missing motor is read back as '' (loadRuns): no delay is hung on a bare '—'.
   const designation = run.motorDesignation || run.motor;
   if (!designation) return `${run.manufacturer ? `${run.manufacturer} ` : ''}—`;
-  return `${run.manufacturer ? `${run.manufacturer} ` : ''}${motorLabel(
-    { designation, manufacturerAbbrev: run.manufacturer }, run.delayS)}`;
+  return `${run.motorCount && run.motorCount > 1 ? `${run.motorCount}× ` : ''}${run.manufacturer ? `${run.manufacturer} ` : ''}${motorLabel(
+    { designation, manufacturerAbbrev: run.manufacturer }, run.delayS)}${others}`;
 }

@@ -1,6 +1,7 @@
 import type { IgnitionEvent, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
-import { findNode, motorMounts, mountMotorCount, mountName, stageIdByNode } from '../tree/treeModel.js';
+import { hasIgnitionSourceStage, findNode, motorMounts, mountMotorCount, mountName, stageIdByNode  } from '../tree/treeModel.js';
+import { knownUnlitIgnition } from './ignitionEvent.js';
 import { mountBore } from '../tree/scaleRocket.js';
 import { CLUSTER_OPTIONS, clusterCount } from '../tree/cluster.js';
 import { boundedLoadoutMotorNames, motorLabelEntry } from './motorLabels.js';
@@ -10,7 +11,7 @@ import type { BatchMountOption } from './batchSweep.js';
 import { mountLoadoutText, namedBatchMounts } from './batchLoadout.js';
 import type { BatchMountRecord } from './simReport.js';
 import { motorIdentity } from './hardwareMass.js';
-import { batchRingSplits } from './batchRing.js';
+import { batchRingSplits, batchRingSubset } from './batchRing.js';
 
 const and = (names: string[]) => names.length < 3 ? names.join(' and ')
   : `${names.slice(0, -1).join(', ')} and ${names.at(-1)!}`;
@@ -63,7 +64,7 @@ export function batchMountDisclosure(tree: RocketTree, mounts: readonly BatchMou
   let index = 0;
   for (const m of others) {
     const spec = overrideFor(motors, m.id);
-    const motor = spec && motorNames ? motorNames[index++]! + (overrideFor(ignitions, m.id)?.event === 'never' ? ' (never ignites)' : '') : null;
+    const motor = spec && motorNames ? motorNames[index++]! + (knownUnlitIgnition(overrideFor(ignitions, m.id)?.event, !hasIgnitionSourceStage(tree, m.id)) ? ' (never ignites)' : '') : null;
     const key = JSON.stringify(motor);
     const group = groups.get(key) ?? { motor, names: [] };
     group.names.push(nameOf(m.id));
@@ -73,7 +74,8 @@ export function batchMountDisclosure(tree: RocketTree, mounts: readonly BatchMou
   }
   const kept = [...groups.values()].filter(g => g.motor !== null);
   const empty = [...groups.values()].find(g => g.motor === null);
-  const sentences = [targetIds.length > 1 ? `Candidates fly in ${and(targetIds.map(nameOf))}.`
+  const targetName = (id: string) => `${mountMotorCount(tree, id) > 1 ? `×${mountMotorCount(tree, id)} ` : ''}${nameOf(id)}${knownUnlitIgnition(overrideFor(ignitions, id)?.event, !hasIgnitionSourceStage(tree, id)) ? ' (never ignites)' : ''}`;
+  const sentences = [targetIds.length > 1 ? `Candidates fly in ${and(targetIds.map(targetName))}.`
     : `Candidates fly ${count > 1 ? `×${count} ` : ''}in ${nameOf(selected.id)} only.`];
   if (keptMounts.some(m => m.count > 1)) sentences.push(`Each flight keeps ${mountLoadoutText(keptMounts)}.`);
   else if (kept.length) sentences.push(`${and(kept.map(g => `${and(g.names)} ${g.names.length === 1 ? 'keeps' : 'keep'} ${g.motor!}`))} for every flight.`);
@@ -93,10 +95,21 @@ export function batchMountDisclosure(tree: RocketTree, mounts: readonly BatchMou
     return node?.type === 'innertube' && (node['cluster'] === '4-ring' || node['cluster'] === '6-ring');
   });
   if (mixedUnavailable && qualifying) mixedUnavailable += ` Choose ${nameOf(qualifying.id)} in the mount picker for mixed batches.`;
+  if (targetIds.length === 1 && batchRingSplits(tree, matchingMounts).halves) {
+    mixedUnavailable = `Tick Use all ${matchingMounts.length} matching mounts for mixed batches on this ring of separate tubes.`;
+  }
   if (targetIds.length > 1) {
     const ring = batchRingSplits(tree, mounts.filter(m => targetIds.includes(m.id)));
     mixedUnavailable = ring.halves ? null
       : `Mixed batches (2+2, 3+3) need four or six single tubes on one ring; these ${targetIds.length} mounts are not evenly spaced around one ring with the same parent and bore.`;
+    if (mixedUnavailable && (layout === '4-ring' || layout === '6-ring')) {
+      const half = clusterCount(layout) / 2;
+      mixedUnavailable += ` Untick Use all ${matchingMounts.length} matching mounts for mixed ${half}+${half} on ${nameOf(selected.id)}.`;
+    }
+  }
+  const ringSubset = batchRingSubset(tree, matchingMounts, selected.id);
+  if (mixedUnavailable && ringSubset) {
+    mixedUnavailable = `Tick Use only ${ringSubset.length} ring mounts for mixed batches while keeping the centre mount's motor.`;
   }
   return { text: (others.length || targetIds.length > 1) && motorNames ? sentences.join(' ') : null,
     matching, mixedUnavailable, matchingMounts,

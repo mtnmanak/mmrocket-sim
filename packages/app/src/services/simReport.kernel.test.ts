@@ -108,6 +108,41 @@ it('re-flies exactly the computed rail and exits within 0.1 m/s of the target', 
 }, 30000);
 
 describe('kernel warnings + drift, end-to-end', () => {
+  it.each([2, 3])('r5 keeps fixed sustainer advice but rejects a detached bottom in a real %i-stage flight', async count => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { testMotor, testResolution } = await import('./autoDelay.testSupport.js');
+    resetEngine();
+    const design: RocketTree = { name: 'Carrier stack', components: Array.from({ length: count }, (_, i) => {
+      const parts = tree(true).components;
+      const body = parts[1]!;
+      body.children!.find(c => c.type === 'innertube')!.id = `mount-${i}`;
+      return { type: 'stage', id: `stage-${i}`, name: `Stage ${i}`,
+        separationEvent: i === 1 ? 'burnout' : 'never',
+        children: i === 0 ? parts : [body] } as ComponentNode;
+    }) };
+    const rocket = OrkRocket.buildTree(design);
+    const assigned = design.components.map((_, i) => {
+      const id = `mount-${i}`;
+      rocket.setMotorById(id, C6);
+      rocket.setMotorIgnitionById(id, 'launch', 0);
+      return [id, { ...testMotor(false, 5), spec: C6, ignition: { event: 'launch' as const, delay: 0 } }] as const;
+    });
+    const result = rocket.simulate({ launchRodLength: 1, timeStep: 0.05, randomSeed: 42 });
+    const separations = result.branches!.flatMap(b => b.events).filter(e => e.type === 'STAGE_SEPARATION');
+    expect(separations.some(e => e.sourceId === 'stage-1')).toBe(true);
+    expect(separations.some(e => e.sourceId === 'stage-2')).toBe(false);
+    expect(Number.isFinite(result.summary.optimumDelay)).toBe(true);
+    const report = (primaryMountId: string) => buildSimRun({ result, info: rocket.staticInfo(), motor: C6,
+      launch: DEFAULT_CONDITIONS, rocketName: 'Carrier stack', execMs: 1, advisoryTree: design,
+      advisoryMotors: assigned, primaryMountId,
+      delayResolution: testResolution(assigned.map(([id, mm]) => [id, mm]), assigned.map(() => 5)) });
+    expect(report('mount-0').optimumDelayS).not.toBeNull();
+    const bottom = report(`mount-${count - 1}`);
+    expect(bottom.optimumDelayS).toBeNull();
+    expect(bottom.recommendedDelayS).toBeNull();
+    expect(bottom.comments).not.toMatch(/flown delay 5s vs optimal/i);
+  }, 30000);
+
   it.each(['burnout', 'ejection'])('reads a separated booster\'s recovery weight from its own landing mass (%s)', async (separationEvent) => {
     const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
     resetEngine();
@@ -545,14 +580,14 @@ describe('winds aloft through app launch conditions', () => {
     expect(uniform.run.windLevels).toEqual(levels);
     expect(uniform.run.windLevels).not.toBe(levels);
     expect(runsToCsv([uniform.run]).split('\n')[0]!.split(',')).toContain('Winds aloft (levels)');
-    expect(runsToCsv([uniform.run]).split('\n')[0]!.trim().split(',').slice(-8)).toEqual([
+    expect(runsToCsv([uniform.run]).split('\n')[0]!.trim().split(',').slice(-9)).toEqual([
       'Hybrid band lower (Mach)', 'Hybrid band upper (Mach)', 'Travel for 15.0 m/s (m)', 'Overrides', 'Status',
-      'Wind gusts σ at pad (m/s)', 'Batch candidate mount', 'Batch other mounts',
+      'Wind gusts σ at pad (m/s)', 'Batch candidate mount', 'Batch other mounts', 'Motor count scope',
     ]);
     expect(uniform.run.windSigma).toBe(0);
     expect(one.run.windSigma).toBe(0.6);
-    expect(runsToCsv([uniform.run]).split('\n')[1]!.trim().split(',').slice(-3)).toEqual(['0', '', '']);
-    expect(runsToCsv([one.run]).split('\n')[1]!.trim().split(',').slice(-3)).toEqual(['0.6', '', '']);
+    expect(runsToCsv([uniform.run]).split('\n')[1]!.trim().split(',').slice(-4, -1)).toEqual(['0', '', '']);
+    expect(runsToCsv([one.run]).split('\n')[1]!.trim().split(',').slice(-4, -1)).toEqual(['0.6', '', '']);
     const again = fly({ ...launch, windLevels: uniform.run.windLevels!.map((l) => ({ ...l, standardDeviation: l.standardDeviation ?? 0 })) });
     expect(again.result.series).toEqual(uniform.result.series);
   }, 60000);

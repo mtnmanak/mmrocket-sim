@@ -458,6 +458,16 @@ describe('useNozzleFollow', () => {
    * before it is written is not a change, so a nozzle the configuration states
    * for it is left where the switch put it.
    */
+  it('r3 preserves a switched nozzle when the build refuses a planned motor', async () => {
+    const h = harness(tree(0.012), lookup);
+    await h.show(loadout('J1'));
+    h.out.seed(loadout('K1'));
+    h.treeRef.current = tree(0.0254);
+    await h.show(loadout('K1').map(s => ({ ...s, motors: [] })));
+    expect(exitOf(h.treeRef.current)).toBe(0.0254);
+    expect(h.writes).toEqual([]);
+  });
+
   it('leaves a seeded loadout alone', async () => {
     const h = harness(tree(0.012));
     await h.show(loadout('J1'));

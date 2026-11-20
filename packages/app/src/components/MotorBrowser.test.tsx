@@ -11,6 +11,7 @@ import { PrefsProvider } from '../prefs/PrefsContext.js';
 import type { MountMotor } from '../model/design.js';
 import { withAuto, withDelay, withPlugged } from '../services/mountDelayEdits.js';
 import { MOTOR_DB, MOTOR_DB_DATE, setCatalogueOverlay } from '../services/motorDb.js';
+import { exportOrk, importOrk } from '../services/orkFile.js';
 import { resetThrustcurveBackoffForTests } from '../services/thrustcurveTraffic.js';
 import { loadExMotors, parseEng } from '../services/exMotors.js';
 import * as thrustcurve from '../services/thrustcurve.js';
@@ -232,6 +233,27 @@ it('J4 S3a-g4 exposes every propellant filter, including lower-ranked makers', (
   const expected = new Set(MOTOR_DB.filter(m => m.propInfo && m.diameter <= 76 && m.availability !== 'OOP').map(m => m.propInfo));
   const text = h.host.textContent!;
   for (const propellant of expected) expect(text).toContain(propellant);
+});
+
+it('J1 saves an unlaunched plugged-only Auto motor as plugged, never a burnout charge', async () => {
+  const ex = parseEng('J1PLUGGED 24 100 P 0.05 0.1 Home\n0 0\n0.5 40\n1 0')[0]!;
+  localStorage.setItem('online-openrocket.ex-motors.v1', JSON.stringify([ex]));
+  const h = openBrowser({ mountDiameterMm: 24 });
+  onTestFinished(() => closeBrowser(h));
+  search(h, 'J1PLUGGED');
+  click(bodyRows(h).find(row => row.textContent?.includes('J1PLUGGED'))!);
+  act(() => {
+    delaySelect(h)!.value = 'auto';
+    delaySelect(h)!.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  click(loadButton(h)!);
+  await settle();
+  expect(h.selected[0]?.ejectionDelay).toBe(Infinity);
+  const xml = exportOrk({ name: 'Plugged', tree: { components: [{ type: 'stage', children: [
+    { type: 'innertube', id: 'mount', motorMount: true, length: 0.1, outerRadius: 0.013, thickness: 0.001 },
+  ] }] }, motors: { mount: { designation: 'J1PLUGGED', manufacturer: 'EX', diameter: 0.024,
+    length: 0.1, delay: h.specs[0]!.ejectionDelay, autoDelay: true } } });
+  expect(Object.values(importOrk(xml).motors)[0]?.delay).toBe(Infinity);
 });
 
 it('W2-WARN previews catalogue and custom zero-delay recovery as Caution while allowing selection', () => {

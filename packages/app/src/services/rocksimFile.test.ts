@@ -1682,20 +1682,20 @@ describe('.rkt staging timers', () => {
   const byDesignation = (xml: string) => Object.fromEntries(
     Object.values(importRkt(xml).motors).map((m) => [m.designation, m]));
 
-  it('reads the delay as a BURNOUT offset on every stage above the launch stage', () => {
+  it('J1 reads upper delays relative to the lower charge, even when the charge is at burnout', () => {
     const m = byDesignation(staged(['0.', '5.', '15.']));
-    expect(m['K250W']!.ignitionEvent).toBe('burnout');
+    expect(m['K250W']!.ignitionEvent).toBe('ejectioncharge');
     expect(m['K250W']!.ignitionDelay).toBe(5);
-    expect(m['L265MY']!.ignitionEvent).toBe('burnout');
+    expect(m['L265MY']!.ignitionEvent).toBe('ejectioncharge');
     expect(m['L265MY']!.ignitionDelay).toBe(15);
   });
 
   // 'automatic' on an upper stage is the stage-below's EJECTION CHARGE, a
   // different event from its burnout — so an explicit 0 still has to say
   // burnout. The first version of this guard keyed on `delay > 0` and missed it.
-  it('still says burnout for an upper stage whose delay is exactly 0', () => {
+  it('J1 retains the charge trigger for an upper stage whose extra delay is exactly 0', () => {
     const m = byDesignation(staged(['0.', '0.', '0.']));
-    expect(m['K250W']!.ignitionEvent).toBe('burnout');
+    expect(m['K250W']!.ignitionEvent).toBe('ejectioncharge');
     expect(m['K250W']!.ignitionDelay).toBe(0);
   });
 
@@ -1740,7 +1740,7 @@ describe('.rkt staging timers round-trip', () => {
     const back = importRkt(xml);
     const byDes = Object.fromEntries(
       Object.values(back.motors).map((m) => [m.designation, m]));
-    expect(byDes['K250W']!.ignitionEvent).toBe('burnout');
+    expect(byDes['K250W']!.ignitionEvent).toBe('ejectioncharge');
     expect(byDes['K250W']!.ignitionDelay).toBe(12);
     // The launch stage stays on the kernel's own default.
     expect(byDes['L2200G']!.ignitionEvent).toBeUndefined();
@@ -1813,7 +1813,7 @@ describe('.rkt ignition delays — read and written for every event RockSim can 
     const m = reread(xml);
     expect([m['M1350W']!.ignitionEvent, m['M1350W']!.ignitionDelay]).toEqual(['launch', 12]);
     // The same instant, in RockSim's words: the booster's burnout + 3 s + 1.5 s.
-    expect([m['K250W']!.ignitionEvent, m['K250W']!.ignitionDelay]).toEqual(['burnout', 4.5]);
+    expect([m['K250W']!.ignitionEvent, m['K250W']!.ignitionDelay]).toEqual(['ejectioncharge', 1.5]);
   });
 
   it('canonicalizes legacy charge ignition before writing the separation timer', () => {
@@ -1822,7 +1822,7 @@ describe('.rkt ignition delays — read and written for every event RockSim can 
       m1: motor('M1350W', { delay: 3 }),
       m0: motor('K250W', { ignitionEvent: 'EJECTION_CHARGE', ignitionDelay: 1.5 }),
     } }));
-    expect(back['K250W']!.ignitionDelay).toBe(4.5);
+    expect(back['K250W']!.ignitionDelay).toBe(1.5);
     expect(notes).toEqual([]);
   });
 
@@ -1837,7 +1837,7 @@ describe('.rkt ignition delays — read and written for every event RockSim can 
     }));
     expect(notes).toEqual([]);
     expect([m['M1350W']!.ignitionEvent, m['M1350W']!.ignitionDelay]).toEqual(['launch', 0.5]);
-    expect([m['K250W']!.ignitionEvent, m['K250W']!.ignitionDelay]).toEqual(['burnout', 7]);
+    expect([m['K250W']!.ignitionEvent, m['K250W']!.ignitionDelay]).toEqual(['ejectioncharge', 7]);
   });
 
   it('says what RockSim cannot: launch above the pad stage, a charge below that is plugged, never', () => {
@@ -1877,7 +1877,7 @@ describe('.rkt ignition delays — read and written for every event RockSim can 
     const back = reread(exportRkt({ name: '38-54', tree: r.tree, motors,
       overrides: r.configs.find(c => c.id === r.chosenConfigId) }));
     expect([back['M1350W']!.ignitionEvent, back['M1350W']!.ignitionDelay]).toEqual(['launch', 12]);
-    expect([back['K627LR']!.ignitionEvent, back['K627LR']!.ignitionDelay]).toEqual(['burnout', 22]);
+    expect([back['K627LR']!.ignitionEvent, back['K627LR']!.ignitionDelay]).toEqual(['ejectioncharge', 22]);
   });
 
   // The owner's own file, local-only: simulation 3 lights six H115DM 2 s after the I599N.
@@ -2085,7 +2085,7 @@ describe('RockSim ejection-delay sentinels', () => {
     const browser = readFileSync(join(here, '../components/MotorBrowser.tsx'), 'utf8');
     // Its default pick, and what its Auto load flies before App re-flies at the optimum.
     expect(browser).toContain("if (picked) setDelay(defaultDelay(picked) ?? 'auto');");
-    expect(browser).toContain("const chosen = delay === 'auto' ? finite[finite.length - 1] ?? 0");
+    expect(browser).toContain("const chosen = delay === 'auto' ? finite[finite.length - 1] ?? (opts.includes(Infinity) ? Infinity : 0)");
     let auto = 0;
     for (const m of MOTOR_DB) {
       // The motor the matcher will load for this reference — a .rkt carries no diameter.
@@ -3692,7 +3692,7 @@ describe('.rkt export writes its motors where RockSim keeps them', () => {
     const back = importRkt(exportRkt(d));
     const refs = Object.values(back.motors);
     expect(refs).toHaveLength(2);
-    const upper = refs.find((r) => r.ignitionEvent === 'burnout')!;
+    const upper = refs.find((r) => r.ignitionEvent === 'ejectioncharge')!;
     expect(upper.delay).toBe(5);
     expect(refs.find((r) => r !== upper)!.delay).toBe(0);
   });
@@ -3789,7 +3789,7 @@ describe('.rkt simulations become flight configurations', () => {
     expect(b4.ignitionDelay).toBe(0);
     // A full stack keeps the burnout timer on the upper stage.
     const [sus] = r.tree.components.map((s) => s.children![0]!.id!);
-    expect(r.configs[0]!.motors[sus!]!.ignitionEvent).toBe('burnout');
+    expect(r.configs[0]!.motors[sus!]!.ignitionEvent).toBe('ejectioncharge');
   });
 
   /*

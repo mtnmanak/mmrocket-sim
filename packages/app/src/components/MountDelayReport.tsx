@@ -35,7 +35,7 @@ export function MountDelayReport({ resolution, run, mountOrder }: {
           <th scope="col">Ballistic optimum</th><th scope="col">Recommended</th><th scope="col">Flown delay</th>
           {anyPublished && <th scope="col">Published test delays</th>}</tr></thead>
         <tbody>{resolution.mounts.map((m, i) => <tr key={m.mountId}>
-          <th scope="row">{m.mountName}</th><td>{noteText(motorNames?.get(m.mountId) ?? '—')}</td><td>{m.branchName ?? '—'}</td><td>{m.exception ? 'plugged → Auto (charge recovery)' : m.mode}</td>
+          <th scope="row">{m.mountName}</th><td>{noteText(motorNames?.get(m.mountId) ?? '—')}</td><td>{m.branchName ?? '—'}</td><td>{m.exception ? 'Auto (hypothetical charge)' : m.mode}</td>
           <td>{m.rawOptimum === null ? '—' : `${m.rawOptimum.toFixed(1)} s`}</td>
           <td>{m.recommendedDelay === null ? '—' : `${m.recommendedDelay} s`}</td>
           <td>{m.flownDelay === 'plugged' ? 'plugged' : `${m.flownDelay} s`}

@@ -24,6 +24,20 @@ it.each(['', '   '])('J4 r4 names blank configuration headers and navigation (%j
     expect(host.querySelector('tbody td button')?.getAttribute('aria-label')).toContain('Show Booster (parallel stage):');
   } finally { act(() => root.unmount()); }
 });
+
+it('r3 numbers duplicate mounts in configuration headers and cell navigation labels', () => {
+  const input: FlightTree = { components: [{ type: 'stage', children: ['a', 'b'].map(id => ({
+    type: 'innertube', id, name: 'Inner Tube', motorMount: true,
+  })) }] };
+  const host = document.createElement('div'), root = createRoot(host);
+  try {
+    act(() => root.render(<ConfigOverview tree={input} configs={[{ id: 'x', name: 'X', isDefault: true, motors: {} }]}
+      activeConfigId="x" onApply={noop} onShowPart={noop} />));
+    expect(host.querySelector('thead')?.textContent).toContain('Inner Tube 1');
+    expect(host.querySelector('thead')?.textContent).toContain('Inner Tube 2');
+    expect(host.querySelector('tbody td:nth-of-type(2) button')?.getAttribute('aria-label')).toContain('Inner Tube 2:');
+  } finally { act(() => root.unmount()); }
+});
 it.each(['toString', 'constructor', '__proto__'])('ignores inherited entries for component id %s', id => {
   const host = document.createElement('div'), root = createRoot(host);
   const ownTree: FlightTree = { components: [{ type: 'stage', children: [

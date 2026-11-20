@@ -2,8 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { INITIAL_UNITS, IMPERIAL_UNITS } from '../prefs/units.js';
 import type { SimRun } from './simReport.js';
 import { DEFAULT_RUN_COLUMNS, normalizeRunColumns, RUN_SUMMARY_COLUMNS, summaryCell, summaryUnitSuffix } from './runSummaryColumns.js';
+import { testMotor, testResolution } from './autoDelay.testSupport.js';
 
 describe('saved-run summary columns (N058)', () => {
+  it('r2 keeps both recorded candidate groups in optimum and recommended cells', () => {
+    const delayResolution = testResolution([['a', testMotor()], ['b', testMotor()]], [9, 10]);
+    delayResolution.mounts.forEach((m, i) => { m.rawOptimum = 8.6 + i; m.apogeeTime = 2 + m.rawOptimum; });
+    const run = { motorConfig: 'mixed 2+2', optimumDelayS: 8.6, recommendedDelayS: 9, batchMounts: [
+      { mountId: 'a', mountName: 'Pair A', role: 'candidate', motor: 'A', count: 2 },
+      { mountId: 'b', mountName: 'Pair B', role: 'candidate', motor: 'B', count: 2 },
+    ], delayResolution } as SimRun;
+    expect(summaryCell(RUN_SUMMARY_COLUMNS.find(c => c.id === 'optimumDelayS')!, run, INITIAL_UNITS))
+      .toBe('Pair A: 8.6s; Pair B: 9.6s');
+    expect(summaryCell(RUN_SUMMARY_COLUMNS.find(c => c.id === 'recommendedDelayS')!, run, INITIAL_UNITS))
+      .toBe('Pair A: 9; Pair B: 10');
+  });
   it('N032 separates apogee, deployment and load heights from landing drift', () => {
     const units = { ...INITIAL_UNITS, altitude: 'ft', distance: 'km' };
     const peak = { value: 1, time: 1, altitude: 304.8, mach: 0.1, aoa: 0.01 };

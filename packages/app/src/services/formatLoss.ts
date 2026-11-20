@@ -179,7 +179,7 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
   add(launchFields.length > 0, `Launch settings (${launchFields.join(', ')}) are not saved; another reader opens with its own defaults.`);
   const active = input.configs.find(c => c.id === input.activeConfigId);
   const otherConfigs = input.configs.filter(c => c.id !== input.activeConfigId);
-  add(otherConfigs.length > 0, `Flight configurations: only ${active ? `“${noteField(savedConfigLabel(active))}”` : 'the current working setup'} is written. Other configurations' motors, deployment, ignition, separation, stage on/off and stage mass settings are not kept.`);
+  add(otherConfigs.length > 0, `Flight configurations: only ${active ? `“${noteField(savedConfigLabel(active, input.tree))}”` : 'the current working setup'} is written. Other configurations' motors, deployment, ignition, separation, stage on/off and stage mass settings are not kept.`);
   // audit 2026-10-11, S1d-1: all-true desktop OR maps lose no disabled stages.
   add(input.configs.some(c => c.motorLoadoutRefusal || Object.values(c.stageActiveness ?? {}).includes(false)),
     'Which stages each flight configuration switches off, and the record of configuration motors that could not be loaded, are not kept.');
@@ -350,17 +350,21 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
     const launchDelayNoted = (m: OrkExportMotor) => Boolean(rasaeroManufacturerAbbrev(m.manufacturer))
       && (knownIgnitionEvent(m.ignitionEvent ?? null) ?? 'automatic') === 'automatic' && (m.ignitionDelay ?? 0) !== 0
       && nodesOf({ components: stages.slice(-1) }).some(n => overrideFor(input.motors, n.id ?? '') === m);
-    for (const m of motors) {
-      add(!rasaeroManufacturerAbbrev(m.manufacturer), `Motor “${noteField(m.designation)}” is omitted: its manufacturer has no supported RASAero engine abbreviation.`);
-      add(m.delay !== undefined || Boolean(m.autoDelay), `Motor “${noteField(m.designation)}”: selected ejection delay (including plugged/Auto) is not kept; the reader chooses its own delay.`);
-      const ignition = knownIgnitionEvent(m.ignitionEvent ?? null) ?? 'automatic';
-      add(!launchDelayNoted(m) && (!['automatic', 'burnout'].includes(ignition) || (ignition !== 'burnout' && (m.ignitionDelay ?? 0) !== 0)),
-        `Motor “${noteField(m.designation)}”: ignition trigger/timing is not kept; only burnout-relative delays can be written for the upper two stages.`);
-    }
     const stageMotors = stages.map(s => nodesOf({ components: [s] }).flatMap(n => {
       const motor = overrideFor(input.motors, n.id ?? '');
       return motor ? [motor] : [];
     }));
+    for (const m of motors) {
+      add(!rasaeroManufacturerAbbrev(m.manufacturer), `Motor “${noteField(m.designation)}” is omitted: its manufacturer has no supported RASAero engine abbreviation.`);
+      add(m.delay !== undefined || Boolean(m.autoDelay), `Motor “${noteField(m.designation)}”: selected ejection delay (including plugged/Auto) is not kept; the reader chooses its own delay.`);
+      const ignition = knownIgnitionEvent(m.ignitionEvent ?? null) ?? 'automatic';
+      const index = stageMotors.findIndex(ms => ms.includes(m));
+      const lower = stageMotors[index + 1]?.[0];
+      const chargeTranslated = ignition === 'ejectioncharge' && index >= 0 && index < stages.length - 1
+        && Boolean(lower && rasaeroManufacturerAbbrev(lower.manufacturer)) && Number.isFinite(lower?.delay);
+      add(!launchDelayNoted(m) && !chargeTranslated && (!['automatic', 'burnout'].includes(ignition) || (ignition !== 'burnout' && (m.ignitionDelay ?? 0) !== 0)),
+        `Motor “${noteField(m.designation)}”: ignition trigger/timing is not kept; only burnout-relative delays can be written for the upper two stages.`);
+    }
     // Automatic is launch only on the bottom active core stage (AxialStage).
     const launchStage = stages.length - 1;
     for (let i = 0; i < launchStage; i++) for (const m of stageMotors[i]!) {

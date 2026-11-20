@@ -6,6 +6,8 @@ import {
   simulateFile, SimulateDesignError, type TimedSimulateFileResult, describeFile, type DescribeFileResult, SHARE_TOO_LARGE_ERROR_NAME,
 } from '../../app/src/headless/index.js';
 import { displayEcho, filenameEcho } from './filenameEcho.js';
+import { knownUnlitIgnition } from '../../app/src/services/ignitionEvent.js';
+import { hasIgnitionSourceStage } from '../../app/src/tree/treeModel.js';
 import { noteEcho, noteStrings, warningEcho, warningName } from './fileStrings.js';
 import { stampedJson } from './stamp.js';
 import { declaredBodySize, MAX_API_BODY_BYTES, BodyReservation, BodyTimeout, BodyTooLarge, readBody, ServerBusy } from './body.js';
@@ -60,8 +62,10 @@ function summary(out: TimedSimulateFileResult) {
   // simulateDesign returns editor state; use the same projection as its flight.
   const state = resolveFlightState(out.state.tree, out.state.savedConfigs, out.state.activeConfigId,
     out.state.detachedOverrides ?? {}, out.state.mountMotors);
-  const mountNames = mountNamesOf(motorMounts(state.tree));
+  const mountNames = mountNamesOf(motorMounts(state.tree), warningName);
   const floor = out.timeStepFloor;
+  const ignited = new Set([...out.result.events, ...boosterBranches(out.result).flatMap(b => b.events)]
+    .filter(e => e.type === 'IGNITION' && e.motorMountId).map(e => e.motorMountId!));
   const { maxAltitude, maxVelocity, maxMachNumber, flightTime } = out.result.summary;
   const aborts = [
     { name: out.state.tree.name ?? 'Rocket', events: out.result.events },
@@ -86,9 +90,9 @@ function summary(out: TimedSimulateFileResult) {
     motors: out.flight.delayResolution.mounts.flatMap((mount) => {
       const motor = state.mountMotors[mount.mountId];
       // A flown mount with no motor entry (no known input) is left out, not a 500 after the flight.
-      if (!motor || motor.ignition?.event === 'never') return [];
+      if (!motor || (ignited.size > 0 ? !ignited.has(mount.mountId) : knownUnlitIgnition(motor.ignition?.event, !hasIgnitionSourceStage(state.tree, mount.mountId)))) return [];
       return [{
-        mount: warningName(mount.mountName), designation: displayEcho(motor.spec.designation),
+        mount: warningName(mountNames[mount.mountId] ?? mount.mountName), designation: displayEcho(motor.spec.designation),
         manufacturer: displayEcho(motor.meta.manufacturer ?? ''),
         count: mountMotorCount(state.tree, mount.mountId), delayS: mount.flownDelay,
       }];
@@ -182,7 +186,7 @@ export const worker = {
         // assumption holds. No flight, auto-delay solve or Mach probe.
         const description = kernelJob(() => describeFile(data, filename, {
           kernelDeadHolderMs: 10_000, maxInflatedBytes: MAX_API_INFLATED_BYTES, designName: displayEcho,
-          includeImportNoteGroup: true,
+          includeImportNoteGroup: true, mountName: warningName,
         }));
         ctx.waitUntil(description.catch(() => undefined));
         return stampedJson(described(await description));
@@ -198,7 +202,8 @@ export const worker = {
       // low rod-exit thrust:weight using the same WGS84 model at pad latitude and
       // interpolated height rather than reading the kernel's per-step g (which also
       // follows the rocket's drifting latitude); the difference is at rounding level.
-      // The API returns neither load peaks (maxQ/max q-alpha) nor an airspeed check.
+      // Summary omits local sound speed (Vs), so opening advice uses the
+      // documented ground-speed fallback. Keep the measured payload budget.
       const flight = kernelJob(() => simulateFile(data, filename, {
         network: 'forbid', reportSeries: 'summary', yieldToUi: () => Promise.resolve(),
         kernelDeadHolderMs: 10_000, minTimeStepS: MIN_API_TIME_STEP_S, maxInflatedBytes: MAX_API_INFLATED_BYTES,

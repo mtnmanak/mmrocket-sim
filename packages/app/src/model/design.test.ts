@@ -17,6 +17,20 @@ const config = (over: Partial<SavedConfig>): SavedConfig => ({
 });
 
 describe('savedConfigLabel', () => {
+  it('J1 counts clustered motors and enclosing pods in unnamed configurations', () => {
+    const c = config({ motors: { a: mm('H128-10') } });
+    expect(savedConfigLabel(c, { components: [{ type: 'stage', children: [{ type: 'podset', instanceCount: 3,
+      children: [{ type: 'innertube', id: 'a', cluster: '4-ring', motorMount: true }] }] }] }))
+      .toBe('[12× H128-10]');
+  });
+
+  it('J1 counts unresolved motors when their configuration still records mount ids', () => {
+    const c = config({ unmatched: ['K550W'], unmatchedRefs: { a: { designation: 'K550W', manufacturer: 'AeroTech',
+      diameter: 0.054, length: 0.3, delay: 10 } } });
+    expect(savedConfigLabel(c, { components: [{ type: 'stage', children: [
+      { type: 'innertube', id: 'a', cluster: '4-ring', motorMount: true },
+    ] }] })).toBe('[4× K550W]');
+  });
   it('a named configuration reads as its name', () => {
     expect(savedConfigLabel(config({ name: 'Windy day', motors: { a: mm('H128-10') } }))).toBe('Windy day');
   });

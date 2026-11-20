@@ -55,8 +55,8 @@ it('Round 6 preserves each colliding EX motor name from sweep through both repor
   expect(runConfigurationLabel(run)).toBe(label);
   const tabular = runsToTable([run]);
   expect(tabular.rows[0]?.[tabular.headers.indexOf('Flight config')]).toBe(label);
-  expect(tabular.headers.slice(-2)).toEqual(['Batch candidate mount', 'Batch other mounts']);
-  expect(tabular.rows[0]?.slice(-2)).toEqual(['Mount A', 'EX K500 (2) in Mount B']);
+  expect(tabular.headers.slice(-3)).toEqual(['Batch candidate mount', 'Batch other mounts', 'Motor count scope']);
+  expect(tabular.rows[0]?.slice(-3, -1)).toEqual(['Mount A', 'EX K500 (2) in Mount B']);
   expect(runsToCsv([run])).toContain('Mount A,EX K500 (2) in Mount B');
 
   const host = document.createElement('div');
@@ -84,9 +84,11 @@ it('Round 6 preserves each colliding EX motor name from sweep through both repor
     assertReports(run, [['Mount B', 'EX K500 (2)'], ['Mount A', 'EX K500 (1)']]);
     assertReports({ ...run, batchMounts: run.batchMounts!.filter(m => m.mountId === 'a') },
       [['Mount B', '—'], ['Mount A', 'EX K500 (1)']]);
-    // Invalid evidence and non-batch rows retain identity resolution, never frozen labels.
+    // Valid frozen Launch evidence survives library edits too (S7a-g1).
+    assertReports({ ...run, batch: false }, [['Mount B', 'EX K500 (2)'], ['Mount A', 'EX K500 (1)']]);
+    // Invalid evidence retains identity resolution, never partial frozen labels.
     for (const selected of [{ ...run, batchMounts: undefined },
-      { ...run, batchMounts: [{ ...run.batchMounts![0]!, count: 0 }] }, { ...run, batch: false }]) {
+      { ...run, batchMounts: [{ ...run.batchMounts![0]!, count: 0 }] }]) {
       assertReports(selected, [['Mount B', 'EX Renamed (2)'], ['Mount A', 'EX Renamed (1)']]);
     }
   } finally { act(() => root.unmount()); }

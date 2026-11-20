@@ -1,4 +1,5 @@
 import { savedConfigLabel, type SavedConfig } from '../model/design.js';
+import type { RocketTree } from '@online-openrocket/engine';
 
 /**
  * The vitals strip's Flight item (CFG-SPEC B3, ruling D3): which flight
@@ -12,7 +13,8 @@ import { savedConfigLabel, type SavedConfig } from '../model/design.js';
  *   motor label already says.
  * - `title`: the configuration's label and every loaded motor.
  */
-export function flightVitals({ active, working, motors }: {
+export function flightVitals({ active, working, motors, tree }: {
+  tree?: RocketTree;
   active: SavedConfig | undefined;
   /** The chooser shows "Working settings (not saved)" (isWorkingSettings). */
   working: boolean;
@@ -23,7 +25,7 @@ export function flightVitals({ active, working, motors }: {
   const detached = !active && working;
   const name = own ? own : detached ? 'Working settings' : null;
   const config = active
-    ? `Flight configuration “${savedConfigLabel(active)}”`
+    ? `Flight configuration “${savedConfigLabel(active, tree)}”`
     : detached ? 'Working settings (not saved as a flight configuration)'
       : 'No saved flight configuration';
   const loaded = motors.length === 0 ? 'no motor loaded'

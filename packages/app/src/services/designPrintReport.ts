@@ -18,7 +18,7 @@ import { escapeXml } from './xmlUtil.js';
 import { printDocument } from './printDocument.js';
 import { couplerRingFitNote } from '../components/ringFit.js';
 import { noteText } from './noteField.js';
-import { delayReportMotorNames, validBatchMounts } from './batchLoadout.js';
+import { delayReportMotorNames, flownLoadoutText, validBatchMounts } from './batchLoadout.js';
 import { formatDelayAverage, formatDelayBand, publishedDelayAverage, publishedDelayBand, PRINTED_AVERAGE_NOTE, PUBLISHED_DELAYS_URL } from './publishedDelays.js';
 
 export interface DesignPrintInput {
@@ -121,8 +121,8 @@ export function designPrintHtml(input: DesignPrintInput): string {
   else {
     const stability = formatRunStability(run.launchStaticMarginCal, run.launchStaticMarginPct, input.stabilityUnit);
     const motorCountScope = run.importedSummary ? 'scope not recorded'
-      : run.batch === true || run.motorConfig ? 'candidate group' : 'primary mount/group';
-    const installed = run.batch === true && validBatchMounts(run.batchMounts)
+      : run.batch === true || run.motorConfig ? 'candidate group' : run.batchMounts ? 'complete flight, installed' : 'primary mount/group';
+    const installed = validBatchMounts(run.batchMounts)
       ? run.batchMounts.filter(m => m.role !== 'empty') : null;
     const unlit = installed?.filter(m => m.ignition === 'never').reduce((sum, m) => sum + m.count, 0) ?? 0;
     body.push(p(flightCardHeader(run)), p(`Run ID: ${run.id}`),
@@ -152,7 +152,7 @@ export function designPrintHtml(input: DesignPrintInput): string {
           + (m.mode === 'auto' && m.rawOptimum !== null && m.rawOptimum < 0 ? ' · limited by burnout' : '');
         return `<tr><th scope="row">${e(`${m.mountName} (${m.mountId})`)}</th><td>${e(noteText(motorNames?.get(m.mountId) ?? '—'))}</td><td>${e(m.motorIdentity)}</td>
 <td>${e(m.branchName === null || m.branchId === null ? 'Unknown' : `${m.branchName} (${m.branchId})`)}</td>
-<td>${e(m.exception ? 'plugged → Auto (charge recovery)' : m.mode)}</td><td>${e(sec(m.rawOptimum))}</td>
+<td>${e(m.exception ? 'Auto (hypothetical charge)' : m.mode)}</td><td>${e(sec(m.rawOptimum))}</td>
 <td>${e(sec(m.recommendedDelay))}</td><td>${e(flown + marks)}${m.caution ? note(m.caution, 'caution') : ''}</td>${anyPublished ? `<td>${e(bands[i] ? formatDelayBand(bands[i]) : averages[i] ? formatDelayAverage(averages[i]) : '—')}</td>` : ''}</tr>`;
       }).join('');
       body.push(p('Auto targets each mount’s recovery-free branch apogee, rounded to a whole second.'),
@@ -206,6 +206,7 @@ export function designPrintHtml(input: DesignPrintInput): string {
  */
 function flightCardHeader(run: SimRun): string {
   const text = runLabelText;
-  const motor = [text(run.manufacturer), text(run.motor)].filter(Boolean).join(' ') || 'Unknown motor';
+  const motor = (run.batch !== true ? flownLoadoutText(run) : null)
+    ?? ([text(run.manufacturer), text(run.motor)].filter(Boolean).join(' ') || 'Unknown motor');
   return [text(run.rocket), motor, `flown ${formatRunWhenProse(run.when)}`].filter(Boolean).join(' — ');
 }

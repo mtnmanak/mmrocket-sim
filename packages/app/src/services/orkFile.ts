@@ -2469,6 +2469,11 @@ export function autoDelaySaveNote(m: OrkExportMotor, format: '.ork' | '.rkt', ac
   const advice = action === 'share' ? 'Launch, then copy the share link again'
     : action === 'recovery' ? 'After reopening this backup in the app, select Auto, launch, then save'
       : 'Launch, then save';
+  if (!Number.isFinite(m.delay)) return (m.autoDelayFrom === 'flown'
+    ? `${has}: it is saved plugged (no ejection charge), as flown, and reopens fixed at that. `
+    : `${has}, and no flight of the design as it stands says what Auto flies: it is saved provisionally plugged (no ejection charge) and reopens fixed at that. `)
+    + `Recovery that depends on this motor's charge will not deploy; apogee or altitude electronics and other motors' charges keep their settings. `
+    + `${advice}, to keep the delay Auto flies.`;
   return m.autoDelayFrom === 'flown'
     // "The rounded optimum it flies on Auto", not "its last flight's delay":
     // the flight it comes from is the newest that flew that optimum, and a

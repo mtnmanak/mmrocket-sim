@@ -22,8 +22,8 @@ export function validBatchMounts(value: unknown): value is BatchMountRecord[] {
 }
 
 /** Number duplicate display names in design order, before any role filtering. */
-export function namedBatchMounts<T extends { mountName: string }>(mounts: readonly T[]): T[] {
-  const names = mounts.map(m => noteText(m.mountName).trim().replace(/\s+/g, ' '));
+export function namedBatchMounts<T extends { mountName: string }>(mounts: readonly T[], clean = noteText): T[] {
+  const names = mounts.map(m => clean(m.mountName).trim().replace(/\s+/g, ' '));
   const totals = new Map<string, number>();
   for (const name of names) totals.set(name, (totals.get(name) ?? 0) + 1);
   const reserved = new Set(names);
@@ -61,12 +61,38 @@ export function mountLoadoutText(mounts: readonly BatchMountRecord[]): string {
 }
 
 type LoadoutRun = Pick<SimRun, 'batch' | 'batchMounts' | 'delayResolution'>;
+
+/** Launch's scalar delay belongs to its recorded lead, which may replace an unlit primary. */
+export function recordedPrimaryMountId(run: Pick<SimRun, 'batch' | 'batchMounts'>, fallback: string): string {
+  if (run.batch === true || !validBatchMounts(run.batchMounts)) return fallback;
+  const lead = run.batchMounts.filter(m => m.role === 'candidate');
+  return lead.length === 1 ? lead[0]!.mountId : fallback;
+}
+
+/** Frozen installed loadout, also captured by Launch; never read today's picker. */
+export function flownLoadoutText(run: LoadoutRun): string | null {
+  if (run.batch === true) return batchLoadoutText(run);
+  if (run.batchMounts?.length === 1 && run.batchMounts[0]?.count === 1 && run.batchMounts[0].ignition === undefined) return null;
+  if (validBatchMounts(run.batchMounts)) return mountLoadoutText(run.batchMounts);
+  return batchLoadoutText(run);
+}
+
+/** Mixed candidates have one delay per recorded mount, including split groups. */
+export function candidateDelayText(run: Pick<SimRun, 'motorConfig' | 'batchMounts' | 'delayResolution'>,
+  field: 'flownDelay' | 'rawOptimum' | 'recommendedDelay', format: (value: number) => string): string | null {
+  if (!run.motorConfig?.startsWith('mixed') || !validBatchMounts(run.batchMounts)
+    || !validDelayResolution(run.delayResolution)) return null;
+  return run.batchMounts.filter(m => m.role === 'candidate').map(m => {
+    const value = run.delayResolution!.mounts.find(d => d.mountId === m.mountId)?.[field];
+    return `${noteText(m.mountName)}: ${value === 'plugged' ? 'P' : value == null ? 'unavailable' : format(value)}`;
+  }).join('; ');
+}
 const legacyLabels = new WeakMap<LoadoutRun, { evidence: LoadoutRun['delayResolution']; text: string | null }>();
 
 /** Delay vectors use solver order; frozen batch names belong to mount ids. */
 export function delayReportMotorNames(mounts: readonly MountDelayRecord[], run: Pick<SimRun, 'batch' | 'batchMounts'> = {},
   mountOrder: readonly string[] = []): Map<string, string | null> | null {
-  if (run.batch === true && validBatchMounts(run.batchMounts)) {
+  if (validBatchMounts(run.batchMounts)) {
     return new Map(run.batchMounts.map(m => [m.mountId, m.motor]));
   }
   // Legacy evidence still needs identity resolution. Use design order where

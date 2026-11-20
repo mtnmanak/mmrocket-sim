@@ -3032,6 +3032,27 @@ describe('a file’s pad mass on a tied mount whose motor cannot load', () => {
  * provisional delay.
  */
 describe('M2 export notices', () => {
+  it('r3 saves CDX1 staging with the Launch-resolved lower Auto delay', async () => {
+    const tree = defaultTree();
+    const upper = motorMounts(tree)[0]!.id!;
+    tree.components.push({ type: 'stage', id: 'booster-r3', children: [{
+      type: 'bodytube', id: 'lower-r3', length: 0.3, outerRadius: 0.02, motorMount: true,
+    }] });
+    const db = MOTOR_DB.find(m => m.diameter === 18 && m.delays?.split(',').some(d => /^\d+$/.test(d)))!;
+    const loaded = (await loadCatalogueMotor(db.manufacturerAbbrev, db.designation, 0))!;
+    const upperMotor = { ...loaded, meta: { ...loaded.meta, manufacturer: 'AeroTech' },
+      ignition: { event: 'ejectioncharge', delay: 1.5 } };
+    const lowerMotor = { ...loaded, meta: { ...loaded.meta, manufacturer: 'AeroTech', autoDelay: true },
+      spec: { ...loaded.spec, ejectionDelay: 7 } };
+    vi.spyOn(orkFlightData, 'flownAutoDelays').mockReturnValue({ '': { 'lower-r3': 3 } });
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [upper]: upperMotor, 'lower-r3': lowerMotor },
+      savedConfigs: [], activeConfigId: null, launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now(), configLayers: 1 }));
+    const host = await mountApp();
+    await saveAs(host, 'Save .CDX1');
+    await waitFor(() => vi.mocked(saveFile).mock.calls.length === 1, 'r3 CDX1 save');
+    const xml = await (vi.mocked(saveFile).mock.calls[0]![0] as Blob).text();
+    expect(xml).toContain('<SustainerIgnitionDelay>4.5</SustainerIgnitionDelay>');
+  }, 30_000);
   it.each((['clipboard', 'prompt', 'autosave'] as const).flatMap(route =>
     [true, false].map(liveAuto => ({ route, liveAuto }))))('shows written delays for $route (live Auto: $liveAuto)', async ({ route, liveAuto }) => {
     const tree = defaultTree();

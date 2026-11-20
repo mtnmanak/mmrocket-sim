@@ -92,7 +92,7 @@ const packed = {
   gzip: (bytes: Uint8Array) => gzipSync(bytes),
 } as const;
 
-type Described = { name: string; notes: { import: { text: string } } };
+type Described = { name: string; mounts: { name: string }[]; notes: { import: { text: string } } };
 async function describeBody(filename: string, body: Uint8Array, worker = normal!): Promise<Described> {
   const response = await worker.fetch(`http://local/describe?filename=${encodeURIComponent(filename)}`,
     { method: 'POST', body });
@@ -101,6 +101,15 @@ async function describeBody(filename: string, body: Uint8Array, worker = normal!
 }
 
 describe('a declared windows-1252 design through workerd', () => {
+  it('/describe preserves declared mount placeholders before duplicate numbering', async () => {
+    const xml = ork('windows-1252');
+    const tube = xml.match(/<innertube>[\s\S]*?<\/innertube>/)![0].replace(/<name>[^<]*<\/name>/, `<name>${RAW_NAME}</name>`);
+    const duplicated = xml.replace(/<innertube>[\s\S]*?<\/innertube>/, tube + tube.replaceAll('cf2a3edb-ead5-4bbd-93b2-1b5631003347', 'r3-second'));
+    for (const worker of [normal!, table!]) {
+      const out = await describeBody('design.ork', singleBytes(duplicated), worker);
+      expect(out.mounts.map(mount => mount.name)).toEqual([`${warningName(NAME)} 1`, `${warningName(NAME)} 2`]);
+    }
+  });
   it('records what workerd\'s own TextDecoder does (not asserted beyond its shape)', async ({ annotate }) => {
     const response = await probe!.fetch('http://local/');
     const rows = await response.json() as { label: string; encoding?: string; decoded?: number[]; threw?: string }[];

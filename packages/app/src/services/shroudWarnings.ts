@@ -22,6 +22,6 @@ export function shroudWarningFilter(tree: RocketTree): (text: string) => boolean
   for (const name of fins) shrouds.delete(name);
   return text => {
     const name = /^\[Warning\.THICK_FIN\]:\s*"([\s\S]*)"$/.exec(text)?.[1];
-    return name === undefined || name.includes('"') || !shrouds.has(name);
+    return name === undefined || !shrouds.has(name);
   };
 }

@@ -72,7 +72,7 @@ describe('Peak of Flight RockSim separation timers (121)', () => {
   it('652: separates at booster burnout + 1 and lights the upper motor at + 2.1', async () => {
     const out = await fly(staged('1'));
     const refs = Object.entries(out.state.mountMotors);
-    const upper = refs.find(([, m]) => m.ignition.event === 'burnout')!;
+    const upper = refs.find(([, m]) => (m.ignition.event === 'burnout' || m.ignition.event === 'ejectioncharge'))!;
     const booster = refs.find(r => r !== upper)!;
     const burnout = time(out.result, 'BURNOUT', booster[0]);
     expect(time(out.result, 'IGNITION', upper[0]) - burnout).toBeCloseTo(2.1, 6);
@@ -87,14 +87,25 @@ describe('Peak of Flight RockSim separation timers (121)', () => {
     const doc = parseXml(xml, 'historical timers');
     const stated = Number(doc.querySelector('Stage3Engines > EngineSet > IgnitionDelay')!.textContent);
     for (const cfg of imported.configs!) for (const [id, ref] of Object.entries(cfg.motors)) {
-      if (ref.ignitionEvent !== 'burnout') continue;
+      if (ref.ignitionEvent !== 'ejectioncharge') continue;
+      ref.ignitionEvent = 'burnout';
       ref.ignitionDelay = stated;
       (cfg.ignitions ??= {})[id] = { event: 'burnout', delay: stated };
     }
     const old = await simulateImported(imported, { presets: [] });
-    expect(idFree(out.run)).toEqual(idFree(old.run));
+    const oldReport = idFree(old.run);
+    // Only this explicitly changed trigger's recorded metadata differs when
+    // the lower charge is zero. Preserve and compare every other report field.
+    const translated = oldReport.flightOverrides?.filter(o => o.family === 'ignition' && o.flies.event === 'burnout' && o.flies.delay === stated);
+    expect(translated).toHaveLength(1);
+    const expectedOverrides = oldReport.flightOverrides?.map(o => o.family === 'ignition' && o.flies.event === 'burnout' && o.flies.delay === stated
+      ? { ...o, flies: { ...o.flies, event: 'ejectioncharge' } } : o);
+    expect(idFree(out.run)).toEqual({ ...oldReport, flightOverrides: expectedOverrides });
+    expect(out.result.series).toEqual(old.result.series);
+    const withoutIds = (result: FlightResult) => result.events.map(({ sourceId: _source, motorMountId: _mount, ...event }) => event);
+    expect(withoutIds(out.result)).toEqual(withoutIds(old.result));
     for (const flight of [out, old]) {
-      const upper = Object.entries(flight.state.mountMotors).find(([, m]) => m.ignition.event === 'burnout')!;
+      const upper = Object.entries(flight.state.mountMotors).find(([, m]) => (m.ignition.event === 'burnout' || m.ignition.event === 'ejectioncharge'))!;
       const lower = Object.keys(flight.state.mountMotors).find(id => id !== upper[0])!;
       const burnout = time(flight.result, 'BURNOUT', lower);
       expect(time(flight.result, 'STAGE_SEPARATION') - burnout).toBeCloseTo(0, 6);
@@ -107,16 +118,15 @@ describe('Peak of Flight RockSim separation timers (121)', () => {
       ['1', '2', 'I11.staging-delays', 'different delays (1 s, 2 s)']] as const) {
       const result = importRkt(staged(delay, 1.1, second));
       expect(result.noteTiers).toContainEqual(expect.objectContaining({ kind: code, tier: 'caution', text: expect.stringContaining(text) }));
-      expect(Object.values(result.motors).find(r => r.ignitionEvent === 'burnout')?.ignitionDelay).toBe(1.1);
+      expect(Object.values(result.motors).find(r => (r.ignitionEvent === 'burnout' || r.ignitionEvent === 'ejectioncharge'))?.ignitionDelay).toBe(1.1);
     }
   });
 
   it('sums decimal timers in microseconds and resolves every-delay before folding it', () => {
     const upper = (delay: string, ig: number) => Object.values(importRkt(staged(delay, ig)).motors)
-      .find(r => r.ignitionEvent === 'burnout')!;
-    expect(upper('0.1', 0.2).ignitionDelay).toBe(0.3);
-    const resolved = Math.max(...delayOptions(motor).filter(Number.isFinite));
-    expect(upper('-1', 1.1).ignitionDelay).toBe(Math.round((resolved + 1.1) * 1e6) / 1e6);
+      .find(r => (r.ignitionEvent === 'burnout' || r.ignitionEvent === 'ejectioncharge'))!;
+    expect(upper('0.1', 0.2).ignitionDelay).toBe(0.2);
+    expect(upper('-1', 1.1).ignitionDelay).toBe(1.1);
   });
 
   it('inverts burnout timers, keeps charge timers, and discloses an ignition before separation', () => {
@@ -128,11 +138,11 @@ describe('Peak of Flight RockSim separation timers (121)', () => {
       expect(Number(upperSet(xml).querySelector('IgnitionDelay')!.textContent)).toBe(written);
       if (delay < 1) {
         expect(notes).toContainEqual(expect.stringContaining('before that stage separates in RockSim (1 s'));
-        expect(Object.values(importRkt(xml).motors).find(r => r.ignitionEvent === 'burnout')?.ignitionDelay).toBe(1);
+        expect(Object.values(importRkt(xml).motors).find(r => (r.ignitionEvent === 'burnout' || r.ignitionEvent === 'ejectioncharge'))?.ignitionDelay).toBe(0);
       }
       else {
         expect(notes).toEqual([]);
-        expect(Object.values(importRkt(xml).motors).find(r => r.ignitionEvent === 'burnout')?.ignitionDelay).toBe(2.1);
+        expect(Object.values(importRkt(xml).motors).find(r => (r.ignitionEvent === 'burnout' || r.ignitionEvent === 'ejectioncharge'))?.ignitionDelay).toBe(written);
       }
     }
   });
@@ -142,7 +152,7 @@ describe('Peak of Flight RockSim separation timers (121)', () => {
       lower: { ...exportMotor, ...(autoDelay ? { autoDelay: true as const } : {}) }, upper: { ...exportMotor, ignitionEvent: 'burnout', ignitionDelay: 4.1 },
     } });
     expect(Number(upperSet(xml).querySelector('IgnitionDelay')!.textContent)).toBe(1.1);
-    expect(Object.values(importRkt(xml).motors).find(r => r.ignitionEvent === 'burnout')?.ignitionDelay).toBe(4.1);
+    expect(Object.values(importRkt(xml).motors).find(r => (r.ignitionEvent === 'burnout' || r.ignitionEvent === 'ejectioncharge'))?.ignitionDelay).toBe(1.1);
   });
 
   it('does not subtract a delay exported as the unresolved every-delay sentinel', () => {
@@ -169,16 +179,16 @@ describe('Peak of Flight RockSim separation timers (121)', () => {
     const imported = importRkt(xml.replace(sim, stale + sim), { catalogue });
     expect(imported.configs).toHaveLength(1);
     const refs = Object.values(imported.configs![0]!.motors);
-    const lower = refs.find(r => r.ignitionEvent !== 'burnout')!;
+    const lower = refs.find(r => r.ignitionEvent !== 'ejectioncharge')!;
     expect(lower.matchContext?.mountBoreMm).toBe(24);
     expect(lower.delay).toBe(Math.max(...delayOptions(catalogue[1]!).filter(Number.isFinite)));
-    expect(refs.find(r => r.ignitionEvent === 'burnout')!.ignitionDelay).toBe(6.1);
+    expect(refs.find(r => (r.ignitionEvent === 'burnout' || r.ignitionEvent === 'ejectioncharge'))!.ignitionDelay).toBe(1.1);
     const out = await simulateImported(imported, { presets: [], match: ref => matchImportedMotor(ref, {
       catalogue,
       // Both synthetic catalogue identities use the runtime-selected shipped curve.
       fetchSpec: (row, delay) => bundledOnlyFetchSpec({ ...row, motorId: motor.motorId }, delay),
     }) });
-    const flownUpper = Object.entries(out.state.mountMotors).find(([, m]) => m.ignition.event === 'burnout')!;
+    const flownUpper = Object.entries(out.state.mountMotors).find(([, m]) => (m.ignition.event === 'burnout' || m.ignition.event === 'ejectioncharge'))!;
     const flownLower = Object.entries(out.state.mountMotors).find(([id]) => id !== flownUpper[0])!;
     expect(flownLower[1].spec.diameter).toBe(0.024);
     expect(flownLower[1].spec.ejectionDelay).toBe(lower.delay);
@@ -268,10 +278,12 @@ describe('Peak of Flight RockSim separation timers (121)', () => {
       const doc = parseXml(inlineXmlCdata(xml), 'Aerobee independent timers');
       const boosterDelay = Number(doc.querySelector('Stage2Engines > EngineSet > EjectionDelay')!.textContent);
       const stated = Number(doc.querySelector('Stage3Engines > EngineSet > IgnitionDelay')!.textContent);
-      const importedUpper = Object.values(importRkt(xml).motors).find(m => m.ignitionEvent === 'burnout')!;
-      expect(importedUpper.ignitionDelay).toBeCloseTo(boosterDelay + stated, 9);
-      const upper = Object.entries(out.state.mountMotors).find(([, m]) => m.ignition.event === 'burnout')!;
-      expect(upper[1].ignition.delay).toBeCloseTo(boosterDelay + stated, 9);
+      const importedUpper = Object.values(importRkt(xml).motors).find(m => m.ignitionEvent === 'ejectioncharge')!;
+      expect(importedUpper.ignitionDelay).toBeCloseTo(stated, 9);
+      const upper = Object.entries(out.state.mountMotors).find(([, m]) => (m.ignition.event === 'burnout' || m.ignition.event === 'ejectioncharge'))!;
+      expect(upper[1].ignition.delay).toBeCloseTo(stated, 9);
+      const lower = Object.entries(out.state.mountMotors).find(([id]) => id !== upper[0])!;
+      expect(time(out.result, 'IGNITION', upper[0]) - time(out.result, 'BURNOUT', lower[0])).toBeCloseTo(boosterDelay + stated, 6);
       burnouts.push(time(out.result, 'BURNOUT', upper[0]));
     }
     expect(burnouts[1]! - burnouts[0]!).toBeCloseTo(3, 6);

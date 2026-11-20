@@ -1,10 +1,11 @@
 import { noteField } from './noteField.js';
+import { flownLoadoutText } from './batchLoadout.js';
 import { noticeEqual, INITIAL_UNITS, noticeNumber, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import { PREFERRED_OPENING_SPEED_MS, MAX_CAUTION_OPENING_SPEED_MS } from './recoveryLimits.js';
 import type { RecordedFlightOverride } from './flightOverrideSummary.js';
 import { shroudWarningFilter } from './shroudWarnings.js';
 import { stageMotorInfo as motorInfoOf } from './flightPipeline.js';
-import { stageRecoveryById, stages } from '../tree/treeModel.js';
+import { hasIgnitionSourceStage, kernelStageIdByNode, motorisedStagesWithNozzle, stageRecoveryById, stages  } from '../tree/treeModel.js';
 // Reports and live alerts share the Mach policy (audit 2026-10-11, S7a-7).
 import { MACH_AUTO_THRESHOLD } from './machProbe.js';
 import { storedWarnings } from './storedWarnings.js';
@@ -25,7 +26,7 @@ import { formatWarningText, staticWarningTier } from './simWarnings.js';
 import { asymmetricThrustWarnings } from './asymmetricThrust.js';
 import { AERO_NAME, aeroOptionLabel } from '../prefs/aeroChoice.js';
 import { densityAltitudeM, padFieldsAsFlown, usesGeopotentialIsa, type AtmosphereModel } from './atmosphere.js';
-import { knownIgnitionEvent } from './ignitionEvent.js';
+import { knownIgnitionEvent, knownUnlitIgnition } from './ignitionEvent.js';
 import { flightLoads, type FlightLoads } from './flightLoads.js';
 import { affectsRollInertia, hasRecoveryRadialOffset, hasRollForcing } from './revisionInertia.js';
 import { affectsPodsOnlyBase, affectsStrapOnNozzle } from './revisionNozzle.js';
@@ -365,9 +366,8 @@ export interface DeploymentReport {
   /**
    * Speed when this device opened (opening shock) — the AIRSPEED the canopy
    * met, so the opening-shock limit is judged on the same quantity it is
-   * written about. For the first device that is the kernel's ground-speed
-   * series: the rocket still carries its own horizontal velocity there, so
-   * that IS the airspeed to within the wind. For every device after it the
+   * written about. The first group uses Mach times local sound speed when
+   * available, with ground speed as fallback. For every device after it the
    * rocket has been descending under the previous canopy, where drag relaxes
    * the horizontal component to the wind within a fraction of a second
    * (AbstractEulerStepper.java:196,214) — the ground speed there is
@@ -505,10 +505,9 @@ export interface SimRun extends WindProfileConditions, AeroProvenance {
   /** Reload case; empty for single-use motors. */
   motorCase?: string;
   /**
-   * Installed motors in the candidate mounts for multi-mount batches;
-   * otherwise motors firing together: the cluster times any enclosing pod set or
-   * strap-on ring (mountMotorCount; the cluster alone in runs stored before
-   * audit 2026-09-22, row 351); absent/1 = single motor.
+   * Installed motors in candidate mounts for batches; all installed copies for
+   * new Launch runs carrying frozen evidence. Legacy ordinary runs count the
+   * primary mount/group (cluster times enclosing pods/strap-ons).
    */
   motorCount?: number;
   /** Ejection delay the sim flew with (s). */
@@ -674,7 +673,7 @@ export interface SimRun extends WindProfileConditions, AeroProvenance {
   flightOverrides?: RecordedFlightOverride[];
   /** Candidate sweep based on the recorded configuration. */
   batch?: boolean;
-  /** Batch rows only (v0.200+): every motor mount and what it carried on this row. */
+  /** Frozen installed loadout: batch rows (v0.200+) and new Launch runs. */
   batchMounts?: BatchMountRecord[];
   /** Physical target set of a multi-mount batch; absent on legacy split-cluster rows. */
   batchTargetMountIds?: string[];
@@ -985,12 +984,15 @@ export function designMatchKeyOf(input: DesignMatchInput): DesignMatchKey {
 }
 
 /** The launch report's compact identity, taken from the flight as flown. */
-export function formatRunLabel(run: Pick<SimRun, 'rocket' | 'motor' | 'manufacturer' | 'importedSummary'>): string {
+export function formatRunLabel(run: Pick<SimRun, 'rocket' | 'motor' | 'manufacturer' | 'importedSummary' | 'motorConfig' | 'motorCount' | 'boosterMotors' | 'batch' | 'batchMounts' | 'delayResolution'>): string {
   // A stored run can lack any of the three (loadRuns blanks a non-string one);
   // the print card's rule (designPrintReport.flightCardHeader): a missing rocket
   // is left out and a missing motor reads "Unknown motor", for every run.
   const rocket = runLabelText(run.rocket), motor = runLabelText(run.motor), maker = runLabelText(run.manufacturer);
-  return `${rocket ? `${rocket} · ` : ''}${motor || 'Unknown motor'}${maker ? ` (${maker})` : ''}`;
+  const frozen = flownLoadoutText(run);
+  const count = Number.isFinite(run.motorCount) ? run.motorCount! : 1;
+  const lead = `${!run.motorConfig?.startsWith('mixed') && count > 1 ? `${count}× ` : ''}${motor || 'Unknown motor'}${maker ? ` (${maker})` : ''}`;
+  return `${rocket ? `${rocket} · ` : ''}${frozen ?? [lead, ...(run.boosterMotors ?? [])].join(' + ')}`;
 }
 
 /** A stored run's rocket, motor or manufacturer as a label reads it: a non-blank string, else ''. */
@@ -1738,7 +1740,7 @@ function extractDeployments(
    * rocket that came down under both canopies. So devices are grouped by
    * time: every device in the last group is a landing device, each group's
    * descent is read once, before the NEXT group opens, and only the first
-   * group's opening is judged on ground speed.
+   * group's opening uses measured airspeed, with ground speed as fallback.
    */
   const groupOf: number[] = [];
   const groupStart: number[] = [];
@@ -1759,8 +1761,8 @@ function extractDeployments(
      * from the descent rate, two lines below and left unfixed here.
      *
      * `series.velocity` is TYPE_VELOCITY_TOTAL, speed over the GROUND. For the
-     * FIRST device the rocket is still flying its own trajectory, so that is
-     * the honest reading. For every device AFTER it the rocket has spent the
+     * FIRST device the rocket is still flying its own trajectory, so Mach
+     * times local sound speed measures the air meeting it. For every device AFTER it the rocket has spent the
      * whole previous descent under canopy, where drag has relaxed its
      * horizontal velocity to the wind — so the ground speed is √(v_z² + w²)
      * and the wind was being charged against `SAFETY.maxDeploymentVelocity`.
@@ -1773,8 +1775,11 @@ function extractDeployments(
      * rate fell to √(21.34² − w²): 20.74 m/s at 5 m/s of wind, 18.9 at 10,
      * 15.2 — the very bottom of the sizing panel's drogue band — at 15.
      */
+    const mach = at(series.time, series.mach, ev.time);
+    const sound = at(series.time, series['Vs'] ?? [], ev.time);
     const vDeploy = group === 0
-      ? vGroundRaw
+      ? (mach !== null && sound !== null && Number.isFinite(mach) && Number.isFinite(sound) && sound > 0
+        ? Math.abs(mach * sound) : vGroundRaw)
       : (verticalRateAt(series, ev.time) ?? vGroundRaw);
     // The instant this device's descent is settled: at the ground hit, or just
     // before the next GROUP opens. GROUND_HIT rather than the last SAMPLE: with a
@@ -2260,9 +2265,14 @@ export function buildSimRun(input: {
   // Booster branches (staged flights): each separated stage flies its OWN
   // descent — apogee, recovery (or tumble), and landing verdict per stage.
   const branches: BranchReport[] = [];
+  const ignited = new Set([...result.events, ...boosterBranches(result).flatMap(b => b.events)]
+    .filter(e => e.type === 'IGNITION' && e.motorMountId).map(e => e.motorMountId!));
+  const didNotIgnite = (id: string, mm: MountMotor) => ignited.size > 0 ? !ignited.has(id) : knownUnlitIgnition(mm.ignition.event,
+    input.advisoryTree ? !hasIgnitionSourceStage(input.advisoryTree, id) : false);
   const recoveryById = input.recoveryByStage ?? (input.advisoryTree ? stageRecoveryById(input.advisoryTree) : undefined);
   const motorsByStageId = input.advisoryTree && input.advisoryMotors
-    ? motorInfoOf(input.advisoryTree, [...input.advisoryMotors].map(([id, mm]) => [id, mm]), stages(input.advisoryTree), true) : undefined;
+    ? motorInfoOf(input.advisoryTree, installedMounts(input.advisoryMotors, input.refusedMountIds)
+      .filter(([id, mm]) => !didNotIgnite(id, mm)), stages(input.advisoryTree), true) : undefined;
   for (const b of boosterBranches(result)) {
     const stageId = b.events.find(e => e.type === 'STAGE_SEPARATION')?.sourceId;
     const facts = stageId && motorsByStageId ? motorsByStageId[stageId] : stageMotorInfo?.[b.name];
@@ -2316,7 +2326,44 @@ export function buildSimRun(input: {
   const safeLandingRate = landingRate === null ? null : (landingRate <= SAFETY.maxLandingRate || noticeEqual(landingRate, SAFETY.maxLandingRate));
 
   const primaryDelay = input.delayResolution?.mounts.find((m) => m.mountId === input.primaryMountId);
-  const optimumDelayS = primaryDelay?.mode === 'auto' ? primaryDelay.rawOptimum : summary.optimumDelay ?? null;
+  const detachedCarriers = boosterBranches(result);
+  const detachedStages = new Set(detachedCarriers.flatMap(b => b.events
+    .filter(e => e.type === 'STAGE_SEPARATION' && e.sourceId).map(e => e.sourceId!)));
+  const mountStages = input.advisoryTree ? kernelStageIdByNode(input.advisoryTree) : undefined;
+  // Serial separation removes that stage, every serial stage below it and
+  // their attached parallel stages. Parallel separation removes its subtree.
+  if (input.advisoryTree) {
+    const remove = (node: ComponentNode, removed: boolean): void => {
+      const carriedOff = removed || !!node.id && detachedStages.has(node.id);
+      if (carriedOff && node.id) detachedStages.add(node.id);
+      for (const child of node.children ?? []) remove(child, carriedOff);
+    };
+    let removed = false;
+    for (const stage of stages(input.advisoryTree)) {
+      removed ||= !!stage.id && detachedStages.has(stage.id);
+      remove(stage, removed);
+    }
+  }
+  const carriersKnown = detachedCarriers.every(b => b.events.some(e => e.type === 'STAGE_SEPARATION'
+    && e.sourceId && mountStages?.has(e.sourceId)));
+  const onMainCarrier = (mountId: string) => detachedCarriers.length === 0
+    || carriersKnown && !!mountStages?.has(mountId) && !detachedStages.has(mountStages.get(mountId)!);
+  // A fixed primary in a mixed-burnout flight has no carrier-ballistic probe.
+  // The kernel's last-burnout scalar is not that mount's optimum.
+  const fixedOptimum = (mountId: string): number | null => {
+    // The summary describes the main carrier only. A separated motor's
+    // inherited burnout does not make that scalar its own ballistic optimum.
+    if (!onMainCarrier(mountId)) return null;
+    const burnouts = result.events.filter(e => e.type === 'BURNOUT' && Number.isFinite(e.time));
+    const own = [...new Set(burnouts.filter(e => e.motorMountId === mountId).map(e => e.time))];
+    if (own.length !== 1 || !Number.isFinite(summary.optimumDelay)) return null;
+    // The summary subtracts the last burnout on this branch. Translate its
+    // coast back to this mount's burnout without changing a flown delay.
+    return summary.optimumDelay! + Math.max(...burnouts.map(e => e.time)) - own[0]!;
+  };
+  const optimumDelayS = primaryDelay?.mode === 'auto' ? primaryDelay.rawOptimum
+    : !onMainCarrier(input.primaryMountId ?? '') ? null
+    : (input.delayResolution?.mounts.length ?? 0) > 1 ? fixedOptimum(input.primaryMountId ?? '') : summary.optimumDelay ?? null;
   const recommendedDelayS = recommendDelay(optimumDelayS);
 
   // Landing drift + peak roll rate come from the symbol-keyed series (Pl /
@@ -2387,7 +2434,7 @@ export function buildSimRun(input: {
   if (windAdvice) say(windAdvice, 'caution');
   for (const note of flightLimitAdvice(result, advisoryLimits, flightConfig ?? 'Working settings', input.advisoryTree, units)) say(note.text, note.level);
   if (input.advisoryTree) for (const [id, mm] of input.advisoryMotors ?? []) {
-    if (mm.ignition?.event === 'never' || input.refusedMountIds?.includes(id)) continue;
+    if (didNotIgnite(id, mm) || input.refusedMountIds?.includes(id)) continue;
     const flown = input.delayResolution?.mounts.find(m => m.mountId === id)?.flownDelay;
     const delay = flown === 'plugged' ? Infinity : typeof flown === 'number' ? flown : mm.spec.ejectionDelay;
     const note = zeroDelayRecoveryAdvice(input.advisoryTree, id, delay, mm.meta.autoDelay && flown === undefined);
@@ -2419,6 +2466,18 @@ export function buildSimRun(input: {
   // happened, with both ways back, beats an invented one.
   if (nozzleStages && nozzleStages.length > 0
       && pressureThrustActive({ aeroModel, ...(rogersKbf !== undefined ? { rogersKbf } : {}) })) {
+    let idleExitRisk = (input.delayResolution?.mounts.length ?? 0) > 1;
+    if (input.advisoryTree && input.advisoryMotors) {
+      const installed = installedMounts(input.advisoryMotors, input.refusedMountIds);
+      const stageOf = kernelStageIdByNode(input.advisoryTree);
+      const nozzled = new Set(motorisedStagesWithNozzle(input.advisoryTree, installed).map(s => s.id));
+      const counts = new Map<string, number>();
+      for (const [id] of installed) {
+        const stage = stageOf.get(id);
+        if (stage !== undefined && nozzled.has(stage)) counts.set(stage, (counts.get(stage) ?? 0) + 1);
+      }
+      idleExitRisk = [...counts.values()].some(count => count > 1);
+    }
     say(
       `Thrust was corrected for ambient pressure: ${listAnd(nozzleStages)} `
       + `${nozzleStages.length === 1 ? 'carries' : 'carry'} a nozzle exit diameter, so the motor's `
@@ -2426,7 +2485,11 @@ export function buildSimRun(input: {
       + 'of, for as long as it burns — the same correction RASAero makes while the motor burns. The '
       + 'flown thrust and the thrust:weight at rod departure therefore read above the catalogue '
       + 'curve: nothing at a sea-level pad, more with height. Clear the nozzle under the stage, or '
-      + 'fly Classic Extended Barrowman, to fly the published curve.');
+      + 'fly Classic Extended Barrowman, to fly the published curve.'
+      + (idleExitRisk
+      ? ' The kernel uses the whole stage’s equivalent exit area whenever any motor on that stage burns. '
+      + 'With delayed ignition or unequal burnout times, it can credit exits that are not flowing and overstate thrust and apogee. '
+      + 'A manually entered stage area can also include motors that never ignite.' : ''));
   }
   if (safeLiftoffSpeed === false) {
     const measurement = speed(rodExitVelocity!, SAFETY.minRodExitVelocity);
@@ -2532,15 +2595,27 @@ export function buildSimRun(input: {
     // characteristic that costs altitude and drifts, not a danger.
     launchStaticMarginCal < SAFETY.minStaticMargin ? 'warning' : 'caution');
   }
-  if (!Number.isFinite(motor.ejectionDelay)) {
+  const chargeStages = input.advisoryTree ? kernelStageIdByNode(input.advisoryTree) : undefined;
+  const chargeStage = input.primaryMountId ? chargeStages?.get(input.primaryMountId) : undefined;
+  const chargeMounts = input.delayResolution?.mounts.filter(m => {
+    if (chargeStage !== undefined && chargeStages?.get(m.mountId) !== chargeStage) return false;
+    const assigned = input.advisoryMotors?.find(([id]) => id === m.mountId)?.[1];
+    return !assigned ? ignited.size === 0 || ignited.has(m.mountId) : !didNotIgnite(m.mountId, assigned);
+  });
+  if (chargeMounts ? chargeMounts.length > 0 && chargeMounts.every(m => m.flownDelay === 'plugged') : !Number.isFinite(motor.ejectionDelay)) {
     // Plugged motor: no charge to compare against the optimum — instead note
     // the optimum for anyone flying this motor WITH eject another day.
     say(optimumDelayS !== null && Number.isFinite(optimumDelayS)
       ? `Plugged motor (no ejection charge) — recovery must deploy on apogee/altitude electronics. If flown with motor eject instead, the optimal delay is ${optimumDelayS.toFixed(1)}s.`
       : 'Plugged motor (no ejection charge) — recovery must deploy on apogee/altitude electronics.');
-  } else if (optimumDelayS !== null && Number.isFinite(optimumDelayS)
+  } else if (Number.isFinite(motor.ejectionDelay) && optimumDelayS !== null && Number.isFinite(optimumDelayS)
       && Math.abs(motor.ejectionDelay - optimumDelayS) > 1.5) {
     say(`Flown delay ${motor.ejectionDelay}s vs optimal ${optimumDelayS.toFixed(1)}s.`);
+  }
+  for (const m of chargeMounts ?? []) {
+    if (m.mountId === input.primaryMountId || m.flownDelay === 'plugged') continue;
+    const optimum = m.rawOptimum ?? fixedOptimum(m.mountId);
+    if (optimum !== null && Math.abs(m.flownDelay - optimum) > 1.5) say(`${noteField(m.mountName)}: flown delay ${m.flownDelay}s vs optimal ${optimum.toFixed(1)}s.`);
   }
   // BOOSTER RECOVERY. A booster flying a motor over the high-power line has to
   // recover actively; a smaller one may tumble in, and that is not warned about.
@@ -2664,7 +2739,7 @@ export function buildSimRun(input: {
     ...(flightConfig !== undefined ? { flightConfig } : {}),
     ...(input.flightOverrides !== undefined ? { flightOverrides: structuredClone(input.flightOverrides) } : {}),
     ...(input.batch ? { batch: true } : {}),
-    ...(input.batch === true && input.batchMounts ? { batchMounts: input.batchMounts } : {}),
+    ...(input.batchMounts ? { batchMounts: input.batchMounts } : {}),
     // Provenance for the .ork <flightdata> guard. Absent inputs stay absent
     // rather than storing empty strings — "unknown" and "known to be empty"
     // must not read the same on the way back out.

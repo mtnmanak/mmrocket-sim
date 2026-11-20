@@ -229,7 +229,9 @@ export async function flyLaunch(rocket: FlightHandle, input: LaunchInput): Promi
   }
   const installedInput = { ...input, assigned: installed };
   const primary = installedInput.assigned.find(([id]) => id === input.primaryMountId)?.[1];
-  if (!primary) throw new Error('no motor on the primary mount — assign one first');
+  if (!primary) throw new Error(input.refusedMountIds?.includes(input.primaryMountId)
+    ? 'The motor on the primary mount was refused at build time. Check the build notice and assign a supported motor.'
+    : 'no motor on the primary mount — assign one first');
   const now = input.now ?? (() => performance.now());
   let upgraded = false;
   // Never fly inherited handle state — see applyAssignedMotors.

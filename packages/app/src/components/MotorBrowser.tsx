@@ -541,7 +541,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       // the drill-your-own value (delays get drilled to any whole second in
       // the real world, whatever the manufacturer prescribes).
       const finite = opts.filter((d) => Number.isFinite(d));
-      const chosen = delay === 'auto' ? finite[finite.length - 1] ?? 0
+      const chosen = delay === 'auto' ? finite[finite.length - 1] ?? (opts.includes(Infinity) ? Infinity : 0)
         : delay === 'custom' ? customDelay
         : delay;
       const loaded = await loadMotorForMount(picked, chosen, { units: prefs.units, signal: ctrl.signal, autoDelay: delay === 'auto' });

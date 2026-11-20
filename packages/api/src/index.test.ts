@@ -9,6 +9,8 @@ import {
   commentsOf, jsXmlParser, mountMotorCount, mountNamesOf, motorMounts, resolveFlightState, setXmlParser, simulateFile,
 } from '../../app/src/headless/index.js';
 import { boosterBranches } from '@online-openrocket/engine';
+import { knownUnlitIgnition } from '../../app/src/services/ignitionEvent.js';
+import { hasIgnitionSourceStage } from '../../app/src/tree/treeModel.js';
 import {
   autoBody, bytesOf, clusterBody, missingCurveBody, rktWithMotor, secondaryBody, stampOf, timeStepBody, unbundledDigestCase,
 } from './fixtures.testSupport.js';
@@ -144,7 +146,7 @@ describe('S1 in real workerd', () => {
 
   it.each([0.005, 0.01, 0.05, 0.1])('flies an own-file step of %s s with the API floor and reports any change', async step => {
     const body = timeStepBody(step);
-    const node = await simulateFile(body, 'step.ork', { reportSeries: 'summary', minTimeStepS: 0.05 });
+    const node = await simulateFile(body, 'step.ork', { reportSeries: 'full', minTimeStepS: 0.05 });
     expect(node.run.timeStepS).toBe(Math.max(step, 0.05));
     const response = await normal!.fetch('http://local/experimental/fly?filename=step.ork',
       { method: 'POST', body });
@@ -155,7 +157,7 @@ describe('S1 in real workerd', () => {
     close(result.apogeeM, node.result.summary.maxAltitude, true);
     close(result.flightTimeS, node.result.summary.flightTime, true);
     if (step < 0.05) {
-      const unfloored = await simulateFile(body, 'step.ork', { reportSeries: 'summary' });
+      const unfloored = await simulateFile(body, 'step.ork', { reportSeries: 'full' });
       expect(unfloored.run.timeStepS).toBe(Math.max(step, 0.01));
       const floored = node.result.summary.maxAltitude, raw = unfloored.result.summary.maxAltitude;
       expect(raw).not.toBe(floored);
@@ -195,7 +197,7 @@ describe('S1 in real workerd', () => {
 
   it.each(FIXTURES)('%s matches plain Node and returns first/warm timing previews', async (name) => {
     const body = bytesOf(name);
-    const node = await simulateFile(body, name, { network: 'forbid', reportSeries: 'summary' });
+    const node = await simulateFile(body, name, { network: 'forbid', reportSeries: 'full' });
     for (const phase of ['first for fixture', 'warm repeat']) {
       const hostStarted = performance.now();
       const response = await normal!.fetch(`http://local/experimental/fly?filename=${encodeURIComponent(name)}`, { method: 'POST', body });
@@ -258,7 +260,7 @@ describe('S1 in real workerd', () => {
 
   it('auto-delay schedules only the upload deadline timer inside workerd', async () => {
     const body = await autoBody();
-    const node = await simulateFile(body, 'auto.rkt', { reportSeries: 'summary' });
+    const node = await simulateFile(body, 'auto.rkt', { reportSeries: 'full' });
     expect(node.flight.delayResolution.probes).toBeGreaterThan(0);
     expect(node.flight.delayResolution.mounts.some(mount => mount.mode === 'auto')).toBe(true);
     const response = await trapped!.fetch('http://local/experimental/fly?filename=auto.rkt',
@@ -290,15 +292,15 @@ describe('S1 in real workerd', () => {
     expect(body.error.importNote.text).toMatch(/Motor “C99” matched no motor in the motor database/);
   });
 
-  it.each(['cluster', 'never', 'refused'] as const)('reports the actual %s loadout and build refusals', async kind => {
+  it.each(['cluster', 'never', 'burnout', 'ejectioncharge', 'refused'] as const)('reports the actual %s loadout and build refusals', async kind => {
     const body = kind === 'cluster' ? clusterBody() : secondaryBody(kind);
-    const node = await simulateFile(body, `${kind}.ork`, { network: 'forbid', reportSeries: 'summary' });
+    const node = await simulateFile(body, `${kind}.ork`, { network: 'forbid', reportSeries: 'full' });
     const response = await normal!.fetch(`http://local/experimental/fly?filename=${kind}.ork`, { method: 'POST', body });
     expect(response.status, await response.clone().text()).toBe(200);
     const result = await response.json() as FlightResponse;
     sameNumeric(result.motors, expectedMotors(node));
     if (kind === 'cluster') expect(result.motors.some(m => m.count > 1)).toBe(true);
-    if (kind === 'never') {
+    if (kind === 'never' || kind === 'burnout' || kind === 'ejectioncharge') {
       expect(node.flight.delayResolution.mounts).toHaveLength(2);
       expect(result.motors).toHaveLength(1);
     }
@@ -318,7 +320,7 @@ describe('S1 in real workerd', () => {
 
   it('keeps same-name bodies and interleaved/reversed designs independent', async () => {
     const bodies = [bytesOf('reference.ork'), clusterBody()];
-    const oracles = await Promise.all(bodies.map(body => simulateFile(body, 'same.ork', { reportSeries: 'summary' })));
+    const oracles = await Promise.all(bodies.map(body => simulateFile(body, 'same.ork', { reportSeries: 'full' })));
     expect(oracles[0]!.result.summary.maxAltitude).not.toBe(oracles[1]!.result.summary.maxAltitude);
     for (const index of [1, 0, 1, 0]) {
       const response = await trapped!.fetch('http://local/experimental/fly?filename=same.ork', { method: 'POST', body: bodies[index]! });
@@ -327,7 +329,7 @@ describe('S1 in real workerd', () => {
       sameNumeric(out.motors, expectedMotors(oracles[index]!));
     }
     for (const name of [...FIXTURES].reverse()) {
-      const node = await simulateFile(bytesOf(name), name, { reportSeries: 'summary' });
+      const node = await simulateFile(bytesOf(name), name, { reportSeries: 'full' });
       const response = await trapped!.fetch(`http://local/experimental/fly?filename=${name}`, { method: 'POST', body: bytesOf(name) });
       close((await response.json() as FlightResponse).apogeeM, node.result.summary.maxAltitude);
     }
@@ -336,7 +338,7 @@ describe('S1 in real workerd', () => {
   it('concurrent requests retain each design\'s own oracle result (statelessness, not lock contention)', async () => {
     const bodies = [await autoBody(), bytesOf('reference.ork'), bytesOf('TubeFins2.rkt')];
     const names = ['auto.rkt', 'reference.ork', 'TubeFins2.rkt'];
-    const nodes = await Promise.all(bodies.map((body, i) => simulateFile(body, names[i]!, { reportSeries: 'summary', yieldToUi: () => Promise.resolve() })));
+    const nodes = await Promise.all(bodies.map((body, i) => simulateFile(body, names[i]!, { reportSeries: 'full', yieldToUi: () => Promise.resolve() })));
     const responses = await Promise.all(bodies.map((body, i) => normal!.fetch(`http://local/experimental/fly?filename=${names[i]}`, { method: 'POST', body })));
     for (const [i, response] of responses.entries()) {
       expect(response.status, await response.clone().text()).toBe(200);
@@ -511,9 +513,11 @@ function expectedFailures(node: Awaited<ReturnType<typeof simulateFile>>) {
 function expectedMotors(node: Awaited<ReturnType<typeof simulateFile>>) {
   const state = resolveFlightState(node.state.tree, node.state.savedConfigs, node.state.activeConfigId,
     node.state.detachedOverrides ?? {}, node.state.mountMotors);
+  const ignited = new Set([...node.result.events, ...boosterBranches(node.result).flatMap(b => b.events)]
+    .filter(e => e.type === 'IGNITION' && e.motorMountId).map(e => e.motorMountId));
   return node.flight.delayResolution.mounts.flatMap(m => {
     const motor = state.mountMotors[m.mountId];
-    return !motor || motor.ignition?.event === 'never' ? [] : [{ mount: m.mountName, designation: motor.spec.designation,
+    return !motor || (ignited.size > 0 ? !ignited.has(m.mountId) : knownUnlitIgnition(motor.ignition?.event, !hasIgnitionSourceStage(state.tree, m.mountId))) ? [] : [{ mount: m.mountName, designation: motor.spec.designation,
       manufacturer: motor.meta.manufacturer ?? '', count: mountMotorCount(state.tree, m.mountId), delayS: m.flownDelay }];
   });
 }

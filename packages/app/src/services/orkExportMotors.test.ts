@@ -39,6 +39,21 @@ const motor = (
 
 const noLibrary: ExLibrary = () => [];
 
+it.each([0, 6])('r4 exports an unresolved sold-plugged Auto delay %s as plugged through Save and Share', async provisional => {
+  const mm = motor({ spec: { ejectionDelay: provisional }, meta: { autoDelay: true, availableDelays: [Infinity] } });
+  const saved = toOrkMotor(mm, undefined, noLibrary);
+  expect(saved.delay).toBe(Infinity);
+  expect(saved.autoDelayFrom).toBe('provisional');
+  expect(toOrkMotor(mm, 9, noLibrary).delay).toBe(9);
+  expect(toOrkMotor({ ...mm, meta: { ...mm.meta, autoDelay: false } }, undefined, noLibrary).delay).toBe(provisional);
+  expect(toOrkMotor({ ...mm, meta: { ...mm.meta, availableDelays: [5, Infinity] } }, undefined, noLibrary).delay).toBe(provisional);
+  const tree = defaultTree(), id = motorMounts(tree)[0]!.id!;
+  const xml = exportOrk({ name: 'Safe Auto save', tree, motors: { [id]: saved } });
+  for (const payload of [xml, await decodeShareFragment(await encodeShareFragment(xml))]) {
+    expect(Object.values(importOrk(payload).motors)[0]?.delay).toBe(Infinity);
+  }
+});
+
 /** Two vendors' X99, Acme's first: a find by designation alone takes Acme's. */
 const library: ExLibrary = () => [
   { motorId: 'ex:acme-x99', designation: 'X99', realManufacturer: 'Acme' },

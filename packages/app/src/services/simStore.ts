@@ -12,7 +12,7 @@ import { warningKeysCell } from './simWarnings.js';
 import { INITIAL_UNITS, noticeQuantity, siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
 import { normalizeFlightAdvisories } from '../prefs/flightAdvisories.js';
 import { validWindLevels, validWindProfileSource } from './windProfile.js';
-import { batchLoadoutText, batchOtherMountsText, namedBatchMounts, validBatchMounts } from './batchLoadout.js';
+import { batchLoadoutText, batchOtherMountsText, candidateDelayText, flownLoadoutText, namedBatchMounts, validBatchMounts } from './batchLoadout.js';
 import { noteText } from './noteField.js';
 
 /**
@@ -452,7 +452,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
       : railNeededResultCell(needed, r.railProfile, sym('length', 'm'), measure);
   };
   return [
-  ['Designation', (r) => r.motor],
+  ['Designation', (r) => flownLoadoutText(r) ?? r.motor],
   [`Apogee (${sym('altitude', 'ft')})`, (r) => apogee(r.maxAltitude)],
   ['Velocity (mph)', (r) => round(scaled(r.maxVelocity, MPH), 1)],
   ['Manufacturer', (r) => r.manufacturer],
@@ -463,7 +463,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['T:W', (r) => round(r.thrustToWeightAtRod, 1)],
   ['Guide (mph)', (r) => round(scaled(r.rodExitVelocity, MPH), 1)],
   ['Accel (Gs)', (r) => round(scaled(r.maxAcceleration, 1 / G_MS2), 1)],
-  ['Delay (s)', (r) => (Number.isFinite(r.delayS) ? r.delayS
+  ['Delay (s)', (r) => candidateDelayText(r, 'flownDelay', String) ?? (Number.isFinite(r.delayS) ? r.delayS
     : r.delayS === Infinity ? 'P' : '')],
   ['Pad Weight (g)', (r) => round(scaled(r.launchMass, 1000), 1)],
   ['Recovery Weight (g)', (r) => round(scaled(r.burnoutMass, 1000), 1)],
@@ -522,8 +522,8 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['Landing bearing (deg from N)', (r) => round(r.landingBearingDeg ?? null, 0)],
   [`Ground hit velocity (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.groundHitVelocity)],
   ['Total flight time (s)', (r) => round(r.totalFlightTime)],
-  ['Optimal delay (s)', (r) => round(r.optimumDelayS)],
-  ['Recommended delay (s)', (r) => round(r.recommendedDelayS)],
+  ['Optimal delay (s)', (r) => candidateDelayText(r, 'rawOptimum', v => String(round(v))) ?? round(r.optimumDelayS)],
+  ['Recommended delay (s)', (r) => candidateDelayText(r, 'recommendedDelay', String) ?? round(r.recommendedDelayS)],
   ['Lift-off speed OK', (r) => flag(r.safeLiftoffSpeed)],
   ['Thrust:weight OK', (r) => flag(r.safeThrustToWeight)],
   ['Safe deployment', (r) => { const v = deploymentVerdict(r); return v === 'caution' ? 'caution' : flag(v); }],
@@ -532,7 +532,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['Motors (cluster)', (r) => r.motorCount === undefined ? (r.importedSummary ? '' : 1)
     : Number.isFinite(r.motorCount) ? r.motorCount : ''],
   ['Motor config', (r) => r.motorConfig ?? ''],
-  ['Booster motors', (r) => (r.boosterMotors ?? []).join('; ')],
+  ['Other motors', (r) => (r.boosterMotors ?? []).join('; ')],
   [`Booster apogee (${sym('altitude', 'm')})`, (r) => cv('altitude', r.branches?.[0]?.apogee ?? null)],
   [`Booster landing rate (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.branches?.[0]?.landingRate ?? null)],
   ['Booster landing OK', (r) => flag(r.branches?.[0]?.safeLandingRate ?? null)],
@@ -584,6 +584,10 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['Batch candidate mount', r => r.batch === true && validBatchMounts(r.batchMounts)
     ? namedBatchMounts(r.batchMounts).filter(m => m.role === 'candidate').map(m => noteText(m.mountName)).join('; ') : ''],
   ['Batch other mounts', batchOtherMountsText],
+  ['Motor count scope', r => r.importedSummary ? 'not recorded'
+    : r.batch === true && (r.batchTargetMountIds?.length ?? 0) > 1 ? 'installed in candidate mounts'
+    : r.batch === true || r.motorConfig ? 'candidate group'
+    : validBatchMounts(r.batchMounts) ? 'installed in complete flight' : 'primary mount/group'],
   ];
 }
 

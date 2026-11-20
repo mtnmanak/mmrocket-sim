@@ -106,6 +106,8 @@ export function toOrkMotor(mm: MountMotor, flownS: number | undefined, exLibrary
   // <type> uses desktop Motor.Type names. Retain a compatible file value
   // when its identity matches; omit it when neither source knows the type.
   const auto = mm.meta?.autoDelay === true;
+  const soldPlugged = !!mm.meta?.availableDelays?.length && mm.meta.availableDelays.every(d => !Number.isFinite(d));
+  const provisionalDelay = auto && soldPlugged ? Infinity : mm.spec?.ejectionDelay ?? Infinity;
   const loadedType = mm.meta?.type === 'SU' ? 'single'
     : mm.meta?.type === 'reload' ? 'reload'
     : mm.meta?.type === 'hybrid' ? 'hybrid'
@@ -127,7 +129,7 @@ export function toOrkMotor(mm: MountMotor, flownS: number | undefined, exLibrary
     ...(sameMotor && mm.meta?.orkDigest ? { digest: mm.meta.orkDigest } : {}),
     diameter: mm.spec?.diameter ?? 0,
     length: mm.spec?.length ?? 0,
-    delay: (auto ? flownS : undefined) ?? mm.spec?.ejectionDelay ?? Infinity,
+    delay: (auto ? flownS : undefined) ?? provisionalDelay,
     ...(auto ? { autoDelay: true as const } : {}),
     ...(auto ? { autoDelayFrom: flownS !== undefined ? 'flown' as const : 'provisional' as const } : {}),
     ignitionEvent: mm.ignition?.event,

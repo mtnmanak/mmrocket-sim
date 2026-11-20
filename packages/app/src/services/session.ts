@@ -689,7 +689,7 @@ function readSession(restoreRoot: boolean): SessionState | null {
         if (bounded !== value) {
           cfg.nozzles![id] = bounded;
           cautionNote(s.treeRestoreNotes ??= [], 'G04.nozzle-repaired',
-            `Saved configuration ${savedConfigLabel(cfg)}: an invalid or oversized nozzle exit diameter was repaired. Check the nozzle before flying.`);
+            `Saved configuration ${savedConfigLabel(cfg, s.tree)}: an invalid or oversized nozzle exit diameter was repaired. Check the nozzle before flying.`);
         }
       }
       const stageRepair = repairStageMassOverrides(cfg);
@@ -754,12 +754,18 @@ function readSession(restoreRoot: boolean): SessionState | null {
       s.mountMotors ?? {},
       ...(s.savedConfigs ?? []).map((c) => c.motors ?? {}),
     ];
+    const reviveDelay = (mm: Pick<MountMotor, 'spec' | 'meta'>) => {
+      const d = mm.spec.ejectionDelay as unknown;
+      if (d === 'Infinity' || d === null) mm.spec.ejectionDelay = Infinity;
+      if (mm.meta.availableDelays) mm.meta.availableDelays = mm.meta.availableDelays.map(d => (d as unknown) === 'Infinity' ? Infinity : d);
+      // v0.211 used 0 s as the provisional Auto delay even for sold-plugged
+      // motors. Keep Save-before-Launch from inventing a burnout charge.
+      if (mm.meta.autoDelay && mm.meta.availableDelays?.length
+          && mm.meta.availableDelays.every(d => !Number.isFinite(d))) mm.spec.ejectionDelay = Infinity;
+    };
+    if (s.motor && s.motorMeta) reviveDelay({ spec: s.motor, meta: s.motorMeta });
     for (const set of motorSets) {
-      for (const mm of Object.values(set)) {
-        const d = mm?.spec?.ejectionDelay as unknown;
-        if (d === 'Infinity' || d === null) mm.spec.ejectionDelay = Infinity;
-        if (mm.meta.availableDelays) mm.meta.availableDelays = mm.meta.availableDelays.map(d => (d as unknown) === 'Infinity' ? Infinity : d);
-      }
+      for (const mm of Object.values(set)) reviveDelay(mm);
     }
     // A plugged reference's delay the same way: it rides out to the file as
     // "none" only while it is Infinity (writers test Number.isFinite).

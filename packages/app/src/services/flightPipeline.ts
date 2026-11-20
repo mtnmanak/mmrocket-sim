@@ -43,7 +43,7 @@ export type AeroMode = 'classic' | 'supersonic' | 'auto' | 'hybrid';
  */
 export function stageMotorInfo(
   tree: RocketTree,
-  assigned: [string, MountMotor][],
+  assigned: readonly (readonly [string, MountMotor])[],
   stageList: ComponentNode[],
   byId = false,
 ): Record<string, { label?: string; highPower?: boolean }> {

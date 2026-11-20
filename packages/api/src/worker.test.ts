@@ -93,18 +93,23 @@ it('keeps waitUntil pending for the real flight and passes a timer-free yield', 
   }
 });
 
-it('filters the motor list using projected ignition, including tree defaults', async () => {
+it.each([false, true])('r3 uses recorded ignition before projected tree defaults (recorded=%s)', async recorded => {
   const actual = await vi.importActual<typeof import('../../app/src/headless/index.js')>('../../app/src/headless/index.js');
   const out = await actual.simulateFile(bytesOf('reference.ork'), 'reference.ork', { reportSeries: 'summary' });
   const id = out.flight.delayResolution.mounts[0]!.mountId;
   // Simulate the editor state returned alongside a flight whose tree default is never.
   out.state.tree.ignitionDefaults = { [id]: { event: 'never', delay: 0 } };
+  if (!recorded) {
+    out.result.events = out.result.events.filter(e => e.type !== 'IGNITION');
+    for (const branch of out.result.branches ?? []) branch.events = branch.events.filter(e => e.type !== 'IGNITION');
+  }
   expect(out.state.mountMotors[id]!.ignition?.event).not.toBe('never');
   vi.mocked(simulateFile).mockResolvedValue(out);
   const response = await worker.fetch(new Request(url, { method: 'POST', body: 'x' }), undefined,
     { waitUntil: () => undefined });
   expect(response.status).toBe(200);
-  expect(await response.json()).toMatchObject({ motors: [] });
+  const result = await response.json() as { motors: unknown[] };
+  expect(result.motors).toHaveLength(recorded ? 1 : 0);
 });
 
 it('skips a flown mount with no motor entry instead of turning a finished flight into a 500', async () => {

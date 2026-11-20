@@ -19,6 +19,41 @@ import { resolveFlightState } from './flightState.js';
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string) => readFileSync(join(here, '__fixtures__', name), 'utf8');
 
+it.each([undefined, 0, 3, Infinity])('r2 discloses only actual charge-separation loss with booster delay %s', delay => {
+  const notes: string[] = [];
+  const tree: RocketTree = { components: ['Sustainer', 'Booster'].map((name, i) => ({
+    type: 'stage', name, id: `s${i}`, separationEvent: 'ejection', children: [
+      ...(i === 0 ? [{ type: 'nosecone' as const, length: 0.15, aftRadius: 0.03 }] : []),
+      { type: 'bodytube', id: `b${i}`, length: 0.5, outerRadius: 0.03, thickness: 0.001 },
+    ],
+  })) };
+  const motors: NonNullable<Parameters<typeof exportCdx1>[0]['motors']> = delay === undefined ? {} : { b1: { designation: 'Test', manufacturer: 'AeroTech', delay } };
+  exportCdx1({ name: 'Timing', tree, motors, notes });
+  expect(notes.some(n => n.includes('separation on the motor’s ejection charge'))).toBe(delay !== undefined && delay !== 0);
+  if (delay === Infinity) expect(notes.join(' ')).toContain('plugged');
+});
+
+it('r2 translates a charge-relative upper ignition to the lower delay plus its extra timer', () => {
+  const tree: RocketTree = { components: [0, 1].map(i => ({
+    type: 'stage', id: `s${i}`, children: [
+      ...(i === 0 ? [{ type: 'nosecone' as const, length: 0.15, aftRadius: 0.03 }] : []),
+      { type: 'bodytube', id: `b${i}`, length: 0.5, outerRadius: 0.03, thickness: 0.001 },
+    ],
+  })) };
+  const xml = exportCdx1({ name: 'Timers', tree, motors: {
+    b0: { designation: 'Test upper', manufacturer: 'AeroTech', ignitionEvent: 'ejectioncharge', ignitionDelay: 1.5 },
+    b1: { designation: 'Test lower', manufacturer: 'AeroTech', delay: 3 },
+  } });
+  expect(xml).toContain('<SustainerIgnitionDelay>4.5</SustainerIgnitionDelay>');
+  const notes: string[] = [];
+  exportCdx1({ name: 'Flown Auto timer', tree, motors: {
+    b0: { designation: 'Test upper', manufacturer: 'AeroTech', ignitionEvent: 'ejectioncharge', ignitionDelay: 1.5 },
+    b1: { designation: 'Test lower', manufacturer: 'AeroTech', delay: 3, autoDelay: true },
+  }, notes });
+  expect(notes.join(' ')).not.toContain('provisional');
+  expect(notes.join(' ')).toContain('Auto');
+});
+
 it.each(['38-54 2-stage.CDX1', 'launch-stage-motorless.CDX1', 'Complex.Two-Stage.CDX1'])(
   'HF2 r5 reports the stage mass repair once per import: %s', name => {
     const loaded = importCdx1(fixture(name).replace(/<SustainerLaunchWt>[^<]*</g, '<SustainerLaunchWt>1e100<'));

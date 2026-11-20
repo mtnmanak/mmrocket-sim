@@ -6,16 +6,18 @@ import type {
   ComponentNode, FlightResult, IgnitionEvent, MotorSpec, RocketTree, StaticInfo,
 } from '@online-openrocket/engine';
 import { savedConfigLabel, type MountMotor, type SavedConfig } from '../model/design.js';
-import {
+import { boundedLoadoutMotorNames, motorLabelEntry } from './motorLabels.js';
+import { knownUnlitIgnition } from './ignitionEvent.js';
+import { hasIgnitionSourceStage,
   addChild, addStage, defaultTree, isOnLaunchStage, motorisedStagesWithNozzle, stagesWithRecoveryDevice, stageRecoveryById, motorMounts, mountMotorCount,
-} from '../tree/treeModel.js';
+ } from '../tree/treeModel.js';
 import { buildDesign, KERNEL_HANDLES, type BuiltDesign } from './buildDesign.js';
 import { padMassSetKey } from './configSync.js';
 import {
-  deriveLaunchInputs, designBuildInputOf, hardwareDeltaKgOf, provenanceKeyOf, refusedMountIdsOf, type AeroState, type DesignState,
+  deriveLaunchInputs, designBuildInputOf, hardwareDeltaKgOf, mountNamesOf, provenanceKeyOf, refusedMountIdsOf, type AeroState, type DesignState,
 } from './designDerivation.js';
 import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './flightPipeline.js';
-import { flyLaunch, type FlightHandle } from './flightRunner.js';
+import { flyLaunch, installedMounts, type FlightHandle } from './flightRunner.js';
 import { catalogueMotorMass, type HardwareMassResult } from './hardwareMass.js';
 import { planImport, resolveImportMotors } from './importApply.js';
 import { DEFAULT_CONDITIONS, flownMaxFlightTimeS, kernelSimOptions, type LaunchConditions } from './launchConditions.js';
@@ -25,6 +27,7 @@ import { buildSimRun, type DesignMatchKey, type FreshSimRun } from './simReport.
 import { comparable } from './simulate.testSupport.js';
 import { flyBuiltDesign, type BuiltLaunchInput } from './simulateDesign.js';
 import { statedWeightTextFor } from './unitText.js';
+import { testResolution } from './autoDelay.testSupport.js';
 import { INITIAL_UNITS } from '../prefs/units.js';
 
 /**
@@ -172,6 +175,43 @@ const flyArg = () => vi.mocked(flyLaunch).mock.calls[0]![1];
 const runArg = () => vi.mocked(buildSimRun).mock.calls[0]![0];
 
 describe('flyBuiltDesign hands flyLaunch what onLaunch handed it', () => {
+  it.each(['sold plugged', 'removed charge', 'unknown sale', 'fixed plugged', 'unlit'])(
+    'r5 discloses ordinary Launch hypothetical charges only with resolved sold evidence: %s', async scenario => {
+      const input = recorded({ activeConfigId: null });
+      const loaded = mm('Test', { spec: { ...SPEC, ejectionDelay: Infinity },
+        meta: { label: 'Test', autoDelay: scenario !== 'fixed plugged',
+          ...(scenario !== 'unknown sale' ? { availableDelays: scenario === 'removed charge' ? [5, Infinity] : [Infinity] } : {}) } });
+      input.derived.assigned = [['m-sus', loaded]];
+      const resolution = testResolution(input.derived.assigned, [scenario === 'fixed plugged' ? Infinity : 6]);
+      if (scenario === 'unlit') Object.assign(resolution.mounts[0]!, {
+        mode: 'plugged', status: 'fixed', flownDelay: 'plugged', rawOptimum: null, recommendedDelay: null,
+        burnoutTime: null, apogeeTime: null, branchId: null, branchName: null,
+      });
+      vi.mocked(buildSimRun).mockImplementation(() => ({ id: 'stub', comments: '', commentLevels: [] }) as unknown as FreshSimRun);
+      vi.mocked(flyLaunch).mockResolvedValueOnce({ result: { summary: {}, events: [], series: {} } as unknown as FlightResult,
+        flownDelayS: 6, usedSupersonic: false, execMs: 1, delayResolution: resolution });
+      const { run } = await flyBuiltDesign(input);
+      expect(runArg().delayResolution?.mounts[0]?.exception).toBe(scenario === 'sold plugged' ? 'plugged-on-charge' : undefined);
+      expect(run.comments.includes('hypothetical charge at 6 s')).toBe(scenario === 'sold plugged');
+      expect(run.comments).not.toContain('Infinity s');
+    });
+
+  it('r3 keeps a core that actually ignited on parallel-booster burnout as the reported lead', async () => {
+    const input = recorded({ activeConfigId: null });
+    input.tree = { components: [{ type: 'stage', id: 's', children: [
+      { type: 'innertube', id: 'core', motorMount: true },
+      { type: 'parallelstage', id: 'strap', children: [{ type: 'innertube', id: 'boost', motorMount: true }] },
+    ] }] };
+    const assigned: [string, MountMotor][] = [['core', mm('Core', { ignition: { event: 'burnout', delay: 0 } })], ['boost', mm('Booster')]];
+    input.derived = { ...input.derived, primaryMountId: 'core', assigned, mounts: motorMounts(input.tree), stageList: input.tree.components };
+    vi.mocked(flyLaunch).mockResolvedValueOnce({ result: { summary: { maxMachNumber: 0.2 }, events: [
+      { type: 'IGNITION', time: 0, motorMountId: 'boost' }, { type: 'IGNITION', time: 2, motorMountId: 'core' },
+    ] } as FlightResult, flownDelayS: 10, usedSupersonic: false, execMs: 1, delayResolution: testResolution(assigned, [10, 10]) });
+    await flyBuiltDesign(input);
+    expect(runArg().motor.designation).toBe('Core');
+    expect(runArg().batchMounts?.find(m => m.mountId === 'core')).toMatchObject({ role: 'candidate' });
+    expect(runArg().batchMounts?.find(m => m.mountId === 'core')).not.toHaveProperty('ignition');
+  });
   it('W2-WARN passes frozen limits only to reporting, never to flight options', async () => {
     const input = recorded({});
     input.advisoryLimits = { maxMach: 0.5 };
@@ -257,6 +297,17 @@ describe('flyBuiltDesign hands flyLaunch what onLaunch handed it', () => {
 describe('flyBuiltDesign hands buildSimRun what onLaunch handed it', () => {
   beforeEach(() => { vi.mocked(buildSimRun).mockImplementation(() => ({ id: 'stub' }) as FreshSimRun); });
 
+  it('J1 reports a firing booster when the installed primary is Never and keeps that unlit fact frozen', async () => {
+    const input = recorded();
+    input.derived.assigned[0]![1].ignition = { event: 'never', delay: 0 };
+    await flyBuiltDesign(input);
+    expect(runArg().primaryMountId).toBe('m-boo');
+    expect(runArg().motor.designation).toBe('J350-14');
+    expect(runArg().batchMounts?.find(m => m.mountId === 'm-sus')?.ignition).toBe('never');
+    expect(runArg().boosterMotors).toEqual([]);
+    expect(runArg().stageMotorInfo?.Sustainer).toBeUndefined();
+  });
+
   /** What the frozen onLaunch body (below) passes buildSimRun, for a recorded input and its flight. */
   const expected = (input: ReturnType<typeof recorded>, flight: Awaited<ReturnType<typeof flyLaunch>>) => {
     const { tree, derived: { assigned, stageList, primaryMountId }, built, aero, activeConfigId, savedConfigs } = input;
@@ -267,21 +318,25 @@ describe('flyBuiltDesign hands buildSimRun what onLaunch handed it', () => {
       maxFlightTimeS: flownMaxFlightTimeS(input.launch),
       advisoryLimits: input.advisoryLimits,
       advisoryTree: tree,
-      advisoryMotors: assigned,
+      advisoryMotors: installedMounts(assigned, refusedMountIdsOf(built.motorFailures)),
       result: flight.result,
       delayResolution: flight.delayResolution, primaryMountId,
+      batchMounts: [
+        { mountId: 'm-sus', mountName: 'Pod MMT', role: 'candidate', motor: 'H128', count: 2 },
+        { mountId: 'm-boo', mountName: 'Motor mount', role: 'kept', motor: 'J350', count: 1 },
+      ],
       refusedMountIds: refusedMountIdsOf(built.motorFailures),
       info: built.info,
       motor: { ...primary.spec, ejectionDelay: flight.flownDelayS },
-      meta: { ...primary.meta, motorCount: mountMotorCount(tree, primaryMountId) },
+      meta: { ...primary.meta, motorCount: 3 },
       launch: input.launch,
       rocketName: tree.name ?? 'Rocket',
       execMs: flight.execMs,
-      stageMotorInfo: stageMotorInfo(tree, assigned, stageList),
-      boosterMotors: assigned.filter(([id]) => id !== primaryMountId).map(([, m]) => m.label),
+      stageMotorInfo: stageMotorInfo(tree, installedMounts(assigned, refusedMountIdsOf(built.motorFailures)), stageList),
+      boosterMotors: ['J350-14'],
       aeroModel: aeroModelFor(aero.aeroMode, flight.usedSupersonic),
       rogersKbf: rogersKbfFor(aero.effectiveKbf, flight.usedSupersonic),
-      flightConfig: activeConfig ? savedConfigLabel(activeConfig) : assigned.length ? 'working settings' : 'none',
+      flightConfig: activeConfig ? savedConfigLabel(activeConfig, tree) : assigned.length ? 'working settings' : 'none',
       ...(activeConfigId !== null ? { flightConfigId: activeConfigId } : {}),
       flightOverrides: input.flightOverrides,
       designKey: input.provenance.designKey,
@@ -308,11 +363,11 @@ describe('flyBuiltDesign hands buildSimRun what onLaunch handed it', () => {
       expect(runArg().result.summary.optimumDelay).toBe(flight.result.summary.optimumDelay);
       // The pieces a stub would most easily get wrong, named.
       expect(runArg().aeroModel).toBe(mach > 0.9 ? 'auto-supersonic' : 'classic');
-      expect(runArg().meta?.motorCount).toBe(2);
-      expect(runArg().flightConfig).toBe(savedConfigLabel(input.savedConfigs[0]!));
+      expect(runArg().meta?.motorCount).toBe(3);
+      expect(runArg().flightConfig).toBe(savedConfigLabel(input.savedConfigs[0]!, input.tree));
       expect(runArg().flightConfigId).toBe('c1');
       expect(runArg().nozzleStages).toEqual(['Sustainer']);
-      expect(runArg().boosterMotors).toEqual(['J350-14', 'G80-7']);
+      expect(runArg().boosterMotors).toEqual(['J350-14']);
       expect(runArg().info).toBe(input.built.info);
       expect(runArg().flownRecovery).toBe(input.built.flownRecovery);
     });
@@ -372,13 +427,12 @@ async function referenceLaunch(x: {
   provenanceKey: DesignMatchKey; onUpgrade: () => void;
 }) {
   const {
-    built, tree, mounts, stageList, assigned, mountMotors, primaryMountId, refusedMountIds, launch, aeroMode,
+    built, tree, mounts, stageList, assigned, primaryMountId, refusedMountIds, launch, aeroMode,
     effectiveKbf, effectiveSupersonic, activeConfigId, savedConfigs, provenanceKey,
   } = x;
-  const primary = mountMotors[primaryMountId]!;
   const { result: res, flownDelayS: flownDelay, usedSupersonic, execMs, delayResolution } = await flyLaunch(built.rocket, {
     assigned,
-    mountNames: Object.fromEntries(mounts.map((m) => [m.id!, m.name ?? 'Motor mount'])),
+    mountNames: mountNamesOf(mounts),
     refusedMountIds,
     hardware: built.hardware,
     primaryMountId,
@@ -388,7 +442,23 @@ async function referenceLaunch(x: {
     isOnLaunchStage: (id) => isOnLaunchStage(tree, id),
     onSupersonicUpgrade: () => { x.onUpgrade(); },
   });
-  const branchMotors = stageMotorInfo(tree, assigned, stageList);
+  // r2: update the independent report reference to the authorized J1 contract;
+  // compare every report field, including comments and branch power attribution.
+  const installed = installedMounts(assigned, refusedMountIds);
+  const ignitionIds = new Set([...res.events, ...(res.branches ?? []).flatMap(b => b.events)]
+    .filter(e => e.type === 'IGNITION' && e.motorMountId).map(e => e.motorMountId));
+  const unlit = (id: string, mm: MountMotor) => ignitionIds.size > 0 ? !ignitionIds.has(id) : knownUnlitIgnition(mm.ignition.event, !hasIgnitionSourceStage(tree, id));
+  const firing = installed.filter(([id, mm]) => !unlit(id, mm));
+  const leadId = firing.some(([id]) => id === primaryMountId) ? primaryMountId : firing[0]?.[0] ?? primaryMountId;
+  const primary = installed.find(([id]) => id === leadId)![1];
+  const leadDelay = delayResolution.mounts.find(m => m.mountId === leadId)!.flownDelay;
+  const labels = boundedLoadoutMotorNames(installed.map(([, mm]) => motorLabelEntry(mm)));
+  const names = mountNamesOf(mounts);
+  const batchMounts = labels ? installed.map(([id, mm], i) => ({
+    mountId: id, mountName: names[id]!, role: id === leadId ? 'candidate' as const : 'kept' as const,
+    motor: labels[i]!, count: mountMotorCount(tree, id), ...(unlit(id, mm) ? { ignition: 'never' as const } : {}),
+  })) : undefined;
+  const branchMotors = stageMotorInfo(tree, firing, stageList);
   const activeConfig = activeConfigId === null ? undefined
     : savedConfigs.find((c) => c.id === activeConfigId);
   const run = buildSimRun({
@@ -396,25 +466,25 @@ async function referenceLaunch(x: {
     weatherSnapshot: null,
     advisoryLimits: undefined,
     advisoryTree: tree,
-    advisoryMotors: assigned,
+    advisoryMotors: installed,
     result: res,
-    delayResolution, primaryMountId,
+    delayResolution, primaryMountId: leadId, batchMounts,
     info: built.info,
-    motor: { ...primary.spec, ejectionDelay: flownDelay },
+    motor: { ...primary.spec, ejectionDelay: leadDelay === 'plugged' ? Infinity : leadDelay },
     meta: {
       ...primary.meta,
-      motorCount: mountMotorCount(tree, primaryMountId),
+      motorCount: installed.reduce((sum, [id]) => sum + mountMotorCount(tree, id), 0),
     },
     launch,
     rocketName: tree.name ?? 'Rocket',
     execMs,
     stageMotorInfo: branchMotors,
-    boosterMotors: assigned
-      .filter(([id]) => id !== primaryMountId)
-      .map(([, mm]) => mm.label),
+    boosterMotors: firing
+      .filter(([id]) => id !== leadId)
+      .map(([id, mm]) => `${mountMotorCount(tree, id) > 1 ? `${mountMotorCount(tree, id)}× ` : ''}${mm.label}`),
     aeroModel: aeroModelFor(aeroMode, usedSupersonic),
     rogersKbf: rogersKbfFor(effectiveKbf, usedSupersonic),
-    flightConfig: activeConfig ? savedConfigLabel(activeConfig) : assigned.length ? 'working settings' : 'none',
+    flightConfig: activeConfig ? savedConfigLabel(activeConfig, tree) : assigned.length ? 'working settings' : 'none',
     ...(activeConfigId !== null ? { flightConfigId: activeConfigId } : {}),
     // RES-1 changes report metadata only; the flight oracle stays unchanged.
     flightOverrides: x.flightOverrides,
@@ -424,7 +494,7 @@ async function referenceLaunch(x: {
     // ROUND-F adds per-mount evidence to Launch; the flight-number oracle is unchanged.
     motorDataKeys: provenanceKey.motorDataKeys,
     flownRecovery: built.flownRecovery,
-    nozzleStages: motorisedStagesWithNozzle(tree, assigned).map((s) => s.name),
+    nozzleStages: motorisedStagesWithNozzle(tree, firing).map((s) => s.name),
     recoveryStages: stagesWithRecoveryDevice(tree),
     recoveryByStage: stageRecoveryById(tree),
     // Since v0.176 Launch records the mounts the build refused (AUTO-DELAY).

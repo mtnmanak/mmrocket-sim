@@ -1,5 +1,6 @@
 import { fmtSi, siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
 import type { SimRun } from './simReport.js';
+import { candidateDelayText } from './batchLoadout.js';
 
 interface RunColumn {
   id: string;
@@ -64,6 +65,9 @@ export function normalizeRunColumns(value: unknown): string[] | undefined {
 }
 
 export function summaryCell(column: RunColumn, run: SimRun, units: UnitSelection): string {
+  const field = column.id === 'optimumDelayS' ? 'rawOptimum' : column.id === 'recommendedDelayS' ? 'recommendedDelay' : null;
+  const mixed = field && candidateDelayText(run, field, v => column.id === 'optimumDelayS' ? `${v.toFixed(1)}s` : String(Math.round(v * 1000) / 1000));
+  if (mixed) return mixed;
   const value = column.value(run);
   if (typeof value !== 'number' || !Number.isFinite(value)) return '';
   if (column.id === 'maxQAlpha') return fmtSi('pressure', units.pressure, siToUi('angle', units.angle, value));

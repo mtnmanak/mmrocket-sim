@@ -42,6 +42,9 @@ export function idFree(run: FreshSimRun) {
   };
   return {
     ...rest,
+    // J1 Launch also freezes loadout evidence. Preserve every field while
+    // normalizing per-parse ids with the same map used by recovery events.
+    ...(rest.batchMounts ? { batchMounts: rest.batchMounts.map(m => ({ ...m, mountId: renumber(m.mountId) })) } : {}),
     ...(rest.branches ? { branches: rest.branches.map(branch => ({ ...branch,
       ...(branch.stageId === undefined ? {} : { stageId: renumber(branch.stageId) }),
     })) } : {}),

@@ -21,6 +21,218 @@ import { densityAltitudeM } from './atmosphere.js';
 import { INITIAL_UNITS, IMPERIAL_UNITS, uiToSi } from '../prefs/units.js';
 import { classifyRecoveryDevices } from './recoverySizing.js';
 
+it('J1 labels all frozen Launch mounts and legacy clusters in plot/report identities', () => {
+  expect(formatRunLabel({ rocket: 'Rocket', motor: 'C6-5', manufacturer: 'Estes', motorCount: 3 }))
+    .toBe('Rocket · 3× C6-5 (Estes)');
+  const batchMounts: NonNullable<SimRun['batchMounts']> = [
+    { mountId: 'a', mountName: 'Core', motor: 'M1780NT', count: 1, role: 'candidate' },
+    { mountId: 'b', mountName: 'Ring', motor: 'K1499N', count: 3, role: 'kept' },
+  ];
+  expect(formatRunLabel({ rocket: 'Rocket', motor: 'M1780NT', manufacturer: 'AeroTech', batchMounts }))
+    .toBe('Rocket · M1780NT in Core; K1499N ×3 in Ring');
+});
+
+it('r2 ignores a charged peer that never reached its delayed ignition', () => {
+  const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [
+    { type: 'innertube', id: 'a', motorMount: true }, { type: 'innertube', id: 'b', motorMount: true },
+  ] }] };
+  const assigned: [string, MountMotor][] = [['a', testMotor(false, Infinity)], ['b', {
+    ...testMotor(false, 5), ignition: { event: 'launch', delay: 200 },
+  }]];
+  const result = fakeResult();
+  result.events.push({ type: 'IGNITION', time: 0, motorMountId: 'a' });
+  const run = buildSimRun({ result, info, motor: { ...motor, ejectionDelay: Infinity },
+    launch: DEFAULT_CONDITIONS, rocketName: 'Late peer', execMs: 1, advisoryTree: tree, advisoryMotors: assigned,
+    primaryMountId: 'a', delayResolution: testResolution(assigned, [Infinity, 5]) });
+  expect(run.comments).toContain('recovery must deploy on apogee/altitude electronics');
+  result.events.push({ type: 'IGNITION', time: 0, motorMountId: 'b' });
+  const litPeer = buildSimRun({ result, info, motor: { ...motor, ejectionDelay: Infinity },
+    launch: DEFAULT_CONDITIONS, rocketName: 'Lit peer', execMs: 1, advisoryTree: tree, advisoryMotors: assigned,
+    primaryMountId: 'a', delayResolution: testResolution(assigned, [Infinity, 5]) });
+  expect(litPeer.comments).not.toContain('recovery must deploy on apogee/altitude electronics');
+});
+
+it.each(['burnout', 'ejectioncharge'] as const)('r2 omits zero-delay advice for an unlit launch-stage %s mount', event => {
+  const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [
+    { type: 'innertube', id: 'a', motorMount: true }, { type: 'parachute', deployEvent: 'ejection' },
+  ] }] };
+  const run = buildSimRun({ result: fakeResult(), info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'Unlit', execMs: 1,
+    advisoryTree: tree, advisoryMotors: [['a', { ...testMotor(false, 0), ignition: { event, delay: 0 } }]] });
+  expect(run.comments).not.toContain('Configuration caution:');
+  expect(run.comments).not.toContain('zero-second delay');
+});
+
+it('r2 does not attribute a delayed high-power motor to a branch that ended before ignition', () => {
+  const result = fakeResult();
+  result.events.push({ type: 'IGNITION', time: 0, motorMountId: 'a' });
+  result.branches = [{ name: 'Sustainer', events: result.events, series: result.series }, {
+    name: 'Booster', events: [{ type: 'STAGE_SEPARATION', time: 2, sourceId: 'lower' },
+      { type: 'GROUND_HIT', time: 10 }], series: result.series,
+  }];
+  const tree: RocketTree = { components: [
+    { type: 'stage', id: 'upper', name: 'Sustainer', children: [{ type: 'innertube', id: 'a', motorMount: true }] },
+    { type: 'stage', id: 'lower', name: 'Booster', children: [{ type: 'innertube', id: 'b', motorMount: true }] },
+  ] };
+  const delayed = { ...testMotor(false, 5), label: 'H Test', meta: { label: 'H Test', highPower: true },
+    ignition: { event: 'launch' as const, delay: 200 } };
+  const run = buildSimRun({ result, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'Late booster', execMs: 1,
+    advisoryTree: tree, advisoryMotors: [['a', testMotor()], ['b', delayed]] });
+  expect(run.branches?.[0]?.motorLabel).toBeUndefined();
+  expect(run.branches?.[0]?.highPower).not.toBe(true);
+  expect(run.comments).not.toContain('a booster this size must recover actively');
+});
+
+it('r2 does not append the multi-motor nozzle caveat to an ordinary single-motor stage', () => {
+  const run = buildSimRun({ result: fakeResult(), info, motor, launch: DEFAULT_CONDITIONS,
+    rocketName: 'Single', execMs: 1, nozzleStages: ['Stage'], aeroModel: 'classic', rogersKbf: true });
+  expect(run.comments).toContain('Thrust was corrected');
+  expect(run.comments).not.toContain('whole stage’s equivalent exit area');
+  const multi = buildSimRun({ result: fakeResult(), info, motor, launch: DEFAULT_CONDITIONS,
+    rocketName: 'Multiple', execMs: 1, nozzleStages: ['Stage'], aeroModel: 'classic', rogersKbf: true,
+    delayResolution: testResolution([['a', testMotor(false, 5)], ['b', testMotor(false, 5)]], [5, 5]) });
+  expect(multi.comments).toContain('whole stage’s equivalent exit area');
+});
+
+it('r2 restricts the idle-exit caveat to multi-mount stages that actually carry a nozzle', () => {
+  const tree: RocketTree = { components: [
+    { type: 'stage', id: 's0', name: 'Nozzled single', nozzleExitDiameter: 0.02,
+      children: [{ type: 'innertube', id: 'a', motorMount: true }] },
+    { type: 'stage', id: 's1', name: 'No nozzle', children: [
+      { type: 'innertube', id: 'b', motorMount: true }, { type: 'innertube', id: 'c', motorMount: true },
+    ] },
+  ] };
+  const run = buildSimRun({ result: fakeResult(), info, motor, launch: DEFAULT_CONDITIONS,
+    rocketName: 'Stages', execMs: 1, nozzleStages: ['Nozzled single'], aeroModel: 'classic', rogersKbf: true,
+    advisoryTree: tree, advisoryMotors: [['a', testMotor()], ['b', testMotor()], ['c', testMotor()]] });
+  expect(run.comments).toContain('Thrust was corrected');
+  expect(run.comments).not.toContain('whole stage’s equivalent exit area');
+  tree.components[1]!.nozzleExitDiameter = 0.02;
+  const nozzled = buildSimRun({ result: fakeResult(), info, motor, launch: DEFAULT_CONDITIONS,
+    rocketName: 'Stages', execMs: 1, nozzleStages: ['Nozzled single', 'No nozzle'], aeroModel: 'classic', rogersKbf: true,
+    advisoryTree: tree, advisoryMotors: [['a', testMotor()], ['b', testMotor()], ['c', testMotor()]] });
+  expect(nozzled.comments).toContain('whole stage’s equivalent exit area');
+});
+
+it('J1 grades the first opening on airspeed while retaining ground speed', () => {
+  const result = fakeResult();
+  result.series.velocity = result.series.time.map(() => 18);
+  result.series.mach = result.series.time.map(() => 23 / 340);
+  result.series['Vs'] = result.series.time.map(() => 340);
+  const run = buildSimRun({ result, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'Wind', execMs: 1 });
+  expect(run.deployments[0]!.groundSpeedAtDeployment).toBe(18);
+  expect(run.deployments[0]!.velocityAtDeployment).toBeCloseTo(23, 10);
+  expect(run.deployments[0]!.openingOk).toBe('caution');
+});
+
+it('J1 never calls a charged mixed loadout electronics-only and leaves unprobed primary advice unavailable', () => {
+  const assigned = [['a', testMotor(false, Infinity)], ['b', testMotor(false, 14)]] as [string, MountMotor][];
+  const resolution = testResolution(assigned, [Infinity, 14]);
+  const run = buildSimRun({ result: fakeResult(), info, motor: { ...motor, ejectionDelay: Infinity },
+    launch: DEFAULT_CONDITIONS, rocketName: 'Mixed', execMs: 1, primaryMountId: 'a', delayResolution: resolution });
+  expect(run.comments).not.toContain('recovery must deploy on');
+  expect(run.optimumDelayS).toBeNull();
+  const result = fakeResult();
+  result.events.push({ type: 'BURNOUT', motorMountId: 'a', time: 2 }, { type: 'BURNOUT', motorMountId: 'b', time: 2 });
+  const withBurnouts = buildSimRun({ result, info, motor: { ...motor, ejectionDelay: Infinity },
+    launch: DEFAULT_CONDITIONS, rocketName: 'Mixed', execMs: 1, primaryMountId: 'a', delayResolution: resolution });
+  expect(withBurnouts.comments).not.toMatch(/recovery must deploy on|Infinity/);
+});
+
+it('J1 translates the last-burnout optimum to each fixed-delay mount’s own burnout', () => {
+  const assigned: [string, MountMotor][] = [['a', testMotor(false, 8)], ['b', testMotor(false, 9)]];
+  const result = fakeResult();
+  result.summary.optimumDelay = 5;
+  result.events = [...result.events.filter(e => e.type !== 'BURNOUT'),
+    { type: 'BURNOUT', time: 2, motorMountId: 'a' }, { type: 'BURNOUT', time: 5, motorMountId: 'b' }];
+  const run = buildSimRun({ result, info, motor: { ...motor, ejectionDelay: 8 }, launch: DEFAULT_CONDITIONS,
+    rocketName: 'Two motors', execMs: 1, primaryMountId: 'a', delayResolution: testResolution(assigned, [8, 9]) });
+  expect(run.optimumDelayS).toBe(8);
+  expect(run.recommendedDelayS).toBe(8);
+  expect(run.comments).not.toContain('Flown delay 8s vs optimal');
+  expect(run.comments).toContain('b: flown delay 9s vs optimal 5.0s');
+});
+
+it.each([
+  { peer: false, sourceKnown: true }, { peer: true, sourceKnown: true }, { peer: true, sourceKnown: false },
+])('r4 leaves detached fixed carrier advice unavailable, peer=$peer sourceKnown=$sourceKnown', ({ peer, sourceKnown }) => {
+  const tree: RocketTree = { components: [
+    { type: 'stage', id: 'upper', children: [{ type: 'innertube', id: 'unlit', motorMount: true }] },
+    { type: 'stage', id: 'lower', children: [
+      { type: 'innertube', id: 'a', motorMount: true }, { type: 'innertube', id: 'b', motorMount: true },
+    ] },
+  ] };
+  const assigned: [string, MountMotor][] = [['a', testMotor(false, 3)], ...(peer ? [['b', testMotor(false, 3)] as [string, MountMotor]] : [])];
+  const result = fakeResult();
+  result.summary.optimumDelay = 8;
+  result.events = [{ type: 'BURNOUT', time: 2, motorMountId: 'a' },
+    ...(peer ? [{ type: 'BURNOUT', time: 2, motorMountId: 'b' }] : []), { type: 'APOGEE', time: 10 }];
+  result.branches = [{ name: 'Sustainer', events: result.events, series: result.series }, {
+    name: 'Booster', events: [...result.events.filter(e => e.type === 'BURNOUT'),
+      { type: 'STAGE_SEPARATION', time: 2, ...(sourceKnown ? { sourceId: 'lower' } : {}) }, { type: 'APOGEE', time: 5 }], series: result.series,
+  }];
+  const run = buildSimRun({ result, info, motor: { ...motor, ejectionDelay: 3 }, launch: DEFAULT_CONDITIONS,
+    rocketName: 'Detached lead', execMs: 1, advisoryTree: tree, advisoryMotors: assigned,
+    primaryMountId: 'a', delayResolution: testResolution(assigned, assigned.map(() => 3)) });
+  expect(run.optimumDelayS).toBeNull();
+  expect(run.recommendedDelayS).toBeNull();
+  expect(run.comments).not.toMatch(/flown delay 3s vs optimal/i);
+});
+
+it.each(['middle', 'strap'] as const)('r5 excludes every stage carried off by %s separation', separating => {
+  const tree: RocketTree = { components: [
+    { type: 'stage', id: 'upper', children: [{ type: 'innertube', id: 'sustainer', motorMount: true }] },
+    { type: 'stage', id: 'middle', children: [] },
+    { type: 'stage', id: 'bottom', children: [
+      { type: 'innertube', id: 'a', motorMount: true }, { type: 'innertube', id: 'b', motorMount: true },
+      { type: 'parallelstage', id: 'strap', children: [{ type: 'innertube', id: 'c', motorMount: true }] },
+    ] },
+  ] };
+  const assigned: [string, MountMotor][] = ['sustainer', 'a', 'b', 'c'].map(id => [id, testMotor(false, 3)]);
+  const result = fakeResult();
+  result.summary.optimumDelay = 8;
+  result.events = assigned.map(([id]) => ({ type: 'BURNOUT', time: 2, motorMountId: id }));
+  result.branches = [{ name: 'Main', events: result.events, series: result.series }, {
+    name: 'Detached', events: [...result.events, { type: 'STAGE_SEPARATION', time: 2, sourceId: separating },
+      { type: 'APOGEE', time: 5 }], series: result.series,
+  }];
+  const report = (id: string) => buildSimRun({ result, info, motor: { ...motor, ejectionDelay: 3 },
+    launch: DEFAULT_CONDITIONS, rocketName: 'Three stages', execMs: 1, advisoryTree: tree,
+    advisoryMotors: assigned, primaryMountId: id, delayResolution: testResolution(assigned, assigned.map(() => 3)) });
+  const detached = report(separating === 'middle' ? 'a' : 'c');
+  expect(detached.optimumDelayS).toBeNull();
+  expect(detached.recommendedDelayS).toBeNull();
+  expect(detached.comments).not.toMatch(/flown delay 3s vs optimal/i);
+  // Middle separation removes bottom's attached parallel stage too; a parallel
+  // separation alone leaves its host serial stage and the sustainer attached.
+  expect(report('c').optimumDelayS).toBeNull();
+  expect(report('sustainer').optimumDelayS).toBe(8);
+  expect(report('a').optimumDelayS).toBe(separating === 'middle' ? null : 8);
+});
+
+it('J1 filters inch-mark shroud warnings but retains a real fin with an inch mark', () => {
+  const name = '1/2" Camera Shroud';
+  const run = buildSimRun({ result: { ...fakeResult(), warnings: [
+    { key: 'THICK_FIN', message: `[Warning.THICK_FIN]:  "${name}"` },
+    { key: 'THICK_FIN', message: '[Warning.THICK_FIN]:  "2" Fins"' },
+  ] }, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'Test', execMs: 1,
+  advisoryTree: { components: [{ type: 'stage', children: [
+    { type: 'fairing', name }, { type: 'freeformfinset', name: '2" Fins' },
+  ] }] } });
+  expect(run.simWarnings?.filter(w => w.key === 'THICK_FIN').map(w => w.message))
+    .toEqual(['[Warning.THICK_FIN]:  "2" Fins"']);
+});
+
+it('J1 discloses whole-stage exit area during unequal burns in result and exported comments', () => {
+  const run = buildSimRun({ result: fakeResult(), info, motor, launch: DEFAULT_CONDITIONS,
+    rocketName: 'Mixed', execMs: 1, nozzleStages: ['Stage'], aeroModel: 'classic', rogersKbf: true,
+    advisoryTree: { components: [{ type: 'stage', id: 's', nozzleExitDiameter: 0.02, children: [
+      { type: 'innertube', id: 'a', motorMount: true }, { type: 'innertube', id: 'b', motorMount: true },
+    ] }] }, advisoryMotors: [['a', testMotor()], ['b', testMotor()]] });
+  expect(run.comments).toContain('whole stage’s equivalent exit area whenever any motor');
+  expect(run.comments).toContain('unequal burnout');
+  expect(runsToCsv([run])).toContain('motors that never ignite');
+});
+
 const info: StaticInfo = {
   length: 0.37, lengthAerodynamic: 0.37, mass: 0.051, massEmpty: 0.027, cgEmpty: 0.19, cg: 0.26,
   rotationalInertia: 1.2e-4, longitudinalInertia: 3.4e-3,
@@ -85,14 +297,14 @@ it.each([
   expect(revisions.map(r => r.id)).toEqual(missed ? ['transonic-ogive-aero-v6a'] : []);
   expect(revisions.some(r => r.ambiguous)).toBe(ambiguous);
 });
-it('Round 2 records batch mounts only for an exact true batch flag', () => {
+it('J1 records frozen mounts for Launch as well as batch without promoting the batch flag', () => {
   const batchMounts: NonNullable<SimRun['batchMounts']> = [
     { mountId: 'candidate', mountName: 'Candidate', role: 'candidate', motor: 'E22', count: 1 },
   ];
   const input = { result: fakeResult(), info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'Test', execMs: 1, batchMounts };
   expect(buildSimRun({ ...input, batch: true }).batchMounts).toEqual(batchMounts);
-  expect(buildSimRun({ ...input, batch: 'true' as never })).not.toHaveProperty('batchMounts');
-  expect(buildSimRun(input)).not.toHaveProperty('batchMounts');
+  expect(buildSimRun(input).batchMounts).toEqual(batchMounts);
+  expect(buildSimRun(input).batch).not.toBe(true);
 });
 it('removes only camera-shroud thickness warnings from saved flight notes', () => {
   const run = buildSimRun({ result: { ...fakeResult(), warnings: [
@@ -1689,8 +1901,8 @@ describe('runsToCsv', () => {
     expect(hc[configAt + 2]).toBe('Winds aloft (levels)');
     expect(hc[configAt + 3]).toBe('Rail for 15.0 m/s (m)');
     expect(hc[configAt + 4]).toBe('Max dynamic pressure (Pa)');
-    expect(hc.slice(-8)).toEqual(['Hybrid band lower (Mach)', 'Hybrid band upper (Mach)', 'Travel for 15.0 m/s (m)', 'Overrides', 'Status', 'Wind gusts σ at pad (m/s)', 'Batch candidate mount', 'Batch other mounts']);
-    expect(cells(row!).slice(-5)).toEqual(['not recorded', 'Unknown', '0', '', '']);
+    expect(hc.slice(-9)).toEqual(['Hybrid band lower (Mach)', 'Hybrid band upper (Mach)', 'Travel for 15.0 m/s (m)', 'Overrides', 'Status', 'Wind gusts σ at pad (m/s)', 'Batch candidate mount', 'Batch other mounts', 'Motor count scope']);
+    expect(cells(row!).slice(-6)).toEqual(['not recorded', 'Unknown', '0', '', '', 'primary mount/group']);
     expect(cells(row!)[hc.indexOf('Flight config')]).toBe('Club field C6');
     // A run stored before the field existed exports an empty trailing cell.
     const old = buildSimRun({

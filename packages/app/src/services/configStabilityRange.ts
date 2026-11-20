@@ -73,7 +73,7 @@ export function prepareStabilityCases(input: StabilityRangeInput): StabilityCase
         : config.unmatched?.length)
         ? 'Unresolved motor: the complete loadout cannot be calculated.'
         : unresolvedMass ? 'A stage mass or CG still includes an unresolved motor.' : undefined;
-    return { id: config.id, label: savedConfigLabel(config), unavailable, input: {
+    return { id: config.id, label: savedConfigLabel(config, tree), unavailable, input: {
       tree: effective.tree, assigned, kbf: input.kbf, supersonic: input.supersonic, hybrid: input.hybrid,
       measuredDryMassKg: input.measuredDryMassKg,
       primaryMountId: primaryMountOf(tree, assigned.map(([id]) => id)),

@@ -11,6 +11,7 @@ import { launchFieldLabels } from './formatLoss.js';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { savedConfigLabel } from '../model/design.js';
+import { namedBatchMounts } from './batchLoadout.js';
 import { DEFAULT_MAX_FLIGHT_TIME_S, DEFAULT_TIME_STEP_S, flownMaxFlightTimeS, type LaunchConditions } from './launchConditions.js';
 import type { NoticeSeverity } from '../components/NoticeBar.js';
 import { designFingerprint, type DesignSnapshot } from './dirtyState.js';
@@ -27,6 +28,7 @@ import {
   reconcileAllIncludedMotors, type AttachedMotor, type StatedWeightText,
 } from './statedLaunchWeight.js';
 import { stageMotors, type StageMotors } from './nozzleFollow.js';
+import { resolveFlightState } from './flightState.js';
 import {
   appendNotes, carryFlags, cautionNote, groupText, noteFlags, renameNote, tierLines, type ImportNote, type NoteGroup,
 } from './importNotes.js';
@@ -528,7 +530,8 @@ export function planImport(
           const ref = cfgUnmatchedRefs[primary];
           cfgUnmatchedRefs[primary] = { ...ref, padMassKg };
           if (cfg.id === chosenId) {
-            const named = mountName(findNode(importedTree, primary));
+            const named = namedBatchMounts(motorMounts(importedTree).map(m => ({ id: m.id!, mountName: mountName(m) })))
+              .find(m => m.id === primary)?.mountName ?? mountName(findNode(importedTree, primary));
             cautionNote(notes, 'I16.pad-mass-inactive', `The file's weighed pad mass (${massText(padMassKg)}) belongs to the motor on “${noteField(named)}”`
               + ` (${noteField(ref.designation)}), which could not be loaded. It is kept so the file saves unchanged,`
               + ' and nothing is carried until that motor is loaded — or re-weigh with the motors you have in.');
@@ -568,7 +571,7 @@ export function planImport(
     const index = notes.indexOf(entry.text);
     if (config && index !== -1) {
       // Reworded in place; the line keeps its producer's tier.
-      renameNote(notes, index, entry.text.replace(`“${entry.label}”`, () => `“${noteField(savedConfigLabel(config))}”`));
+      renameNote(notes, index, entry.text.replace(`“${entry.label}”`, () => `“${noteField(savedConfigLabel(config, imported.tree))}”`));
     }
   }
   // A stage whose stated launch weight still holds an unidentified motor's
@@ -887,12 +890,13 @@ export function planConfigSwitch(
     const primary = primaryMountOf(state.tree, Object.keys(cfg.motors));
     const pad = primary ? cfg.motors[primary]?.padMassKg : undefined;
     const hasPad = typeof pad === 'number' && Number.isFinite(pad) && pad > 0;
-    note = withSpent([{ kind: 'config-applied', tier: 'information', text: `Flight configuration “${noteField(savedConfigLabel(cfg))}” applied — its motors and recovery settings`
+    note = withSpent([{ kind: 'config-applied', tier: 'information', text: `Flight configuration “${noteField(savedConfigLabel(cfg, state.tree))}” applied — its motors and recovery settings`
       + `${hasPad ? ' and weighed pad mass' : ''} are now live.` }, ...unconfirmed],
     unconfirmed.length > 0 ? 'warn' : 'info');
   }
+  const effective = resolveFlightState(next, savedConfigs, cfg.id, {}, cfg.motors);
   const nozzleStated = hasNozzles
-    ? stageMotors(next, Object.entries(cfg.motors).filter(([id]) => mountIds.has(id)))
+    ? stageMotors(effective.tree, Object.entries(effective.mountMotors).filter(([id]) => mountIds.has(id)))
       .filter((s) => Object.hasOwn(cfg.nozzles!, s.stageId))
     : [];
   return {
