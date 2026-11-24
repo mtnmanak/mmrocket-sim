@@ -778,11 +778,22 @@ describe('storage hardening: session tree', () => {
     }
   });
 
-  it.each(['saved', 'downloaded'] as const)('round-trips the filename following flag (%s)', via => {
+  it.each(['opened', 'saved', 'downloaded'] as const)('round-trips the filename following flag (%s)', via => {
     const designFile = { name: 'New_Rocket.ork', via, format: 'ork' as const, followsRocket: true };
     saveSessionDebounced({ ...state(), designFile });
     flushSession();
     expect(loadSession()?.designFile).toEqual(designFile);
+    expect(designFileBase(loadSession()!.designFile ?? null, 'Renamed Rocket')).toBe('Renamed_Rocket');
+  });
+
+  it('r2 restores the opened spaced spelling, then follows a rename and restores the spelling on rename back', () => {
+    const designFile = { name: 'A simple model rocket.ORK', via: 'opened' as const, format: 'ork' as const, followsRocket: true };
+    saveSessionDebounced({ ...state(), designFile });
+    flushSession();
+    const restored = loadSession()!.designFile ?? null;
+    expect(designFileBase(restored, 'A simple model rocket')).toBe('A simple model rocket');
+    expect(designFileBase(restored, 'Renamed Rocket')).toBe('Renamed_Rocket');
+    expect(designFileBase(restored, 'A simple model rocket')).toBe('A simple model rocket');
   });
 
   it.each(['opened', 'saved', 'downloaded'] as const)('round-trips a design file name (%s)', via => {

@@ -1,3 +1,14 @@
+// K1 r2: census unchanged from r1. Name-presence flags reuse existing XML
+// selectors; early recovery-length resolution adds no comparison copy. The
+// plain-word hardware advice retains its one reviewed producer. New tests
+// cover spaced offers, unnamed imports and catalogue line-length conflicts;
+// execution remains blocked by the denied npm/npx launchers.
+// K1 OR2611-1: orkFile 555 -> 558 adds an XML selector, a preferred-unit
+// length formatter and the cord-approximation hardware check. noteExplanations
+// 49 -> 50 adds that same check. These are import translation and static advice,
+// not verdict thresholds or tolerances. orkFile tests cover the 26.11 ratios,
+// active core stages, units, numeric preservation and fixed-number round trips;
+// execution is pending because this lane's npm/npx launchers were denied.
 // v0.213 integration (J23 merged): asymmetricThrust 5, autoDelaySolver 1, noteExplanations 49, orkFile 555 and rocksimFile 304
 // add J23's reviewed producers. motorLinkOpen 2 -> 3 is the orchestrator's r7 estimated-room wording (Gemini P4),
 // pinned in motorLinkOpen.test.ts 'r5 motor links warn on estimated room without an explicit limit'.

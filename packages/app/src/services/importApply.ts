@@ -71,11 +71,13 @@ import {
  * .CDX1's only what RASAero states; the flight-configuration fields are
  * optional.
  */
-export type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors' | 'notes' | 'noteTiers' | 'expand' | 'launch' | 'launchSiteRefused' | 'measured' | 'longitudeCheck' | 'embeddedExMotors'>
+export type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'hasRocketName' | 'tree' | 'motors' | 'notes' | 'noteTiers' | 'expand' | 'launch' | 'launchSiteRefused' | 'measured' | 'longitudeCheck' | 'embeddedExMotors'>
   & Partial<Pick<OrkImportResult, 'configs' | 'chosenConfigId' | 'configSources' | 'configNotes' | 'configLaunch' | 'configLabelNotes' | 'storedSimulations' | 'desktopPredictions' | 'newerFormat'>>
   // RASAero files carry a Mach-Alt table; the drag panel offers it as a
   // sweep condition so a user can reproduce tunnel-matched Reynolds.
   & {
+    /** The file's own rocket name before the file door applies a display-name fallback. */
+    fileRocketName?: string;
     /** In-memory prepared share import: reuse exact catalogue IDs and curves, never designation-match again. */
     resolvedMotors?: ResolvedImportMotors; machAlt?: [number, number][]; sourceFormat?: 'ork' | 'rkt' | 'cdx1' };
 

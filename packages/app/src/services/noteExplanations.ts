@@ -51,6 +51,7 @@ function zeroDensityMeaning(): string {
 }
 
 const importGroups: { codes: string; meaning: string; remedy: string }[] = [
+  { codes: 'I07.auto-recovery-length', meaning: "Automatic recovery lengths from OpenRocket 26.11 were resolved to fixed numbers. Shroud lines use 1.5 times the canopy diameter; cords use three times the rocket's length (measured along the main body: side pods and parts that stick out past it are not counted). The cord's length and mass can differ from desktop OpenRocket.", remedy: 'Check the stated lengths and recovery mass against your hardware, especially for side pods or parts that stick out past the main body. Set the lengths again after resizing the canopy or rocket; saving writes fixed numbers.' },
   { codes: 'I06.reference', meaning: 'The file requests a reference diameter mode the app does not apply; the app flies the maximum body diameter and saves that mode.', remedy: 'Keep the original file for desktop OpenRocket. Check stability calibers, drag normalization and Cd overrides before relying on the flight.' },
   { codes: 'I03.hardware', meaning: 'A RASAero rail-guide or launch-shoe field was omitted, so its external drag is absent.', remedy: 'Add the hardware before flying. Omitted drag can raise predicted apogee.' },
   { codes: 'I04.stage-count', meaning: 'A fractional RockSim stage count was reduced to an integer within the supported range.', remedy: 'Check the imported stages and measured mass against the original design before flying.' },

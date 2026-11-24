@@ -1,10 +1,121 @@
 import { describe, expect, it } from 'vitest';
 import {
-  designFileBase, designFileLabel, designFileTitle, documentTitle, savedDesignFileRef, validDesignFileRef,
+  designFileBase, designFileLabel, designFileTitle, documentTitle, offeredDesignFileName, openedDesignFileRef, savedDesignFileRef, validDesignFileRef,
+  type DesignFileRef,
 } from './designFileName.js';
 import { safeName } from './fileName.js';
 
 describe('design file names', () => {
+  it.each(['opened', 'saved', 'downloaded'] as const)('r3 derives blank-stem %s copy from the fallback suggestion', via => {
+    const ref: DesignFileRef = { name: '  .ORK', via, format: 'ork', followsRocket: false };
+    expect(offeredDesignFileName(ref, 'Rocket name', 'ork')).toBe('Rocket_name.ork');
+    expect(designFileLabel(ref, 'Rocket name')).toBe(via === 'opened'
+      ? 'Opened from   .ORK; Save .ork offers Rocket_name.ork' : 'Save .ork offers Rocket_name.ork');
+    expect(designFileTitle(ref, 'Rocket name')).toContain('Save .ork offers Rocket_name.ork, following the rocket name.');
+    expect(documentTitle('Rocket name', ref, false)).toBe('Rocket name (Rocket_name.ork) — MMRocket Sim');
+  });
+
+  it.each(['saved', 'downloaded'] as const)('r3 preserves matching spelling across every %s save state', via => {
+    for (const [stem, sourceExtension] of [['A simple model rocket', 'ork'], ['火箭', 'ork'], ['Skittles', 'ORK']] as const) {
+      for (const format of ['ork', 'rkt', 'cdx1'] as const) {
+        const extension = format === 'cdx1' ? 'CDX1' : format;
+        const suffix = format === 'rkt' ? ' — RockSim file' : format === 'cdx1' ? ' — RASAero II file' : '';
+        const opened = openedDesignFileRef(`${stem}.${sourceExtension}`, 'ork', stem);
+        const check = (ref: DesignFileRef, rocket: string, expectedStem: string, expectedName: string) => {
+          expect(designFileBase(ref, rocket)).toBe(expectedStem);
+          expect(offeredDesignFileName(ref, rocket, ref.format)).toBe(expectedName);
+          expect(documentTitle(rocket, ref, false)).toBe(`${rocket} (${expectedName}) — MMRocket Sim`);
+          const changed = expectedStem !== ref.name.replace(/\.(ork|rkt|cdx1)$/i, '');
+          expect(designFileLabel(ref, rocket)).toBe(ref.via === 'opened'
+            ? changed ? `Opened from ${ref.name}; Save .ork offers ${expectedName}` : ref.name
+            : `Save .${extension} offers ${expectedName}${suffix}`);
+          const orkName = ref.format === 'ork' ? expectedName : `${expectedStem}.ork`;
+          const following = ` Save .ork offers ${orkName}, following the rocket name.`;
+          const loss = format === 'ork' || ref.via === 'opened' ? ''
+            : ` A ${format === 'rkt' ? 'RockSim' : 'RASAero II'} file does not hold everything an .ork does. Save .ork keeps the full design.`;
+          expect(designFileTitle(ref, rocket)).toBe(ref.via === 'opened'
+            ? `Opened from ${ref.name}.${changed ? following : ' Save .ork offers this name.'}`
+            : (via === 'saved' ? `Saved as ${ref.name}.`
+              : `Downloaded as ${ref.name}. If your download folder already had a file of that name, the browser may have saved it under another name.`)
+              + following + loss);
+        };
+        check(opened, stem, stem, opened.name);
+        const originalOffer = format === 'ork' ? opened.name : `${stem}.${extension}`;
+        expect(offeredDesignFileName(opened, stem, format)).toBe(originalOffer);
+        let ref = savedDesignFileRef(originalOffer, via, format, stem, opened);
+        check(ref, stem, stem, originalOffer);
+        ref = savedDesignFileRef(originalOffer, via, format, stem, ref);
+        check(ref, stem, stem, originalOffer);
+        check(ref, 'Plastic II', 'Plastic_II', `Plastic_II.${extension}`);
+        // Before saving a renamed design, the current file still holds its original spelling.
+        check(ref, stem, stem, originalOffer);
+        ref = savedDesignFileRef(`Plastic_II.${extension}`, via, format, 'Plastic II', ref);
+        check(ref, 'Plastic II', 'Plastic_II', `Plastic_II.${extension}`);
+        // A save replaces the file reference: renaming back now uses a safe new suggestion.
+        check(ref, stem, safeName(stem), `${safeName(stem)}.${extension}`);
+      }
+    }
+  });
+
+  it.each(['ork', 'rkt', 'cdx1'] as const)('r2 preserves a matching spaced opened %s stem through rename and rename back', format => {
+    const extension = format === 'cdx1' ? 'CDX1' : format.toUpperCase();
+    const stem = 'A simple model rocket';
+    const ref = openedDesignFileRef(`${stem}.${extension}`, format, stem);
+    const suffix = format === 'rkt' ? ' — RockSim file' : format === 'cdx1' ? ' — RASAero II file' : '';
+    for (const rocket of [stem, ' My Rocket: 2 ', stem]) {
+      const unchanged = rocket === stem;
+      const base = unchanged ? stem : 'My_Rocket_2';
+      expect(designFileBase(ref, rocket)).toBe(base);
+      expect(designFileLabel(ref, rocket)).toBe(unchanged ? `${stem}.${extension}${suffix}`
+        : `Opened from ${stem}.${extension}; Save .${format === 'cdx1' ? 'CDX1' : format} offers ${base}.${format === 'cdx1' ? 'CDX1' : format}${suffix}`);
+      expect(designFileTitle(ref, rocket)).toContain(unchanged
+        ? `Opened from ${stem}.${extension}. Save .ork offers this name.`
+        : `Save .ork offers ${base}.ork, following the rocket name.`);
+      expect(documentTitle(rocket, ref, false)).toContain(`(${base}.${unchanged ? extension : format === 'cdx1' ? 'CDX1' : format})`);
+    }
+    const saved = savedDesignFileRef(`${stem}.${extension}`, 'saved', format, stem, ref);
+    expect(saved.followsRocket).toBe(true);
+    expect(designFileBase(saved, 'Later rename')).toBe('Later_rename');
+  });
+
+  it('r2 keeps the original matching uppercase-extension tooltip and trims generated suggestions', () => {
+    expect(designFileTitle(openedDesignFileRef('Skittles.ORK', 'ork', 'Skittles'), 'Skittles'))
+      .toBe('Opened from Skittles.ORK. Save .ork offers this name.');
+    expect(designFileBase(null, ' My Rocket: 2 ')).toBe('My_Rocket_2');
+    expect(designFileBase(openedDesignFileRef('Skittles.ork', 'ork', 'Skittles'), '火箭')).toBe('rocket');
+  });
+
+  it.each(['ork', 'rkt', 'cdx1'] as const)('162 follows an opened matching %s name, including another save', format => {
+    const extension = format === 'cdx1' ? 'CDX1' : format.toUpperCase();
+    const ref = openedDesignFileRef(`Skittles.${extension}`, format, 'Skittles');
+    expect(ref.followsRocket).toBe(true);
+    expect(designFileLabel(ref, 'Skittles')).toBe(`Skittles.${extension}`
+      + (format === 'rkt' ? ' — RockSim file' : format === 'cdx1' ? ' — RASAero II file' : ''));
+    expect(documentTitle('Skittles', ref, false)).toContain(`(Skittles.${extension})`);
+    expect(designFileBase(ref, 'Plastic')).toBe('Plastic');
+    expect(designFileLabel(ref, 'Plastic')).toContain(`Opened from Skittles.${extension}; Save`);
+    expect(designFileTitle(ref, 'Plastic')).toContain(`Opened from Skittles.${extension}.`);
+    expect(designFileTitle(ref, 'Plastic')).toContain('Save .ork offers Plastic.ork, following the rocket name.');
+    expect(documentTitle('Plastic', ref, true)).toContain(`(Plastic.${format === 'cdx1' ? 'CDX1' : format})`);
+    const saved = savedDesignFileRef('Plastic.ork', 'saved', 'ork', 'Plastic', ref);
+    expect(saved.followsRocket).toBe(true);
+    expect(designFileBase(saved, 'Plastic II')).toBe('Plastic_II');
+    expect(validDesignFileRef(JSON.parse(JSON.stringify(ref)))).toEqual(ref);
+  });
+
+  it('162 matches trimmed written or safe names case-sensitively, only with a usable rocket name', () => {
+    for (const stem of ['My Rocket: 2', safeName('My Rocket: 2'), '  My Rocket: 2  ']) {
+      const ref = openedDesignFileRef(`${stem}.ork`, 'ork', ' My Rocket: 2 ');
+      expect(ref.followsRocket).toBe(true);
+      expect(designFileBase(ref, 'Renamed')).toBe('Renamed');
+      expect(designFileLabel(ref, ' My Rocket: 2 ')).toBe(`${stem}.ork`);
+    }
+    for (const name of ['skittles', 'Different', '', '   ', undefined]) {
+      const ref = openedDesignFileRef('Skittles.ork', 'ork', name);
+      expect(ref.followsRocket).toBe(false);
+      expect(designFileBase(ref, 'Plastic')).toBe('Skittles');
+    }
+  });
   it.each(['saved', 'downloaded'] as const)('follows a renamed rocket after a suggested %s save in every design format', via => {
     for (const format of ['ork', 'rkt', 'cdx1'] as const) {
       const extension = format === 'cdx1' ? 'CDX1' : format;
@@ -20,13 +131,17 @@ describe('design file names', () => {
     }
   });
 
-  it('keeps a typed different stem and every opened format after renaming', () => {
+  it('keeps a typed different stem and a differently named opened file after renaming', () => {
     for (const format of ['ork', 'rkt', 'cdx1'] as const) {
       const saved = savedDesignFileRef(`Chosen name.${format}`, 'saved', format, 'New Rocket', null);
       expect(saved.followsRocket).toBe(false);
       expect(designFileBase(saved, 'Renamed Rocket')).toBe('Chosen name');
-      const opened = validDesignFileRef({ name: `Disk file.${format}`, via: 'opened', format, followsRocket: true });
+      const opened = openedDesignFileRef(`Disk file.${format}`, format, 'New Rocket');
       expect(designFileBase(opened, 'Renamed Rocket')).toBe('Disk file');
+      // The r3 rule accepts either the written or safe rocket name at save time.
+      const typed = savedDesignFileRef(`New Rocket.${format}`, 'saved', format, 'New Rocket', null);
+      expect(typed.followsRocket).toBe(true);
+      expect(designFileBase(typed, 'Renamed Rocket')).toBe('Renamed_Rocket');
     }
   });
 
@@ -34,7 +149,7 @@ describe('design file names', () => {
     for (const format of ['ork', 'rkt', 'cdx1'] as const) {
       for (const previous of [
         { name: 'Goblin.ork', via: 'opened' as const, format: 'ork' as const },
-        { name: 'Goblin.ork', via: 'opened' as const, format: 'ork' as const, followsRocket: true },
+        { name: 'Goblin.ork', via: 'opened' as const, format: 'ork' as const, followsRocket: false },
         { name: 'Goblin.ork', via: 'saved' as const, format: 'ork' as const, followsRocket: false },
         { name: 'Goblin.ork', via: 'downloaded' as const, format: 'ork' as const },
       ]) {
@@ -89,8 +204,8 @@ describe('design file names', () => {
     }
   });
 
-  it('rejects a malformed following flag', () => {
-    const old = { name: 'New_Rocket.ork', via: 'saved', format: 'ork' };
+  it.each(['opened', 'saved', 'downloaded'] as const)('rejects a malformed following flag for %s', via => {
+    const old = { name: 'New_Rocket.ork', via, format: 'ork' };
     expect(validDesignFileRef({ ...old, followsRocket: 'true' })).toBeNull();
   });
 
@@ -156,4 +271,24 @@ it('migrates legacy formats and labels the format actually used', () => {
   expect(designFileLabel({ name: 'x.ork', via: 'saved', format: 'rkt' })).toBe('x.ork — RockSim file');
   expect(designFileLabel({ name: 'x.CDX1', via: 'opened', format: 'cdx1' })).toBe('x.CDX1 — RASAero II file');
   expect(designFileTitle({ name: 'x.rkt', via: 'downloaded', format: 'rkt' })).toContain('Save .ork keeps the full design');
+});
+
+it('r3 review: a content-sniffed file takes the extension of the saved format; a matching one keeps its own spelling', () => {
+  // OpenRocket XML opened from a .rkt name, a backup name, and a name that merely ends in the letters ork.
+  expect(offeredDesignFileName(openedDesignFileRef('reference.rkt', 'ork', 'reference'), 'reference', 'ork')).toBe('reference.ork');
+  expect(offeredDesignFileName(openedDesignFileRef('unusual.backup', 'ork', 'Other'), 'Other', 'ork')).toBe('unusual.backup.ork');
+  expect(offeredDesignFileName(openedDesignFileRef('fork', 'ork', 'fork'), 'fork', 'ork')).toBe('fork.ork');
+  expect(offeredDesignFileName({ name: 'renamed.ork', via: 'saved', format: 'cdx1' }, 'renamed', 'cdx1')).toBe('renamed.CDX1');
+  expect(designFileLabel({ name: 'renamed.ork', via: 'saved', format: 'cdx1', followsRocket: true }, 'renamed')).toBe('Save .CDX1 offers renamed.CDX1 — RASAero II file');
+  expect(offeredDesignFileName(openedDesignFileRef('Skittles.ORK', 'ork', 'Skittles'), 'Skittles', 'ork')).toBe('Skittles.ORK');
+});
+
+it('r3 review: accepting the generic suggestion for a blank rocket name still follows a later name', () => {
+  for (const blank of ['', '   ', undefined]) {
+    const saved = savedDesignFileRef('rocket.ork', 'downloaded', 'ork', blank, null);
+    expect(saved.followsRocket).toBe(true);
+    expect(offeredDesignFileName(saved, 'Plastic', 'ork')).toBe('Plastic.ork');
+  }
+  // A typed name for a blank rocket does not follow.
+  expect(savedDesignFileRef('mine.ork', 'saved', 'ork', '', null).followsRocket).toBe(false);
 });

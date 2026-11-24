@@ -36,6 +36,7 @@ import { isTailCone } from '../tree/tailCone.js';
 import { num as nodeNum, numOpt } from '../tree/nodeNum.js';
 import { foldDeployEvent } from '../tree/deployEvent.js';
 import { axialLength, positionOf } from '../tree/position.js';
+import { rocketLength } from '../tree/scaleRocket.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml, escapeXmlAttr, lookupTable, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
 import { gunzipCapped, unzipMember } from './zipMember.js';
 import { applyPresetLinks, ORK_PRESET_KEYS, type PendingPresetLink, type Preset } from './presets.js';
@@ -131,6 +132,8 @@ export interface OrkTreeImportResult {
   expand?: boolean;
   embeddedExMotors?: ExMotor[];
   name: string;
+  /** File supplied a nonblank rocket name, before the file door applies its filename fallback. */
+  hasRocketName?: boolean;
   tree: RocketTree;
   /**
    * EVERY mount's motor, keyed by the mount's editor node id. A `motor` field
@@ -496,7 +499,8 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
   const zeroDensityParts: ComponentNode[] = [];
   const motors: Record<string, OrkMotorRef> = {};
 
-  const name = text(rocketEl, ':scope > name') ?? 'Imported rocket';
+  const fileRocketName = text(rocketEl, ':scope > name');
+  const name = fileRocketName ?? 'Imported rocket';
   const referenceType = text(rocketEl, ':scope > referencetype');
   if (referenceType && referenceType !== 'maximum') {
     cautionNote(notes, 'I06.reference', `The file's reference type “${noteField(referenceType)}” is not supported. The app uses the maximum body diameter for stability calibers and drag normalization. Saving .ork writes maximum and loses the file's reference setting; forces from Cd overrides can differ. Keep the original file for desktop OpenRocket.`);
@@ -537,6 +541,17 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
 
   // ---- automatic dimensions (see makeAutoRadii) -------------------------
   const autoRadii = makeAutoRadii(rocketEl);
+  // Lines resolve here; cords resolve after the stages are known, before preset checks.
+  const autoRecoveryLengths = new Map<string, 'lineLength' | 'cordLength'>();
+  const recoveryLength = (el: XmlElement, node: ComponentNode, tag: string, key: 'lineLength' | 'cordLength'): number | undefined => {
+    if (text(el, `:scope > ${tag}`)?.trim().toLowerCase() === 'auto') {
+      autoRecoveryLengths.set(node.id!, key);
+      if (key === 'cordLength') return undefined; // No numeric placeholder reaches a consumer.
+      const diameter = applyFieldLimit(fieldLimit('parachute', 'diameter')!, nodeNum(node, 'diameter', 0.3));
+      return applyFieldLimit(fieldLimit('parachute', 'lineLength')!, diameter * 1.5);
+    }
+    return num(el, tag, 0.3, notes, LENGTH);
+  };
   const autoInferred: { name: string; radius: number }[] = [];
   // Carries the radius each name ACTUALLY got, not just the name: the fallback
   // is 25 mm for a centreline component and 5 mm for a mass object (see
@@ -1389,7 +1404,7 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
         // reaches the descent solver and poisons the whole trajectory.
         readAutoCd(el, n, notes);
         n['lineCount'] = Math.round(num(el, 'linecount', 6, notes));
-        n['lineLength'] = num(el, 'linelength', 0.3, notes, LENGTH);
+        n['lineLength'] = recoveryLength(el, n, 'linelength', 'lineLength');
         readSoftMaterial(el, n, 'surface', 'surfaceDensity', 'surfaceMaterialName', notes);
         readSoftMaterial(el, n, 'line', 'lineDensity', 'lineMaterialName', notes, ':scope > linematerial');
         // <deploymentconfiguration> only overrides when a config was chosen —
@@ -1420,7 +1435,7 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
         const n = base('shockcord', true);
         readRadialPlacement(el, n, notes);
         readPackedSize(el, n);
-        n['cordLength'] = num(el, 'cordlength', 0.3, notes, LENGTH);
+        n['cordLength'] = recoveryLength(el, n, 'cordlength', 'cordLength');
         readSoftMaterial(el, n, 'line', 'lineDensity', 'lineMaterialName', notes);
         return n;
       }
@@ -1787,6 +1802,23 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
     }
   }
 
+  if (Array.from(autoRecoveryLengths.values()).includes('cordLength')) {
+    // Read the sanitized core geometry without changing the existing preset/sanitize order.
+    // No mass calculation or catalogue comparison has consumed an unresolved cord.
+    const geometry = sanitizeTree({ name, components });
+    const coreLength = rocketLength({ ...geometry, components: geometry.components.filter(stage =>
+      !stage.id || chosen?.stageActiveness?.[stage.id] !== false) });
+    const resolveCords = (nodes: ComponentNode[]): void => {
+      for (const node of nodes) {
+        if (autoRecoveryLengths.get(node.id ?? '') === 'cordLength') {
+          node['cordLength'] = applyFieldLimit(fieldLimit('shockcord', 'cordLength')!, coreLength * 3);
+        }
+        resolveCords(node.children ?? []);
+      }
+    };
+    resolveCords(components);
+  }
+
   // In a file this app wrote, the links come back and the catalogue fills
   // nothing: a blank there is the user's own choice, not a gap, so a save and
   // reopen never changes a design (applyPresetLinks, `ownFile`). Our creator
@@ -1841,6 +1873,26 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
 
   const tree: FlightTree = { ...preserveSimulationExtensions(placedTree, rawExtensions, simEls, chosenConfigId, configs.length > 0, notes),
     ...(Object.keys(ignitionDefaults).length ? { ignitionDefaults } : {}) };
+  if (autoRecoveryLengths.size) {
+    const resolved: string[] = [];
+    const resolve = (nodes: ComponentNode[]): void => {
+      for (const node of nodes) {
+        const key = autoRecoveryLengths.get(node.id ?? '');
+        if (key) {
+          const length = nodeNum(node, key, 0.3);
+          resolved.push(`“${noteField(node.name ?? node.type)}”: ${key === 'lineLength' ? 'shroud-line' : 'shock-cord'} length ${noticeQuantity('length', length, units)}`);
+        }
+        resolve(node.children ?? []);
+      }
+    };
+    resolve(tree.components);
+    flagNote(notes, { kind: 'I07.auto-recovery-length', tier: 'information',
+      text: `The file sets automatic recovery lengths (OpenRocket 26.11). The app uses fixed lengths now: ${resolved.join('; ')}. `
+        + 'They will not follow later changes to the canopy or rocket. Saving .ork writes these numbers. '
+        + (Array.from(autoRecoveryLengths.values()).includes('cordLength')
+          ? "The cord uses three times the rocket's length (measured along the main body: side pods and parts that stick out past it are not counted). Its length and mass can differ from desktop OpenRocket. Check it against your hardware."
+          : '') });
+  }
   const storedSimulations = readStoredSimulations(simEls, notes);
   const desktopPredictions = readDesktopPredictions(simEls, root?.getAttribute('creator'));
   // Dry saves need a simulation to carry launch conditions, not a panel row.
@@ -1878,7 +1930,7 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
     }
   }
   return {
-    name, tree, motors, newerFormat, configs: emptyDefault ? [] : configs,
+    name, hasRocketName: !!fileRocketName?.trim(), tree, motors, newerFormat, configs: emptyDefault ? [] : configs,
     ...(overrideNotes.length ? { expand: true } : {}),
     ...(configLabelNotes.length ? { configLabelNotes } : {}),
     chosenConfigId: emptyDefault ? null : chosenConfigId,
