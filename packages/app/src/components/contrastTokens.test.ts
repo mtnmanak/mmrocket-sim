@@ -539,13 +539,17 @@ describe('brand v1: links, focus, inputs, callouts and the site strip', () => {
       ['search hover', decl(rule('.mmr-band-search button:hover {'), 'color'), 'var(--mmr-c-navy)', AA],
       ['search edge', decl(rule('.mmr-band-search input {'), 'border').replace(/^1px solid /, ''), decl(rule('.mmr-band-search input {'), 'background'), 3],
       ['rule', 'var(--mmr-c-line-dark)', 'var(--mmr-c-navy)', 3],
-      ['ring', decl(rule('.viz-root .mmr-band :focus-visible,'), 'outline').replace(/^3px solid /, ''), 'var(--mmr-c-navy)', 3],
+      ['search/footer ring', decl(rule('.viz-root .mmr-band :focus-visible,'), 'outline').replace(/^3px solid /, ''), 'var(--mmr-c-navy)', 3],
+      // Ref 1.5.0: the link ring is currentColor, including while hovered.
+      ['link ring', decl(rule('.viz-root .mmr-band a {'), 'color'), 'var(--mmr-c-navy)', 3],
+      ['hovered link ring', decl(rule('.viz-root .mmr-band a:hover {'), 'color'), 'var(--mmr-c-navy)', 3],
     ];
-    // Primitives: identical in every theme, so any theme's table resolves them.
-    for (const [what, fg, bg, need] of pairs) {
-      expect(fg, what).toMatch(/^var\(--mmr-c-/);
-      const r = ratio(colourIn(THEMES.light!, fg).slice(0, 3) as RGB, colourIn(THEMES.light!, bg).slice(0, 3) as RGB);
-      expect(r, `${what} ${fg} on ${bg}`).toBeGreaterThanOrEqual(need);
+    for (const theme of ['light', 'dark', 'daylight']) {
+      for (const [what, fg, bg, need] of pairs) {
+        expect(fg, what).toMatch(/^var\(--mmr-c-/);
+        const r = ratio(colourIn(THEMES[theme]!, fg).slice(0, 3) as RGB, colourIn(THEMES[theme]!, bg).slice(0, 3) as RGB);
+        expect(r, `${theme} ${what} ${fg} on ${bg}`).toBeGreaterThanOrEqual(need);
+      }
     }
     // Daylight's own ring (0,3,0) is the theme blue, 2.64:1 on navy: the band's
     // ring is restated inside the Daylight block at (0,4,0), and the band's
@@ -553,6 +557,16 @@ describe('brand v1: links, focus, inputs, callouts and the site strip', () => {
     expect(decl(rule(".viz-root[data-contrast='high'] .mmr-band :focus-visible,"), 'outline')).toBe('3px solid var(--mmr-c-sky)');
     expect(css.lastIndexOf(".viz-root[data-contrast='high'] .mmr-band :focus-visible"))
       .toBeGreaterThan(css.lastIndexOf(".viz-root[data-contrast='high'] :focus-visible"));
+    // The old 3px sky assertion above now covers controls/footer only. Band
+    // links deliberately override it with an inset 2px ring, even in Daylight.
+    for (const selector of ['.viz-root .mmr-band a:focus-visible {', ".viz-root[data-contrast='high'] .mmr-band a:focus-visible {"]) {
+      const ring = rule(selector);
+      expect(decl(ring, 'outline')).toBe('2px solid currentColor');
+      expect(decl(ring, 'outline-offset')).toBe('-2px');
+      expect(decl(ring, 'box-shadow')).toBe('none');
+    }
+    expect(css.lastIndexOf(".viz-root[data-contrast='high'] .mmr-band a:focus-visible"))
+      .toBeGreaterThan(css.lastIndexOf(".viz-root[data-contrast='high'] .mmr-band :focus-visible"));
     expect(css).not.toContain(".viz-root[data-contrast='high'] .mmr-band-search input");
   });
 
@@ -1897,7 +1911,7 @@ describe('mmr-brand 1.1.0: the site strip stays dark-on-navy inside a light them
         // State rules (hover, focus, active) cannot be rendered here, so match
         // them with the state stripped: any rule outside the band's own that
         // would colour a band element in some state. The only ones are the
-        // app's focus rings, which the band's sky ring outranks (pinned in
+        // app's focus rings, which the band's own rings outrank (pinned in
         // "the site strip is navy in every theme" above).
         const reach = new Set<string>();
         for (const rr of allRules()) {

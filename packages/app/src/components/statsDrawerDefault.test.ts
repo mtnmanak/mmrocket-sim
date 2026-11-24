@@ -61,15 +61,16 @@ describe('stats-drawer default and the desktop breakpoint', () => {
     // calc(100vh - 420px` — so the number this whole rule turns on could be
     // changed, or silently broken, without a test noticing.
     expect(css).toContain(
-      'clamp(320px, calc(100vh - 420px - var(--notice-h, 0px)), calc(620px + var(--drawer-clearance, 0px)))');
-    // The middle term is the FOOTER's budget and is deliberately untouched:
+      'clamp(320px, calc(100vh - 424px - var(--notice-h, 0px)), calc(620px + var(--drawer-clearance, 0px)))');
+    // Ref 1.5.0 adds 4px to the desktop site band: reserve it in both modes.
+    // The middle term remains the FOOTER's budget:
     // the owner's 2026-08-26 report set the constraint that the canvas must
     // not "get so big it scrolls the footer and notifications off the screen",
     // so the drawer buys back only what the viewport actually affords.
-    expect(css).toContain('calc(100vh - 420px - var(--notice-h, 0px))');
+    expect(css).toContain('calc(100vh - 424px - var(--notice-h, 0px))');
     // Vertical (⟳90°) mode keeps its own taller pure clamp — height there
     // buys drawing, not sky.
-    expect(css).toContain('height: clamp(420px, calc(100vh - 420px - var(--notice-h, 0px)), 900px)');
+    expect(css).toContain('height: clamp(420px, calc(100vh - 424px - var(--notice-h, 0px)), 900px)');
     // Match the DECLARATION, not the string — the rule's comment quotes the
     // old value on purpose, to record what was wrong with it.
     expect(css).not.toContain('height: max(420px');

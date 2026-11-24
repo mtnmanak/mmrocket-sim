@@ -1,13 +1,41 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { build, preview } from 'vite';
 import { expect, it } from 'vitest';
 import { SITEMAP_NAVIGATION, sitemapPlugin } from './sitemap.mjs';
 import { compileGuide } from '../../../scripts/build-user-guide.mjs';
+import { CHANGELOG, PRE_VERSIONING_NOTE } from '../src/changelog.ts';
+import { releaseNotesPlugin } from './release-notes.mjs';
 
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
 const description = 'Free rocket design and flight simulator that runs in your web browser — no install, works on Chromebooks and school computers. OpenRocket-derived physics.';
+
+it('gives every served HTML page exactly one canonical equal to its sitemap URL', () => {
+  const assets = [];
+  const context = { emitFile: asset => assets.push(asset) };
+  releaseNotesPlugin(CHANGELOG, PRE_VERSIONING_NOTE).generateBundle.call(context);
+  sitemapPlugin().generateBundle.call(context);
+  const sitemap = assets.find(asset => asset.fileName === 'sitemap.xml').source;
+  const pages = new Map([['index.html', read('../index.html')]]);
+  for (const asset of assets.filter(asset => asset.fileName.endsWith('.html'))) pages.set(asset.fileName, asset.source);
+  const publicRoot = new URL('../public/', import.meta.url);
+  for (const path of readdirSync(publicRoot, { recursive: true })) {
+    if (path.endsWith('.html')) pages.set(path.replaceAll('\\', '/'), readFileSync(new URL(path.replaceAll('\\', '/'), publicRoot), 'utf8'));
+  }
+  const canonicalUrls = [];
+  for (const [path, html] of pages) {
+    const head = html.match(/<head\b[^>]*>([\s\S]*?)<\/head>/i)?.[1] ?? '';
+    const links = [...head.matchAll(/<link\b[^>]*>/gi)].map(match => match[0]);
+    const canonicals = links.filter(tag => /\brel=["']canonical["']/i.test(tag));
+    expect(canonicals, path).toHaveLength(1);
+    const href = canonicals[0].match(/\bhref=["']([^"']+)["']/i)?.[1];
+    const expected = `https://mmrsim.mountainmanrockets.com/${path.replace(/index\.html$/, '')}`;
+    expect(href, path).toBe(expected);
+    canonicalUrls.push(href);
+  }
+  expect([...sitemap.matchAll(/<loc>(.*?)<\/loc>/g)].map(match => match[1]).sort()).toEqual(canonicalUrls.sort());
+});
 
 it('describes the same free educational browser app in metadata, manifest and JSON-LD', () => {
   const html = read('../index.html');
