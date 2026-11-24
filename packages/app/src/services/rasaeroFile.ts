@@ -1960,8 +1960,8 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
 
   // XML line ends are LF; happy-dom keeps a raw CR that Chrome and the JS parser normalise.
   const comment = (design.querySelector(':scope > Comments')?.textContent ?? '').replace(/\r\n?/g, '\n');
-  const name = comment.trim().split('\n')[0]?.trim()
-    || 'Imported RASAero rocket';
+  const fileRocketName = comment.trim().split('\n')[0]?.trim();
+  const name = fileRocketName || 'Imported RASAero rocket';
   // The part limit (board row 84): refused here, before a motor is matched or the kernel builds anything.
   refuseTooManyParts(stages);
   const tree: FlightTree = { ...recordCurrentPlacement(sanitizeTree({ name, components: stages, ...(comment ? { provenance: { comment } } : {}) }, notes, units)),
@@ -1979,7 +1979,7 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
     // The limits table (audit 2026-09-22), applied where its notes still reach
     // the import banner — a fin <Count> had a floor of 1 and no ceiling, and a
     // negative <Span> failed the whole build. Each repair is named in one note.
-    name, tree,
+    name, hasRocketName: !!fileRocketName, tree,
     motors,
     ignored: [...ignored], notes,
     // Keep each producer's code when planImport opens another configuration.

@@ -216,6 +216,7 @@ export async function openDesignFile(
   data: ArrayBuffer, fileName: string, opts: DesignFileOptions,
 ): Promise<ImportedDesign> {
   const imported = await parseDesignFile(data, fileName, opts);
+  if (imported.hasRocketName) imported.fileRocketName = imported.name;
   applyDesignNameFallback(imported, fileName);
   return imported;
 }

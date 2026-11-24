@@ -57,6 +57,100 @@ import {
 } from './presets.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+const automaticRecoveryXml = (line = 'auto', cord = 'auto') => `<openrocket version="1.11" creator="OpenRocket 26.11.beta.01">
+  <rocket><name>Automatic recovery</name><subcomponents><stage><subcomponents>
+    <nosecone><length>0.1</length><aftradius>0.025</aftradius></nosecone>
+    <bodytube><length>0.4</length><radius>0.025</radius><thickness>0.001</thickness><subcomponents>
+      <parachute><name>Main chute</name><diameter>0.254</diameter><linelength>${line}</linelength></parachute>
+      <shockcord><name>Shock cord</name><cordlength>${cord}</cordlength></shockcord>
+    </subcomponents></bodytube>
+  </subcomponents></stage></subcomponents></rocket></openrocket>`;
+const recoveryParts = (tree: RocketTree) => tree.components[0]!.children![1]!.children!;
+
+describe('OR2611-1 automatic recovery lengths', () => {
+  it.each(['auto', 'AUTO', ' auto '])('resolves %j and explains the fixed lengths once per file', token => {
+    const opened = importOrk(automaticRecoveryXml(token, token));
+    const [chute, cord] = recoveryParts(opened.tree);
+    expect(chute!.lineLength).toBeCloseTo(0.254 * 1.5, 12);
+    expect(cord!.cordLength).toBeCloseTo((0.1 + 0.4) * 3, 12);
+    const notes = (opened.noteTiers ?? []).filter(n => n.kind === 'I07.auto-recovery-length');
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.tier).toBe('information');
+    expect(notes[0]!.text).toContain('Main chute');
+    expect(notes[0]!.text).toContain('Shock cord');
+    expect(notes[0]!.text).toContain(noticeQuantity('length', 0.381, INITIAL_UNITS));
+    expect(notes[0]!.text).toContain(noticeQuantity('length', 1.5, INITIAL_UNITS));
+    expect(notes[0]!.text).toContain('will not follow later changes');
+    expect(opened.notes.join(' ')).not.toContain('invalid');
+  });
+
+  it('non-regression: keeps numeric lengths and rejects auto in ordinary numeric fields', () => {
+    const opened = importOrk(automaticRecoveryXml('0.42', '2.3'));
+    const [chute, cord] = recoveryParts(opened.tree);
+    expect(chute!.lineLength).toBeCloseTo(0.42, 12);
+    expect(cord!.cordLength).toBeCloseTo(2.3, 12);
+    expect(opened.noteTiers?.some(n => n.kind === 'I07.auto-recovery-length')).toBe(false);
+    const invalid = importOrk(automaticRecoveryXml('0.42', '2.3').replace('<diameter>0.254', '<diameter>auto'));
+    expect(invalid.notes.join(' ')).toContain('invalid <diameter>');
+  });
+
+  it('saves fixed numbers in format 1.10 and reopens without another automatic-length note', () => {
+    const opened = importOrk(automaticRecoveryXml());
+    expect(recoveryParts(opened.tree)[0]!.lineLength).toBeCloseTo(0.381, 12);
+    expect(recoveryParts(opened.tree)[1]!.cordLength).toBeCloseTo(1.5, 12);
+    expect(opened.noteTiers?.filter(n => n.kind === 'I07.auto-recovery-length')).toHaveLength(1);
+    const saved = exportOrk({ name: opened.name, tree: opened.tree });
+    expect(saved).toContain('version="1.10"');
+    expect(saved).not.toMatch(/<(linelength|cordlength)>auto</);
+    const reopened = importOrk(saved);
+    expect(recoveryParts(reopened.tree).map(n => [n.lineLength, n.cordLength]))
+      .toEqual(recoveryParts(opened.tree).map(n => [n.lineLength, n.cordLength]));
+    expect(reopened.notes.join(' ')).not.toMatch(/automatic.*length|invalid/);
+  });
+
+  it('uses the selected active core stages and formats every affected part in one note', () => {
+    const xml = automaticRecoveryXml().replace('<name>Automatic recovery</name>',
+      '<name>Automatic recovery</name><motorconfiguration configid="a" default="true"><stage number="1" active="false"/></motorconfiguration>')
+      .replace('</stage></subcomponents></rocket>', '</stage><stage><subcomponents><bodytube><length>1</length><radius>0.025</radius></bodytube></subcomponents></stage></subcomponents></rocket>')
+      .replace('</shockcord>', '</shockcord><shockcord><name>Spare cord</name><cordlength>auto</cordlength></shockcord>');
+    const units = { ...INITIAL_UNITS, length: 'in' };
+    const opened = importOrk(xml, { units });
+    expect(recoveryParts(opened.tree)[1]!.cordLength).toBeCloseTo(1.5, 12);
+    expect(recoveryParts(opened.tree)[2]!.cordLength).toBeCloseTo(1.5, 12);
+    const notes = (opened.noteTiers ?? []).filter(n => n.kind === 'I07.auto-recovery-length');
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.text).toContain('Spare cord');
+    expect(notes[0]!.text).toContain(noticeQuantity('length', 1.5, units));
+    expect(notes[0]!.text).toContain("three times the rocket's length (measured along the main body");
+    expect(notes[0]!.text).not.toContain('core body');
+  });
+
+  it('r2 compares resolved automatic lines with the shipped catalogue, including a real disagreement', async () => {
+    const presets = await loadPresets();
+    const row = presets.find(p => p.kind === 'Parachute' && Number(p['lineLength']) > 0.01
+      && Math.abs(Number(p['lineLength']) - 0.3) > 0.02)!;
+    expect(row).toBeDefined();
+    const length = Number(row['lineLength']);
+    const link = `<preset type="PARACHUTE" manufacturer="${row.manufacturer}" partno="${row.partNo}" digest=""/>`;
+    const open = (diameter: number) => importOrk(automaticRecoveryXml().replace('<name>Main chute</name>', `<name>Main chute</name>${link}`)
+      .replace('<diameter>0.254</diameter>', `<diameter>${diameter}</diameter>`), { presets });
+    const matching = open(length / 1.5);
+    expect(recoveryParts(matching.tree)[0]!.lineLength).toBeCloseTo(length, 12);
+    expect(recoveryParts(matching.tree)[0]!['presetPartNo']).toBe(row.partNo);
+    expect(matching.notes.filter(n => n.includes('disagrees with')).join(' ')).not.toContain('line length');
+    const different = open(length * 2 / 1.5);
+    expect(different.notes.filter(n => n.includes('disagrees with')).join(' ')).toContain('line length');
+    // A catalogue length near the old 0.3 m placeholder must not hide a conflict.
+    // Shipped rows have no line length within the tolerance of 0.3 m. Model
+    // a user catalogue row using the same runtime-picked identity.
+    const nearDefault = { ...row, lineLength: 0.3 };
+    const mismatched = importOrk(automaticRecoveryXml().replace('<name>Main chute</name>',
+      `<name>Main chute</name><preset type="PARACHUTE" manufacturer="${nearDefault.manufacturer}" partno="${nearDefault.partNo}" digest=""/>`), { presets: [nearDefault] });
+    expect(mismatched.notes.filter(n => n.includes('disagrees with')).join(' ')).toContain('line length');
+  });
+});
+
 it('HF2 repairs an oversized native measured CG', () => {
   const loaded = importOrk('<openrocket version="1.10"><rocket><measuredcg>1e297</measuredcg>'
     + '<subcomponents><stage><subcomponents><bodytube><length>1</length><radius>0.03</radius></bodytube>'

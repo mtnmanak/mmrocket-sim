@@ -412,7 +412,8 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
    *  tubes at RadialLoc/RadialAngle). */
   const radialByNode = new Map<ComponentNode, { y: number; z: number }>();
 
-  const name = text(design, ':scope > Name') ?? 'Imported RockSim rocket';
+  const fileRocketName = text(design, ':scope > Name');
+  const name = fileRocketName ?? 'Imported RockSim rocket';
   const statedStageCount = num(design, 'StageCount', 1);
   const stageCount = Math.max(1, Math.min(3, Math.floor(statedStageCount)));
   if (!Number.isInteger(statedStageCount)) cautionNote(notes, 'I04.stage-count', `The file's StageCount is not an integer; using ${stageCount} stage${stageCount === 1 ? '' : 's'}. Check the imported stages before flying.`);
@@ -2752,6 +2753,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
   return {
     sourceFormat: 'rkt',
     name,
+    hasRocketName: !!fileRocketName?.trim(),
     // The limits table (audit 2026-09-22), applied where its notes still reach
     // the import banner: a <FinCount> of 70000 made the side view throw and took
     // the whole app down, a <TubeCount> of 100000 held the 3D view for 19 s, and

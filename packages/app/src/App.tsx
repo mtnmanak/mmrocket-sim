@@ -135,7 +135,7 @@ import { exportRkt, rktComponentInfo } from './services/rocksimFile.js';
 import { loadPresets } from './services/presets.js';
 import { componentCsv, componentTable } from './services/componentTable.js';
 import { CSV_BOM, GLB_MIME, safeName } from './services/fileName.js';
-import { designFileBase, designFileLabel, designFileTitle, documentTitle, savedDesignFileRef, type DesignFileRef } from './services/designFileName.js';
+import { offeredDesignFileName, designFileLabel, designFileTitle, documentTitle, openedDesignFileRef, savedDesignFileRef, type DesignFileRef } from './services/designFileName.js';
 import { onCompletedSave, saveFile, saveOutcomeNote, type SaveOutcome } from './services/saveFile.js';
 import { tableToXlsx, XLSX_MIME } from './services/xlsx.js';
 import { exportCdx1 } from './services/rasaeroFile.js';
@@ -2665,12 +2665,12 @@ export function App() {
     // Design formats keep the file's own stem, including spaces and Unicode.
     // Tables and geometry still name the rocket and the data they export;
     // all three design formats become the header's file after a successful write.
-    const base = suffix === '' && ['ork', 'rkt', 'cdx1'].includes(ext.toLowerCase())
-      ? designFileBase(designFile, tree.name) : safeName(tree.name ?? 'rocket');
-    const name = `${base}${suffix}.${ext}`;
     // Only the design saves are App's to judge here; every other write reaches
     // the onCompletedSave rule above.
     const designSave = suffix === '' && ['ork', 'rkt', 'cdx1'].includes(ext.toLowerCase());
+    const name = designSave
+      ? offeredDesignFileName(designFile, tree.name, ext.toLowerCase() as DesignFileRef['format'])
+      : `${safeName(tree.name ?? 'rocket')}${suffix}.${ext}`;
     const out = await saveFile(new Blob(parts, { type: info.mime }), {
       suggestedName: name,
       mime: info.mime,
@@ -3356,7 +3356,7 @@ export function App() {
       // does, and say which one in the import note; the Flight configurations
       // panel on Motors & Configuration switches between them (motors AND recovery
       // deployment, since applyConfig applies both now).
-      await applyImported(imported, openId, { name: file.name, via: 'opened', format: imported.sourceFormat! });
+      await applyImported(imported, openId, openedDesignFileRef(file.name, imported.sourceFormat!, imported.fileRocketName));
       if (openSeq.isCurrent(openId)) {
         sessionDebugLog.record('import-complete');
         const recentId = recentSaveByName.current.get(file.name);

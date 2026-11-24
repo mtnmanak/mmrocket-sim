@@ -3,6 +3,17 @@ import { expect, it } from 'vitest';
 import { explanationFor, importNoteCode, NOTE_EXPLANATIONS, staticWarningCode } from './noteExplanations.js';
 import { WARNING_LABEL } from './simWarnings.js';
 
+it('OR2611-1 explains fixed recovery lengths and the main-body measurement in plain words', () => {
+  const help = explanationFor('I07.auto-recovery-length');
+  expect(help.meaning).toContain('fixed numbers');
+  expect(help.meaning).toContain("three times the rocket's length (measured along the main body");
+  expect(help.meaning).toContain('side pods and parts that stick out past it are not counted');
+  expect(help.meaning).not.toContain('core body');
+  expect(help.remedy).toContain('side pods or parts that stick out past the main body');
+  expect(help.remedy).toContain('mass');
+  expect(help.remedy).toContain('after resizing');
+});
+
 it('J5 r2 distinguishes an expanded foreign file from an oversized design', () => {
   const help = explanationFor('I03.part-limit');
   expect(help.meaning).toContain('exported file');

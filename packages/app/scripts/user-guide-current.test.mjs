@@ -37,10 +37,23 @@ it('explains following suggestions consistently in both file guidance sections',
   const markdown = readFileSync(SRC, 'utf8');
   const where = markdown.split('**Where the file goes.**')[1].split('\n\n')[0];
   expect(where).toContain('current rocket name when the filename follows it');
+  expect(where).toContain("When an opened filename still matches the rocket's name, its own spelling is offered");
+  expect(where).toContain('A file named differently from its rocket keeps its own stem');
   expect(where).toContain('even after saving it again');
-  const rule = markdown.split('**Save .ork offers**')[1].split('\n\n')[0];
-  expect(rule).toContain('Designs saved before this update keep their saved file name');
-  expect(rule).toContain("default name (New_Rocket or My_Rocket), which now follows the rocket's name");
+  // The rule's own paragraph: "Where the file goes" above also names **Save .ork offers**.
+  const rule = markdown.split('\n\n**Save .ork offers** ')[1].split('\n\n')[0];
+  expect(rule).toContain("current file's own spelling, including spaces, punctuation and non-ASCII characters, even after saving it again");
+  expect(rule).toContain('Renaming back before the next save restores that spelling');
+  expect(rule).toContain('matching uses that original name');
+  expect(rule).toContain('matches neither the written nor the file-safe rocket name');
+  expect(rule).toContain('Older app saves without a recorded following rule keep their saved file name');
+  expect(rule).toContain("default name (New_Rocket or My_Rocket), which follows the rocket's name");
+  expect(rule).toContain('A file with no rocket name of its own keeps its disk name');
+  const newer = markdown.split('**Newer OpenRocket files.**')[1].split('\n\n')[0];
+  expect(newer).toContain('automatic shroud-line and shock-cord lengths into fixed numbers');
+  expect(newer).toContain("three times the rocket's length (measured along the main body");
+  expect(markdown.match(/Opening an OpenRocket 26\.11 file turns automatic/g)).toHaveLength(1);
+  expect(markdown).not.toContain('active core body length');
   const header = markdown.split('\n\nThe header shows')[1].split('\n\n')[0];
   expect(header).toContain('current suggestion');
   expect(header).toContain('in parentheses');

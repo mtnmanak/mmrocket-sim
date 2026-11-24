@@ -13,6 +13,7 @@ import { exportCdx1 } from './rasaeroFile.js';
 import { exportOrk } from './orkFile.js';
 import { resolveFlightState } from './flightState.js';
 import { gzipSync, zipSync } from 'fflate';
+import { designFileBase, openedDesignFileRef } from './designFileName.js';
 
 it('r3 distinguishes a missing parts chunk from a damaged design file', () => {
   const text = designFileOpenFailure('Flight.ork', new TypeError('Failed to fetch dynamically imported module: /old-presets.js'));
@@ -117,6 +118,27 @@ describe('designFileOpenFailure', () => {
 });
 
 describe('parseDesignFile and openDesignFile', () => {
+  it.each(['ork', 'rkt', 'cdx1'] as const)('r2 carries the presence of the %s rocket name through the real open door', async format => {
+    for (const nameTag of ['', '   ', 'Different', 'Rocket']) {
+      const field = format === 'ork' ? `<name>${nameTag}</name>`
+        : format === 'rkt' ? `<Name>${nameTag}</Name>` : `<Comments>${nameTag}</Comments>`;
+      const xml = format === 'ork'
+        ? `<openrocket version="1.10"><rocket>${field}<subcomponents><stage><subcomponents><bodytube><length>0.5</length><radius>0.03</radius></bodytube></subcomponents></stage></subcomponents></rocket></openrocket>`
+        : format === 'rkt' ? `<RockSimDocument><DesignInformation><RocketDesign>${field}<StageCount>1</StageCount><Stage3Parts><BodyTube><OD>54</OD><ID>52</ID><Len>300</Len></BodyTube></Stage3Parts></RocketDesign></DesignInformation></RockSimDocument>`
+          : `<RASAeroDocument><RocketDesign>${field}<BodyTube><Length>20</Length><Diameter>3</Diameter></BodyTube></RocketDesign></RASAeroDocument>`;
+      // Exercise missing tags as well as empty and whitespace-only tags.
+      for (const source of nameTag.trim() ? [xml] : [xml, xml.replace(field, '')]) {
+        const opened = await openDesignFile(new TextEncoder().encode(source).buffer, `Different.${format}`, { presets: [] });
+        expect(opened.hasRocketName).toBe(!!nameTag.trim());
+        expect(opened.fileRocketName).toBe(nameTag.trim() ? nameTag : undefined);
+        expect(opened.tree.name).toBe('Different');
+        const ref = openedDesignFileRef(`Different.${format}`, format, opened.fileRocketName);
+        expect(ref.followsRocket).toBe(nameTag === 'Different');
+        expect(designFileBase(ref, 'Plastic')).toBe(nameTag === 'Different' ? 'Plastic' : 'Different');
+      }
+    }
+  }, 60_000);
+
   const siteFile = (format: string, altitude: number, sibling = false): ArrayBuffer => {
     const sites = [[26.380273, 80.126879], ...(sibling ? [[28.1, -80.63]] : [])];
     const xml = format === 'ork'
