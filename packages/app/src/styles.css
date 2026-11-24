@@ -983,8 +983,8 @@ html {
    3.22:1. They are the brand PRIMITIVES (--mmr-c-*), never the themed roles,
    because the strip must not follow the theme. color-scheme: dark makes the
    UA draw the search box's own chrome (caret, clear button) for a dark
-   ground. The keyboard ring here is sky (7.96:1 on navy): the theme's
-   #006AAB ring would be 2.64:1 on this ground.
+   ground. Band links use an inset currentColor ring (paper on navy); search
+   controls and the footer keep sky (7.96:1 on navy).
    =================================================================== */
 .mmr-band {
   display: flex;
@@ -1002,23 +1002,38 @@ html {
      publishes a ninth. The menu scrolls instead, unconditionally. */
   flex-wrap: nowrap;
   gap: 0 18px;
-  padding: 8px 16px;
+  padding: 0 16px;
   background: var(--mmr-c-navy);
   border-bottom: 1px solid var(--mmr-c-line-dark);
   color: var(--mmr-c-paper);
   color-scheme: dark;
   /* The site's nav voice, inherited from the bar this replaced: tracked
      caps, orange hover. */
-  font-size: 11.5px;
+  font-size: .78rem;
   text-transform: uppercase;
   letter-spacing: 0.09em;
+}
+
+/* Ref 1.5.0, translated onto SiteBand's bare anchors. The link height plus
+   the 1px bottom rule makes a 45px band at every width. */
+.mmr-band-brand,
+.mmr-band-nav a,
+.mmr-band-search-link {
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.mmr-band-brand,
+.mmr-band-nav a {
+  display: flex;
 }
 
 /* The square MMR mark, then the name in Archivo (SPEC §4.3). The mark is
    decorative (alt=""): the link's text already names the site. */
 .mmr-band-brand {
-  display: inline-flex;
-  align-items: center;
   gap: 7px;
   font-family: var(--font-display);
   font-weight: 700;
@@ -1038,17 +1053,12 @@ html {
    size is zero — so this is what shrinks and scrolls sideways while the brand
    and the search box hold their full width (both already carry
    `flex: 0 0 auto`, which is the reference block's `flex: none`). The
-   scrollbar is hidden in all three engines: this is site chrome on an 11.5px
+   scrollbar is hidden in all three engines: this is site chrome on a .78rem
    strip, and a bar drawn across it reads as breakage rather than affordance.
 
-   The negative margin / positive padding pair below is a FOCUS-RING GUTTER,
-   not spacing. A scroll container clips its content at the PADDING edge, and
-   Chrome's 3px keyboard focus ring on these links was being shaved off; 4px
-   of padding buys the ring room on ALL FOUR sides (ref 1.3.0 — vertical-only
-   still clipped the first link's left edge and the last link's right edge)
-   and the matching -4px margin gives the size back, so the strip measures
-   exactly as it did before. Delete either half and the ring is clipped again
-   or the band grows 8px each way.
+   Ref 1.5.0 keeps the focus-ring gutter horizontal-only: a vertical gutter
+   around 44px links would cover the band's bottom rule. Links now draw their
+   ring inside their own target, where the scroller cannot clip it.
 
    The four stacked backgrounds are ref 1.3.0's overflow affordance: at
    768–924px the eight labels overflow a hidden-scrollbar container with no
@@ -1063,14 +1073,14 @@ html {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 2px 18px;
+  gap: 0;
   min-width: 0;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  margin: -4px;
-  padding: 4px;
+  margin: 0 -4px;
+  padding: 0 4px;
   background-image:
     linear-gradient(to right, var(--mmr-c-navy) 50%, transparent),
     linear-gradient(to left, var(--mmr-c-navy) 50%, transparent),
@@ -1101,21 +1111,31 @@ html {
 .viz-root .mmr-band a {
   color: var(--mmr-c-paper);
   text-decoration: none;
-  padding: 2px 0;
   white-space: nowrap;
+}
+
+/* Ref 1.5.0 moves the menu gap into adjoining hit areas. This selector must
+   outrank the app's link rules, as the band's colour rule does above. */
+.viz-root .mmr-band-nav a {
+  padding: 0 .375em;
 }
 
 .viz-root .mmr-band a:hover {
   color: var(--mmr-c-orange-soft);
 }
 
-/* The band's own ring: sky on navy. Offset 1px, not the app's 2px, so the
-   3px ring still fits the nav's 4px focus-ring gutter (above). Daylight
-   restates this at (0,4,0) inside its block, which comes last. */
+/* Search controls and footer retain their sky ring; band links override it
+   below. Daylight restates both rules inside its block, which comes last. */
 .viz-root .mmr-band :focus-visible,
 .viz-root .mmr-band-footer :focus-visible {
   outline: 3px solid var(--mmr-c-sky);
   outline-offset: 1px;
+}
+
+.viz-root .mmr-band a:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
+  box-shadow: none;
 }
 
 /* Search sits hard right so the menu reads as one run of links, not two. */
@@ -1208,7 +1228,7 @@ html {
   color: var(--mmr-c-orange-soft);
 }
 
-/* Phones: the band tightens to a SINGLE ~29px row (spec §3) and the full
+/* Phones: the band remains a single 45px row (ref 1.5.0) and the full
    search form gives way to the magnifier link. What is left here is only what
    is genuinely width-conditional — the nowrap/scroll/hidden-scrollbar rules
    that used to live in this block are now unconditional (see `.mmr-band-nav`
@@ -1216,12 +1236,11 @@ html {
    them is two places to keep in step. */
 @media (max-width: 767px) {
   .mmr-band {
-    /* Tighter than the 18px above, and the padding drop is most of what buys
-       the ~29px row on a 375px screen. 8px, not .6em (ref 1.3.0): the lone em
+    /* Tighter than the 18px above. 8px, not .6em (ref 1.3.0): the lone em
        resolved against each tool's band font-size and gave four gaps from one
        rule — this blesses the tighter spacing that has measured fine. */
     gap: 8px;
-    padding: 4px 10px;
+    padding: 0 10px;
   }
 
   /* TRANSLATED SELECTOR — the reference implementation writes this as
@@ -1236,8 +1255,7 @@ html {
   }
 
   .mmr-band-search-link {
-    display: inline-flex;
-    align-items: center;
+    display: flex;
     margin-left: auto;
     flex: 0 0 auto;
   }
@@ -2244,6 +2262,7 @@ html {
        100vh + ~85px at EVERY window height: each extra viewport pixel went
        straight to the stage, so the footer stayed exactly the same distance
        below the fold forever. 420 = the old 335 + that measured 85.
+       Ref 1.5.0 grows the desktop site band by 4px, so the budget is now 424px.
 
        The 620px cap exists because the drawing is width-fitted (the
        ResizeObserver fits the drawing to the container's WIDTH and takes
@@ -2269,14 +2288,14 @@ html {
        it away for any rocket with a natural height over ~230px — measured on a
        1920x1080 window the request was 749px against a 620px ceiling, so the
        drawer took 125px of 460 (27 %) off the drawing and nothing gave it
-       back. The middle term is UNCHANGED and still binds: `100vh - 420px` is
+       back. The middle term still binds: `100vh - 424px` is
        the footer's budget, and the owner's own 2026-08-26 report set the
        constraint that the canvas must not "get so big it scrolls the footer
        and notifications off the screen". So the drawer can buy back only what
        the viewport actually affords. */
     height: min(
       var(--hero-natural, 9999px),
-      clamp(320px, calc(100vh - 420px - var(--notice-h, 0px)), calc(620px + var(--drawer-clearance, 0px)))
+      clamp(320px, calc(100vh - 424px - var(--notice-h, 0px)), calc(620px + var(--drawer-clearance, 0px)))
     );
     overflow: hidden;
   }
@@ -2289,7 +2308,7 @@ html {
      term still pins the document to 100vh; the cap only decides when to
      stop growing. */
   .design-layout main .hero-stage[data-vert='on'] {
-    height: clamp(420px, calc(100vh - 420px - var(--notice-h, 0px)), 900px);
+    height: clamp(420px, calc(100vh - 424px - var(--notice-h, 0px)), 900px);
   }
 
   /* The view box (schematic / 3D / aft) fills the stage without feeding
@@ -5558,11 +5577,12 @@ select.unit-chip:hover {
 
 /* The site band and footer strip are NAVY in Daylight too (brand v1, table C:
    the strip does not follow the theme), so they keep their own line-dark rule
-   rather than the black above — the rule just doubles like every hairline.
+   rather than the black above. The footer rule doubles like every hairline;
+   the top band keeps its 1px rule to preserve the ref 1.5.0 height of 45px.
    The band's search box is deliberately NOT in the black-border list: black
    on navy-raised is 1.74:1; it keeps its control-dark edge (4.26:1). */
 .viz-root[data-contrast='high'] .mmr-band {
-  border-bottom-width: 2px;
+  border-bottom-width: 1px;
 }
 
 .viz-root[data-contrast='high'] .mmr-band-footer {
@@ -5748,6 +5768,12 @@ select.unit-chip:hover {
 .viz-root[data-contrast='high'] .mmr-band-footer :focus-visible {
   outline: 3px solid var(--mmr-c-sky);
   outline-offset: 1px;
+}
+
+.viz-root[data-contrast='high'] .mmr-band a:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
+  box-shadow: none;
 }
 
 /* A control inside a filled (solid, in Daylight) Caution or Danger block

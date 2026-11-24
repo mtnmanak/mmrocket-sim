@@ -131,6 +131,7 @@ export function renderReleaseNotes(changelog, preNote) {
     '<html lang="en">',
     '<head>',
     '<meta charset="utf-8">',
+    '<link rel="canonical" href="https://mmrsim.mountainmanrockets.com/releases/">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     '<meta name="theme-color" content="#03254F">',
     '<title>MMRocket Sim release notes</title>',

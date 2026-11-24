@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { StrictMode, act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -57,6 +60,54 @@ function Harness() {
     </>
   );
 }
+
+describe('SiteBand reference 1.5.0 CSS', () => {
+  // happy-dom has no layout: inspect live declarations, excluding comments.
+  const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../styles.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const rule = (selector: string) => {
+    const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+    const match = rules.find(match => match[1]!.trim() === selector)
+      ?? rules.find(match => match[1]!.split(',').some(part => part.trim() === selector));
+    expect(match, selector).toBeDefined();
+    return match?.[2] ?? '';
+  };
+
+  it('gives all three link kinds centred 44px targets without enlarging the band', () => {
+    const targets = rule('.mmr-band-brand,\n.mmr-band-nav a,\n.mmr-band-search-link');
+    for (const declaration of ['min-height: 44px;', 'min-width: 44px;', 'box-sizing: border-box;',
+      'align-items: center;', 'justify-content: center;']) expect(targets).toContain(declaration);
+    expect(rule('.mmr-band-brand,\n.mmr-band-nav a')).toContain('display: flex;');
+    expect(rule('.mmr-band-search-link')).toContain('display: none;');
+    expect(rule('.mmr-band')).toContain('padding: 0 16px;');
+    expect(rule('.mmr-band')).toContain('font-size: .78rem;');
+    expect(rule('.mmr-band')).toContain('border-bottom: 1px solid var(--mmr-c-line-dark);');
+    const phone = css.slice(css.indexOf('@media (max-width: 767px)', css.indexOf('.mmr-band {')));
+    expect(phone).toMatch(/\.mmr-band\s*\{[^}]*padding: 0 10px;/);
+    expect(phone).toMatch(/\.mmr-band-search-link\s*\{[^}]*display: flex;/);
+    expect(phone).toMatch(/\.mmr-band-search\s*\{[^}]*display: none;/);
+    expect(rule(".viz-root[data-contrast='high'] .mmr-band")).toContain('border-bottom-width: 1px;');
+  });
+
+  it('moves the menu gap into the targets and keeps only the horizontal gutter', () => {
+    const nav = rule('.mmr-band-nav');
+    for (const declaration of ['gap: 0;', 'margin: 0 -4px;', 'padding: 0 4px;', 'overflow-x: auto;', 'flex-wrap: nowrap;']) {
+      expect(nav).toContain(declaration);
+    }
+    expect(rule('.mmr-band-nav a')).toContain('flex: none;');
+    expect(rule('.viz-root .mmr-band-nav a')).toContain('padding: 0 .375em;');
+  });
+
+  it('insets the band link ring in normal and high contrast without changing footer rings', () => {
+    for (const selector of ['.viz-root .mmr-band a:focus-visible', ".viz-root[data-contrast='high'] .mmr-band a:focus-visible"]) {
+      const ring = rule(selector);
+      for (const declaration of ['outline: 2px solid currentColor;', 'outline-offset: -2px;', 'box-shadow: none;']) {
+        expect(ring).toContain(declaration);
+      }
+    }
+    expect(rule('.viz-root .mmr-band-footer :focus-visible')).toContain('outline: 3px solid var(--mmr-c-sky);');
+    expect(rule(".viz-root[data-contrast='high'] .mmr-band-footer :focus-visible")).toContain('outline: 3px solid var(--mmr-c-sky);');
+  });
+});
 
 describe('SiteBand — the rendered band', () => {
   it('stamps the menu version and the source on the band element (MUST 3)', () => {
