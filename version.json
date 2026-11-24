@@ -1,5 +1,5 @@
 {
-  "version": "0.213",
-  "released": "2026-11-20",
-  "note": "Motor-fit Cautions; Batch rows with a Danger warning no longer pass; Batch keeps a mount’s ignition; Save .ork follows your rocket’s name; many audit fixes. Two of the 139 tester files fly differently as opened (RASAero II launch-stage delay)."
+  "version": "0.214",
+  "released": "2026-11-24",
+  "note": "Opened files follow a rocket rename on Save; OpenRocket 26.11 automatic line and cord lengths are read; the site band is 45 px tall and its links are at least 44 px high and wide. No existing tester flight moves."
 }
