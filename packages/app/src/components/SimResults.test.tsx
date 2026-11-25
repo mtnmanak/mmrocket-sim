@@ -138,16 +138,52 @@ it.each(['ASYMMETRIC_THRUST_DANGER', 'NO_RECOVERY_DEVICE', 'TUMBLE_UNDER_THRUST'
       autoDelay: false, includeOOP: false, manufacturers: [], classes: [], impulse: [] })).toContain('danger');
   });
 
-it('J23 report checks cannot pass for an incomplete flight', () => {
+it.each(['INCOMPLETE_FLIGHT', 'SIM_ABORT'])('J23 report checks cannot pass after %s', key => {
   const saved = run();
-  saved.simWarnings = [{ key: 'INCOMPLETE_FLIGHT', message: '[Warning.INCOMPLETE_FLIGHT]' }];
+  saved.safeLandingRate = true;
+  saved.simWarnings = [{ key, message: `[Warning.${key}]` }];
   render(<SimRunDetails run={saved} />);
   act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Show all details')!.click());
-  for (const label of ['Lift-off speed OK', 'Thrust : weight OK', 'Safe deployment', 'Static margin']) {
-    const cell = [...host.querySelectorAll('tr')].find(r => r.cells[0]?.textContent === label)!.cells[1]!;
+  for (const label of ['Lift-off speed OK', 'Thrust : weight OK', 'Safe deployment', 'Static margin', 'Landing rate OK']) {
+    const cell = [...host.querySelectorAll('tr')].find(r => r.cells[0]?.textContent === label || r.cells[0]?.textContent?.startsWith(label + ' ('))!.cells[1]!;
     expect(cell.textContent).not.toMatch(/✓|yes|ok/i);
     expect(cell.textContent).toContain('—');
   }
+});
+
+it.each(['INCOMPLETE_FLIGHT', 'SIM_ABORT'].flatMap(key => [undefined, 1, 'true'].map(value => [key, value] as const)))(
+  'A25:6-2 blanks unrecorded or malformed stored checks after %s (%s)', (key, value) => {
+    const saved = { ...run(), safeLiftoffSpeed: value, safeThrustToWeight: value,
+      simWarnings: [{ key, message: 'Flight stopped.' }] } as unknown as SimRun;
+    render(<SimRunDetails run={saved} />);
+    act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Show all details')!.click());
+    for (const label of ['Lift-off speed OK', 'Thrust : weight OK']) {
+      expect([...host.querySelectorAll('tr')].find(r => r.cells[0]?.textContent === label)!.cells[1]!.textContent).toBe('—');
+    }
+  });
+
+it.each(['SIM_ABORT', 'INCOMPLETE_FLIGHT'])('A25:6-2 retains measured failures and cautions after %s', key => {
+  for (const margin of [0.5, 4]) {
+    render(<SimRunDetails key={margin} run={{ ...run(), safeLiftoffSpeed: false, safeThrustToWeight: false,
+      safeLandingRate: false, launchStaticMarginCal: margin, deployments: [], velocityAtDeployment: 30,
+      simWarnings: [{ key, message: 'Flight stopped.' }] }} />);
+    act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Show all details')!.click());
+    const cell = (label: string) => [...host.querySelectorAll('tr')]
+      .find(r => r.cells[0]?.textContent === label || r.cells[0]?.textContent?.startsWith(label + ' ('))!.cells[1]!;
+    for (const label of ['Lift-off speed OK', 'Thrust : weight OK', 'Safe deployment', 'Landing rate OK']) {
+      expect(cell(label).textContent).toContain('NO');
+      expect(cell(label).className).toBe('stability-bad');
+    }
+    expect(cell('Static margin').textContent).toContain(margin < 1 ? 'under-stable' : 'over-stable');
+  }
+});
+it('A25:6-2 retains a measured deployment caution on a stopped flight', () => {
+  render(<SimRunDetails run={{ ...run(), deployments: [], velocityAtDeployment: 25,
+    simWarnings: [{ key: 'SIM_ABORT', message: 'Flight stopped.' }] }} />);
+  act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Show all details')!.click());
+  const cell = [...host.querySelectorAll('tr')].find(r => r.cells[0]?.textContent === 'Safe deployment')!.cells[1]!;
+  expect(cell.textContent).toContain('CAUTION');
+  expect(cell.className).toBe('stability-warn');
 });
 
 it('J23 marks a recorded report Danger beside unchanged history checks', () => {

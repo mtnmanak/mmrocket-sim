@@ -27,7 +27,7 @@ function withPartBudget(limit: number, run: () => void): void {
 }
 
 it('E3 disables serial evidence for nested and oversized fields', () => {
-  const doc = parseXml(`<RockSimDocument><Design><BodyTube><SerialNo>7</SerialNo></BodyTube>
+  const doc = parseXml(`<RockSimDocument><Design><BodyTube><IsMotorMount>1</IsMotorMount><SerialNo>7</SerialNo></BodyTube>
     <Future><SerialNo>bad<SerialNo>nested</SerialNo></SerialNo></Future>
     <BodyTube><SerialNo>${'x'.repeat(257)}</SerialNo></BodyTube></Design></RockSimDocument>`, 'bad');
   const notes: string[] = [];
@@ -46,17 +46,26 @@ it('E3 never reads descendant text from a nested serial field', () => {
 });
 
 it('E3 drops all serial evidence when a nested field could conceal a duplicate', () => {
-  const doc = parseXml('<Design><BodyTube><SerialNo>7</SerialNo></BodyTube>'
+  const doc = parseXml('<Design><BodyTube><IsMotorMount>1</IsMotorMount><SerialNo>7</SerialNo></BodyTube>'
     + '<Future><SerialNo>7<SerialNo/></SerialNo></Future></Design>', 'bad');
   const notes: string[] = [];
   expect(indexRocksimMotors(doc, doc.documentElement, new Map(), notes).mountsBySerial.has('7')).toBe(false);
   expect(noteFlags(notes)[0]?.tier).toBe('caution');
 });
 
+it('A25:3-1 checks a padded parent once despite repeated serial fields', () => {
+  const doc = parseXml(`<Design><BodyTube><IsMotorMount>1</IsMotorMount>${'<Pad/>'.repeat(1500)}${'<SerialNo>7</SerialNo>'.repeat(300)}</BodyTube></Design>`, 'bad');
+  const tube = doc.querySelector('BodyTube')!;
+  const query = vi.spyOn(tube, 'querySelector');
+  const index = indexRocksimMotors(doc, doc.documentElement, new Map());
+  expect(index.mountsBySerial.has('7')).toBe(true);
+  expect(query.mock.calls.filter(([selector]) => selector === ':scope > IsMotorMount')).toHaveLength(1);
+});
+
 it.each(['records', 'characters'] as const)('E3 permits the serial %s budget and drops the entire index above it', budget => {
   const length = budget === 'characters' ? MAX_RKT_SERIAL_LENGTH : 1;
   const count = budget === 'characters' ? MAX_RKT_SERIAL_CHARACTERS / length : MAX_RKT_SERIAL_RECORDS;
-  const field = `<BodyTube><SerialNo>${'x'.repeat(length)}</SerialNo></BodyTube>`;
+  const field = `<BodyTube><IsMotorMount>1</IsMotorMount><SerialNo>${'x'.repeat(length)}</SerialNo></BodyTube>`;
   for (const extra of [0, 1]) {
     const doc = parseXml(`<Design>${field.repeat(count + extra)}</Design>`, 'bad');
     const notes: string[] = [];

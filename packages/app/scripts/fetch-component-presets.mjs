@@ -356,7 +356,7 @@ export function round(v) {
  * name -> { TYPE -> density(SI) }. Appends any problems to `warnings`.
  */
 const NUMERIC_TOKEN = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
-function numericToken(text) {
+export function numericToken(text) {
   return NUMERIC_TOKEN.test(text.trim()) ? Number(text.trim()) : NaN;
 }
 

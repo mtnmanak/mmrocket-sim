@@ -90,6 +90,32 @@ const config: SavedConfig = { id: 'a', name: 'Flight A', isDefault: true,
 };
 
 describe('CFG-1 comparison and summary', () => {
+  it('A25:6-4 disables applying another configuration while loading but permits active navigation', () => {
+    const host = document.createElement('div'), root = createRoot(host);
+    const onApply = vi.fn(), onShowPart = vi.fn();
+    const configs = [config, { ...config, id: 'b', name: 'Flight B', isDefault: false }];
+    const render = (loading: boolean) => act(() => root.render(<ConfigOverview tree={tree} configs={configs}
+      activeConfigId="a" configurationLoading={loading} onApply={onApply} onShowPart={onShowPart} />));
+    try {
+      render(true);
+      const rows = host.querySelectorAll('tbody tr');
+      for (const button of rows[1]!.querySelectorAll('button')) {
+        expect(button.disabled).toBe(true);
+        expect(button.title).toBe('Wait for the motor to finish loading');
+        act(() => button.click());
+      }
+      expect(onApply).not.toHaveBeenCalled(); expect(onShowPart).not.toHaveBeenCalled();
+      const active = rows[0]!.querySelector('button')!;
+      expect(active.disabled).toBe(false);
+      act(() => active.click());
+      expect(onShowPart).toHaveBeenCalledWith('mount', 'ignition');
+      onShowPart.mockClear();
+      render(false);
+      act(() => { host.querySelectorAll('tbody tr')[1]!.querySelector('td button')!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+      expect(onApply).toHaveBeenCalledWith(configs[1]);
+      expect(onShowPart).toHaveBeenCalledWith('mount', 'ignition');
+    } finally { act(() => root.unmount()); }
+  });
   it.each(['constructor', 'toString', '__proto__'])('does not invent an inherited configuration override for %s', id => {
     const host = document.createElement('div'), root = createRoot(host);
     const copy: FlightTree = { components: [{ type: 'stage', children: [{ type: 'parachute', id, name: 'Main', deployEvent: 'apogee' }] }] };

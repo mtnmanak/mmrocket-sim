@@ -145,8 +145,12 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, 
           setEditing(null); if (restore) (renameButton.current?.disabled ? chooser.current : renameButton.current)?.focus();
         }} />}
       {deletingConfig && <ConfigDeleteConfirmation label={labelOf(deletingConfig)} unprotected={deletionUnprotected}
+        loading={configurationLoading && deletingConfig.id === activeConfigId}
         onCancel={() => { setDeleting(null); deleteButton.current?.focus(); }}
-        onDelete={() => { setDeleting(null); onDelete(deletingConfig); chooser.current?.focus(); }} />}
+        onDelete={() => {
+          if (configurationLoading && deletingConfig.id === activeConfigId) return;
+          setDeleting(null); onDelete(deletingConfig); chooser.current?.focus();
+        }} />}
     </div>
     {noSaved !== null && <p className="comp-stats">{noSaved}</p>}
     <p id={summaryId} className="comp-stats">{summary?.shortText ?? (active || working
@@ -197,8 +201,8 @@ function ConfigNameEditor({ config, label, onCommit, onClose }: {
     }} />;
 }
 
-function ConfigDeleteConfirmation({ label, onCancel, onDelete, unprotected }: {
-  label: string; onCancel: () => void; onDelete: () => void; unprotected: boolean;
+function ConfigDeleteConfirmation({ label, onCancel, onDelete, unprotected, loading }: {
+  label: string; onCancel: () => void; onDelete: () => void; unprotected: boolean; loading: boolean;
 }) {
   const cancel = useRef<HTMLButtonElement>(null);
   const descriptionId = useId();
@@ -217,7 +221,8 @@ function ConfigDeleteConfirmation({ label, onCancel, onDelete, unprotected }: {
       Delete this configuration? Its motors stay loaded if it is the one you are flying.
       {unprotected && <>{' '}{CONFIG_DELETE_LOSS}</>}
     </Note>
-    <button className="file-btn file-btn-danger" aria-label={`Confirm delete ${label}`} onClick={onDelete}>Delete</button>{' '}
+    <button className="file-btn file-btn-danger" aria-label={`Confirm delete ${label}`} disabled={loading}
+      title={loading ? 'Wait for the motor to finish loading' : undefined} onClick={onDelete}>Delete</button>{' '}
     <button className="file-btn" aria-label={`Cancel deleting ${label}`} ref={cancel} onClick={onCancel}>Cancel</button>
   </div>;
 }

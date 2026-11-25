@@ -16,6 +16,7 @@ import {
 import { batchSolverFlights, mixedComboCount, type BatchMountOption } from '../services/batchSweep.js';
 import { MOTOR_DB } from '../services/motorDb.js';
 import * as batchSweep from '../services/batchSweep.js';
+import * as catalogue from './useCatalogue.js';
 import { testMotor } from '../services/autoDelay.testSupport.js';
 
 /**
@@ -218,6 +219,41 @@ describe('the batch dialog', () => {
   const at38 = () => batchCandidates(
     { manufacturers: [], classes: [], includeOOP: false }, { diameterMm: 38, maxMotorLengthM: null }, MOTOR_DB,
   ).candidates;
+
+  it.each([
+    { flights: 2, searching: 1 },
+    { flights: 2, searching: 2 },
+    { flights: 2, searching: 0 },
+    { flights: 2400, searching: 1200 },
+  ])('R4-1 describes $searching of $flights delay searches and prices that same subset', ({ flights, searching }) => {
+    const template = at38()[0]!;
+    const candidates = Array.from({ length: flights }, (_, i) => ({
+      ...template, motorId: `r4-${i}`, delays: i < searching ? '' : '5',
+    }));
+    vi.spyOn(catalogue, 'useCatalogue').mockReturnValue(candidates);
+    const tree = structuredClone(CHUTE_TREE);
+    const chute = tree.components[0]!.children![0]!.children!.find(n => n.id === 'chute')!;
+    chute.deployEvent = 'apogee';
+    mount(tree, CHUTE_MOUNTS);
+    act(() => { box('optimal delay per motor').click(); });
+    const meta = [...host.querySelectorAll('.motor-db-meta')]
+      .find(node => node.textContent?.includes('candidate motors'))!.textContent!;
+    expect(meta).toContain(`${flights} candidate motors`);
+    if (searching === flights) {
+      expect(meta).toContain('2 sims each (delay probe + final)');
+    } else if (searching > 0) {
+      expect(meta).toContain(`${en(searching)} of ${en(flights)} flights run 2 sims (delay probe + final)`);
+      expect(meta).not.toContain('2 sims each');
+    } else {
+      expect(meta).not.toContain('delay probe');
+    }
+    const estimate = batchEstimate({ flights, solverFlights: searching });
+    expect(primaryText()).toBe(`Simulate ${en(flights)} motors${estimate ? ` · ${estimate}` : ''}`);
+    if (flights > BATCH_ESTIMATE_ABOVE_FLIGHTS && searching > 0 && searching < flights) {
+      expect(estimate).not.toBe(batchEstimate({ flights, solverFlights: 0 }));
+      expect(estimate).not.toBe(batchEstimate({ flights, solverFlights: flights }));
+    }
+  });
 
   it('prices a flight that still searches for its delay, "optimal delay per motor" unticked, at the solver’s pace', () => {
     mount(CHUTE_TREE, CHUTE_MOUNTS);

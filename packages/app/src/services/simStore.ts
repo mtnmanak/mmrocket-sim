@@ -523,17 +523,17 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
     return cv('velocity', drogue?.descentRate ?? null);
   }],
   [`Landing rate (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.landingRate ?? (r.importedSummary ? null : r.groundHitVelocity))],
-  ['Landing rate OK', (r) => runStoppedEarly(r) ? '' : flag(r.safeLandingRate ?? null)],
+  ['Landing rate OK', (r) => flightFlag(r, r.safeLandingRate ?? null)],
   [`Landing distance (${sym('distance', 'm')})`, (r) => cv('distance', r.landingDistanceM ?? null, 1)],
   ['Landing bearing (deg from N)', (r) => round(r.landingBearingDeg ?? null, 0)],
   [`Ground hit velocity (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.groundHitVelocity)],
   ['Total flight time (s)', (r) => round(r.totalFlightTime)],
   ['Optimal delay (s)', (r) => candidateDelayText(r, 'rawOptimum', v => String(round(v))) ?? round(r.optimumDelayS)],
   ['Recommended delay (s)', (r) => candidateDelayText(r, 'recommendedDelay', String) ?? round(r.recommendedDelayS)],
-  ['Lift-off speed OK', (r) => runStoppedEarly(r) ? '' : flag(r.safeLiftoffSpeed)],
-  ['Thrust:weight OK', (r) => runStoppedEarly(r) ? '' : flag(r.safeThrustToWeight)],
-  ['Safe deployment', (r) => { if (runStoppedEarly(r)) return ''; const v = deploymentVerdict(r); return v === 'caution' ? 'caution' : flag(v); }],
-  ['Static margin OK', (r) => runStoppedEarly(r) ? '' : flag(r.staticMarginOk)],
+  ['Lift-off speed OK', (r) => flightFlag(r, r.safeLiftoffSpeed)],
+  ['Thrust:weight OK', (r) => flightFlag(r, r.safeThrustToWeight)],
+  ['Safe deployment', (r) => { const v = deploymentVerdict(r); return v === 'caution' ? 'caution' : flightFlag(r, v); }],
+  ['Static margin OK', (r) => flightFlag(r, r.staticMarginOk)],
   ['Weathercock risk', (r) => r.weathercockRisk ?? ''],
   ['Motors (cluster)', (r) => r.motorCount === undefined ? (r.importedSummary ? '' : 1)
     : Number.isFinite(r.motorCount) ? r.motorCount : ''],
@@ -541,7 +541,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['Other motors', (r) => (r.boosterMotors ?? []).join('; ')],
   [`Booster apogee (${sym('altitude', 'm')})`, (r) => cv('altitude', r.branches?.[0]?.apogee ?? null)],
   [`Booster landing rate (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.branches?.[0]?.landingRate ?? null)],
-  ['Booster landing OK', (r) => runStoppedEarly(r) ? '' : flag(r.branches?.[0]?.safeLandingRate ?? null)],
+  ['Booster landing OK', (r) => flightFlag(r, r.branches?.[0]?.safeLandingRate ?? null)],
   [`Wind avg (${sym('windspeed', 'm/s')})`, (r) => cv('windspeed', r.windAvg, 1)],
   // Under Auto, different rows can have flown different models — without this
   // column the comparison table can't tell them apart.
@@ -612,6 +612,10 @@ function round(v: number | null, digits = 2): string | number {
  */
 function scaled(v: number | null | undefined, k: number): number | null {
   return !Number.isFinite(v) ? null : v! * k;
+}
+
+function flightFlag(run: SimRun, value: boolean | null): string {
+  return flag(runStoppedEarly(run) && value === true ? null : value);
 }
 
 function flag(v: boolean | null): string {

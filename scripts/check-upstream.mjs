@@ -97,7 +97,7 @@ import { fileURLToPath } from 'node:url';
 import { checkAdvisories } from './upstream-advisories.mjs';
 import { publishedCatalogueCheck } from './catalogue-freshness.mjs';
 import { markupAttributes, markupTagEnd } from './markup-scan.mjs';
-import { childElements, convertLength, convertMass, elementBlocks, round } from '../packages/app/scripts/fetch-component-presets.mjs';
+import { childElements, convertLength, convertMass, elementBlocks, numericToken, round } from '../packages/app/scripts/fetch-component-presets.mjs';
 
 import { CORRECTIONS, UPSTREAM_WATCH } from '../packages/app/scripts/apply-preset-corrections.mjs';
 import { MOTOR_CORRECTIONS } from '../packages/app/scripts/motor-corrections.mjs';
@@ -268,7 +268,7 @@ export async function checkCorrections(getOrc = orc, corrections = CORRECTIONS) 
       let knownBad = cur === bad, corrected = cur === good;
       if (convert && target) {
         let si;
-        try { si = round(convert(Number.parseFloat(cur), unit, `${u.file} ${u.partNo} ${tag}`)); }
+        try { si = round(convert(numericToken(cur ?? ''), unit, `${u.file} ${u.partNo} ${tag}`)); }
         catch { /* Unknown units cannot match either pipeline input. */ }
         knownBad = Number.isFinite(si) && si === target.bad;
         corrected = Number.isFinite(si) && si === target.good;

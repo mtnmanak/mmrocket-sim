@@ -155,6 +155,46 @@ it('S1b-1 refuses ambiguous serial motor routing', () => {
   expect(Object.keys(loaded.motors)).toHaveLength(0);
   expect(loaded.notes.join(' ')).toMatch(/duplicate.*serial/i);
 });
+it.each([false, true])('A25:3-1 routes a mount serial shared with a non-mount (ring first %s)', first => {
+  const ring = '<Ring><Name>Ring</Name><SerialNo>5</SerialNo><Len>3</Len><OD>50</OD><ID>25</ID></Ring>';
+  const second = body.replace('<Name>Body</Name>', '<Name>Second mount</Name>').replace('<SerialNo>1</SerialNo>', '<SerialNo>5</SerialNo>');
+  const parts = first ? body.replace('</AttachedParts>', ring + '</AttachedParts>') + second
+    : body + second.replace('</AttachedParts>', ring + '</AttachedParts>');
+  const loaded = importRkt(rkt(parts, '',
+    `<SimulationResultsList>${sim().replace('<MountSerialNo>1</MountSerialNo>', '<MountSerialNo>5</MountSerialNo>')}</SimulationResultsList>`));
+  const ids = Object.keys(loaded.motors);
+  expect(ids).toHaveLength(1);
+  expect(flat(loaded.tree.components).find(n => n.id === ids[0])?.name).toBe('Second mount');
+  expect(loaded.notes.join(' ')).not.toMatch(/duplicate.*serial.*motor/i);
+  expect(flat(loaded.tree.components).some(n => n.name === 'Ring')).toBe(true);
+  const duplicate = importRkt(rkt(parts + second, '',
+    `<SimulationResultsList>${sim().replace('<MountSerialNo>1</MountSerialNo>', '<MountSerialNo>5</MountSerialNo>')}</SimulationResultsList>`));
+  expect(Object.keys(duplicate.motors)).toHaveLength(0);
+  expect(duplicate.notes.join(' ')).toMatch(/duplicate.*serial/i);
+});
+it('A25:3-1 treats one and two non-mount serial targets identically', () => {
+  const ring = '<Ring><Name>Ring</Name><SerialNo>5</SerialNo><Len>3</Len><OD>50</OD><ID>25</ID></Ring>';
+  const load = (count: number) => importRkt(rkt(body.replace('</AttachedParts>', ring.repeat(count) + '</AttachedParts>'), '',
+    `<SimulationResultsList>${sim().replace('<MountSerialNo>1</MountSerialNo>', '<MountSerialNo>5</MountSerialNo>')}</SimulationResultsList>`));
+  const single = load(1), duplicate = load(2);
+  for (const loaded of [single, duplicate]) {
+    expect(Object.keys(loaded.motors)).toHaveLength(1);
+    expect(flat(loaded.tree.components).find(n => n.id === Object.keys(loaded.motors)[0])?.name).toBe('Body');
+    expect(loaded.notes.join(' ')).not.toMatch(/duplicate.*serial|stale.*serial|fallback/i);
+  }
+  expect(duplicate.notes).toEqual(single.notes);
+});
+it('S1b-g6-sib filters an overridden design altitude clamp caution', () => {
+  const defaults = `<SimulationEventList>${event(5, 1e308)}</SimulationEventList>`;
+  const loaded = importRkt(rkt(body, defaults, `<SimulationResultsList>${sim(event(5, 152.4))}${sim('', 'E20')}</SimulationResultsList>`));
+  expect(loaded.configs).toHaveLength(2);
+  const overridden = loaded.configs.find(c => Object.values(c.deployments ?? {}).some(d => d.deployAltitude === 152.4))!;
+  expect(overridden).toBeDefined();
+  const inherited = loaded.configs.find(c => c !== overridden)!;
+  expect(loaded.configNotes?.[overridden.id]?.join(' ')).not.toContain('exceeds the displayable range');
+  expect(loaded.configNotes?.[inherited.id]?.join(' ')).toContain('exceeds the displayable range');
+  expect(importRkt(rkt(body, defaults)).notes.join(' ')).toContain('exceeds the displayable range');
+});
 it('S1b-1 also refuses ambiguous serial recovery routing', () => {
   const loaded = importRkt(rkt(body.replace('</AttachedParts>', '<Parachute><Name>Drogue</Name><SerialNo>12</SerialNo><Dia>100</Dia></Parachute></AttachedParts>'), `<SimulationEventList>${event(5, 152.4)}</SimulationEventList>`));
   expect(flat(loaded.tree.components).filter(n => n.type === 'parachute').every(n => n['deployEvent'] === 'ejection')).toBe(true);

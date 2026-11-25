@@ -7,6 +7,9 @@ import { orkMotorSet } from './orkExportMotors.js';
 import { decodeXml } from './xmlUtil.js';
 import { currentXmlParser, setXmlParser } from './xmlParse.js';
 import { jsXmlParser } from './xmlParseJs.js';
+import { exportRkt, importRkt } from './rocksimFile.js';
+import { engineTree } from '../tree/treeModel.js';
+import { reducePi } from '../tree/mountAngle.js';
 
 const xml = (parts: string, sims = '') => `<openrocket version="1.10"><rocket><name>Audit</name>
   <subcomponents><stage><name>Sustainer</name><subcomponents>${parts}</subcomponents></stage></subcomponents>
@@ -14,6 +17,33 @@ const xml = (parts: string, sims = '') => `<openrocket version="1.10"><rocket><n
 const all = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap(n => [n, ...all(n.children ?? [])]);
 
 describe('audit import/export regressions', () => {
+  it.each([[300, -60], [-300, 60], [180, 180], [-180, -180], [181, -179], [-181, 179],
+    [360, 0], [540, -180], [-200, 160], [359.99999, 0]])('A25:7-1 saves guide angles %s degrees as %s', (degrees, expected) => {
+    const angle = degrees * Math.PI / 180;
+    const tree: RocketTree = { components: [{ type: 'stage', children: [{ type: 'bodytube', length: 0.5,
+      outerRadius: 0.03, children: ['launchlug', 'railbutton'].map(type => ({
+        type: type as ComponentNode['type'], name: type, angleOffset: angle,
+      })) }] }] };
+    const saved = exportOrk({ name: 'Angles', tree });
+    const angles = [...saved.matchAll(/<(?:angleoffset[^>]*|radialdirection)>([^<]+)<\//g)].map(m => Number(m[1]));
+    expect(angles).toEqual([expected, expected, expected]);
+    expect(saved).not.toContain('>-0.0000</');
+    const reopened = importOrk(saved);
+    for (const type of ['launchlug', 'railbutton']) {
+      const part = all(reopened.tree.components).find(n => n.type === type)!;
+      const flown = all(engineTree(tree).components).find(n => n.type === type)!;
+      const flownAgain = all(engineTree(reopened.tree).components).find(n => n.type === type)!;
+      // Four decimal degrees on disk; compare physical orientation across +/- pi.
+      expect(reducePi(Number(part['angleOffset']) - Number(flown['angleOffset']))).toBeCloseTo(0, 6);
+      expect(reducePi(Number(flownAgain['angleOffset']) - Number(flown['angleOffset']))).toBeCloseTo(0, 6);
+    }
+    const rkt = exportRkt({ name: 'Angles', tree });
+    const diskAngle = Number(rkt.match(/<LaunchLug>[\s\S]*?<RadialAngle>([^<]+)/)![1]);
+    expect(diskAngle).toBeCloseTo(angle, 10);
+    expect(Number(all(importRkt(rkt).tree.components).find(n => n.type === 'launchlug')!['angleOffset']))
+      .toBeCloseTo(angle, 10);
+    expect(all(tree.components).find(n => n.type === 'launchlug')!['angleOffset']).toBe(angle);
+  });
   it('F5 density accepts legal zero without an invalid-number caution', () => {
     const r = importOrk(xml(`<nosecone><name>Nose cone</name><thickness>filled</thickness>
       <material type="bulk" density="0.0" group="Custom">Custom</material></nosecone>

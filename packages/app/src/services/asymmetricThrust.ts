@@ -37,11 +37,17 @@ function thrust(site: ThrustSite, time: number, side = 0): number {
   return span > 0 ? thrusts[lo]! + (thrusts[hi]! - thrusts[lo]!) * (t - times[lo]!) / span : 0;
 }
 
+/** Include every jump as well as every linear curve endpoint. */
+function burnGrid(sites: readonly ThrustSite[]) {
+  return [...new Set(sites.filter(s => s.ignition !== null && s.spec.times.length)
+    .flatMap(s => [...s.spec.times.map(t => t + s.ignition!),
+    ...(s.separation === undefined ? [] : [s.separation])]))].sort((a, b) => a - b);
+}
+
 /** The moment is linear between samples; its norm reaches its maximum at an endpoint. */
 export function thrustImbalance(sites: readonly ThrustSite[], peakFloor = 0, radiusFloor = 0) {
   const lit = sites.filter(s => s.ignition !== null && s.spec.times.length);
-  const grid = [...new Set(lit.flatMap(s => [...s.spec.times.map(t => t + s.ignition!),
-    ...(s.separation === undefined ? [] : [s.separation])]))].sort((a, b) => a - b);
+  const grid = burnGrid(lit);
   const radius = lit.reduce((r, s) => Math.max(r, Math.hypot(s.y, s.z)), radiusFloor);
   let peak = peakFloor, moment = 0, time = 0, worstSide = 0;
   for (const t of grid) {
@@ -71,8 +77,7 @@ const MIN_THRUST_OFFSET_M = 0.001;
 
 /** Curves are linear between samples: a midpoint identifies each lit interval. */
 export function longestLoneBurn(sites: readonly ThrustSite[], peak = thrustImbalance(sites).peak): { name: string; start: number; end: number } | null {
-  const grid = [...new Set(sites.filter(s => s.ignition !== null)
-    .flatMap(s => s.spec.times.map(t => t + s.ignition!)))].sort((a, b) => a - b);
+  const grid = burnGrid(sites);
   let longest: { name: string; start: number; end: number } | null = null;
   let current: { site: ThrustSite; start: number; end: number; impulse: number } | null = null;
   const finish = () => {

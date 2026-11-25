@@ -22,14 +22,15 @@ import { buildSimRun, type BatchMountRecord, type MotorMeta, type SimRun } from 
 import { normalizeFlightAdvisories, type FlightAdvisories } from '../prefs/flightAdvisories.js';
 import { INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
 import { aeroModelFor, rogersKbfFor, type AeroMode } from './flightPipeline.js';
-import type { FlightTree, MountMotor } from '../model/design.js';
+import type { MountMotor } from '../model/design.js';
 import { overrideFor } from './flightState.js';
 import { flownDeployEvent } from '../tree/deployEvent.js';
 import { flyLaunch, writeMountMotor } from './flightRunner.js';
 import { flownMaxFlightTimeS, kernelSimOptions, type LaunchConditions } from './launchConditions.js';
 import { physicsKeyOf, provenanceKeyOf } from './designDerivation.js';
 import type { WeatherSnapshot } from './weatherSnapshot.js';
-import { batchMatchingMounts } from './batchMountDisclosure.js';
+import { batchMatchingMounts, batchTargetIgnition } from './batchMountDisclosure.js';
+export { batchTargetIgnition } from './batchMountDisclosure.js';
 import { knownUnlitIgnition } from './ignitionEvent.js';
 
 /**
@@ -93,11 +94,6 @@ export function mixedComboCount(n: number, combination: BatchCombination): numbe
 /** One count for progress, limits, estimates and the dialog's proposed sweep. */
 export function batchFlightCount(n: number, groups: readonly BatchCombination[], includeSingles = true): number {
   return (includeSingles ? n : 0) + groups.reduce<number>((sum, g) => sum + mixedComboCount(n, g), 0);
-}
-
-/** Empty targets have ignition settings too; App supplies configuration overrides. */
-export function batchTargetIgnition(tree: RocketTree, ignitions: BatchSweepInput['assignedIgnitions'], id: string) {
-  return overrideFor(ignitions, id) ?? overrideFor((tree as FlightTree).ignitionDefaults, id) ?? { event: 'automatic' as const, delay: 0 };
 }
 
 /** Every arrangement flies on separate tubes; split clusters keep their multiset enumeration. */

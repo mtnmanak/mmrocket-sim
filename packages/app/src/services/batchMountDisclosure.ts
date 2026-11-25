@@ -1,5 +1,5 @@
 import type { IgnitionEvent, MotorSpec, RocketTree } from '@online-openrocket/engine';
-import type { MountMotor } from '../model/design.js';
+import type { FlightTree, IgnitionTuple, MountMotor } from '../model/design.js';
 import { hasIgnitionSourceStage, findNode, motorMounts, mountMotorCount, mountName, stageIdByNode  } from '../tree/treeModel.js';
 import { knownUnlitIgnition } from './ignitionEvent.js';
 import { mountBore } from '../tree/scaleRocket.js';
@@ -8,6 +8,7 @@ import { boundedLoadoutMotorNames, motorLabelEntry } from './motorLabels.js';
 import { overrideFor } from './flightState.js';
 import { noteText } from './noteField.js';
 import type { BatchMountOption } from './batchSweep.js';
+import { describeIgnitionTuple } from './flightOverrideText.js';
 import { mountLoadoutText, namedBatchMounts } from './batchLoadout.js';
 import type { BatchMountRecord } from './simReport.js';
 import { motorIdentity } from './hardwareMass.js';
@@ -15,6 +16,11 @@ import { batchRingSplits, batchRingSubset } from './batchRing.js';
 
 const and = (names: string[]) => names.length < 3 ? names.join(' and ')
   : `${names.slice(0, -1).join(', ')} and ${names.at(-1)!}`;
+
+/** Empty targets have ignition settings too; App supplies configuration overrides. */
+export function batchTargetIgnition(tree: RocketTree, ignitions: Record<string, IgnitionTuple>, id: string) {
+  return overrideFor(ignitions, id) ?? overrideFor((tree as FlightTree).ignitionDefaults, id) ?? { event: 'automatic' as const, delay: 0 };
+}
 
 /** One definition for the checkbox, disclosure and sweep target set. */
 export function batchMatchingMounts(tree: RocketTree, mounts: readonly BatchMountOption[], selected: BatchMountOption) {
@@ -61,10 +67,16 @@ export function batchMountDisclosure(tree: RocketTree, mounts: readonly BatchMou
     } })] : [];
   });
   const motorNames = boundedLoadoutMotorNames(entries);
+  const ignitionSuffix = (id: string) => {
+    const tuple = batchTargetIgnition(tree, ignitions, id);
+    if (knownUnlitIgnition(tuple.event, !hasIgnitionSourceStage(tree, id))) return ' (never ignites)';
+    return (tuple.event === 'automatic' || tuple.event === 'launch') && tuple.delay === 0 ? ''
+      : ` (ignition: ${noteText(describeIgnitionTuple(tuple, 'warning'))})`;
+  };
   let index = 0;
   for (const m of others) {
     const spec = overrideFor(motors, m.id);
-    const motor = spec && motorNames ? motorNames[index++]! + (knownUnlitIgnition(overrideFor(ignitions, m.id)?.event, !hasIgnitionSourceStage(tree, m.id)) ? ' (never ignites)' : '') : null;
+    const motor = spec && motorNames ? motorNames[index++]! + ignitionSuffix(m.id) : null;
     const key = JSON.stringify(motor);
     const group = groups.get(key) ?? { motor, names: [] };
     group.names.push(nameOf(m.id));
@@ -74,9 +86,12 @@ export function batchMountDisclosure(tree: RocketTree, mounts: readonly BatchMou
   }
   const kept = [...groups.values()].filter(g => g.motor !== null);
   const empty = [...groups.values()].find(g => g.motor === null);
-  const targetName = (id: string) => `${mountMotorCount(tree, id) > 1 ? `×${mountMotorCount(tree, id)} ` : ''}${nameOf(id)}${knownUnlitIgnition(overrideFor(ignitions, id)?.event, !hasIgnitionSourceStage(tree, id)) ? ' (never ignites)' : ''}`;
+  const targetName = (id: string) => `${mountMotorCount(tree, id) > 1 ? `×${mountMotorCount(tree, id)} ` : ''}${nameOf(id)}${ignitionSuffix(id)}`;
+  const targetUnlit = targetIds.length === 1
+    && knownUnlitIgnition(batchTargetIgnition(tree, ignitions, selected.id).event, !hasIgnitionSourceStage(tree, selected.id));
   const sentences = [targetIds.length > 1 ? `Candidates fly in ${and(targetIds.map(targetName))}.`
-    : `Candidates fly ${count > 1 ? `×${count} ` : ''}in ${nameOf(selected.id)} only.`];
+    : `Candidates fly ${count > 1 ? `×${count} ` : ''}in ${nameOf(selected.id)}${ignitionSuffix(selected.id)} only.`];
+  if (targetUnlit) sentences.push(`${nameOf(selected.id)} keeps its own ignition setting (${noteText(describeIgnitionTuple(batchTargetIgnition(tree, ignitions, selected.id), 'warning'))}), so no candidate motor will burn in these flights.`);
   if (keptMounts.some(m => m.count > 1)) sentences.push(`Each flight keeps ${mountLoadoutText(keptMounts)}.`);
   else if (kept.length) sentences.push(`${and(kept.map(g => `${and(g.names)} ${g.names.length === 1 ? 'keeps' : 'keep'} ${g.motor!}`))} for every flight.`);
   if (empty) sentences.push(`${and(empty.names)} ${empty.names.length === 1 ? 'stays' : 'stay'} empty.`);
@@ -111,7 +126,7 @@ export function batchMountDisclosure(tree: RocketTree, mounts: readonly BatchMou
   if (mixedUnavailable && ringSubset) {
     mixedUnavailable = `Tick Use only ${ringSubset.length} ring mounts for mixed batches while keeping the centre mount's motor.`;
   }
-  return { text: (others.length || targetIds.length > 1) && motorNames ? sentences.join(' ') : null,
-    matching, mixedUnavailable, matchingMounts,
+  return { text: (others.length || targetIds.length > 1 || ignitionSuffix(selected.id)) && motorNames ? sentences.join(' ') : null,
+    matching, targetUnlit, mixedUnavailable, matchingMounts,
     matchingLabel: `Use all ${matchingMounts.length} matching mounts (${matchingMounts.map(m => nameOf(m.id)).join(', ')})` };
 }

@@ -232,7 +232,9 @@ export function SimRunDetails({ run, hasSeries, changedSince, mountOrder }: {
   const mass = prefs.units.mass;
   const acc = prefs.units.acceleration;
   const stoppedEarly = runStoppedEarly(run);
-  const safeDeployment = stoppedEarly ? null : deploymentVerdict(run);
+  const visibleCheck = <T,>(value: T): T | null => stoppedEarly
+    && value !== false && value !== 'caution' && value !== 'under' && value !== 'over' ? null : value;
+  const safeDeployment = visibleCheck(deploymentVerdict(run));
   const limits = normalizeFlightAdvisories(run.advisoryLimits);
   const limitQuantity = (kind: 'velocity' | 'altitude', value: number) =>
     noticeQuantity(kind, value, prefs.units, { digits: 3, otherDigits: 3, grouped: true });
@@ -464,15 +466,15 @@ export function SimRunDetails({ run, hasSeries, changedSince, mountOrder }: {
           <h3>Checks &amp; motor</h3>
           <table className="fin-table">
             <tbody>
-              <Row label="Lift-off speed OK" {...(() => { const v = verdict(stoppedEarly ? null : run.safeLiftoffSpeed); return { value: v.text, bad: v.bad }; })()} />
-              <Row label="Thrust : weight OK" {...(() => { const v = verdict(stoppedEarly ? null : run.safeThrustToWeight); return { value: v.text, bad: v.bad }; })()} />
+              <Row label="Lift-off speed OK" {...(() => { const v = verdict(visibleCheck(run.safeLiftoffSpeed)); return { value: v.text, bad: v.bad }; })()} />
+              <Row label="Thrust : weight OK" {...(() => { const v = verdict(visibleCheck(run.safeThrustToWeight)); return { value: v.text, bad: v.bad }; })()} />
               <Row label="Safe deployment" good={safeDeployment === true} {...(() => { const v = verdict(safeDeployment); return { value: v.text, bad: v.bad, warn: v.warn }; })()} />
-              <Row label={`Landing rate OK (≤ ${noticeQuantity('velocity', SAFETY.maxLandingRate, prefs.units, { parenthesized: true, defined: { value: 20, symbol: 'ft/s' } })})`} {...(() => { const v = verdict(stoppedEarly ? null : run.safeLandingRate ?? null); return { value: v.text, bad: v.bad }; })()} />
+              <Row label={`Landing rate OK (≤ ${noticeQuantity('velocity', SAFETY.maxLandingRate, prefs.units, { parenthesized: true, defined: { value: 20, symbol: 'ft/s' } })})`} {...(() => { const v = verdict(visibleCheck(run.safeLandingRate ?? null)); return { value: v.text, bad: v.bad }; })()} />
               <Row label="Static margin" {...(() => {
                 // Tiered: under-stable is the red failure; over-stable is a
                 // yellow caution (weathercocks in wind), matching the design
                 // page (issue 2026-08-05a #4/#6).
-                const st = stoppedEarly ? null : stabilityState(run.launchStaticMarginCal);
+                const st = visibleCheck(stabilityState(run.launchStaticMarginCal));
                 return st === null ? { value: '—' }
                   : st === 'under' ? { value: '⚠ under-stable', bad: true }
                   : st === 'over' ? { value: '△ over-stable (caution)', warn: true }

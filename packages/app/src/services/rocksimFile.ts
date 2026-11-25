@@ -403,8 +403,8 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
   /** Bulkheads the file gives a hole, imported as centering rings with that bore (the file's ID, mm). */
   const holedBulkheads: { node: ComponentNode; name: string; idMm: number }[] = [];
   /** RockSim SerialNo → our node id (links EngineSets to mounts). */
-  const serialToNode = new Map<string, ComponentNode>();
-  const duplicateSerials = new Set<string>();
+  const mountSerialToNode = new Map<string, ComponentNode>();
+  const duplicateMountSerials = new Set<string>();
   const recoverySerialToNode = new Map<string, ComponentNode>();
   const duplicateRecoverySerials = new Set<string>();
   /** Off-axis inner tubes: node → cross-section offset (m), for cluster
@@ -514,8 +514,6 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
     }
     const serial = text(el, ':scope > SerialNo');
     if (serial) {
-      if (serialToNode.has(serial)) duplicateSerials.add(serial);
-      serialToNode.set(serial, node);
       if (node.type === 'parachute' || node.type === 'streamer') {
         if (recoverySerialToNode.has(serial)) duplicateRecoverySerials.add(serial);
         recoverySerialToNode.set(serial, node);
@@ -1530,6 +1528,16 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
   });
   const acceptedSets = new Set(allEngineSets);
   const simulationSets = new Map(simEls.map(s => [s, Array.from(s.querySelectorAll('EngineSet')).filter(e => acceptedSets.has(e))]));
+  // readCommon runs before motorMount is set. Index only eligible mounts once
+  // conversion is complete, so a ring sharing a serial cannot hide a mount.
+  for (const node of mountsIn(components)) {
+    const el = elementByNode.get(node);
+    if (!el) continue;
+    const serial = text(el, ':scope > SerialNo');
+    if (!serial) continue;
+    if (mountSerialToNode.has(serial)) duplicateMountSerials.add(serial);
+    mountSerialToNode.set(serial, node);
+  }
   const motorIndex = indexRocksimMotors(doc, design, simulationSets, notes, importedPartElements);
   const designRecoveryNotes: string[] = [];
   const designRecoveryDiagnostics = newDeploymentNotes();
@@ -1552,7 +1560,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
   /** The motor mount an engine set's MountSerialNo names, when it names one. */
   const namedMount = (engineSet: XmlElement): ComponentNode | undefined => {
     const serial = text(engineSet, ':scope > MountSerialNo');
-    const node = serial && !duplicateSerials.has(serial) ? serialToNode.get(serial) : undefined;
+    const node = serial && !duplicateMountSerials.has(serial) ? mountSerialToNode.get(serial) : undefined;
     return node?.['motorMount'] === true ? node : undefined;
   };
   /** The first mount of an engine set's stage: where readEngineSet sends a set nothing else places. */
@@ -1606,7 +1614,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
   const simSets = simEls.map((sim) => {
     const sets = simulationSets.get(sim)!;
     // Refused assignments cannot establish different loadouts on real tubes.
-    if (sets.some(el => !!text(el, ':scope > EngineCode') && duplicateSerials.has(text(el, ':scope > MountSerialNo') ?? ''))) return [];
+    if (sets.some(el => !!text(el, ':scope > EngineCode') && duplicateMountSerials.has(text(el, ':scope > MountSerialNo') ?? ''))) return [];
     const taken = new Set(sets.map(namedMount).filter((n): n is ComponentNode => n !== undefined));
     return sets.flatMap((el) => {
       const named = namedMount(el);
@@ -1692,7 +1700,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
   const mountCopiesRead = new Map<ComponentNode, number>();
   const remapSubtree = (from: ComponentNode, to: ComponentNode): void => {
     mountCopiesRead.set(to, (mountCopiesRead.get(to) ?? 1) + (mountCopiesRead.get(from) ?? 1));
-    for (const [serial, node] of serialToNode) if (node === from) serialToNode.set(serial, to);
+    for (const [serial, node] of mountSerialToNode) if (node === from) mountSerialToNode.set(serial, to);
     for (const sets of simSets) for (const set of sets) if (set.node === from) set.node = to;
     for (const [el, node] of movedSets) if (node === from) movedSets.set(el, to);
     (from.children ?? []).forEach((child, i) => remapSubtree(child, to.children![i]!));
@@ -2144,7 +2152,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
     const mountSerial = text(engineSet, ':scope > MountSerialNo');
     // A set the regrouping moved off a tube that already carried one (see
     // groupLoadouts) goes to the twin it was given.
-    let mount = movedSets.get(engineSet) ?? (mountSerial ? serialToNode.get(mountSerial) : undefined);
+    let mount = movedSets.get(engineSet) ?? (mountSerial ? mountSerialToNode.get(mountSerial) : undefined);
     if (!mount || mount['motorMount'] !== true) mount = stageFallbackMount(engineSet);
     if (!mount?.id) return null;
     // RockSim's <IgnitionDelay> starts at the stage below's separation,
@@ -2295,7 +2303,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
       sets.length > (mountCopiesRead.get(mount) ?? 1) || new Set(sets.map(setKey)).size > 1);
     const unsupportedCount = g.sets.filter(es => text(es, ':scope > EngineCode'))
       .map(es => num(es, 'EngineCount', 1)).find(count => count !== 1);
-    const ambiguous = g.sets.some(es => !!text(es, ':scope > EngineCode') && duplicateSerials.has(text(es, ':scope > MountSerialNo') ?? ''));
+    const ambiguous = g.sets.some(es => !!text(es, ':scope > EngineCode') && duplicateMountSerials.has(text(es, ':scope > MountSerialNo') ?? ''));
     const motorLoadoutRefusal = ambiguous
       ? `Launch refused for ${source}: duplicate component serial numbers make the motor assignments ambiguous. No motors from this configuration were loaded. Assign motors to separate mounts before flying.`
       : unsupportedCount !== undefined
@@ -2946,7 +2954,7 @@ const readDeploymentEvents = (
       continue;
     }
     if (t.deployAltitude !== undefined && t.deployAltitude > MAX_EVENT_ALTITUDE_M) {
-      cautionNote(notes, 'I04.limits', `${noteField(node.name ?? node.type)}: deployment altitude ${noticeQuantity('altitude', t.deployAltitude, units)} exceeds the displayable range; set to ${noticeQuantity('altitude', MAX_EVENT_ALTITUDE_M, units)}. Check the deployment before flying.`);
+      cautionNote(ownNotes(serial), 'I04.limits', `${noteField(node.name ?? node.type)}: deployment altitude ${noticeQuantity('altitude', t.deployAltitude, units)} exceeds the displayable range; set to ${noticeQuantity('altitude', MAX_EVENT_ALTITUDE_M, units)}. Check the deployment before flying.`);
       t.deployAltitude = MAX_EVENT_ALTITUDE_M;
     }
     seen.set(serial, t);

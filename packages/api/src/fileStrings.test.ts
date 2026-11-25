@@ -116,7 +116,8 @@ describe('file-derived names and notes are safe at the API edge', () => {
   }, 60_000);
 });
 
-it.each(['Booster\u200b', 'A\u201cB', 'A\u200b\u201cB'])('non-regression guard for component-name carriers and display title for %j', async name => {
+it.each(['Booster\u200b', 'A\u201cB', 'A\u200b\u201cB', '\u200d\u200bé', 'é\u200b\u200d', '\u200d\u201cA',
+  '\u00a0\u200dA', 'é\u3000\u200dA'])('non-regression guard for component-name carriers and display title for %j', async name => {
   const out = await headless.simulateFile(bytesOf('reference.ork'), 'reference.ork', { reportSeries: 'summary' });
   const mount = out.flight.delayResolution.mounts[0]!;
   mount.mountName = name;
@@ -151,6 +152,33 @@ it.each(['Booster\u200b', 'A\u201cB', 'A\u200b\u201cB'])('non-regression guard f
     expect(described.name).toBe(displayEcho(name));
     expect(described.name).not.toBe(expected);
   } finally { fly.mockRestore(); describe.mockRestore(); }
+}, 60_000);
+
+it.each(['\u200d\u200bé', 'é\u200b\u200d', '\u200c\u201cA', 'A\u201d\u200c',
+  '\u200d\u200b'.repeat(150) + 'é', '👨‍🚀 می‌روم'])('A25:1-2 warning names are stable across repeated projections: %j', name => {
+  const shown = warningName(name);
+  expect(warningName(shown)).toBe(shown);
+  expect(points(shown)).toBeLessThanOrEqual(200);
+  expect(warningEcho(`Part "${shown}"`)).toBe(`Part "${shown}"`);
+});
+
+it('A25:1-2 retains numbered suffixes after repeated bounded mount projections', () => {
+  const raw = 'A\u200b'.repeat(150);
+  const mounts = headless.mountNamesOf([{ type: 'innertube', id: 'a', name: raw }, { type: 'innertube', id: 'b', name: raw }], warningName);
+  expect(warningName(mounts.a!)).toMatch(/ 1$/);
+  expect(warningName(mounts.b!)).toMatch(/ 2$/);
+  expect(warningName(warningName(mounts.a!))).toBe(warningName(mounts.a!));
+});
+
+it.each(['  Mount  A ', 'é\u3000A', '👨‍🚀\u00a0می‌روم', 'می‌روم\u3000A'])(
+  'A25:1-2 preserves ordinary warning-name whitespace bytes for %j', name => {
+    expect(warningName(name)).toBe(name);
+  });
+
+it('A25:1-2 preserves the ordinary bounded name before whitespace collapse', () => {
+  const name = '👨‍🚀\u3000'.repeat(100);
+  const previous = noteEcho(noteField(noteField(`"${displayEcho(name)}"`)).slice(1, -1), 200);
+  expect(warningName(name)).toBe(previous);
 });
 
 it('bounds every fly text carrier, including warning source snapshots and abort event sources', async () => {

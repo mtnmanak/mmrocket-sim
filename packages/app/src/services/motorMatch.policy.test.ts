@@ -41,6 +41,15 @@ function evidence(xml: string): MotorMatchContext {
   return rocksimMotorEvidence(doc.querySelector('EngineSet')!, motorIndex(doc));
 }
 beforeEach(() => vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline')))));
+it.each([false, true])('A25:3-1 raw evidence ignores non-mount serial collisions (ring first %s)', first => {
+  const ring = '<Ring><SerialNo>6</SerialNo></Ring><BodyTube><SerialNo>6</SerialNo><IsMotorMount>0</IsMotorMount></BodyTube>';
+  const xml = rkt().replace(first ? '<Stage3Parts>' : '</Stage3Parts>', first ? `<Stage3Parts>${ring}` : `${ring}</Stage3Parts>`);
+  expect(evidence(xml).mountBoreMm).toBe(54.4);
+  expect(evidence(xml).physical?.motorMassG).toBe(2088);
+  const twoMounts = xml.replace('</Stage3Parts>', '<BodyTube><SerialNo>6</SerialNo><IsMotorMount>1</IsMotorMount><ID>29</ID></BodyTube></Stage3Parts>');
+  expect(evidence(twoMounts).mountBoreMm).toBeUndefined();
+  expect(evidence(twoMounts).physical).toBeUndefined();
+});
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); setCatalogueOverlay(null); });
 
 describe('reviewed historical motor policies', () => {
