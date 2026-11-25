@@ -61,6 +61,7 @@ import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { atomicWriteFileSync as writeFileSync } from './atomic-write.mjs';
 import { join } from 'node:path';
 import { FIELDS } from './fetch-motor-db.mjs';
+import { diffCurveFiles } from './curve-file-diff.mjs';
 
 /**
  * The 18 fields the catalogue projects — FIELDS in fetch-motor-db.mjs, the WRITER and
@@ -190,18 +191,6 @@ export function diffCatalogue(beforeMotors, afterMotors) {
 }
 
 /**
- * A curve list keyed by simfileId, each value the stringified compact file. Comparing the
- * STRING is what catches a re-uploaded curve at an unchanged simfileId — samples rounded
- * differently, or the header masses fetch-motor-curves.mjs extracts having moved.
- *
- * A file with no simfileId gets a positional key rather than being dropped: the runtime
- * picks between files by their metadata, so an unidentifiable file still counts as one.
- */
-function fileMap(files) {
-  return new Map((files ?? []).map((f, i) => [String(f?.simfileId ?? `#${i}`), JSON.stringify(f)]));
-}
-
-/**
  * The curve bundle's `curves` maps compared motor by motor.
  *
  * `gained` = motorIds with at least one file now and none before (a newly certified motor
@@ -226,16 +215,8 @@ export function diffCurves(beforeCurves, afterCurves) {
     if (bHas && !aHas) { lost.push(motorId); continue; }
     if (!bHas && !aHas) continue;
 
-    const bm = fileMap(b);
-    const am = fileMap(a);
-    let addedFiles = 0;
-    let changedFiles = 0;
-    let removedFiles = 0;
-    for (const [key, json] of am) {
-      if (!bm.has(key)) addedFiles++;
-      else if (bm.get(key) !== json) changedFiles++;
-    }
-    for (const key of bm.keys()) if (!am.has(key)) removedFiles++;
+    const { added, removed, revised: changedFiles } = diffCurveFiles(b, a);
+    const addedFiles = added.length, removedFiles = removed.length;
     if (addedFiles || removedFiles || changedFiles) {
       revised.push({ motorId, addedFiles, removedFiles, changedFiles });
     }

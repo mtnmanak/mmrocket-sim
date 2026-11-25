@@ -168,6 +168,49 @@ describe('diffCatalogue', () => {
 });
 
 describe('diffCurves', () => {
+  it.each([
+    ['missing', undefined], ['null', null], ['empty', ''], ['duplicate', 'shared'],
+  ])('R2-1: ignores swapped %s identities in both the diff and PR verdict', (_kind, simfileId) => {
+    const files = [curve(simfileId, [[0, 1]]), curve(simfileId, [[0, 2]])];
+    const before = side([motor('a')], { a: files });
+    const after = side([motor('a')], { a: [...files].reverse() });
+    expect(diffCurves(before.curves.curves, after.curves.curves)).toEqual({ gained: [], lost: [], revised: [] });
+    const summary = summarise({ before, after, now: Date.parse(before.motors.generated) });
+    expect(summary.changed).toBe(false);
+    expect(summary.openPr).toBe(false);
+  });
+
+  it('R2-1: catches either duplicate-id file being revised, irrespective of position', () => {
+    const files = [curve('shared', [[0, 1]]), curve('shared', [[0, 2]])];
+    for (const index of [0, 1]) {
+      const revised = files.map((file, i) => i === index ? { ...file, samples: [[0, 3]] } : file);
+      for (const after of [revised, [...revised].reverse()]) {
+        expect(diffCurves({ a: files }, { a: after }).revised)
+          .toEqual([{ motorId: 'a', addedFiles: 0, removedFiles: 0, changedFiles: 1 }]);
+        const summary = summarise({ before: side([motor('a')], { a: files }), after: side([motor('a')], { a: after }) });
+        expect(summary.changed).toBe(true);
+        expect(summary.openPr).toBe(true);
+      }
+    }
+  });
+
+  it.each([undefined, null, '', 'shared'])('R2-1: retains multiplicity, real gains and losses for identity %s', simfileId => {
+    const file = curve(simfileId, [[0, 1]]);
+    expect(diffCurves({ a: [file] }, { a: [file, file] }).revised)
+      .toEqual([{ motorId: 'a', addedFiles: 1, removedFiles: 0, changedFiles: 0 }]);
+    expect(diffCurves({ a: [file, file] }, { a: [file] }).revised)
+      .toEqual([{ motorId: 'a', addedFiles: 0, removedFiles: 1, changedFiles: 0 }]);
+    expect(diffCurves({}, { a: [file, file] })).toEqual({ gained: ['a'], lost: [], revised: [] });
+    expect(diffCurves({ a: [file, file] }, {})).toEqual({ gained: [], lost: ['a'], revised: [] });
+  });
+
+  it('R2-1: compares full file content independently of object key order', () => {
+    const file = curve('shared', [[0, 1]]);
+    expect(diffCurves({ a: [file] }, { a: [{ samples: file.samples, format: file.format, source: file.source, simfileId: file.simfileId }] }).revised).toEqual([]);
+    expect(diffCurves({ a: [file] }, { a: [{ ...file, source: 'user' }] }).revised)
+      .toEqual([{ motorId: 'a', addedFiles: 0, removedFiles: 0, changedFiles: 1 }]);
+  });
+
   it('reports a motor that now has a curve as gained', () => {
     expect(diffCurves({}, { a: [curve('s1', [[0, 1]])] }).gained).toEqual(['a']);
   });
