@@ -83,7 +83,7 @@ export interface BatchSplit extends ClusterSplit {
  * caution's flight count — and a new split shape would have had to be taught
  * to each of them separately.
  */
-export type BatchCombination = number | { groups: number; ordered?: boolean };
+export type BatchCombination = number | { groups: number; ordered?: boolean; litGroups?: readonly boolean[] };
 
 export function mixedComboCount(n: number, combination: BatchCombination): number {
   const { groups, ordered } = typeof combination === 'number' ? { groups: combination, ordered: false } : combination;
@@ -97,8 +97,11 @@ export function batchFlightCount(n: number, groups: readonly BatchCombination[],
 }
 
 /** Every arrangement flies on separate tubes; split clusters keep their multiset enumeration. */
-export function batchSplitCombination(split: BatchSplit): { groups: number; ordered: boolean } {
-  return { groups: split.mountIds.length, ordered: split.mountGroups !== undefined };
+export function batchSplitCombination(split: BatchSplit, canIgnite?: (id: string) => boolean): {
+  groups: number; ordered: boolean; litGroups?: boolean[];
+} {
+  return { groups: split.mountIds.length, ordered: split.mountGroups !== undefined,
+    ...(canIgnite ? { litGroups: (split.mountGroups ?? split.mountIds.map(id => [id])).map(ids => ids.some(canIgnite)) } : {}) };
 }
 
 /**
@@ -312,6 +315,14 @@ export function listsNoDelay(entry: TcMotor): boolean {
   return defaultDelay(entry) === null;
 }
 
+/** The same per-lit-leg policy for the flown metadata and the estimate. */
+function targetDelaySearch(litEntries: readonly TcMotor[], autoDelay: boolean, deploysOnCharge: boolean) {
+  const onlyPlugged = (entry: TcMotor) => delayOptions(entry).every(d => !Number.isFinite(d)) && !listsNoDelay(entry);
+  const plugged = new Set(litEntries.filter(entry => (autoDelay || deploysOnCharge && litEntries.every(onlyPlugged))
+    && onlyPlugged(entry)));
+  return { plugged, auto: new Set(litEntries.filter(entry => autoDelay || listsNoDelay(entry) || plugged.has(entry))) };
+}
+
 /**
  * How many of a sweep's flights search for their optimum delay. The search's
  * probe flights make such a flight several times dearer than one at a fixed
@@ -322,14 +333,12 @@ export function listsNoDelay(entry: TcMotor): boolean {
  * solved on every flight). Unticked, flyLegs' rule: a flight searches when one
  * of its motors lists no delay at all, or when every one of its motors is sold
  * plugged only and the design deploys its recovery on the charge
- * (optimumForPlugged). The flights that do NOT search are the ones drawn
- * entirely from motors that list a delay, less those drawn entirely from the
- * plugged-only ones on such a design, and each count is the sweep's own: every
- * candidate alone, then each split's combinations (mixedComboCount).
+ * (optimumForPlugged). Only lit groups take part in that rule; unlit groups
+ * still contribute candidate arrangements to the flight count.
  */
 export function batchSolverFlights({ candidates, groups, autoDelay, deploysOnCharge, othersAuto, targetsCanIgnite = true, includeSingles = true }: {
   candidates: readonly TcMotor[];
-  /** Each ticked split's group count (split.mountIds.length), as mixedComboCount takes it. */
+  /** Each ticked split, with per-group ignition for separate tubes. */
   groups: readonly BatchCombination[];
   autoDelay: boolean;
   /** deploysOnEjectionCharge of the design. */
@@ -340,15 +349,31 @@ export function batchSolverFlights({ candidates, groups, autoDelay, deploysOnCha
   targetsCanIgnite?: boolean;
   includeSingles?: boolean;
 }): number {
-  /** The flights drawn entirely from `n` of the candidates. */
-  const flightsFrom = (n: number) => batchFlightCount(n, groups, includeSingles);
-  const all = flightsFrom(candidates.length);
+  const all = batchFlightCount(candidates.length, groups, includeSingles);
   if (othersAuto) return all;
-  if (!targetsCanIgnite) return 0;
-  if (autoDelay) return all;
-  const listed = candidates.filter((e) => !listsNoDelay(e));
-  const pluggedOnly = listed.filter((e) => provisionalDelay(e, false) === Infinity).length;
-  return all - flightsFrom(listed.length) + (deploysOnCharge ? flightsFrom(pluggedOnly) : 0);
+  const n = candidates.length;
+  const singleSearches = candidates.filter(e => targetDelaySearch([e], autoDelay, deploysOnCharge).auto.size > 0).length;
+  const listed = candidates.filter(e => targetDelaySearch([e], false, false).auto.size === 0).length;
+  const pluggedOnly = candidates.filter(e => targetDelaySearch([e], false, true).plugged.has(e)).length;
+  let searching = includeSingles && targetsCanIgnite ? singleSearches : 0;
+  for (const combination of groups) {
+    const { groups: size, ordered, litGroups } = typeof combination === 'number' ? { groups: combination } : combination;
+    const lit = litGroups ? litGroups.filter(Boolean).length : targetsCanIgnite ? size : 0;
+    if (lit === 0) continue;
+    if (autoDelay) { searching += mixedComboCount(n, combination); continue; }
+    if (ordered) {
+      // Count all assignments on lit groups, with free choices on unlit ones,
+      // then remove all-same loadouts (the separate single pass). This stays
+      // cheap even when the proposed sweep exceeds the flight ceiling.
+      searching += (n ** lit - listed ** lit + (deploysOnCharge ? pluggedOnly ** lit : 0)) * n ** (size - lit)
+        - singleSearches;
+    } else {
+      // Split clusters inherit one source mount's ignition for every group.
+      searching += mixedComboCount(n, combination) - mixedComboCount(listed, combination)
+        + (deploysOnCharge ? mixedComboCount(pluggedOnly, combination) : 0);
+    }
+  }
+  return searching;
 }
 
 /**
@@ -724,9 +749,8 @@ export async function runBatchSweep(
       }
     }
     const litLegs = legs.filter(l => !unlitTarget(l.mountId, probeTree, replacedMountId ?? l.mountId));
-    const onlyPlugged = (l: typeof litLegs[number]) => delayOptions(l.entry).every(d => !Number.isFinite(d)) && !l.noListedDelay;
-    const pluggedLegs = new Set(litLegs.filter(l => (autoDelay || deploysOnCharge && litLegs.every(onlyPlugged))
-      && onlyPlugged(l)).map(l => l.mountId));
+    const delaySearch = targetDelaySearch(litLegs.map(l => l.entry), autoDelay, deploysOnCharge);
+    const pluggedLegs = new Set(litLegs.filter(l => delaySearch.plugged.has(l.entry)).map(l => l.mountId));
     const liveMountIds = new Set(motorMounts(probeTree).map((m) => m.id));
     const assigned: [string, MountMotor][] = Object.entries(assignedMotors)
       .filter(([id]) => liveMountIds.has(id) && !refused.has(id) && id !== replacedMountId && !legs.some((l) => l.mountId === id))
@@ -754,7 +778,7 @@ export async function runBatchSweep(
       // A never-lit target keeps the provisional fixed delay, as kept motors do.
       const unlit = unlitTarget(l.mountId, probeTree, replacedMountId ?? l.mountId);
       const meta = {
-        autoDelay: autoDelay || !!l.noListedDelay || pluggedLegs.has(l.mountId),
+        autoDelay: delaySearch.auto.has(l.entry),
         ...l.meta,
       };
       if (unlit) meta.autoDelay = false;
@@ -802,7 +826,7 @@ export async function runBatchSweep(
 
   const n = candidates.length;
   const includeSingles = input.includeSingles ?? true;
-  const total = batchFlightCount(n, splits.map(batchSplitCombination), includeSingles);
+  const total = batchFlightCount(n, splits.map(split => batchSplitCombination(split)), includeSingles);
   const comboActive = splits.length > 0;
   const out: BatchRow[] = [];
   let lastPublish = -Infinity;

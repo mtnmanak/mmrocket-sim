@@ -102,7 +102,7 @@ import { strFromU8, unzipSync } from 'fflate';
 import { buildFlightDataBundle } from './flightDataBundle.js';
 import type { WeatherSnapshot } from './weatherSnapshot.js';
 import {
-  batchMotorIds, batchMotorNames, batchRowKey, batchSolverFlights, deploysOnEjectionCharge, listsNoDelay,
+  batchMotorIds, batchMotorNames, batchRowKey, batchSolverFlights, batchSplitCombination, deploysOnEjectionCharge, listsNoDelay,
   provisionalDelay, runBatchSweep, type BatchMountOption, type BatchRow, type BatchSweepDeps, type BatchSweepInput,
 } from './batchSweep.js';
 
@@ -2112,6 +2112,46 @@ function separateRing(n = 4) {
   const mounts = tubes.map(m => ({ ...MOUNT, id: m.id!, label: m.name!, diameterMm: 24 }));
   return { tree, mounts, target: mounts[0]!, targetMountIds: mounts.map(m => m.id) };
 }
+
+describe('DP1 per-lit-group delay-probe counts', () => {
+  const cases = [
+    { deployEvent: 'apogee', delays: '', expected: 2 },
+    { deployEvent: 'ejection', delays: 'P', expected: 2 },
+  ];
+  async function check(deployEvent: string, delays: string, neverIds: string[], autoDelay = false, includeSingles = true) {
+    const setup = separateRing();
+    setup.tree.components[0]!.children![1]!.children!.find(m => m.id === 'chute')!.deployEvent = deployEvent;
+    const split = batchRingSplits(setup.tree, setup.mounts).halves!;
+    const candidates = [entry('a', 'Acme', 'E20', delays), entry('b', 'Acme', 'E22', '5')];
+    const { rows } = await sweep(input(setup.tree, { ...setup, candidates, splits: [split], autoDelay, includeSingles,
+      assignedIgnitions: Object.fromEntries(neverIds.map(id => [id, { event: 'never' as const, delay: 0 }])),
+    }), { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22', 1.1) }), nozzleFor: nozzles({}) });
+    expect(rows).toHaveLength(includeSingles ? 4 : 2);
+    for (const row of rows) expect(row.error).toBeUndefined();
+    const searched = rows.filter(r => r.run!.delayResolution!.mounts.some(m => m.mode === 'auto')).length;
+    const counted = batchSolverFlights({ candidates, groups: [batchSplitCombination(split, id => !neverIds.includes(id))],
+      targetsCanIgnite: setup.targetMountIds.some(id => !neverIds.includes(id)),
+      autoDelay, deploysOnCharge: deployEvent === 'ejection', othersAuto: false, includeSingles });
+    expect(counted).toBe(searched);
+    return searched;
+  }
+
+  it.each(cases)('matches partial Never with $deployEvent recovery and "$delays" delays', async ({ deployEvent, delays, expected }) => {
+    expect(await check(deployEvent, delays, ['ring0', 'ring2'])).toBe(expected);
+  }, 120_000);
+
+  it('keeps the all-lit control at three searches', async () => {
+    expect(await check('apogee', '', [])).toBe(3);
+  }, 120_000);
+
+  it('matches recorded Auto mounts across ignition, delay-kind, recovery and single-pass settings', async () => {
+    for (const autoDelay of [false, true]) for (const { deployEvent, delays } of cases) {
+      for (const neverIds of [[], ['ring0', 'ring2'], ['ring1', 'ring3'], ['ring0'], ['ring0', 'ring1', 'ring2', 'ring3']]) {
+        for (const includeSingles of [false, true]) await check(deployEvent, delays, neverIds, autoDelay, includeSingles);
+      }
+    }
+  }, 240_000);
+});
 
 it('r2 replaces refused secondary targets in matching and mixed ring flights', async () => {
   const setup = separateRing();

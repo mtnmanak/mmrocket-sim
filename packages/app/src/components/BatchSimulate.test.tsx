@@ -139,6 +139,7 @@ describe('the batch dialog', () => {
       weighed?: BatchWeighed; mounts?: BatchMountOption[]; tree?: RocketTree;
       assignedMotors?: Record<string, MotorSpec>;
       assignedAutoDelays?: Record<string, boolean>;
+      refusedMountIds?: string[];
       assignedIgnitions?: Record<string, { event: IgnitionEvent; delay: number }>;
     } = {}) {
     act(() => root.render(
@@ -151,6 +152,7 @@ describe('the batch dialog', () => {
           assignedMountMotors={{}} assignedMotors={extra.assignedMotors ?? {}} assignedMotorIds={{}}
           assignedIgnitions={extra.assignedIgnitions ?? {}}
           assignedAutoDelays={extra.assignedAutoDelays}
+          refusedMountIds={extra.refusedMountIds}
           weighed={extra.weighed}
           launch={{ ...DEFAULT_CONDITIONS, ...launchOver }}
           rocketName="Cluster bird"
@@ -222,6 +224,31 @@ describe('the batch dialog', () => {
     const primary = [...host.querySelectorAll('button')].find(b => b.textContent?.trim().startsWith('Simulate '))!;
     expect(primary.textContent).toContain(batchEstimate({ flights: count, solverFlights: 0 }));
     expect(batchEstimate({ flights: count, solverFlights: 0 })).not.toBe(batchEstimate({ flights: count, solverFlights: count }));
+  });
+  it.each([false, true])('DP1 excludes refused and missing kept Auto mounts from probes and time estimates, target Never=%s', never => {
+    const setup = separateMounts([24, 38]);
+    const assignedIgnitions: Record<string, { event: IgnitionEvent; delay: number }> = never
+      ? { mount: { event: 'never', delay: 0 } } : {};
+    const toggleOff = () => {
+      const toggle = [...host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
+        .find(input => input.closest('label')?.textContent?.includes('optimal delay per motor'))!;
+      if (toggle.checked) act(() => toggle.click());
+      expect(toggle.checked).toBe(false);
+    };
+    const buttonText = () => [...host.querySelectorAll('button')]
+      .find(b => b.textContent?.trim().startsWith('Simulate '))!.textContent;
+    mount({}, { ...setup, assignedIgnitions });
+    toggleOff();
+    const fixedEstimate = buttonText();
+    // The 24 mm catalogue has enough candidates for a visible duration estimate.
+    expect(fixedEstimate).toContain('about');
+    for (const id of ['side1', 'removed']) {
+      mount({}, { ...setup, assignedIgnitions, assignedMotors: { [id]: motor(2) },
+        assignedAutoDelays: { [id]: true }, refusedMountIds: id === 'side1' ? [id] : [] });
+      toggleOff();
+      expect(host.textContent).not.toContain('delay probe + final');
+      expect(buttonText()).toBe(fixedEstimate);
+    }
   });
   it('i1 gives all unlit matching mounts a Caution and the consequence', () => {
     mount({}, { ...separateMounts([75, 75]),

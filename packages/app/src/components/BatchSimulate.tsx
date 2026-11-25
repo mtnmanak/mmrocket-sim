@@ -16,7 +16,7 @@ import type { WeatherSnapshot } from '../services/weatherSnapshot.js';
 import { useBackdropClose, useDialog } from './useDialog.js';
 import type { IgnitionEvent, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { includedMotorOf } from '../services/statedLaunchWeight.js';
-import { hasIgnitionSourceStage,
+import { hasIgnitionSourceStage, motorMounts,
   splitClusterPairsTree, splitClusterTree, stagesWithNozzle,
  } from '../tree/treeModel.js';
 import { sheetsToXlsx, type Sheet } from '../services/xlsx.js';
@@ -227,8 +227,9 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
     && (a.maxMotorLengthM === null || b.maxMotorLengthM < a.maxMotorLengthM) ? b : a, sel);
   const maxMotorLengthM = limitingMount.maxMotorLengthM;
   const motorCount = targets.reduce((sum, m) => sum + m.motorCount, 0);
-  const firingCount = targets.reduce((sum, m) => sum + (knownUnlitIgnition(batchTargetIgnition(tree, assignedIgnitions, m.id).event,
-    !hasIgnitionSourceStage(tree, m.id)) ? 0 : m.motorCount), 0);
+  const canIgnite = (id: string, flownTree = tree, sourceId = id) => !knownUnlitIgnition(
+    batchTargetIgnition(tree, assignedIgnitions, sourceId).event, !hasIgnitionSourceStage(flownTree, id));
+  const firingCount = targets.reduce((sum, m) => sum + (canIgnite(m.id) ? m.motorCount : 0), 0);
   // Combination modes (opt-in, 4- and 6-motor clusters only):
   //  - group mode: the cluster split in HALVES (2+2 / 3+3), every unordered
   //    pair of candidates;
@@ -271,8 +272,8 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   // treatment, and the same reason, as the stripped nozzle above.
   const includedMotor = useMemo(() => includedMotorOf(tree, sel.id), [tree, sel.id]);
   const ringSplits = useMemo(() => allMatching ? batchRingSplits(tree, targets) : null, [tree, allMatching, targets]);
-  const clusterSplit = useMemo(() => allMatching ? ringSplits?.halves ?? null : splitClusterTree(tree, sel.id), [tree, sel.id, allMatching, ringSplits]);
-  const pairSplit = useMemo(() => allMatching ? ringSplits?.pairs ?? null : splitClusterPairsTree(tree, sel.id), [tree, sel.id, allMatching, ringSplits]);
+  const clusterSplit = useMemo<BatchSplit | null>(() => allMatching ? ringSplits?.halves ?? null : splitClusterTree(tree, sel.id), [tree, sel.id, allMatching, ringSplits]);
+  const pairSplit = useMemo<BatchSplit | null>(() => allMatching ? ringSplits?.pairs ?? null : splitClusterPairsTree(tree, sel.id), [tree, sel.id, allMatching, ringSplits]);
   const effectiveIncludeSingles = includeSingles || (!clusterSplit && !pairSplit);
   const disclosure = useMemo(() => batchMountDisclosure(tree, mounts, sel, assignedMotors, assignedMountMotors, assignedMotorIds, assignedIgnitions, targetIds),
     [tree, mounts, sel, assignedMotors, assignedMountMotors, assignedMotorIds, assignedIgnitions, targetIds]);
@@ -534,8 +535,10 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   // The time-step caution multiplies by this: a fine step's cost is per
   // flight, and the launch panel's per-flight caution says nothing about a
   // candidate list turning 15 s of freeze into 20 minutes of it.
-  const halvesCombination = clusterSplit ? batchSplitCombination(clusterSplit) : null;
-  const pairsCombination = pairSplit ? batchSplitCombination(pairSplit) : null;
+  const halvesCombination = clusterSplit ? batchSplitCombination(clusterSplit,
+    id => canIgnite(id, clusterSplit.tree, clusterSplit.mountGroups ? id : sel.id)) : null;
+  const pairsCombination = pairSplit ? batchSplitCombination(pairSplit,
+    id => canIgnite(id, pairSplit.tree, pairSplit.mountGroups ? id : sel.id)) : null;
   const mixedTitle = (combination: NonNullable<typeof halvesCombination>, groups: string) =>
     `Fly ${groups}. ${combination.ordered ? 'Fly every arrangement across the separate tubes.' : 'Fly each mix once because the groups share one cluster mount.'} With ${candidates.length} candidates, adds ${mixedComboCount(candidates.length, combination)} mixed flights. All-same loadouts use the separate single-pass box. Each group balances around its own centre; an off-centre cluster or ring can still push the rocket unevenly, so check the thrust balance warnings.`;
   const ticked = [
@@ -550,7 +553,8 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   const solverFlights = batchSolverFlights({
     candidates, groups: ticked, autoDelay: criteria.autoDelay, deploysOnCharge, includeSingles: effectiveIncludeSingles,
     targetsCanIgnite: firingCount > 0,
-    othersAuto: Object.keys(assignedMotors).some((id) => !targetIds.includes(id) && assignedAutoDelays?.[id] === true),
+    othersAuto: Object.keys(assignedMotors).some((id) => !targetIds.includes(id) && !refusedMountIds?.includes(id)
+      && motorMounts(tree).some(m => m.id === id) && assignedAutoDelays?.[id] === true),
   });
   // How long that takes, and whether it is more than one sweep will fly. Past
   // BATCH_MAX_FLIGHTS the button is disabled and says why — refused, never
