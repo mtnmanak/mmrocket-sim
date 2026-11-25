@@ -57,8 +57,11 @@ class BandBoundary extends Component<{ children: ReactNode }, { failed: boolean 
  * submits because the browser does implicit submission, and every other
  * keystroke stays inside the input. This app's global Ctrl+Z already exempts
  * input elements, so typing here cannot reach the undo stack.
+ * The submit button precedes the field in both visual and keyboard order.
+ * Its 44px target takes space from the scrolling nav (NAV-151); the field
+ * stays in place and Enter still submits through the browser.
  *
- * Both forms render always and CSS picks one by width — the full input at
+ * Both search affordances render always and CSS picks one by width — the full input at
  * >= 768px, the compact magnifier link below it. Doing it in CSS rather than
  * JS keeps the first paint correct with no measurement pass and no resize
  * listener.
@@ -67,15 +70,15 @@ function BandSearch({ search }: { search: NonNullable<MmrNav['search']> }) {
   return (
     <>
       <form className="mmr-band-search" action={search.url} method="get" target="_top" role="search">
+        <button type="submit" title="Search mountainmanrockets.com" aria-label="Search">
+          <Icon name="search" size={13} />
+        </button>
         <input
           type="search"
           name={search.param}
           placeholder="Search"
           aria-label="Search mountainmanrockets.com"
         />
-        <button type="submit" title="Search mountainmanrockets.com" aria-label="Search">
-          <Icon name="search" size={13} />
-        </button>
       </form>
       <a
         className="mmr-band-search-link"

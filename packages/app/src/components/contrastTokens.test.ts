@@ -537,6 +537,7 @@ describe('brand v1: links, focus, inputs, callouts and the site strip', () => {
       ['placeholder', decl(rule('.mmr-band-search input::placeholder {'), 'color'), decl(rule('.mmr-band-search input {'), 'background'), AA],
       ['search button', decl(rule('.mmr-band-search button {'), 'color'), 'var(--mmr-c-navy)', AA],
       ['search hover', decl(rule('.mmr-band-search button:hover {'), 'color'), 'var(--mmr-c-navy)', AA],
+      ['search button ring', decl(rule('.viz-root .mmr-band-search button:focus-visible {'), 'outline').replace(/^3px solid /, ''), 'var(--mmr-c-navy)', 3],
       ['search edge', decl(rule('.mmr-band-search input {'), 'border').replace(/^1px solid /, ''), decl(rule('.mmr-band-search input {'), 'background'), 3],
       ['rule', 'var(--mmr-c-line-dark)', 'var(--mmr-c-navy)', 3],
       ['search/footer ring', decl(rule('.viz-root .mmr-band :focus-visible,'), 'outline').replace(/^3px solid /, ''), 'var(--mmr-c-navy)', 3],
@@ -566,6 +567,15 @@ describe('brand v1: links, focus, inputs, callouts and the site strip', () => {
       expect(decl(ring, 'box-shadow')).toBe('none');
     }
     expect(css.lastIndexOf(".viz-root[data-contrast='high'] .mmr-band a:focus-visible"))
+      .toBeGreaterThan(css.lastIndexOf(".viz-root[data-contrast='high'] .mmr-band :focus-visible"));
+    for (const selector of ['.viz-root .mmr-band-search button:focus-visible {',
+      ".viz-root[data-contrast='high'] .mmr-band-search button:focus-visible {"]) {
+      const ring = rule(selector);
+      expect(decl(ring, 'outline')).toBe('3px solid var(--mmr-c-sky)');
+      expect(decl(ring, 'outline-offset')).toBe('-3px');
+      expect(decl(ring, 'box-shadow')).toBe('none');
+    }
+    expect(css.lastIndexOf(".viz-root[data-contrast='high'] .mmr-band-search button:focus-visible"))
       .toBeGreaterThan(css.lastIndexOf(".viz-root[data-contrast='high'] .mmr-band :focus-visible"));
     expect(css).not.toContain(".viz-root[data-contrast='high'] .mmr-band-search input");
   });

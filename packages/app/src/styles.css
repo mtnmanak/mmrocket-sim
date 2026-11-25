@@ -984,7 +984,7 @@ html {
    because the strip must not follow the theme. color-scheme: dark makes the
    UA draw the search box's own chrome (caret, clear button) for a dark
    ground. Band links use an inset currentColor ring (paper on navy); search
-   controls and the footer keep sky (7.96:1 on navy).
+   controls and the footer keep sky (7.96:1 on navy), inset on the button.
    =================================================================== */
 .mmr-band {
   display: flex;
@@ -1124,8 +1124,8 @@ html {
   color: var(--mmr-c-orange-soft);
 }
 
-/* Search controls and footer retain their sky ring; band links override it
-   below. Daylight restates both rules inside its block, which comes last. */
+/* Search controls and footer retain their sky ring; band links and the search
+   button inset it below. Daylight restates these rules in its final block. */
 .viz-root .mmr-band :focus-visible,
 .viz-root .mmr-band-footer :focus-visible {
   outline: 3px solid var(--mmr-c-sky);
@@ -1138,11 +1138,21 @@ html {
   box-shadow: none;
 }
 
+.viz-root .mmr-band-search button:focus-visible {
+  outline: 3px solid var(--mmr-c-sky);
+  outline-offset: -3px;
+  box-shadow: none;
+}
+
 /* Search sits hard right so the menu reads as one run of links, not two. */
 .mmr-band-search {
   display: flex;
   align-items: center;
+  /* NAV-151: the 44px button sits LEFT of the field, taking 48px (with gap)
+     from the shrinkable nav. Reserve the old right-side button and its gap
+     so the field's left edge and width stay exactly where they were. */
   gap: 4px;
+  padding-right: 21px;
   margin-left: auto;
   flex: 0 0 auto;
 }
@@ -1167,13 +1177,18 @@ html {
 }
 
 .mmr-band-search button {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  padding: 2px;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 44px;
+  min-height: 44px;
+  flex: none;
   background: none;
-  border: none;
+  border: 0;
   border-radius: 4px;
   color: var(--mmr-c-slate-light);
+  padding: 0;
   cursor: pointer;
 }
 
@@ -5773,6 +5788,12 @@ select.unit-chip:hover {
 .viz-root[data-contrast='high'] .mmr-band a:focus-visible {
   outline: 2px solid currentColor;
   outline-offset: -2px;
+  box-shadow: none;
+}
+
+.viz-root[data-contrast='high'] .mmr-band-search button:focus-visible {
+  outline: 3px solid var(--mmr-c-sky);
+  outline-offset: -3px;
   box-shadow: none;
 }
 

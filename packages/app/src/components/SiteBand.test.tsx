@@ -90,11 +90,42 @@ describe('SiteBand reference 1.5.0 CSS', () => {
 
   it('moves the menu gap into the targets and keeps only the horizontal gutter', () => {
     const nav = rule('.mmr-band-nav');
-    for (const declaration of ['gap: 0;', 'margin: 0 -4px;', 'padding: 0 4px;', 'overflow-x: auto;', 'flex-wrap: nowrap;']) {
+    for (const declaration of ['gap: 0;', 'min-width: 0;', 'margin: 0 -4px;', 'padding: 0 4px;', 'overflow-x: auto;', 'flex-wrap: nowrap;']) {
       expect(nav).toContain(declaration);
     }
     expect(rule('.mmr-band-nav a')).toContain('flex: none;');
     expect(rule('.viz-root .mmr-band-nav a')).toContain('padding: 0 .375em;');
+  });
+
+  it('fits a centred 44px submit button before the unchanged search field', () => {
+    const form = rule('.mmr-band-search');
+    for (const declaration of ['display: flex;', 'align-items: center;', 'gap: 4px;',
+      'padding-right: 21px;', 'margin-left: auto;', 'flex: 0 0 auto;']) {
+      expect(form).toContain(declaration);
+    }
+    const button = rule('.mmr-band-search button');
+    for (const declaration of ['min-width: 44px;', 'min-height: 44px;', 'box-sizing: border-box;',
+      'display: flex;', 'align-items: center;', 'justify-content: center;', 'flex: none;',
+      'padding: 0;', 'background: none;', 'border: 0;']) {
+      expect(button).toContain(declaration);
+    }
+    const input = rule('.mmr-band-search input');
+    for (const declaration of ['width: 130px;', 'padding: 2px 7px;',
+      'border: 1px solid var(--mmr-c-control-dark);', 'border-radius: 999px;',
+      'font: inherit;', 'font-size: 11px;', 'letter-spacing: normal;', 'text-transform: none;']) {
+      expect(input).toContain(declaration);
+    }
+    expect(input).not.toMatch(/(?:^|[;\s])(?:min-)?height:|line-height:/);
+  });
+
+  it('insets the search button ring inside its 44px target in every contrast mode', () => {
+    for (const selector of ['.viz-root .mmr-band-search button:focus-visible',
+      ".viz-root[data-contrast='high'] .mmr-band-search button:focus-visible"]) {
+      const ring = rule(selector);
+      for (const declaration of ['outline: 3px solid var(--mmr-c-sky);', 'outline-offset: -3px;', 'box-shadow: none;']) {
+        expect(ring).toContain(declaration);
+      }
+    }
   });
 
   it('insets the band link ring in normal and high contrast without changing footer rings', () => {
@@ -159,6 +190,22 @@ describe('SiteBand — the rendered band', () => {
     expect(form.getAttribute('method')).toBe('get');
     expect(form.getAttribute('target')).toBe('_top');
     expect(host.querySelector('.mmr-band-search input')!.getAttribute('name')).toBe('q');
+    // DOM order follows visual order: button, then input. The field remains
+    // tabbable and submits on Enter; the button is a second native submit path.
+    expect(form.querySelectorAll('input')).toHaveLength(1);
+    expect(form.querySelector('input')!.getAttribute('type')).toBe('search');
+    const button = form.querySelector('button')!;
+    expect(button).not.toBeNull();
+    expect(button.getAttribute('type')).toBe('submit');
+    expect(button.getAttribute('title')).toBe('Search mountainmanrockets.com');
+    expect(button.getAttribute('aria-label')).toBe('Search');
+    expect(button.querySelector('svg')!.getAttribute('width')).toBe('13');
+    expect(button.querySelector('svg')!.getAttribute('height')).toBe('13');
+    expect([...form.children].map(child => child.tagName)).toEqual(['BUTTON', 'INPUT']);
+    expect(button.tabIndex).toBe(0);
+    expect(form.querySelector('input')!.tabIndex).toBe(0);
+    expect(form.onsubmit).toBeNull();
+    expect(form.querySelector('input')!.onkeydown).toBeNull();
     // The compact magnifier link is present at every width; CSS picks one.
     expect(host.querySelector('.mmr-band-search-link')!.getAttribute('href'))
       .toBe('https://www.mountainmanrockets.com/search/');
