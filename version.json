@@ -1,5 +1,5 @@
 {
-  "version": "0.216",
-  "released": "2026-11-24",
-  "note": "The motor browser can show when the motor data was last checked as well as when it last changed; the checked date appears after the next approved weekly catalogue update. No motor data changes and no flight moves."
+  "version": "0.217",
+  "released": "2026-11-25",
+  "note": "An autosave the app cannot read is kept until you choose to replace it, and New or opening a design asks first; a failed “Keep this tab’s design” no longer overwrites the other tab later; ten small corrections. No design that opened with its motors in v0.216 flies differently."
 }
