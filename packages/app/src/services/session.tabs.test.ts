@@ -126,18 +126,98 @@ describe('a single tab never trips the guard', () => {
 });
 
 describe('two tabs', () => {
-  it('H1 notifies the idle replaced tab after a quota-failed takeover retries', async () => {
+  it.each(['edit', 'pagehide'] as const)('H1 cancels a failed takeover before a later %s; only a second Keep notifies the idle tab', async retry => {
     const a = await openWatchedTab();
     const b = await openWatchedTab();
     save(b, 'B');
     save(a, 'A');
-    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new Error('full'); });
+    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new DOMException('full', 'QuotaExceededError'); });
     a.takeOverSession();
     spy.mockRestore();
+    expect(a.sessionSaveFailing()).toBe(true);
+    if (retry === 'edit') a.saveSessionDebounced(state('A edited'));
     a.flushSession();
     tellOtherTabs();
-    expect(stored()).toBe('A');
+    expect(stored()).toBe('B');
+    expect(a.sessionConflicted()).toBe(true);
+    expect(b.sessionConflicted()).toBe(false);
+    const reloaded = await openTab();
+    expect(reloaded.loadSession()?.tree.name).toBe('B');
+    a.takeOverSession();
+    tellOtherTabs();
+    expect(stored()).toBe(retry === 'edit' ? 'A edited' : 'A');
+    expect(a.sessionConflicted()).toBe(false);
+    expect(a.sessionSaveFailing()).toBe(false);
     expect(b.sessionConflicted()).toBe(true);
+  });
+  it.each(['serialization', 'blocked read', 'blocked write'] as const)('cancels a takeover that fails during %s', async failure => {
+    const a = await openWatchedTab();
+    const b = await openWatchedTab();
+    save(b, 'B');
+    save(a, 'A');
+    const before = localStorage.getItem(KEY);
+    const broken = state('A broken');
+    if (failure === 'serialization') {
+      Object.assign(broken.tree, { toJSON: () => { throw new Error('cannot serialize'); } });
+      a.saveSessionDebounced(broken);
+    }
+    const blocked = failure === 'serialization' ? null
+      : vi.spyOn(localStorage, failure === 'blocked read' ? 'getItem' : 'setItem')
+        .mockImplementation(() => { throw new DOMException('blocked', 'SecurityError'); });
+    try { a.takeOverSession(); } finally { blocked?.mockRestore(); }
+    expect(a.sessionSaveFailing()).toBe(true);
+    expect(a.sessionConflicted()).toBe(true);
+    expect(localStorage.getItem(KEY)).toBe(before);
+    a.saveSessionDebounced(state('A repaired'));
+    a.flushSession();
+    expect(localStorage.getItem(KEY)).toBe(before);
+    expect(a.sessionConflicted()).toBe(true);
+    a.takeOverSession();
+    tellOtherTabs();
+    expect(stored()).toBe('A repaired');
+    expect(a.sessionSaveFailing()).toBe(false);
+    expect(b.sessionConflicted()).toBe(true);
+  });
+
+  it('a takeover with no pending write restores its baseline and cancels permission', async () => {
+    const a = await openTab();
+    save(a, 'A');
+    const b = await openTab();
+    save(b, 'B');
+    const before = localStorage.getItem(KEY);
+    a.takeOverSession();
+    expect(a.sessionSaveFailing()).toBe(false);
+    a.saveSessionDebounced(state('A later edit'));
+    a.flushSession();
+    expect(localStorage.getItem(KEY)).toBe(before);
+    expect(a.sessionConflicted()).toBe(true);
+  });
+
+  it('refuses a takeover if the slot changes between the press and the write', async () => {
+    const a = await openTab();
+    const b = await openTab();
+    save(b, 'B');
+    save(a, 'A');
+    const replaced = localStorage.getItem(KEY);
+    const c = await openTab();
+    save(c, 'C');
+    const current = localStorage.getItem(KEY);
+    const read = vi.spyOn(localStorage, 'getItem').mockReturnValueOnce(replaced).mockReturnValue(current);
+    try { a.takeOverSession(); } finally { read.mockRestore(); }
+    expect(localStorage.getItem(KEY)).toBe(current);
+    expect(a.sessionConflicted()).toBe(true);
+    // No storage operation failed here: only the conflict banner is needed.
+    expect(a.sessionSaveFailing()).toBe(false);
+    a.flushSession();
+    expect(localStorage.getItem(KEY)).toBe(current);
+    // Even if the named slot returns, the refused press grants no permission.
+    localStorage.setItem(KEY, replaced!);
+    a.saveSessionDebounced(state('A later edit'));
+    a.flushSession();
+    expect(localStorage.getItem(KEY)).toBe(replaced);
+    expect(a.sessionConflicted()).toBe(true);
+    a.takeOverSession();
+    expect(stored()).toBe('A later edit');
   });
   it('the tab that is behind does not overwrite the other\'s work — it raises a conflict', async () => {
     const a = await openTab();

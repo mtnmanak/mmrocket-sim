@@ -8,7 +8,7 @@
     "components/ConfigPartEditors.tsx": 2,
     "components/ConfigStabilityRange.tsx": 9,
     "components/DebugLogDownload.tsx": 1,
-    "components/DesignConfirms.tsx": 2,
+    "components/DesignConfirms.tsx": 3,
     "components/DesignFlightSetting.tsx": 1,
     "components/DesignNotesPanel.tsx": 1,
     "components/DesktopPredictions.tsx": 2,

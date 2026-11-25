@@ -7,6 +7,12 @@
 // and filters inherited cautions. All have row regressions. Only the selector
 // and enum literals affect this text/call census; the .rkt angle wrap is removed.
 // No numerical threshold or tolerance changed. Counts below come from Vitest.
+// AS1 / row 165: DesignConfirms 2 -> 3 repeats the existing 10,000-instance
+// refusal in the recovery question. No limit or flight threshold changes;
+// App.instances and App.save cover preservation, download and replacement.
+// AS1 r3: census re-run unchanged (DesignConfirms 3, App 35, session 7).
+// Recovery action/error copy and unreadable-list guards add no measured
+// comparison, threshold or tolerance; session and App regressions cover them.
 // D1 r2: MotorBrowser remains 14: the three-date wording retains one data-date
 // producer and one delta producer. These dates do not compare flight numbers.
 // D1 CAT-CHECKED: MotorBrowser 13 -> 14 adds "last changed" to the catalogue

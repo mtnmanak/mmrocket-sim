@@ -9,6 +9,7 @@ import {
   saveSessionDebounced,
   sessionPredatesThisBuild,
   sessionSaveFailing,
+  sessionUnreadable,
   allowSessionReplacement,
 } from './session.js';
 import { APP_VERSION } from '../version.js';
@@ -812,15 +813,27 @@ describe('storage hardening: session tree', () => {
   const stage = { type: 'stage', id: 'kept', name: 'Sustainer', children: [] };
   const restore = () => designStateFromSession(loadSession(), { legacyMaxMotorLengthM: null });
 
-  it.each([null, 7, 'tree', []].map((v) => [v]))('names a fallback for an unreadable root (%j)', (tree) => {
-    const raw = JSON.stringify({ ...state(), tree });
+  it.each([null, 7, 'x', [], {}, { components: 'x' }, { components: null },
+    { components: [null, 7] }, { components: [{}, { type: 3 }, []] }].map((v) => [v]))('preserves an unreadable root (%j) until replacement is allowed', (tree) => {
+    const raw = JSON.stringify({ ...state(), tree, mountMotors: [{ old: 'motor' }], savedConfigs: [{ old: 'config' }],
+      launch: { ...state().launch, windAverage: 17 } });
     localStorage.setItem('online-openrocket.session.v1', raw);
+    expect(loadSession()).toBeNull();
+    expect(sessionUnreadable()).toBe(true);
     const restored = restore();
     expect(restored.state.tree.name).toBe('My Rocket');
-    expect(restored.restoreNotes.join(' ')).toContain('The starter design was opened.');
+    expect(restored.refused).toBe(true);
+    expect(restored.state.launch.windAverage).not.toBe(17);
+    expect(restored.restoreNotes.join(' ')).toContain('Autosave is paused');
+    saveSessionDebounced(state());
+    flushSession();
     expect(peekSession()).toBeNull();
     expect(autosavedDesignFile()).toMatchObject({ ork: false, extension: '.json', data: raw });
     expect(localStorage.getItem('online-openrocket.session.v1')).toBe(raw);
+    allowSessionReplacement();
+    flushSession();
+    expect(sessionUnreadable()).toBe(false);
+    expect(loadSession()?.tree.name).toBe('Test');
   });
 
   it.each(['modern', 'legacy'])('detaches the old design from an unreadable root (%s)', (format) => {
@@ -835,12 +848,9 @@ describe('storage hardening: session tree', () => {
       maxMotorLengthM: 0.5, importedDocument: { name: 'Old flight' }, savedMark: 'old', flownSinceSave: true,
     });
     localStorage.setItem('online-openrocket.session.v1', raw);
-    const loaded = loadSession()!;
-    expect(Object.keys(loaded).sort()).toEqual([
-      'appVersion', 'launch', 'motorLengthLimitsMigrated', 'nozzleModeVersion', 'savedAt', 'tree', 'treeRestoreNotes',
-    ]);
-    expect(loaded.launch).toEqual(state().launch);
-    expect(loaded.savedAt).toBe(123);
+    const loaded = loadSession();
+    expect(loaded).toBeNull();
+    expect(sessionUnreadable()).toBe(true);
     const restored = designStateFromSession(loaded, { legacyMaxMotorLengthM: 0.9 });
     expect(restored.state.mountMotors).toEqual({});
     expect(restored.state.savedConfigs).toEqual([]);
@@ -848,17 +858,21 @@ describe('storage hardening: session tree', () => {
     expect(restored.state.unmatchedRefs).toEqual({});
     expect(restored.state.measured).toEqual({ massKg: null, cgM: null });
     expect(restored.preLengthRestore.maxMotorLengthByStage).toEqual({});
-    expect(restored.restoreNotes.join(' ')).toContain('motors, configurations, and measurements were not applied.');
+    expect(restored.restoreNotes.join(' ')).toContain('Autosave is paused');
     expect(localStorage.getItem('online-openrocket.session.v1')).toBe(raw);
+    allowSessionReplacement();
   });
 
-  it.each([null, {}, 'components'].map((v) => [v]))('repairs an unreadable component list (%j)', (components) => {
+  it.each([[], [stage]].map(components => [components]))('restores a legitimately empty design (%j)', (components) => {
     const raw = JSON.stringify({ ...state(), tree: { name: 'Kept name', components } });
     localStorage.setItem('online-openrocket.session.v1', raw);
     const restored = restore();
+    expect(sessionUnreadable()).toBe(false);
+    expect(restored.refused).toBe(false);
     expect(restored.state.tree.name).toBe('Kept name');
     expect(restored.state.tree.components).toHaveLength(1);
-    expect(restored.restoreNotes).toContain('The unreadable component list was removed.');
+    expect(restored.state.tree.components[0]!.children ?? []).toEqual([]);
+    expect(restored.restoreNotes).not.toContain('The unreadable component list was removed.');
     expect(localStorage.getItem('online-openrocket.session.v1')).toBe(raw);
   });
 
@@ -866,8 +880,11 @@ describe('storage hardening: session tree', () => {
     const raw = JSON.stringify({ ...state(), tree: { components: [node, stage] } });
     localStorage.setItem('online-openrocket.session.v1', raw);
     const restored = restore();
+    expect(sessionUnreadable()).toBe(false);
+    expect(restored.refused).toBe(false);
     expect(restored.state.tree.components).toEqual([stage]);
     expect(restored.restoreNotes).toContain('A component that could not be read was removed.');
+    expect(restoreTier(restored, 'A component that could not be read was removed.')).toBe('caution');
     expect(localStorage.getItem('online-openrocket.session.v1')).toBe(raw);
   });
 

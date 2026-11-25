@@ -228,7 +228,7 @@ async function pausedAutosave(): Promise<HTMLElement> {
   localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: excessiveTree(), savedAt: Date.now() }));
   const host = await mountApp();
   await settle(650);
-  await waitFor(() => (host.textContent ?? '').includes('Download the autosaved design (.ork)'), 'the paused-autosave bar');
+  await waitFor(() => (host.textContent ?? '').includes('Download the autosaved design'), 'the paused-autosave bar');
   return host;
 }
 
@@ -338,11 +338,11 @@ describe('a write the app did not make as the design save, over the saved design
     expect(await guarded(host)).toBe(true);
   }, 30000);
 
-  it('Download the autosaved design (.ork), while autosave is paused, over the saved .ork', async () => {
+  it('Download the autosaved design, while autosave is paused, over the saved .ork', async () => {
     const host = await pausedAutosave();
     await saveOrkTo(host, 'Rocket.ork');
     pickNext('Rocket.ork');
-    await act(async () => { button(host, 'Download the autosaved design (.ork)').click(); });
+    await act(async () => { button(host, 'Download the autosaved design').click(); });
     expect(await blobText(await writtenTo('Rocket.ork'))).toContain('Oversized design');
     await waitFor(() => status(host) === 'Unsaved changes', 'Unsaved changes');
     expect(await guarded(host)).toBe(true);
@@ -352,10 +352,12 @@ describe('a write the app did not make as the design save, over the saved design
     const host = await pausedAutosave();
     const release = hold('Rocket.ork');
     pickNext('Rocket.ork');
-    await act(async () => { button(host, 'Download the autosaved design (.ork)').click(); });
+    await act(async () => { button(host, 'Download the autosaved design').click(); });
     await pick(host, new File([fixture(RKT)], 'Replacement.rkt'));
     const discard = [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Open without saving'));
     if (discard) await act(async () => { discard.click(); });
+    await waitFor(() => !!host.querySelector('[aria-label="Replace the autosaved design"]'), 'the preservation question');
+    await act(async () => { button(host.querySelector('[aria-label="Replace the autosaved design"]')!, 'Continue').click(); });
     await waitFor(() => shownName(host) === 'FooBar Test', 'the opened design');
     await saveOrkTo(host, 'Rocket.ork');
     expect(await blobText(written.get(`${folder}/Rocket.ork`)!)).toContain('FooBar Test');
