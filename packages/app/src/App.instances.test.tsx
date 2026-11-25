@@ -113,9 +113,10 @@ it('S4a-1 shows the refused edit as a caution while keeping the rendered design'
   expect(host.querySelector('.notice-bar .message-caution')).not.toBeNull();
 }, 30_000);
 
-it('keeps a refused autosave intact, downloads the original and resumes only on New', async () => {
+it.each([false, true])('keeps a refused autosave intact, downloads the original and resumes only on New (repair: %s)', async repair => {
   const key = 'online-openrocket.session.v1';
-  const original = JSON.stringify({ tree: excessiveTree(), savedAt: Date.now() });
+  const tree = excessiveTree();
+  const original = JSON.stringify({ tree, ...(repair ? { savedConfigs: [null] } : {}), savedAt: Date.now() });
   localStorage.setItem(key, original);
   localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: false }));
   const save = vi.spyOn(files, 'saveFile').mockResolvedValue({ kind: 'cancelled' });
@@ -123,13 +124,32 @@ it('keeps a refused autosave intact, downloads the original and resumes only on 
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 650)); });
   expect(localStorage.getItem(key)).toBe(original);
   expect(host.querySelector('.tour-card')).toBeNull();
-  const button = [...host.querySelectorAll('button')].find(b => b.textContent === 'Download the autosaved design (.ork)')!;
+  const button = [...host.querySelectorAll('button')].find(b => b.textContent === 'Download the autosaved design')!;
   expect(button).toBeDefined();
   await act(async () => button.click());
-  expect(save).toHaveBeenCalledWith(expect.stringContaining('Oversized design'), expect.objectContaining({ extensions: ['.ork'] }));
+  expect(save).toHaveBeenCalledWith(repair ? original : expect.stringContaining('Oversized design'),
+    expect.objectContaining({ extensions: [repair ? '.json' : '.ork'] }));
   expect(localStorage.getItem(key)).toBe(original);
   const newButton = [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === '✕ New')!;
   await act(async () => newButton.click());
+  expect(host.querySelector('[aria-label="Replace the autosaved design"]')?.textContent).toContain('10,000');
+  expect(localStorage.getItem(key)).toBe(original);
+  const question = host.querySelector('[aria-label="Replace the autosaved design"]')!;
+  expect(question.textContent).toContain('exceeds the 10,000 expanded component instance limit');
+  expect(question.textContent).not.toContain('could not be read');
+  const recoveryDownload = [...question.querySelectorAll<HTMLButtonElement>('button')]
+    .find(b => b.textContent === 'Download the autosaved design')!;
+  await act(async () => recoveryDownload.click());
+  expect(save).toHaveBeenLastCalledWith(repair ? original : expect.stringContaining('Oversized design'),
+    expect.objectContaining({ extensions: [repair ? '.json' : '.ork'] }));
+  expect(host.querySelector('[aria-label="Replace the autosaved design"]')).not.toBeNull();
+  expect(localStorage.getItem(key)).toBe(original);
+  await act(async () => [...question.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Cancel')!.click());
+  expect(localStorage.getItem(key)).toBe(original);
+  expect(host.textContent).toContain('Autosave is paused');
+  await act(async () => newButton.click());
+  const continueButton = host.querySelector<HTMLButtonElement>('[aria-label="Replace the autosaved design"] .modal-danger')!;
+  await act(async () => continueButton.click());
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 650)); });
   expect(localStorage.getItem(key)).not.toBe(original);
   expect(host.textContent).not.toContain('Autosave is paused');
@@ -217,24 +237,22 @@ it('S4a-1 refuses an autosave before initializing its old file identity', async 
   expect(document.title).not.toContain('OldOversized');
 }, 30_000);
 
-it('holds a refused autosave until the startup share offer is accepted', async () => {
+it('holds a refused autosave until the startup preservation question is answered', async () => {
   const key = 'online-openrocket.session.v1';
   const original = JSON.stringify({ tree: excessiveTree(), savedAt: Date.now() });
   localStorage.setItem(key, original);
   const tree = { ...treeModel.defaultTree(), name: 'Startup linked design' };
   window.location.hash = await encodeShareFragment(exportOrk({ name: tree.name, tree }));
   await mount();
-  await waitFor(() => host.textContent?.includes('This link opens') === true || history.tree.name === tree.name);
+  await waitFor(() => host.querySelector('[aria-label="Replace the autosaved design"]') !== null);
   // Wait beyond the autosave debounce so an unoffered link cannot silently win.
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 650)); });
   expect(localStorage.getItem(key)).toBe(original);
-  expect(host.querySelector('[role="dialog"][aria-label="Open design from link"]')).not.toBeNull();
+  expect(host.querySelector('[role="dialog"][aria-label="Open design from link"]')).toBeNull();
+  expect(host.querySelectorAll('[role="dialog"][aria-modal="true"]')).toHaveLength(1);
   expect(history.tree.name).not.toBe(tree.name);
-  expect(host.textContent).toContain('Download the autosaved design (.ork)');
-  const open = [...host.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')]
-    .find(b => b.textContent?.includes(`Open “${tree.name}”`));
-  expect(open).toBeDefined();
-  await act(async () => open!.click());
+  expect(host.textContent).toContain('Download the autosaved design');
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Replace the autosaved design"] .modal-danger')!.click());
   await waitFor(() => history.tree.name === tree.name && localStorage.getItem(key) !== original);
   expect(host.textContent).not.toContain('Autosave is paused');
 }, 30_000);

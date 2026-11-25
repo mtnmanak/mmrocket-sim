@@ -12,6 +12,7 @@ import { probeFlight } from './services/autoDelay.testSupport.js';
 import type { DelayResolution } from './services/autoDelaySolver.js';
 import { engineTree, findNode, findParent, motorMounts } from './tree/treeModel.js';
 import type { SessionState } from './services/session.js';
+import * as sessionService from './services/session.js';
 import { exportOrk, importOrk } from './services/orkFile.js';
 import { padMassSetKey } from './services/configSync.js';
 import { designFingerprint, type DesignSnapshot } from './services/dirtyState.js';
@@ -256,12 +257,12 @@ async function waitFor(pred: () => boolean, what: string, timeoutMs = 8000): Pro
   }
 }
 
-async function mountApp(): Promise<HTMLElement> {
+async function mountApp(Page = App, Preferences = PrefsProvider): Promise<HTMLElement> {
   const host = document.createElement('div');
   document.body.appendChild(host);
   const root = createRoot(host);
   mounted.push({ root, host });
-  await act(async () => { root.render(<PrefsProvider><App /></PrefsProvider>); });
+  await act(async () => { root.render(<Preferences><Page /></Preferences>); });
   return host;
 }
 
@@ -356,9 +357,21 @@ it.each(['autosave recovery', 'explicit file save'])('guards dirty edits after a
   expect(leave()).toBe(false);
 }, 30000);
 
-it.each(['damaged-root', 'legacy'] as const)('restores the starter motor for a %s autosave', async (kind) => {
-  const tree = kind === 'damaged-root' ? null
-    : { name: 'Legacy', components: [{ type: 'stage', id: 's', children: [
+it.each([JSON.stringify({ tree: null, launch: { ...DEFAULT_CONDITIONS, windAverage: 17 } }), '{broken'])(
+'opens the ordinary starter motor while preserving unreadable autosave %s', async raw => {
+  localStorage.setItem(SESSION_KEY, raw);
+  const host = await mountApp();
+  await act(async () => { button(host, 'Motors & Configuration').click(); });
+  await waitFor(() => !!host.querySelector('input[id^="ejection-delay-"]'), 'starter motor on screen');
+  expect(host.textContent).toContain('C6');
+  expect(host.querySelector('.autosave-paused-alert')?.textContent).toContain('could not be read');
+  expect(button(host, 'Download the autosaved design (JSON)')).toBeDefined();
+  await act(async () => { window.dispatchEvent(new Event('pagehide')); });
+  expect(localStorage.getItem(SESSION_KEY)).toBe(raw);
+}, 30_000);
+
+it('restores the starter motor for a legacy autosave', async () => {
+  const tree = { name: 'Legacy', components: [{ type: 'stage', id: 's', children: [
       { type: 'bodytube', id: 'mount', length: 0.3, outerRadius: 0.0095, thickness: 0.0005, motorMount: true },
     ] }] };
   localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, launch: DEFAULT_CONDITIONS, savedAt: Date.now() }));
@@ -1066,6 +1079,48 @@ describe('the 500-run cap is reported (audit 2026-09-22)', () => {
 
 describe('another tab\'s autosave is not overwritten (audit 2026-09-22)', () => {
   const CONFLICT = 'changed in another tab';
+
+  it('AS1 failed Keep leaves both banners and Load other tab survives the page-hide flush', async () => {
+    let host = await mountApp();
+    await waitFor(starterStored, 'the starter motor to be autosaved');
+    await settle(600);
+    const other = { ...storedSession()!, stamp: 'othertab', tree: { ...storedSession()!.tree, name: 'Other tab design' } };
+    onTestFinished(async () => {
+      await unmountAll();
+      sessionService.loadSession();
+      sessionService.saveSessionDebounced(other);
+      sessionService.flushSession();
+      sessionService.discardSession();
+      expect(sessionService.sessionSaveFailing()).toBe(false);
+      expect(sessionService.sessionConflicted()).toBe(false);
+      expect(sessionService.heldSession()).toBeNull();
+      vi.resetModules();
+    });
+    const raw = JSON.stringify(other);
+    localStorage.setItem(SESSION_KEY, raw);
+    await type(input(host, 'Measured mass'), '33');
+    await settle(600);
+    const blocked = vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new DOMException('full', 'QuotaExceededError'); });
+    try { await act(async () => { button(host, 'Keep this tab').click(); }); }
+    finally { blocked.mockRestore(); }
+    expect(host.querySelector('.autosave-failing-alert')?.textContent).toContain("Autosave can't write");
+    expect(host.querySelector('.session-conflict-alert')?.textContent).toContain(CONFLICT);
+    const reload = vi.spyOn(window.location, 'reload').mockImplementation(() => {});
+    onTestFinished(() => { reload.mockRestore(); });
+    await act(async () => { button(host, 'Load the other tab').click(); });
+    expect(reload).toHaveBeenCalledOnce();
+    await act(async () => { window.dispatchEvent(new Event('pagehide')); });
+    expect(localStorage.getItem(SESSION_KEY)).toBe(raw);
+    await unmountAll();
+    vi.resetModules();
+    const { App: FreshApp } = await import('./App.js');
+    const { PrefsProvider: FreshPrefs } = await import('./prefs/PrefsContext.js');
+    host = await mountApp(FreshApp, FreshPrefs);
+    expect(host.querySelector<HTMLInputElement>('#rocket-name')!.value).toBe('Other tab design');
+    expect(host.querySelector('.session-conflict-alert')?.textContent).not.toContain(CONFLICT);
+    expect(storedSession()!.tree).toEqual(other.tree);
+    expect(storedSession()!.stamp).toBeTruthy();
+  }, 30_000);
 
   it('one tab editing, reloading and editing again never raises the conflict', async () => {
     let host = await mountApp();

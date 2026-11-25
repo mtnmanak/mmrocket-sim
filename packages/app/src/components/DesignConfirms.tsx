@@ -30,6 +30,14 @@ interface DesignConfirmsProps {
   setShroudPrompt: (value: null) => void;
   hasOpenMotorQuestion: boolean;
   onConvertShrouds: () => void;
+  preservedAutosave?: {
+    unreadable: boolean;
+    action: string;
+    downloadError: string | null;
+    onDownload: () => void;
+    onContinue: () => void;
+    onCancel: () => void;
+  } | null;
   children?: ReactNode;
 }
 
@@ -45,7 +53,7 @@ interface DesignConfirmsProps {
  */
 export function DesignConfirms({ tree, unprotected = false, lossDialog, setLossDialog, saveLossy, confirmNew, setConfirmNew,
   replaceLoss, startNewDesign, onSaveOrk, pendingOpen, setPendingOpen, onOpenOrk, shareOffer, setShareOffer,
-  applyImported, shroudPrompt, setShroudPrompt, hasOpenMotorQuestion, onConvertShrouds, children }: DesignConfirmsProps) {
+  applyImported, shroudPrompt, setShroudPrompt, hasOpenMotorQuestion, onConvertShrouds, preservedAutosave, children }: DesignConfirmsProps) {
   const openPrompt = useRef(pendingOpen);
   useEffect(() => {
     openPrompt.current = pendingOpen;
@@ -56,6 +64,30 @@ export function DesignConfirms({ tree, unprotected = false, lossDialog, setLossD
     setPendingOpen(null);
   };
   return <>
+      {preservedAutosave && (
+        <Modal label="Replace the autosaved design" onClose={preservedAutosave.onCancel}>
+          <h2>Replace the autosaved design?</h2>
+          <Note tier="caution">
+            <p className="note-para">
+              {preservedAutosave.unreadable
+                ? 'The autosave stored in this browser could not be read.'
+                : 'The autosave stored in this browser exceeds the 10,000 expanded component instance limit.'}
+              {' '}Continuing {preservedAutosave.action} and replaces the stored autosave;
+              it cannot be recovered afterwards.
+            </p>
+          </Note>
+          <div className="modal-actions">
+            <button className="file-btn" style={{ maxWidth: '100%', whiteSpace: 'normal' }} onClick={preservedAutosave.onDownload}>
+              Download the autosaved design{preservedAutosave.unreadable ? ' (JSON)' : ''}
+            </button>
+            <button className="file-btn modal-danger" onClick={preservedAutosave.onContinue}>Continue</button>
+            <button className="file-btn" onClick={preservedAutosave.onCancel}>Cancel</button>
+          </div>
+          {preservedAutosave.downloadError && <div role="alert"><Note tier="danger">
+            <p className="note-para">{preservedAutosave.downloadError}</p>
+          </Note></div>}
+        </Modal>
+      )}
       {lossDialog && <FormatLossDialog report={lossDialog.report} confirm={lossDialog.confirm}
         onClose={() => setLossDialog(null)}
         onSave={() => saveLossy(lossDialog.report.format, lossDialog.report)}

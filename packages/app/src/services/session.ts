@@ -18,7 +18,6 @@ import { validWeatherSnapshot, type WeatherSnapshot } from './weatherSnapshot.js
 import { validWindLevels, validWindProfileSource } from './windProfile.js';
 import { lookupTable } from './xmlUtil.js';
 import type { ImportedSummaryDocument } from './orkFlightData.js';
-import { defaultTree } from '../tree/treeModel.js';
 import { validDesignFileRef, type DesignFileRef } from './designFileName.js';
 import { validLossySaveMark, type LossySaveMark } from './lossySave.js';
 import { designFingerprint } from './dirtyState.js';
@@ -531,19 +530,11 @@ function readSession(restoreRoot: boolean): SessionState | null {
     }
     if (s.importedDocument?.desktopPredictions !== undefined
       && !validDesktopPredictions(s.importedDocument.desktopPredictions)) delete s.importedDocument.desktopPredictions;
-    if (!isTable(s.tree)) {
+    if (!isTable(s.tree) || !Array.isArray(s.tree.components)
+        || (s.tree.components.length > 0 && !s.tree.components.some(c => isTable(c) && typeof c.type === 'string'))) {
       // A recovery download must keep the original bytes, not export a substitute.
-      if (!restoreRoot) return null;
-      // Old mount ids can collide with freshly minted starter ids. Carry only
-      // launch conditions and session provenance across to the replacement.
-      s = {
-        tree: defaultTree(), launch: s.launch, savedAt: s.savedAt, appVersion: s.appVersion,
-        motorLengthLimitsMigrated: true,
-        treeRestoreNotes: [],
-      };
-      // D7 G04: the restored design was replaced — Caution, set here where it is known.
-      cautionNote(s.treeRestoreNotes!, 'G04.root-replaced', 'The autosaved design root could not be read. The starter design was opened. '
-        + 'The old design\'s motors, configurations, and measurements were not applied.');
+      if (restoreRoot) unreadableSession = true;
+      return null;
     }
     s.tree = sanitizeDesignProvenance(s.tree, s.treeRestoreNotes ??= []);
     s.tree = sanitizeDocumentMaterials(s.tree, s.treeRestoreNotes);
@@ -1005,9 +996,9 @@ function evictDisposableCache(): number {
   return removed;
 }
 
-function writeNow(): void {
-  if (pending === null) return;
-  if (unreadableSession) { setSaveFailing(true); return; }
+function writeNow(): boolean {
+  if (pending === null) return false;
+  if (unreadableSession) { setSaveFailing(true); return false; }
   try {
     // Plugged motors carry ejectionDelay = Infinity; JSON.stringify would
     // silently turn that into null, so round-trip it as a string.
@@ -1029,7 +1020,7 @@ function writeNow(): void {
       // Another tab wrote since this one last looked. Keep `pending` — it is
       // what "Keep this tab's design" writes — and leave the slot alone.
       setConflicted(true);
-      return;
+      return false;
     }
     try {
       localStorage.setItem(KEY, payload);
@@ -1058,10 +1049,12 @@ function writeNow(): void {
     setConflicted(false);
     setSaveFailing(false);
     pending = null;
+    return true;
   } catch {
     // Quota/serialization failures must never break editing — but "your
     // work saves itself" failing silently forever was the defect: flag it.
     setSaveFailing(true);
+    return false;
   }
 }
 
@@ -1110,8 +1103,10 @@ export function takeOverSession(): void {
   }
   setConflicted(false);
   overwriting = replacing || null;
-  flushSession();
-  if (pending !== null || saveFailing) {
+  if (timer) { clearTimeout(timer); timer = null; }
+  const landed = writeNow();
+  if (!landed) {
+    overwriting = null;
     seenStamp = previousStamp;
     setConflicted(previousConflict);
   }
@@ -1165,7 +1160,8 @@ export function sessionPayload(): string | null {
  * newest design, which the slot does not have. Recovery takes it over the slot.
  */
 export function heldSession(): Omit<SessionState, 'savedAt'> | null {
-  return conflicted || saveFailing ? pending : null;
+  // An unreadable slot is the recovery copy, even if a paused edit tried to save.
+  return !unreadableSession && (conflicted || saveFailing) ? pending : null;
 }
 
 /**

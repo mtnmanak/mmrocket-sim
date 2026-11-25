@@ -378,6 +378,35 @@ export function App() {
   const [restored] = useState(() => designStateFromSession(loadedSession, { legacyMaxMotorLengthM: legacyMaxMotorLength(), units: prefs.units }));
   const session = restored.refused ? null : loadedSession;
   const [autosavePaused, setAutosavePaused] = useState(restored.refused);
+  const [confirmAutosaveReplacement, setConfirmAutosaveReplacement] = useState(false);
+  const [autosaveReplacementAction, setAutosaveReplacementAction] = useState('starts a new design');
+  const [autosaveDownloadError, setAutosaveDownloadError] = useState<string | null>(null);
+  const autosaveReplacementAnswer = useRef<((continueOpening: boolean) => void) | null>(null);
+  const autosaveReplacementUnmounted = useRef(false);
+  const askAutosaveReplacement = (action: string): Promise<boolean> => {
+    if (autosaveReplacementUnmounted.current) return Promise.resolve(false);
+    if (!autosavePaused) return Promise.resolve(true);
+    // A newer replacement cancels the older pending action, just like Open.
+    autosaveReplacementAnswer.current?.(false);
+    setAutosaveReplacementAction(action);
+    setAutosaveDownloadError(null);
+    setConfirmAutosaveReplacement(true);
+    return new Promise(resolve => { autosaveReplacementAnswer.current = resolve; });
+  };
+  const answerAutosaveReplacement = (continueOpening: boolean) => {
+    const answer = autosaveReplacementAnswer.current;
+    autosaveReplacementAnswer.current = null;
+    setConfirmAutosaveReplacement(false);
+    answer?.(continueOpening);
+  };
+  useEffect(() => {
+    autosaveReplacementUnmounted.current = false;
+    return () => {
+      autosaveReplacementUnmounted.current = true;
+      autosaveReplacementAnswer.current?.(false);
+      autosaveReplacementAnswer.current = null;
+    };
+  }, []);
   const [importedDocument, setImportedDocument] = useState(() => session?.importedDocument);
   // The autosave holds the PARSED design, not the file it came from, so a
   // design restored from a session another build wrote has never been through
@@ -1212,15 +1241,24 @@ export function App() {
    * confirmation when there is - and two copies of a twelve-setter reset is
    * exactly the shape of thing that gets fixed in one place only.
    */
-  const startNewDesign = () => {
+  const startNewDesign = async () => {
+    // Save/discard the on-screen design first; this second question protects
+    // the different design still held in the autosave slot.
+    setConfirmNew(false);
+    if (autosavePaused && !await askAutosaveReplacement('starts a new design')) return;
+    let newDesign: ReturnType<typeof planNewDesign>;
+    try {
+      newDesign = planNewDesign({ launch, measured: { massKg: null, cgM: null } }, openSeq);
+    } catch (e) {
+      setFileNote(`Could not start a new design: ${noteText(e instanceof Error ? e.message : String(e))}`, 'error');
+      return;
+    }
     setShowBatch(false);
     setBundleSource(null);
     clearMotorLink();
     documentGeneration.current++;
     appliedSaveDestination.current = null;
     appliedOrkSaveDestination.current = null;
-    setAutosavePaused(false);
-    allowSessionReplacement();
     setHiddenPartIds(new Set());
     retireMotorChoice();
     // ONE emptyTree(), for BOTH the state and the mark (importApply's
@@ -1228,7 +1266,7 @@ export function App() {
     // "Start a new design?" on an empty design, which is the always-fires
     // confirmation the comment on the New button warns about. Handing it the
     // open sequence supersedes any Open still in flight (audit 2026-09-22).
-    const { snapshot: fresh, mark } = planNewDesign({ launch, measured: { massKg: null, cgM: null } }, openSeq);
+    const { snapshot: fresh, mark } = newDesign;
     setDesignNotesEpoch(epoch => epoch + 1);
     setTree(fresh.tree);
     setMountMotors({});
@@ -1282,6 +1320,9 @@ export function App() {
     // state, which has not re-rendered.
     // eslint-disable-next-line no-restricted-syntax -- ✕ New: an empty design is not work to lose
     markSaved(mark);
+    // No await separates the setters from this release; effects see the applied design.
+    setAutosavePaused(false);
+    allowSessionReplacement();
   };
 
   // ---- undo / redo (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y / buttons) ----
@@ -2618,7 +2659,12 @@ export function App() {
     const generation = documentGeneration.current;
     try {
     const file = autosavedDesignFile();
-    if (!file) { setFileNote('There is no autosaved design to download.', 'warn', true, 'caution'); return; }
+    if (!file) {
+      const text = 'There is no autosaved design to download.';
+      setAutosaveDownloadError(text);
+      setFileNote(text, 'warn', true, 'caution');
+      return;
+    }
     const out = await saveFile(file.data, { suggestedName: file.name, mime: file.mime,
       extensions: [file.extension], description: file.description });
     const note = saveOutcomeNote(out);
@@ -2626,7 +2672,9 @@ export function App() {
       : `${note.text} The design could not be written as an .ork; this file keeps the raw autosave as JSON.`,
       file.notes.length ? 'warn' : note.severity, true, file.notes.length ? 'caution' : undefined);
     } catch (e) {
-      documentNote(generation, `Autosave download failed: ${noteText(e instanceof Error ? e.message : String(e))}`, 'error', undefined, 'danger');
+      const text = `Autosave download failed: ${noteText(e instanceof Error ? e.message : String(e))}`;
+      setAutosaveDownloadError(text);
+      documentNote(generation, text, 'error', undefined, 'danger');
     }
   };
 
@@ -2985,6 +3033,15 @@ export function App() {
       // never reaches the markSaved at the end, which is what made the loser's
       // work look saved.
       if (!openSeq.isCurrent(openId)) return;
+      if (autosavePaused) {
+        const accepted = await askAutosaveReplacement(file ? `opens “${noteField(file.name)}”` : 'opens the design from the link');
+        if (!accepted || !openSeq.isCurrent(openId)) {
+          if (!accepted && !file && !autosaveReplacementUnmounted.current && openSeq.isCurrent(openId)) {
+            setFileNote('The link was not opened. To open it, download the autosaved design if you want it, then open the link again.');
+          }
+          return;
+        }
+      }
       documentGeneration.current++;
       setShowBatch(false);
       setBundleSource(null);
@@ -3023,8 +3080,6 @@ export function App() {
           severity: highestTier(lines) === 'information' ? plan.note.severity : 'warn' };
       }
       retireMotorChoice();
-      setAutosavePaused(false);
-      allowSessionReplacement();
       applyImportPlan(plan, {
         history: { reset: resetHistory },
         setMountMotors, setUnmatchedRefs, setSavedConfigs, setActiveConfigId, setDetachedOverrides, setLaunch, setMeasured,
@@ -3088,6 +3143,9 @@ export function App() {
         ignition: { ...resolveFlightState(plan.snapshot.tree, plan.snapshot.savedConfigs, plan.snapshot.activeConfigId,
           plan.snapshot.detachedOverrides ?? {}, plan.snapshot.mountMotors).mountMotors[flight.mountId]!.ignition },
         motor: plan.snapshot.mountMotors[flight.mountId]!, motorDelay: plan.snapshot.mountMotors[flight.mountId]!.spec.ejectionDelay, previousTree: tree, previousMotor: mountMotors[flight.mountId], committed: false };
+      // All apply work succeeded, in one synchronous block, before releasing recovery bytes.
+      setAutosavePaused(false);
+      allowSessionReplacement();
       return plan.snapshot.tree;
     } finally { finishImport(); }
   };
@@ -3356,7 +3414,10 @@ export function App() {
       // does, and say which one in the import note; the Flight configurations
       // panel on Motors & Configuration switches between them (motors AND recovery
       // deployment, since applyConfig applies both now).
-      await applyImported(imported, openId, openedDesignFileRef(file.name, imported.sourceFormat!, imported.fileRocketName));
+      if (!await applyImported(imported, openId, openedDesignFileRef(file.name, imported.sourceFormat!, imported.fileRocketName))) {
+        sessionDebugLog.record('import-failed', new Error('Import cancelled before application.'));
+        return;
+      }
       if (openSeq.isCurrent(openId)) {
         sessionDebugLog.record('import-complete');
         const recentId = recentSaveByName.current.get(file.name);
@@ -3505,7 +3566,9 @@ export function App() {
    * ids, and this is read once per mount card per render.
    */
   // Share and Quick picks use one memoized tree check (audit 2026-10-11, S2-9).
-  shareShouldOffer.current = dirty || !quickPicksOffered || autosavePaused;
+  // The preservation question already covers a clean paused starter. Keep
+  // the on-screen design's own save/discard offer first only when it is dirty.
+  shareShouldOffer.current = dirty || (!autosavePaused && !quickPicksOffered);
   useEffect(() => {
     if (shareHandled.current || !hasSharePayload(window.location.hash)) return;
     const finishImport = pageActivity.startImport();
@@ -3649,7 +3712,7 @@ export function App() {
     && !flightHoldsHandle.current && !simulating && reflying === null && fullSeriesHolds.current === 0
     && !shareOffer && !pendingOpen && !pendingLinkFlight.current
     && !showBatch && !showPrefs && !showGuide && !showChangelog && !showWeather && !showScale
-    && !showRecent && !showExamples && !confirmNew && !lossDialog && !openMotorQuestion
+    && !showRecent && !showExamples && !confirmNew && !confirmAutosaveReplacement && !lossDialog && !openMotorQuestion
     && !showFileMenu && !showFeedback && !autosavePaused && !autosaveFailing && !sessionConflict
     && openModalCount() === 0
     && !document.querySelector('[role="dialog"][aria-modal="true"], dialog[open]');
@@ -4205,7 +4268,7 @@ export function App() {
             {sessionUnreadable() ? 'The existing autosave could not be read.' : 'The autosaved design was not restored because it exceeds the 10,000 expanded component instance limit.'}{' '}
             Autosave is paused to keep that original design. Download it before choosing New or opening another
             design, which resumes autosave. Save edits to the starter design with Save As / Export.{' '}
-            <button className="file-btn" onClick={() => { void downloadAutosavedDesign(); }}>Download the autosaved design {sessionUnreadable() ? '(JSON)' : '(.ork)'}</button>
+            <button className="file-btn" onClick={() => { void downloadAutosavedDesign(); }}>Download the autosaved design{sessionUnreadable() ? ' (JSON)' : ''}</button>
           </Note>
         )}
         </div>
@@ -4417,7 +4480,12 @@ export function App() {
         if (dirty) setPendingOpen(file); else void onOpenOrk(file);
       }} />}
       <DesignConfirms tree={tree} lossDialog={lossDialog} setLossDialog={setLossDialog} saveLossy={saveLossy}
-        unprotected={dirty || flownSinceSave.current} confirmNew={confirmNew} setConfirmNew={setConfirmNew} replaceLoss={replaceLoss} startNewDesign={startNewDesign}
+        preservedAutosave={confirmAutosaveReplacement ? {
+          unreadable: sessionUnreadable(), action: autosaveReplacementAction, downloadError: autosaveDownloadError,
+          onDownload: () => { void downloadAutosavedDesign(); },
+          onContinue: () => answerAutosaveReplacement(true), onCancel: () => answerAutosaveReplacement(false),
+        } : null}
+        unprotected={dirty || flownSinceSave.current} confirmNew={confirmNew} setConfirmNew={setConfirmNew} replaceLoss={replaceLoss} startNewDesign={() => { void startNewDesign(); }}
         onSaveOrk={onSaveOrk} pendingOpen={pendingOpen} setPendingOpen={setPendingOpen} onOpenOrk={onOpenOrk}
         shareOffer={shareOffer} setShareOffer={setShareOffer}
         applyImported={async imported => { await applyImported(imported); }}
@@ -4713,7 +4781,7 @@ export function App() {
                   // click through - which is how the one that MATTERS gets
                   // dismissed.
                   if (dirty) setConfirmNew(true);
-                  else startNewDesign();
+                  else void startNewDesign();
                 }}
               >
                 ✕ New

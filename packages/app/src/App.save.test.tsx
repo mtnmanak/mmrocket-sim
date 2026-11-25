@@ -25,7 +25,8 @@ import { importRkt } from './services/rocksimFile.js';
 import { importCdx1 } from './services/rasaeroFile.js';
 import { saveFile, type SaveOutcome } from './services/saveFile.js';
 import { safeName } from './services/fileName.js';
-import type { SessionState } from './services/session.js';
+import { sessionUnreadable, type SessionState } from './services/session.js';
+import { pageActivity } from './services/pageActivity.js';
 import { designFingerprint } from './services/dirtyState.js';
 import * as dirtyState from './services/dirtyState.js';
 import * as configSync from './services/configSync.js';
@@ -44,7 +45,10 @@ import * as treeModel from './tree/treeModel.js';
 import * as otherMountLoad from './services/otherMountLoad.js';
 import * as formatLoss from './services/formatLoss.js';
 import * as nozzleDb from './services/nozzleDb.js';
+import * as examples from './data/exampleDesigns.js';
 import { sessionDebugLog } from './services/sessionDebugLog.js';
+import * as catalogueAutoCheck from './services/catalogueAutoCheck.js';
+import { bundleHasCurve } from './services/thrustcurve.js';
 
 vi.mock('./services/recentDesigns.js', () => ({
   rememberRecentDesign: vi.fn(async (): Promise<string | null> => null),
@@ -294,6 +298,342 @@ it('J6 reports a raw autosave recovery download failure locally', async () => {
   expect(host.textContent).toContain('Autosave download failed: Blocked Blob URL');
   expect(localStorage.getItem(SESSION_KEY)).toBe('{broken');
 }, 30000);
+
+describe('AS1 preserved autosave replacement', () => {
+  const question = (host: HTMLElement) => host.querySelector<HTMLElement>('[aria-label="Replace the autosaved design"]');
+  const flush = () => window.dispatchEvent(new Event('pagehide'));
+  const raw = JSON.stringify({ tree: null, mountMotors: [{ old: 'motor' }], savedConfigs: [{ old: 'config' }],
+    launch: { windAverage: 17 } });
+  const doors = ['New', 'picker', 'Examples', 'Recent', 'share', 'motor link'] as const;
+
+  it.each([null, 'x', [], 7, {}, { components: 'x' }, { components: [null, 7] }].map(tree => [tree]))('offers the original JSON download for an unreadable tree %j', async tree => {
+    const original = JSON.stringify({ tree, mountMotors: [{ old: 'motor' }], savedConfigs: [{ old: 'config' }],
+      launch: { windAverage: 17 } });
+    localStorage.setItem(SESSION_KEY, original);
+    const host = await mountApp();
+    expect(host.querySelector('.autosave-paused-alert')?.textContent).toContain('could not be read');
+    await act(async () => { button(host, 'Download the autosaved design (JSON)').click(); });
+    expect(vi.mocked(saveFile).mock.calls.at(-1)![0]).toBe(original);
+    flush();
+    expect(localStorage.getItem(SESSION_KEY)).toBe(original);
+  }, 30_000);
+
+  it('also asks before replacing malformed JSON bytes', async () => {
+    localStorage.setItem(SESSION_KEY, '{broken');
+    const host = await mountApp();
+    await act(async () => { button(host, '✕ New').click(); });
+    expect(question(host)).not.toBeNull();
+    await act(async () => { button(question(host)!, 'Cancel').click(); });
+    flush();
+    expect(localStorage.getItem(SESSION_KEY)).toBe('{broken');
+  }, 30_000);
+
+  async function prepareDoor(door: typeof doors[number]) {
+    const tree = { ...defaultTree(), name: 'Replacement design' };
+    const xml = exportOrk({ name: tree.name, tree });
+    const file = new File([xml], 'Replacement.ork');
+    vi.spyOn(examples, 'loadExampleFile').mockResolvedValue(file);
+    vi.mocked(recentDesigns.listRecentDesigns).mockResolvedValue([{ name: file.name, openedAt: 1, size: file.size }]);
+    vi.mocked(recentDesigns.recentDesignFile).mockResolvedValue(file);
+    if (door === 'share' || door === 'motor link') {
+      // main.tsx starts this check in a real page; this harness mounts App alone.
+      vi.spyOn(catalogueAutoCheck, 'catalogueCheckSettled').mockResolvedValue();
+      const motor = door === 'motor link' ? (await Promise.all(MOTOR_DB
+        .filter(motor => motor.diameter === 18 && motor.delays?.split(',').includes('5')
+          && /^[0-9a-f]{24}$/.test(motor.motorId))
+        .map(async motor => await bundleHasCurve(motor.motorId) ? motor : null))).find(motor => motor !== null)! : null;
+      const suffix = door === 'motor link'
+        ? `&motor=${motor!.motorId}&delay=5` : '';
+      window.location.hash = await encodeShareFragment(xml) + suffix;
+    }
+    return async (host: HTMLElement, expectedDirty?: boolean) => {
+      if (door === 'New') await act(async () => { button(host, '✕ New').click(); });
+      else if (door === 'picker') await pick(host, file);
+      else if (door === 'Examples') {
+        await act(async () => { button(host, 'Examples').click(); });
+        await waitFor(() => !!host.querySelector('.example-design-list button'), 'examples');
+        await act(async () => { host.querySelector<HTMLButtonElement>('.example-design-list button')!.click(); });
+      } else if (door === 'Recent') {
+        await act(async () => { button(host, 'Recent…').click(); });
+        await waitFor(() => !!host.querySelector('.recent-design-list button'), 'recent');
+        await act(async () => { button(host, file.name).click(); });
+      } else {
+        await waitFor(() => question(host) !== null || !!host.querySelector('[aria-label="Open design from link"]') || shownName(host) === tree.name,
+          'link decoded');
+        const offer = host.querySelector('[aria-label="Open design from link"]');
+        if (expectedDirty !== undefined) expect(offer !== null).toBe(expectedDirty);
+        if (offer) await act(async () => { button(offer, `Open “${tree.name}”`).click(); });
+      }
+      if (expectedDirty !== undefined && door !== 'share' && door !== 'motor link') {
+        const ordinary = host.querySelector(door === 'New'
+          ? '[aria-label="Start a new design"]' : '[aria-label="Unsaved changes"]');
+        expect(ordinary !== null).toBe(expectedDirty);
+        if (ordinary) await act(async () => {
+          button(ordinary, door === 'New' ? 'Discard & start new' : 'Open without saving').click();
+        });
+      }
+    };
+  }
+
+  it.each(doors)('%s asks before replacing unreadable bytes; Cancel keeps them and opening again asks again', async door => {
+    localStorage.setItem(SESSION_KEY, raw);
+    const enter = await prepareDoor(door);
+    const host = await mountApp();
+    const record = vi.spyOn(sessionDebugLog, 'record');
+    expect(host.querySelector('.autosave-paused-alert')?.textContent).toContain('could not be read');
+    await enter(host, door === 'share' || door === 'motor link' ? false : undefined);
+    await waitFor(() => question(host) !== null, 'preserved autosave question');
+    expect(host.querySelectorAll('[role="dialog"][aria-modal="true"]')).toHaveLength(1);
+    flush();
+    expect(localStorage.getItem(SESSION_KEY)).toBe(raw);
+    expect(question(host)!.textContent).toContain('cannot be recovered afterwards');
+    expect(question(host)!.textContent).toContain('The autosave stored in this browser could not be read');
+    expect(question(host)!.textContent).toContain(door === 'New' ? 'starts a new design'
+      : door === 'share' || door === 'motor link' ? 'opens the design from the link' : 'opens “Replacement.ork”');
+    await act(async () => { button(question(host)!, 'Download the autosaved design (JSON)').click(); });
+    expect(vi.mocked(saveFile).mock.calls.at(-1)![0]).toBe(raw);
+    expect(question(host)).not.toBeNull();
+    expect(localStorage.getItem(SESSION_KEY)).toBe(raw);
+    await act(async () => { button(question(host)!, 'Cancel').click(); });
+    flush();
+    expect(localStorage.getItem(SESSION_KEY)).toBe(raw);
+    expect(host.textContent).toContain('Autosave is paused');
+    expect(question(host)).toBeNull();
+    expect(sessionUnreadable()).toBe(true);
+    if (door === 'picker' || door === 'Examples' || door === 'Recent') {
+      expect(record).toHaveBeenCalledWith('import-failed', expect.any(Error));
+    }
+    if (door === 'share' || door === 'motor link') expect(host.textContent).toContain('The link was not opened.');
+    expect(host.querySelector('.autosave-paused-alert')?.textContent).toContain('could not be read');
+    await act(async () => { button(host, 'Download the autosaved design (JSON)').click(); });
+    expect(vi.mocked(saveFile).mock.calls.at(-1)![0]).toBe(raw);
+    if (door === 'share' || door === 'motor link') {
+      expect(window.location.hash).toBe('');
+      // Open the link a second time: a plain reload has no fragment to retry.
+      await unmountAll();
+      const reopen = await prepareDoor(door);
+      const reloaded = await mountApp();
+      await reopen(reloaded);
+      await waitFor(() => question(reloaded) !== null, 'link recovery question again');
+      expect(localStorage.getItem(SESSION_KEY)).toBe(raw);
+      expect(question(reloaded)!.textContent).toContain('could not be read');
+      expect(button(question(reloaded)!, 'Download the autosaved design (JSON)')).toBeTruthy();
+      await act(async () => { button(question(reloaded)!, 'Continue').click(); });
+      await waitFor(() => shownName(reloaded) === 'Replacement design', 'linked replacement');
+      flush();
+      expect(localStorage.getItem(SESSION_KEY)).not.toBe(raw);
+      expect(reloaded.textContent).not.toContain('Autosave is paused');
+      return;
+    }
+    expect(recentDesigns.rememberRecentDesign).not.toHaveBeenCalled();
+    await enter(host);
+    await waitFor(() => question(host) !== null, 'recovery question again');
+    expect(question(host)!.textContent).toContain('could not be read');
+    expect(button(question(host)!, 'Download the autosaved design (JSON)')).toBeTruthy();
+    await act(async () => { button(question(host)!, 'Continue').click(); });
+    await waitFor(() => question(host) === null && !host.textContent?.includes('Autosave is paused'), 'replacement');
+    flush();
+    expect(localStorage.getItem(SESSION_KEY)).not.toBe(raw);
+    if (door !== 'New') expect(shownName(host)).toBe('Replacement design');
+    // The preserved bytes were released once, so New has only the ordinary
+    // dirty-design question, if any, from here on.
+    await act(async () => { button(host, '✕ New').click(); });
+    expect(question(host)).toBeNull();
+  }, 30_000);
+
+  it.each(['Cancel', 'Escape'] as const)('%s preserves the bytes and offers the question again with focus restored', async cancel => {
+    localStorage.setItem(SESSION_KEY, raw);
+    const host = await mountApp();
+    const opener = button(host, '✕ New');
+    opener.focus();
+    await act(async () => { opener.click(); });
+    expect(question(host)).not.toBeNull();
+    await act(async () => {
+      if (cancel === 'Cancel') button(question(host)!, 'Cancel').click();
+      else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(question(host)).toBeNull();
+    expect(document.activeElement).toBe(opener);
+    flush();
+    expect(localStorage.getItem(SESSION_KEY)).toBe(raw);
+    expect(host.textContent).toContain('Autosave is paused');
+    expect(sessionUnreadable()).toBe(true);
+    expect(host.querySelector('.autosave-paused-alert')?.textContent).toContain('could not be read');
+    await act(async () => { button(host, 'Download the autosaved design (JSON)').click(); });
+    expect(vi.mocked(saveFile).mock.calls.at(-1)![0]).toBe(raw);
+    await act(async () => { opener.click(); });
+    expect(question(host)).not.toBeNull();
+    expect(question(host)!.textContent).toContain('could not be read');
+    expect(button(question(host)!, 'Download the autosaved design (JSON)')).toBeTruthy();
+  }, 30_000);
+
+  it('asks about dirty starter edits first; saving them does not release the old autosave', async () => {
+    localStorage.setItem(SESSION_KEY, raw);
+    const host = await mountApp();
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Edited starter');
+    await act(async () => { button(host, '✕ New').click(); });
+    expect(question(host)).toBeNull();
+    const dirtyQuestion = host.querySelector('[aria-label="Start a new design"]')!;
+    await act(async () => { button(dirtyQuestion, 'Save .ork first').click(); });
+    await waitFor(() => vi.mocked(saveFile).mock.calls.length > 0, 'starter file');
+    expect(vi.mocked(exportOrk).mock.calls.at(-1)![0].tree.name).toBe('Edited starter');
+    expect(localStorage.getItem(SESSION_KEY)).toBe(raw);
+    await act(async () => { button(dirtyQuestion, 'Discard & start new').click(); });
+    expect(host.querySelector('[aria-label="Start a new design"]')).toBeNull();
+    expect(question(host)).not.toBeNull();
+    await act(async () => { button(question(host)!, 'Cancel').click(); });
+    expect(shownName(host)).toBe('Edited starter');
+    expect(localStorage.getItem(SESSION_KEY)).toBe(raw);
+  }, 30_000);
+
+  it.each(['Cancel', 'Continue'] as const)('New then %s preserves or supersedes a slow open only after the answer', async answer => {
+    localStorage.setItem(SESSION_KEY, raw);
+    const tree = { ...defaultTree(), name: 'Older pending open' };
+    const bytes = new TextEncoder().encode(exportOrk({ name: tree.name, tree })).buffer;
+    let finishRead!: (value: ArrayBuffer) => void;
+    const file = new File([], 'Older.ork');
+    Object.defineProperty(file, 'arrayBuffer', { value: () => new Promise<ArrayBuffer>(resolve => { finishRead = resolve; }) });
+    const resolveMotors = vi.spyOn(importApply, 'resolveImportMotors');
+    const host = await mountApp();
+    await pick(host, file);
+    await act(async () => { button(host, '✕ New').click(); });
+    expect(question(host)).not.toBeNull();
+    expect(localStorage.getItem(SESSION_KEY)).toBe(raw);
+    await act(async () => { button(question(host)!, answer).click(); });
+    await act(async () => { finishRead(bytes); });
+    await waitFor(() => resolveMotors.mock.calls.length > 0, 'older import resolved');
+    if (answer === 'Cancel') {
+      await waitFor(() => question(host) !== null, 'older open asks its own question');
+      expect(question(host)!.textContent).toContain('opens “Older.ork”');
+      await act(async () => { button(question(host)!, 'Continue').click(); });
+      expect(shownName(host)).toBe(tree.name);
+      flush();
+      expect(storedSession()!.tree.name).toBe(tree.name);
+      return;
+    }
+    await settle(50);
+    expect(shownName(host)).not.toBe(tree.name);
+    // NoticeBar keeps its last screen-reader announcement after a notice clears.
+    // Check the active banner and the persisted design, not that old announcement.
+    expect(host.querySelector('.autosave-paused-alert')?.textContent).toBe('');
+    flush();
+    expect(storedSession()!.tree.name).toBe('New Rocket');
+    expect(localStorage.getItem(SESSION_KEY)).not.toBe(raw);
+    expect(question(host)).toBeNull();
+  }, 30_000);
+
+  it.each(['import', 'New'] as const)('a failed %s apply keeps the pause, unreadable flag and original bytes', async door => {
+    localStorage.setItem(SESSION_KEY, raw);
+    const host = await mountApp();
+    if (door === 'import') {
+      const apply = importApply.applyImportPlan;
+      vi.spyOn(importApply, 'applyImportPlan').mockImplementation((plan, sinks) => {
+        apply(plan, sinks);
+        throw new Error('Apply failed after setters');
+      });
+      const enter = await prepareDoor('picker');
+      await enter(host);
+      await waitFor(() => question(host) !== null, 'open question');
+    } else {
+      vi.spyOn(importApply, 'planNewDesign').mockImplementation(() => { throw new Error('New plan failed'); });
+      await act(async () => { button(host, '✕ New').click(); });
+    }
+    await act(async () => { button(question(host)!, 'Continue').click(); });
+    await settle(600);
+    flush();
+    expect(sessionUnreadable()).toBe(true);
+    expect(host.querySelector('.autosave-paused-alert')?.textContent).toContain('could not be read');
+    expect(localStorage.getItem(SESSION_KEY)).toBe(raw);
+    expect(host.textContent).toContain(door === 'import' ? 'Apply failed after setters' : 'New plan failed');
+  }, 30_000);
+
+  it.each(['throw', 'missing'] as const)('reports a %s download failure inside the question and keeps it open', async failure => {
+    localStorage.setItem(SESSION_KEY, raw);
+    const host = await mountApp();
+    await act(async () => { button(host, '✕ New').click(); });
+    if (failure === 'throw') vi.mocked(saveFile).mockRejectedValueOnce(new Error('Blocked download'));
+    else localStorage.removeItem(SESSION_KEY);
+    await act(async () => { button(question(host)!, 'Download the autosaved design (JSON)').click(); });
+    expect(question(host)!.textContent).toContain(failure === 'throw'
+      ? 'Autosave download failed: Blocked download' : 'There is no autosaved design to download.');
+    expect(sessionUnreadable()).toBe(true);
+    if (failure === 'throw') expect(localStorage.getItem(SESSION_KEY)).toBe(raw);
+  }, 30_000);
+
+  it('a late open after unmount finishes its activity and records cancellation', async () => {
+    localStorage.setItem(SESSION_KEY, raw);
+    const bytes = new TextEncoder().encode(exportOrk({ name: 'Late', tree: defaultTree() })).buffer;
+    let finishRead!: (value: ArrayBuffer) => void;
+    const file = new File([], 'Late.ork');
+    Object.defineProperty(file, 'arrayBuffer', { value: () => new Promise<ArrayBuffer>(resolve => { finishRead = resolve; }) });
+    const host = await mountApp();
+    const record = vi.spyOn(sessionDebugLog, 'record');
+    const baseline = pageActivity.importsInProgress();
+    await pick(host, file);
+    expect(pageActivity.importsInProgress()).toBeGreaterThan(baseline);
+    await unmountAll();
+    await act(async () => { finishRead(bytes); });
+    await waitFor(() => pageActivity.importsInProgress() === baseline, 'late import finished');
+    expect(record).toHaveBeenCalledWith('import-failed', expect.any(Error));
+    expect(localStorage.getItem(SESSION_KEY)).toBe(raw);
+  }, 30_000);
+
+  it.each(['picker', 'share'] as const)('dirty paused starter gets its save offer before the preservation question on %s', async door => {
+    localStorage.setItem(SESSION_KEY, raw);
+    const enter = await prepareDoor(door);
+    let finishDecode!: (value: string) => void;
+    if (door === 'share') {
+      const xml = await decodeShareFragment(window.location.hash);
+      vi.mocked(decodeShareFragment).mockImplementationOnce(() => new Promise(resolve => { finishDecode = resolve; }));
+      const host = await mountApp();
+      await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Edited starter');
+      await act(async () => { finishDecode(xml); });
+      await waitFor(() => !!host.querySelector('[aria-label="Open design from link"]'), 'dirty link offer');
+      expect(question(host)).toBeNull();
+      const offer = host.querySelector('[aria-label="Open design from link"]')!;
+      await act(async () => { button(offer, 'Save mine first').click(); });
+      expect(vi.mocked(exportOrk).mock.calls.at(-1)![0].tree.name).toBe('Edited starter');
+      expect(localStorage.getItem(SESSION_KEY)).toBe(raw);
+      await act(async () => { button(offer, 'Open “Replacement design”').click(); });
+      await waitFor(() => question(host) !== null, 'link preservation question');
+      expect(host.querySelectorAll('[role="dialog"][aria-modal="true"]')).toHaveLength(1);
+      await act(async () => { button(question(host)!, 'Cancel').click(); });
+      expect(shownName(host)).toBe('Edited starter');
+      expect(localStorage.getItem(SESSION_KEY)).toBe(raw);
+    } else {
+      const host = await mountApp();
+      await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Edited starter');
+      await enter(host);
+      expect(question(host)).toBeNull();
+      const offer = host.querySelector('[aria-label="Unsaved changes"]')!;
+      await act(async () => { button(offer, 'Save .ork, then open').click(); });
+      await waitFor(() => question(host) !== null, 'file preservation question');
+      expect(vi.mocked(exportOrk).mock.calls.at(-1)![0].tree.name).toBe('Edited starter');
+      expect(host.querySelectorAll('[role="dialog"][aria-modal="true"]')).toHaveLength(1);
+      expect(localStorage.getItem(SESSION_KEY)).toBe(raw);
+      await act(async () => { button(question(host)!, 'Cancel').click(); });
+      expect(shownName(host)).toBe('Edited starter');
+    }
+  }, 30_000);
+
+  it.each(doors.flatMap(door => [false, true].map(dirty => ({ door, dirty }))))(
+  'a readable restored session adds no preservation question on $door (dirty: $dirty)', async ({ door, dirty }) => {
+    const state = { tree: defaultTree(), mountMotors: {}, launch: DEFAULT_CONDITIONS,
+      measured: { massKg: null, cgM: null }, savedConfigs: [], activeConfigId: null };
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...state, appVersion: APP_VERSION,
+      savedMark: dirty ? 'older-unsaved-mark' : designFingerprint(state), configLayers: 1, savedAt: Date.now() }));
+    const enter = await prepareDoor(door);
+    const host = await mountApp();
+    expect(host.querySelector('.autosave-paused-alert')?.textContent).toBe('');
+    expect(host.querySelector('[aria-label="Design save status"]')?.textContent).toBe(dirty ? 'Unsaved changes' : 'No unsaved changes');
+    await enter(host, dirty);
+    await waitFor(() => door === 'New' || shownName(host) === 'Replacement design', 'healthy replacement');
+    expect(question(host)).toBeNull();
+    expect(host.querySelector('.autosave-paused-alert')?.textContent).toBe('');
+    flush();
+    expect(storedSession()!.tree.name).toBe(door === 'New' ? 'New Rocket' : 'Replacement design');
+  }, 30_000);
+});
 
 it('J6 reuses an open other-mount offer while rolling the drawing', async () => {
   const tree = defaultTree();
@@ -931,11 +1271,13 @@ describe('lane H regressions', () => {
     const host = await mountApp();
     let finish!: (out: SaveOutcome) => void;
     vi.mocked(saveFile).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-    await act(async () => { button(host, 'Download the autosaved design (.ork)').click(); });
+    await act(async () => { button(host, 'Download the autosaved design').click(); });
     await pick(host, new File([fixture(RKT)], 'Replacement.rkt'));
     const discard = [...host.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')]
       .find(b => b.textContent?.includes('Discard & open'));
     if (discard) await act(async () => { discard.click(); });
+    await waitFor(() => !!host.querySelector('[aria-label="Replace the autosaved design"]'), 'preservation question');
+    await act(async () => { button(host.querySelector('[aria-label="Replace the autosaved design"]')!, 'Continue').click(); });
     await waitFor(() => shownName(host) === RKT_NAME, 'replacement');
     const toggle = host.querySelector<HTMLButtonElement>('.notice-toggle[aria-expanded="false"]');
     if (toggle) await act(async () => { toggle.click(); });
@@ -3352,7 +3694,7 @@ describe('M2 export notices', () => {
     Object.defineProperty(window, 'prompt', { configurable: true, value: prompt });
     try {
       if (route === 'autosave') {
-        await act(async () => { button(host, 'Download the autosaved design (.ork)').click(); });
+        await act(async () => { button(host, 'Download the autosaved design').click(); });
       } else {
         await saveAs(host, 'Copy share link');
         await waitFor(() => writeText.mock.calls.length === 1, 'share copy');
