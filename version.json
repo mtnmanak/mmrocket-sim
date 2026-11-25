@@ -1,5 +1,5 @@
 {
   "version": "0.217",
   "released": "2026-11-25",
-  "note": "An autosave the app cannot read is kept until you choose to replace it, and New or opening a design asks first; a failed “Keep this tab’s design” no longer overwrites the other tab later; ten small corrections. No design that opened with its motors in v0.216 flies differently."
+  "note": "An autosave the app cannot read is kept until you choose to replace it, and New or opening a design asks first; a failed “Keep this tab’s design” no longer overwrites the other tab later; several small corrections. No design that opened with its motors in v0.216 flies differently."
 }
