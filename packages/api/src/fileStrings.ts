@@ -61,9 +61,9 @@ export function warningName(name: string): string {
   const project = (value: string) => noteEcho(noteField(noteField(`"${displayEcho(value)}"`)).slice(1, -1), 200);
   const shown = project(name);
   // Mount naming collapses whitespace between projections. If that exposes a
-  // joiner to marking, project the collapsed name first for every carrier.
+  // context-sensitive invisible character to marking, project it first for every carrier.
   // Keep ordinary names byte-identical, including their original whitespace.
-  if (/[\u200c\u200d]/u.test(name)) {
+  if (/[\p{Cf}\p{Default_Ignorable_Code_Point}]/u.test(name)) {
     const collapsed = shown.trim().replace(/\s+/g, ' ');
     const stable = project(collapsed);
     if (stable !== collapsed) return stable;
