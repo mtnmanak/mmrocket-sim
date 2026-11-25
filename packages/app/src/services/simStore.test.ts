@@ -36,6 +36,34 @@ const mkRun = (id: string, over: Partial<SimRun> = {}): SimRun =>
     ...over,
   }) as SimRun;
 
+it.each(['SIM_ABORT', 'INCOMPLETE_FLIGHT'])('A25:6-2 exports measured failures after %s', key => {
+  for (const passing of [false, true]) {
+    const saved = mkRun('stopped', { safeLiftoffSpeed: passing, safeThrustToWeight: passing,
+      safeLandingRate: passing, staticMarginOk: passing, deployments: [],
+      velocityAtDeployment: passing ? 5 : 30,
+      branches: [{ name: 'Booster', apogee: 100, tumbles: false, deployments: [], landingRate: 10, safeLandingRate: passing }],
+      simWarnings: [{ key, message: 'Flight stopped.' }] });
+    const table = runsToTable([saved]);
+    for (const label of ['Lift-off speed OK', 'Thrust:weight OK', 'Landing rate OK', 'Static margin OK', 'Safe deployment', 'Booster landing OK']) {
+      expect(table.rows[0]![table.headers.indexOf(label)], label).toBe(passing ? '' : 'NO');
+    }
+  }
+  const table = runsToTable([mkRun('caution', { deployments: [], velocityAtDeployment: 25,
+    simWarnings: [{ key, message: 'Flight stopped.' }] })]);
+  expect(table.rows[0]![table.headers.indexOf('Safe deployment')]).toBe('caution');
+});
+
+it.each(['INCOMPLETE_FLIGHT', 'SIM_ABORT'].flatMap(key => [undefined, 1, 'true'].map(value => [key, value] as const)))(
+  'A25:6-2 leaves unrecorded or malformed stopped export checks empty after %s (%s)', (key, value) => {
+    const saved = mkRun('stored', { safeLiftoffSpeed: value, safeThrustToWeight: value,
+      simWarnings: [{ key, message: 'Flight stopped.' }] } as unknown as Partial<SimRun>);
+    // Both CSV and XLSX consume this table.
+    const table = runsToTable([saved]);
+    for (const label of ['Lift-off speed OK', 'Thrust:weight OK']) {
+      expect(table.rows[0]![table.headers.indexOf(label)]).toBe('');
+    }
+  });
+
 it('J10 preserves and exports guide-exit fallback provenance without changing numbers', () => {
   const run = mkRun('fallback', { launchCG: 0.26, launchCP: 0.29, launchStaticMarginCal: 1.3,
     launchGuideDesignValues: ['cg', 'cp', 'stability'] });

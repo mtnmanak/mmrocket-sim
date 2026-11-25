@@ -12,6 +12,7 @@ import { MOTOR_CORRECTIONS } from './motor-corrections.mjs';
 import { CORRECTIONS, MATERIAL_CORRECTIONS, UPSTREAM_WATCH } from './apply-preset-corrections.mjs';
 import { createThrustcurveFetch, ThrustcurveChallengeError, ThrustcurveUnavailableError } from './thrustcurve-client.mjs';
 import * as thrustcurveClient from './thrustcurve-client.mjs';
+import { parseOrc } from './fetch-component-presets.mjs';
 
 const noPublishedCatalogue = async () => { throw new Error('offline catalogue fixture'); };
 const offlineSection4 = () => Object.assign(() => checkThrustCurve(undefined, noPublishedCatalogue), checkThrustCurve);
@@ -76,6 +77,22 @@ it.each([
   const xml = `<BulkHead><PartNumber>${partNo}</PartNumber><OutsideDiameter Unit="${unit}">${value}</OutsideDiameter></BulkHead>`;
   expect(await main([() => checkCorrections(async () => xml, [correction])], () => {})).toBe(status);
   expect(log.mock.calls.flat().join('\n')).toContain(message);
+});
+
+it.each(['2.558in', '2.558,', '2.558 extra', '2.558mm'])('A25:2-2 investigates nonnumeric upstream diameter %j', async value => {
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  const correction = { key: 'BulkHead|test|synthetic', fields: { outsideDiameter: { bad: 0.002558, good: 0.0649732 } },
+    upstream: { file: 'synthetic.orc', element: 'BulkHead', partNo: 'synthetic', fields: { OutsideDiameter: { bad: '2.558', good: '64.9732' } } } };
+  const xml = `<BulkHead><Manufacturer>BMS</Manufacturer><PartNumber>synthetic</PartNumber><OutsideDiameter Unit="in">${value}</OutsideDiameter></BulkHead>`;
+  expect(await main([() => checkCorrections(async () => xml, [correction])], () => {})).toBe(1);
+  const text = log.mock.calls.flat().join('\n');
+  expect(text).toContain('upstream changed');
+  expect(text).not.toContain('UPSTREAM HAS FIXED THIS');
+  expect(text).not.toContain('still the known-bad value');
+  const parsed = parseOrc(`<Components>${xml}</Components>`, 'BMS.ORC', new Map());
+  expect(parsed.presets).toHaveLength(0);
+  expect(parsed.skippedComponents).toBe(1);
+  expect(parsed.warnings.join(' ')).toContain('bad OutsideDiameter');
 });
 
 it.each([

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { FlightResult, RocketTree } from '@online-openrocket/engine';
-import { asymmetricThrustWarnings, thrustImbalance, type ThrustSite } from './asymmetricThrust.js';
+import { asymmetricThrustWarnings, longestLoneBurn, thrustImbalance, type ThrustSite } from './asymmetricThrust.js';
 import { balanceMotor, balanceTree } from './asymmetricThrust.testSupport.js';
 import { aftLayout } from '../tree/aftLayout.js';
 import { mountMotorCount } from '../tree/treeModel.js';
@@ -36,6 +36,18 @@ const site = (y: number, peak = 100, burn = 2): ThrustSite => ({
 });
 
 describe('row 127 thrust balance', () => {
+  it.each([[1.55, null, [0, 1.2, 2]], [1.49, [1.49, 2], [0, 1, 1.6, 2]], [1.2, [1.2, 2], [0, 1, 1.6, 2]]] as const)(
+    'A25:4-2 splits lone-burn intervals at separation %s between samples', (separation, expected, times) => {
+      const sites = [site(-0.2), site(0.2)];
+      for (const s of sites) { s.spec.times = [...times]; s.spec.thrusts = times.map(() => 100); }
+      sites[0]!.separation = separation;
+      const lone = longestLoneBurn(sites);
+      if (expected === null) expect(lone).toBeNull();
+      else {
+        expect(lone?.start).toBeCloseTo(expected[0], 10);
+        expect(lone?.end).toBeCloseTo(expected[1], 10);
+      }
+    });
   it('J4 r2 S7b-g4 gives a whitespace-only serial stage warning a readable name', () => {
     const tree = balanceTree(2);
     tree.components[0]!.name = '   ';
@@ -49,7 +61,7 @@ describe('row 127 thrust balance', () => {
     tree.components[0]!.children![0]!.children!.forEach(m => { m.name = 'Inner Tube'; });
     expect(asymmetricThrustWarnings(tree, entries([balanceMotor()]))[0]?.message).toContain('Firing then: Inner Tube 1.');
   });
-  it('J1 detects one-sided attached thrust after an opposite strap-on separates', () => {
+  it.each([1, 2.45])('A25:4-2 detects lone attached thrust after a strap-on separates at %s s', separation => {
     const tree = balanceTree(1);
     const body = tree.components[0]!.children![0]!;
     body.children = [0, Math.PI].map((angle, i) => ({ type: 'parallelstage', id: `p${i}`, instanceCount: 1,
@@ -59,9 +71,10 @@ describe('row 127 thrust balance', () => {
     const motors = [['strap0', balanceMotor(100, 3)], ['strap1', balanceMotor(100, 3)]] as const;
     const result = { events: [
       { type: 'IGNITION', motorMountId: 'strap0', time: 0 }, { type: 'IGNITION', motorMountId: 'strap1', time: 0 },
-      { type: 'STAGE_SEPARATION', sourceId: 'p0', time: 1 },
+      { type: 'STAGE_SEPARATION', sourceId: 'p0', time: separation },
     ] } as unknown as FlightResult;
     expect(asymmetricThrustWarnings(tree, motors, result)[0]?.key).toBe('ASYMMETRIC_THRUST_DANGER');
+    expect(asymmetricThrustWarnings(tree, motors, result)).toContainEqual(expect.objectContaining({ key: 'ASYMMETRIC_THRUST_LONE' }));
     result.events.pop();
     expect(asymmetricThrustWarnings(tree, motors, result)).toEqual([]);
   });
@@ -86,6 +99,7 @@ describe('row 127 thrust balance', () => {
     // Ruling 155 (J23): Strap 1 burning alone for 2 s after the separation also earns the lone-burn Caution.
     expect(warning.map(w => w.key)).toEqual(['ASYMMETRIC_THRUST_DANGER', 'ASYMMETRIC_THRUST_LONE']);
     expect(warning[0]?.message).toContain('Firing then: Strap 1.');
+    expect(warning[1]?.message).toContain('for 2 s (1–3 s after launch)');
     // A later separation of the nested stage cannot postpone its parent's cutoff.
     result.events.push({ type: 'STAGE_SEPARATION', sourceId: 'nested', time: 3 });
     expect(asymmetricThrustWarnings(tree, motors, result)).toEqual(warning);

@@ -1,3 +1,12 @@
+// K25A r2: executed census: SimResults 52 -> 54 (under/over enum allow-list),
+// rocksimFile 304 -> 305 (mount-only SerialNo selector). Reviewed producers:
+// SimResults/simStore preserve failed stopped-flight verdicts; BatchSimulate
+// counts firing targets and shows the estimate's delay-search count;
+// batchMountDisclosure resolves target/kept ignition and its unlit consequence;
+// orkFile wraps guide angles for desktop setters; rocksimFile routes serials
+// and filters inherited cautions. All have row regressions. Only the selector
+// and enum literals affect this text/call census; the .rkt angle wrap is removed.
+// No numerical threshold or tolerance changed. Counts below come from Vitest.
 // D1 r2: MotorBrowser remains 14: the three-date wording retains one data-date
 // producer and one delta producer. These dates do not compare flight numbers.
 // D1 CAT-CHECKED: MotorBrowser 13 -> 14 adds "last changed" to the catalogue

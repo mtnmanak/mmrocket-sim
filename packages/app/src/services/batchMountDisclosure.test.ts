@@ -26,6 +26,16 @@ it.each([4, 6])('r3 offers the %s-tube ring while retaining a same-bore centre m
 });
 
 const option = (id: string): BatchMountOption => ({ id, label: id, diameterMm: 75, motorCount: 1, maxMotorLengthM: null });
+it('A25:4-3 discloses effective target and kept timers including inherited defaults', () => {
+  const mounts = ['a', 'b'].map(option);
+  const tree = { ignitionDefaults: { a: { event: 'launch' as const, delay: 1.5 }, b: { event: 'launch' as const, delay: 2 } },
+    components: mounts.map(m => ({ type: 'innertube' as const, id: m.id, name: m.id, motorMount: true })) };
+  const kept = batchMountDisclosure(tree, mounts, mounts[0]!, { b: testMotor().spec }, {}, {}, {});
+  expect(kept.text).toContain('a (ignition: Launch + delay (timer), delay 1.5 s) only.');
+  expect(kept.text).toContain('(ignition: Launch + delay (timer), delay 2 s) for every flight.');
+  const targets = batchMountDisclosure(tree, mounts, mounts[0]!, {}, {}, {}, {}, ['a', 'b']);
+  expect(targets.text).toContain('a (ignition: Launch + delay (timer), delay 1.5 s) and b (ignition: Launch + delay (timer), delay 2 s)');
+});
 it('J1 points from the matching checkbox back to a selected cluster and identifies unlit target copies', () => {
   const mounts = ['a', 'b'].map(option);
   const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: mounts.map(m => ({
@@ -35,6 +45,14 @@ it('J1 points from the matching checkbox back to a selected cluster and identifi
   const result = batchMountDisclosure(tree, mounts, mounts[1]!, {}, {}, {}, { b: { event: 'never', delay: 0 } }, ['a', 'b']);
   expect(result.mixedUnavailable).toContain('Untick Use all 2 matching mounts for mixed 2+2 on b.');
   expect(result.text).toContain('×4 b (never ignites)');
+});
+
+it('A25:4-3 uses inherited Never ignition for a kept mount', () => {
+  const mounts = ['a', 'b'].map(option);
+  const tree = { ignitionDefaults: { b: { event: 'never' as const, delay: 0 } },
+    components: mounts.map(m => ({ type: 'innertube' as const, id: m.id, name: m.id, motorMount: true })) };
+  expect(batchMountDisclosure(tree, mounts, mounts[0]!, { b: testMotor().spec }, {}, {}, {}).text)
+    .toContain('(never ignites) for every flight.');
 });
 
 it('J1 directs an unticked separate-tube ring to the matching checkbox for mixed batches', () => {

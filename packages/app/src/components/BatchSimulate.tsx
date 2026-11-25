@@ -5,7 +5,7 @@ import type { FlightOverrideSummary } from '../services/flightOverrideSummary.js
 import {
   gradeBatchRun, batchTableRows, batchCapNote, batchSummary, BATCH_CONFIRM_ABOVE_FLIGHTS, BATCH_TABLE_ROWS,
   BATCH_RUN_ANYWAY_ABOVE_FLIGHTS, batchConfirmationArmed, batchCandidates, batchFlightCount,
-  batchEstimate, batchRefusal, batchButtonLabel, batchConfirmWarning, batchProgressAnnouncement,
+  batchEstimate, batchRefusal, batchButtonLabel, batchConfirmWarning, batchProgressAnnouncement, batchDelayProbeText,
   type BatchPace, type Criteria,
 } from '../services/batchCriteria.js';
 // App retains this re-export until its owning lane updates the import (audit 2026-10-11, S3a-7).
@@ -45,7 +45,7 @@ import { MAX_EVENT_ALTITUDE_M } from '../tree/schema.js';
 import { UnitChip } from './UnitChip.js';
 import { safeName } from '../services/fileName.js';
 import { downloadBlob } from '../services/saveFile.js';
-import { batchMatchingMounts, batchMountDisclosure, batchTargetsDefault } from '../services/batchMountDisclosure.js';
+import { batchMatchingMounts, batchMountDisclosure, batchTargetIgnition, batchTargetsDefault } from '../services/batchMountDisclosure.js';
 import { batchRingSplits, batchRingSubset } from '../services/batchRing.js';
 import { batchLoadoutText, candidateDelayText } from '../services/batchLoadout.js';
 import { knownUnlitIgnition } from '../services/ignitionEvent.js';
@@ -227,7 +227,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
     && (a.maxMotorLengthM === null || b.maxMotorLengthM < a.maxMotorLengthM) ? b : a, sel);
   const maxMotorLengthM = limitingMount.maxMotorLengthM;
   const motorCount = targets.reduce((sum, m) => sum + m.motorCount, 0);
-  const firingCount = targets.reduce((sum, m) => sum + (allMatching && knownUnlitIgnition(assignedIgnitions[m.id]?.event,
+  const firingCount = targets.reduce((sum, m) => sum + (knownUnlitIgnition(batchTargetIgnition(tree, assignedIgnitions, m.id).event,
     !hasIgnitionSourceStage(tree, m.id)) ? 0 : m.motorCount), 0);
   // Combination modes (opt-in, 4- and 6-motor clusters only):
   //  - group mode: the cluster split in HALVES (2+2 / 3+3), every unordered
@@ -773,7 +773,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
           </div>
         </div>
 
-        {mounts.length > 1 && disclosure.text !== null && <Note as="p" tier={disclosure.matching ? 'caution' : 'information'}>{disclosure.text}</Note>}
+        {disclosure.text !== null && <Note as="p" tier={disclosure.matching || disclosure.targetUnlit ? 'caution' : 'information'}>{disclosure.text}</Note>}
         {!clusterSplit && !pairSplit && disclosure.mixedUnavailable
           && <Note as="p" tier="information">{disclosure.mixedUnavailable}</Note>}
 
@@ -809,7 +809,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
               && ` · +${mixedComboCount(candidates.length, pairsCombination!)} ${PAIRS_NAME} combinations`}
             {!onlyMyMotors && tooLongCount > 0 && ` · ${tooLongCount} excluded — over ${allMatching ? noteText(limitingMount.label) : 'this mount'}’s max motor length`}
             {!onlyMyMotors && tooWideCount > 0 && ` · ${tooWideCount} excluded — too wide for ${noteText(diameterMount.label)}`}
-            {criteria.autoDelay ? ' · 2 sims each (delay probe + final)' : ''}
+            {batchDelayProbeText(pace)}
             {progress && ` — simulating ${progress.done + 1}/${progress.total}: ${progress.current}`}
           </span>
           {rows.some((r) => r.run) && (

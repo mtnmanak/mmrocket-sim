@@ -129,6 +129,23 @@ function registration(active = true) {
 }
 
 describe('guardPrecache — unregister and reload, once, only where that heals', () => {
+  it('A25:5-4 offers an explicit reload when the direct repair goes offline after unregister', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { e, seen } = env();
+    const { reg, unregister } = registration();
+    unregister.mockImplementation(async () => { e.online = () => false; return true; });
+    expect(await guardPrecache(reg, e)).toBe('held');
+    expect(swUpdate.getSnapshot().reloadRequired).toBe(true);
+    expect(seen.reloads).toBe(0);
+    expect(seen.flag).toBe('1');
+    await swUpdate.applyUpdate();
+    expect(seen.reloads).toBe(0);
+    expect(swUpdate.getSnapshot().reloadRequired).toBe(true);
+    e.online = () => true;
+    await swUpdate.applyUpdate();
+    expect(seen.reloads).toBe(1);
+    expect(unregister).toHaveBeenCalledOnce();
+  });
   it('J6 refuses an offline resumed repair even when a new installing worker has partial entries', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     let held = true;

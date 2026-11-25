@@ -5433,6 +5433,7 @@ export function App() {
             onWeatherUndo={undoWeather} onWeatherDismiss={() => setWeather(null)} onWeatherSigma={estimateSigma} />
 
           <ConfigOverview configs={stabilityRangeInput.configs}
+            configurationLoading={configurationLoading}
             activeConfigId={activeConfigId} tree={tree} onApply={applyConfig}
             onShowPart={(id, family) => setConfigPartTarget({ id, family })} />
         </main>

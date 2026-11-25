@@ -34,6 +34,7 @@ import { CLUSTER_POINTS } from '../tree/cluster.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
 import { isTailCone } from '../tree/tailCone.js';
 import { num as nodeNum, numOpt } from '../tree/nodeNum.js';
+import { reducePi } from '../tree/mountAngle.js';
 import { foldDeployEvent } from '../tree/deployEvent.js';
 import { axialLength, positionOf } from '../tree/position.js';
 import { rocketLength } from '../tree/scaleRocket.js';
@@ -3253,8 +3254,15 @@ export function exportOrk({
   };
 
   /** Mounting angle out, rad -> DEGREES. Was hard-coded 180.0 until v0.087. */
-  const deg = (node: ComponentNode, key: string, fb = 0): string =>
-    ((nodeNum(node, key, fb) * 180) / Math.PI).toFixed(4);
+  const deg = (node: ComponentNode, key: string, fb = 0): string => {
+    const raw = nodeNum(node, key, fb);
+    // Desktop clamps these two setters; write the equivalent angle the app flies.
+    // Keep both legal endpoints so +180 degrees retains its canonical spelling.
+    const angle = key === 'angleOffset' && (node.type === 'launchlug' || node.type === 'railbutton')
+      && Math.abs(raw) > Math.PI ? reducePi(raw) : raw;
+    const written = ((angle * 180) / Math.PI).toFixed(4);
+    return written === '-0.0000' && Math.abs(raw) > Math.PI ? '0.0000' : written;
+  };
   // The one node-number reader (tree/nodeNum.ts), under the short name this
   // writer's hundred-odd fields use. Its private copy wrote a NaN field out
   // as <rootchord>NaN</rootchord>; this writes the default, as for a gap.

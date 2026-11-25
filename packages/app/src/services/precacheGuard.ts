@@ -155,7 +155,7 @@ export async function guardPrecache(
     }
     // The tab may have been edited while unregister() was pending.
     if (!requested && isReloadHeld()) return hold();
-    if (!env.online()) return 'server-silent';
+    if (!env.online()) return serverChecked ? hold() : 'server-silent';
     env.reload();
     return 'reloaded';
   };

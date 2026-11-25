@@ -56,9 +56,19 @@ export function noteStrings<T>(value: T): T {
 const NAME_SPAN = /"([^"]*)("|$)|\u201c([^\u201d]*)(\u201d|$)/g;
 /** Project source metadata exactly as quoted warning names will be shown. */
 export function warningName(name: string): string {
-  // Supply the delimiters used in messages so boundary ASCII joiners are
-  // marked here too, before either carrier is sanitized again.
-  return noteEcho(noteField(`"${displayEcho(name)}"`).slice(1, -1), 200);
+  // Keep delimiters through both passes: markers exposed by the first pass
+  // must also mark adjacent boundary joiners before any carrier uses the name.
+  const project = (value: string) => noteEcho(noteField(noteField(`"${displayEcho(value)}"`)).slice(1, -1), 200);
+  const shown = project(name);
+  // Mount naming collapses whitespace between projections. If that exposes a
+  // joiner to marking, project the collapsed name first for every carrier.
+  // Keep ordinary names byte-identical, including their original whitespace.
+  if (/[\u200c\u200d]/u.test(name)) {
+    const collapsed = shown.trim().replace(/\s+/g, ' ');
+    const stable = project(collapsed);
+    if (stable !== collapsed) return stable;
+  }
+  return shown;
 }
 /**
  * Bound each quoted name to the display rule and the whole message to WARNING_ECHO_MAX.
@@ -69,6 +79,6 @@ export function warningName(name: string): string {
 export function warningEcho(text: string): string {
   return noteEcho(text.replace(NAME_SPAN, (_span: string, straight: string | undefined, straightEnd: string | undefined,
     curly: string | undefined, curlyEnd: string | undefined) => straight !== undefined
-    ? `"${noteEcho(noteField(`"${straight}"`).slice(1, -1), 200)}${straightEnd ?? ''}`
+    ? `"${noteEcho(noteField(noteField(`"${straight}"`)).slice(1, -1), 200)}${straightEnd ?? ''}`
     : `\u201c${noteEcho(noteField(noteText(`\u201c${curly ?? ''}\u201d`).slice(1, -1)), 200)}${curlyEnd ?? ''}`), WARNING_ECHO_MAX);
 }

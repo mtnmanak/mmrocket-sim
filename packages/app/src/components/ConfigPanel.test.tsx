@@ -93,6 +93,21 @@ describe('ConfigPanel', () => {
 
 
   const chooser = () => host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!;
+  it('A25:6-4 holds an open active-configuration delete confirmation during loading', () => {
+    const onDelete = vi.fn();
+    mount({ onDelete });
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label^="Delete Club"]')!.click());
+    mount({ onDelete, configurationLoading: true });
+    const confirm = () => host.querySelector<HTMLButtonElement>('[aria-label^="Confirm delete"]')!;
+    expect(confirm().disabled).toBe(true);
+    expect(confirm().title).toBe('Wait for the motor to finish loading');
+    act(() => confirm().click());
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(confirm()).not.toBeNull();
+    mount({ onDelete, configurationLoading: false });
+    act(() => confirm().click());
+    expect(onDelete).toHaveBeenCalledWith(CONFIGS[0]);
+  });
   it('r3 sorts unnamed cluster configurations by their displayed counted label', () => {
     const configs: SavedConfig[] = [
       { id: 'single', name: null, isDefault: true, motors: { b: mm('A8-3') } },

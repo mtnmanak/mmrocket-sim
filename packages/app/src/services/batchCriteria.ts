@@ -169,6 +169,13 @@ export function batchSummary(
 /** Thousands separators, pinned to en-US so these labels are deterministic. */
 const group = (n: number) => n.toLocaleString('en-US');
 
+/** Describe the same searching-flight subset that the time estimate prices. */
+export function batchDelayProbeText({ flights, solverFlights }: BatchPace): string {
+  if (solverFlights === 0) return '';
+  if (solverFlights === flights) return ' · 2 sims each (delay probe + final)';
+  return ` · ${group(solverFlights)} of ${group(flights)} flights run 2 sims (delay probe + final)`;
+}
+
 /**
  * WHAT ONE BATCH FLIGHT COSTS, in seconds at the 0.05 s default step — measured,
  * so the Simulate button can say how long a sweep will take (board Tier 1 row 7:

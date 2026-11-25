@@ -43,8 +43,9 @@ function partValue(part: Part, config: Pick<SavedConfig, 'motors' | 'deployments
     : describeFlownSeparation(separationTuple(effectiveNode), unit), override: !!tuple };
 }
 
-export function ConfigOverview({ configs, activeConfigId, tree, onApply, onShowPart }: {
+export function ConfigOverview({ configs, activeConfigId, tree, onApply, onShowPart, configurationLoading = false }: {
   configs: SavedConfig[]; activeConfigId: string | null; tree: FlightTree;
+  configurationLoading?: boolean;
   onApply: (config: SavedConfig) => void;
   onShowPart: (id: string, family: Part['family']) => void;
 }) {
@@ -71,6 +72,7 @@ export function ConfigOverview({ configs, activeConfigId, tree, onApply, onShowP
             return <tr key={config.id} aria-current={active ? 'true' : undefined}>
               <th scope="row">{active ? <span>{label}</span>
                 : <button className="file-btn" aria-label={`Apply ${label} — configuration ${index + 1}`}
+                  disabled={configurationLoading} title={configurationLoading ? 'Wait for the motor to finish loading' : undefined}
                   onClick={() => onApply(config)}>{label}</button>}
                 {config.isDefault && <span> — file default</span>}
                 {active && <span className="config-active-tag"> — active</span>}
@@ -79,9 +81,12 @@ export function ConfigOverview({ configs, activeConfigId, tree, onApply, onShowP
                 const value = partValue(part, config, tree, prefs.units.altitude);
                 const what = `${partName(part)}: ${value.text}${value.override ? ' — override' : ''}`;
                 return <td key={part.node.id}><button className="file-btn" onClick={() => {
+                  if (!active && configurationLoading) return;
                   if (!active) onApply(config);
                   onShowPart(part.node.id!, part.family);
                 }}
+                  disabled={!active && configurationLoading}
+                  title={!active && configurationLoading ? 'Wait for the motor to finish loading' : undefined}
                   aria-label={active ? `Show ${what} — ${label}, the active configuration`
                     : `Apply ${label} — configuration ${index + 1}; ${what}`}>
                   {value.text}{value.override && <strong> — override</strong>}

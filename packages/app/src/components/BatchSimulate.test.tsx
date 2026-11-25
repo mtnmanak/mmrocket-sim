@@ -138,6 +138,7 @@ describe('the batch dialog', () => {
     extra: {
       weighed?: BatchWeighed; mounts?: BatchMountOption[]; tree?: RocketTree;
       assignedMotors?: Record<string, MotorSpec>;
+      assignedAutoDelays?: Record<string, boolean>;
       assignedIgnitions?: Record<string, { event: IgnitionEvent; delay: number }>;
     } = {}) {
     act(() => root.render(
@@ -149,6 +150,7 @@ describe('the batch dialog', () => {
           initialMountId="mount"
           assignedMountMotors={{}} assignedMotors={extra.assignedMotors ?? {}} assignedMotorIds={{}}
           assignedIgnitions={extra.assignedIgnitions ?? {}}
+          assignedAutoDelays={extra.assignedAutoDelays}
           weighed={extra.weighed}
           launch={{ ...DEFAULT_CONDITIONS, ...launchOver }}
           rocketName="Cluster bird"
@@ -169,6 +171,42 @@ describe('the batch dialog', () => {
       label: `MMT ${i + 1}`, diameterMm, motorCount: 1 }));
     return { tree, mounts };
   };
+  it.each(['never', 'burnout', 'ejectioncharge'] as const)(
+    'A25:4-3 / A25:6-3 discloses a single unlit cluster with %s ignition', event => {
+      mount({}, { assignedIgnitions: { mount: { event, delay: 0 } } });
+      expect(host.textContent).toContain('on this mount; 0 can fire');
+      expect(host.textContent).toContain('(never ignites) only.');
+      const note = [...host.querySelectorAll('p')].find(p => p.textContent?.includes('no candidate motor will burn'))!;
+      expect(note.classList.contains('message-caution')).toBe(true);
+      if (event === 'never') expect(note.textContent).toContain('keeps its own ignition setting (Never)');
+    });
+  it('A25:4-3 discloses a single mount timer and leaves ordinary launch ignition quiet', () => {
+    mount({}, { assignedIgnitions: { mount: { event: 'launch', delay: 1.5 } } });
+    expect(host.textContent).toContain('(ignition: Launch + delay (timer), delay 1.5 s) only.');
+    expect(host.textContent).toContain('on this mount; 4 can fire');
+    expect([...host.querySelectorAll('p')].find(p => p.textContent?.includes('Candidates fly'))?.className).toBe('');
+    mount({}, { assignedIgnitions: { mount: { event: 'launch', delay: 0 } } });
+    expect(host.textContent).not.toContain('Candidates fly');
+  });
+  it('A25:6-3 counts inherited Never ignition for a single target', () => {
+    const tree = { ...structuredClone(TREE), ignitionDefaults: { mount: { event: 'never' as const, delay: 0 } } };
+    mount({}, { tree });
+    expect(host.textContent).toContain('on this mount; 0 can fire');
+    expect(host.textContent).toContain('(never ignites) only.');
+  });
+  it('A25:4-3 names event ignition with a source stage as Information', () => {
+    const tree = structuredClone(TREE);
+    tree.components.push({ type: 'stage', id: 'lower', name: 'Booster' });
+    mount({}, { tree, assignedIgnitions: { mount: { event: 'burnout', delay: 0 } } });
+    const note = [...host.querySelectorAll('p')].find(p => p.textContent?.includes('Candidates fly'))!;
+    expect(note.textContent).toContain('(ignition: Lower stage burnout + delay (electronics)) only.');
+    expect(note.className).toBe('');
+  });
+  it('A25:6-3 shows delay probes for a kept Auto motor with a Never target', () => {
+    mount({}, { ...separateMounts([24, 38]), assignedMotors: { side1: motor(2) },
+      assignedIgnitions: { mount: { event: 'never', delay: 0 } }, assignedAutoDelays: { side1: true } });
+    expect(host.textContent).toContain('2 sims each (delay probe + final)');
+  });
   it('discloses four matching mounts with Caution, and updates on picker changes', () => {
     const extra = separateMounts();
     mount({}, { ...extra, assignedMotors: { side1: motor(1), side2: motor(1), side3: motor(1) } });

@@ -7,8 +7,6 @@ import { cautionNote } from './importNotes.js';
 export const MAX_RKT_SERIAL_LENGTH = 256;
 export const MAX_RKT_SERIAL_RECORDS = 8192;
 export const MAX_RKT_SERIAL_CHARACTERS = 1024 * 1024;
-const SERIAL_PARTS = new Set(['BodyTube', 'NoseCone', 'Transition', 'Ring', 'FinSet', 'CustomFinSet',
-  'LaunchLug', 'TubeFinSet', 'Parachute', 'Streamer', 'MassObject', 'ExternalPod', 'SubAssembly']);
 
 const value = (el: XmlElement | null, tag: string): number => {
   const raw = el?.querySelector(`:scope > ${tag}`)?.textContent?.trim();
@@ -31,6 +29,7 @@ export function indexRocksimMotors(
   importedParts?: ReadonlySet<XmlElement>,
 ): RocksimMotorIndex {
   const mountsBySerial = new Map<string, XmlElement | null>();
+  const isMount = new Map<XmlElement, boolean>();
   let records = 0;
   let characters = 0;
   let omitted = false;
@@ -47,7 +46,10 @@ export function indexRocksimMotors(
       omitted = true;
       break;
     }
-    const mount = el.parentElement && SERIAL_PARTS.has(el.parentElement.tagName) ? el.parentElement : null;
+    const mount = el.parentElement;
+    if (mount?.tagName !== 'BodyTube') continue;
+    if (!isMount.has(mount)) isMount.set(mount, value(mount, 'IsMotorMount') === 1);
+    if (!isMount.get(mount)) continue;
     mountsBySerial.set(serial, mountsBySerial.has(serial) ? null : mount);
   }
   if (omitted) {
