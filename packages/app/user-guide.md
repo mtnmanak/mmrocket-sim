@@ -18,6 +18,8 @@ The app is organized into **three workspaces**, selected by the tabs under the h
 
 To keep the vitals strip and tabs in view while scrolling, turn on **Preferences → Display → Keep the rocket summary and tabs in view while scrolling**; it is off by default and only applies on windows at least 700 px tall. Phone tabs stay at the bottom.
 
+The Mountain Man Rockets menu above the app includes a **Search** field on wider screens: type a term and press Enter, or use the magnifier button beside the field, to open the site's search results. On phones, tap the magnifying glass to open the site's search page.
+
 The guide has three parts, and a glossary:
 
 - **Quick Start** gets you to your first successful flight in about a minute.
