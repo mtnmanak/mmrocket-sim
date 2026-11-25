@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { readFileSync } from 'node:fs';
@@ -533,23 +533,49 @@ describe('AS1 preserved autosave replacement', () => {
     expect(question(host)).toBeNull();
   }, 30_000);
 
-  it.each(['Cancel', 'Continue'] as const)('i1 keeps New’s question when an older read finishes before %s', async answer => {
-    localStorage.setItem(SESSION_KEY, raw);
+  async function slowImportWithSideEffects() {
     const tree = { ...defaultTree(), name: 'Older completed open' };
-    const bytes = new TextEncoder().encode(exportOrk({ name: tree.name, tree })).buffer;
-    let finishRead!: (value: ArrayBuffer) => void;
-    const file = new File([], 'Older.ork');
-    Object.defineProperty(file, 'arrayBuffer', { value: () => new Promise<ArrayBuffer>(resolve => { finishRead = resolve; }) });
+    const db = (await Promise.all(MOTOR_DB.filter(m => m.diameter === 18 && m.delays?.split(',').some(d => /^\d+$/.test(d)))
+      .map(async m => await bundleHasCurve(m.motorId) ? m : null))).find(m => m !== null)!;
+    const delay = Number(db.delays!.split(',').find(d => /^\d+$/.test(d))!);
+    const motor = (await loadCatalogueMotor(db.manufacturerAbbrev, db.designation, delay))!;
+    const xml = exportOrk({ name: tree.name, tree, launch: DEFAULT_CONDITIONS,
+      motors: { [motorMounts(tree)[0]!.id!]: { manufacturer: 'i2 missing maker', designation: db.designation,
+        diameter: motor.spec.diameter, length: motor.spec.length, delay } },
+      flightDataDefault: { aeroModel: 'classic', maxAltitude: 123, simWarnings: [] },
+    });
+    // If applied even briefly, this file adds a persisted run and a motor question.
+    expect(importOrk(xml).storedSimulations).toHaveLength(1);
+    return { ...heldFile(xml, 'Older.ork'), tree };
+  }
+
+  function expectNoOlderImport(host: HTMLElement, record: MockInstance<typeof sessionDebugLog.record>,
+    apply: MockInstance<typeof importApply.applyImportPlan>, runsBefore: string | null) {
+    expect(apply).not.toHaveBeenCalled();
+    expect(recentDesigns.rememberRecentDesign).not.toHaveBeenCalled();
+    expect(record).not.toHaveBeenCalledWith('import-complete');
+    expect(host.querySelector('[aria-label="Notices"]')?.textContent ?? '').not.toContain('Older');
+    expect(host.querySelector('.design-file-name')?.textContent).toBe('Not saved to a file');
+    expect(localStorage.getItem(RUNS_KEY)).toBe(runsBefore);
+    expect(host.querySelector('[aria-label="Choose motors for this file"]')).toBeNull();
+  }
+
+  it.each(['Cancel', 'Continue'] as const)('i2 keeps New’s question when an older read finishes before %s', async answer => {
+    localStorage.setItem(SESSION_KEY, raw);
+    const { file, release, tree } = await slowImportWithSideEffects();
     const resolveMotors = vi.spyOn(importApply, 'resolveImportMotors');
+    const apply = vi.spyOn(importApply, 'applyImportPlan');
     const host = await mountApp();
+    const runsBefore = localStorage.getItem(RUNS_KEY);
     const record = vi.spyOn(sessionDebugLog, 'record');
     await pick(host, file);
     await act(async () => { button(host, '✕ New').click(); });
-    await act(async () => { finishRead(bytes); });
+    await act(async () => { release(); });
     await waitFor(() => resolveMotors.mock.calls.length > 0, 'older read completed');
     await settle(50);
     expect(question(host)!.textContent).toContain('starts a new design');
     expect(question(host)!.textContent).not.toContain('opens “Older.ork”');
+    expectNoOlderImport(host, record, apply, runsBefore);
     await act(async () => { button(question(host)!, answer).click(); });
     if (answer === 'Cancel') {
       await waitFor(() => !!question(host)?.textContent?.includes('opens “Older.ork”'), 'older open asks next');
@@ -558,15 +584,55 @@ describe('AS1 preserved autosave replacement', () => {
       expect(sessionUnreadable()).toBe(true);
       await act(async () => { button(question(host)!, 'Continue').click(); });
       expect(shownName(host)).toBe(tree.name);
+      // The fixture really does leave lasting traces when its own consent is given.
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(localStorage.getItem(RUNS_KEY)!)).toHaveLength(1);
+      expect(host.querySelector('[aria-label="Notices"]')!.textContent).toContain(tree.name);
+      expect(host.querySelector('[aria-label="Choose motors for this file"]')).not.toBeNull();
     } else {
       await settle(50);
       expect(question(host)).toBeNull();
       expect(shownName(host)).toBe('New Rocket');
       expect(host.querySelector('.autosave-paused-alert')?.textContent).toBe('');
       expect(record).not.toHaveBeenCalledWith('import-failed', expect.anything());
+      expectNoOlderImport(host, record, apply, runsBefore);
     }
     flush();
     expect(storedSession()!.tree.name).toBe(answer === 'Cancel' ? tree.name : 'New Rocket');
+    if (answer === 'Continue') expect(storedSession()!.designFile).toBeUndefined();
+  }, 30_000);
+
+  it('i2 New replaces an open’s question underneath the dirty-design modal without applying the file', async () => {
+    localStorage.setItem(SESSION_KEY, raw);
+    const { file, release } = await slowImportWithSideEffects();
+    const apply = vi.spyOn(importApply, 'applyImportPlan');
+    const host = await mountApp();
+    const runsBefore = localStorage.getItem(RUNS_KEY);
+    const record = vi.spyOn(sessionDebugLog, 'record');
+    await pick(host, file);
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Dirty paused starter');
+    await act(async () => { button(host, '✕ New').click(); });
+    const dirtyQuestion = host.querySelector('[aria-label="Start a new design"]')!;
+    expect(dirtyQuestion).not.toBeNull();
+    await act(async () => { release(); });
+    await waitFor(() => !!question(host)?.textContent?.includes('opens “Older.ork”'), 'file question underneath New');
+    expect(host.querySelector('[aria-label="Start a new design"]')).toBe(dirtyQuestion);
+    await act(async () => { button(dirtyQuestion, 'Discard & start new').click(); });
+    expect(host.querySelector('[aria-label="Start a new design"]')).toBeNull();
+    expect(question(host)!.textContent).toContain('starts a new design');
+    expect(question(host)!.textContent).not.toContain('opens “Older.ork”');
+    expectNoOlderImport(host, record, apply, runsBefore);
+    flush();
+    expect(localStorage.getItem(SESSION_KEY)).toBe(raw);
+    await act(async () => { button(question(host)!, 'Continue').click(); });
+    await waitFor(() => pageActivity.importsInProgress() === 0, 'superseded file finished');
+    expect(question(host)).toBeNull();
+    expect(shownName(host)).toBe('New Rocket');
+    expect(host.querySelector('.autosave-paused-alert')?.textContent).toBe('');
+    expectNoOlderImport(host, record, apply, runsBefore);
+    flush();
+    expect(storedSession()!.tree.name).toBe('New Rocket');
+    expect(storedSession()!.designFile).toBeUndefined();
   }, 30_000);
 
   it.each([false, true])('i1 superseded file reads do not log a user cancellation (paused: %s)', async paused => {

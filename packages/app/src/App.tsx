@@ -384,12 +384,23 @@ export function App() {
   const autosaveReplacementAnswer = useRef<((continueOpening: boolean) => void) | null>(null);
   const autosaveReplacementPending = useRef<Promise<boolean> | null>(null);
   const autosaveReplacementUnmounted = useRef(false);
-  const askAutosaveReplacement = async (action: string): Promise<boolean> => {
-    // An older background open waits for the question already on screen.
-    let prior = false;
-    while (autosaveReplacementPending.current) prior = await autosaveReplacementPending.current;
+  const askAutosaveReplacement = async (action: string, kind: 'new' | 'open'): Promise<boolean> => {
     if (autosaveReplacementUnmounted.current) return false;
-    if (prior || !autosavePaused) return true;
+    if (!autosavePaused) return true;
+    // Consent belongs only to the action named by its question. New cancels
+    // a pending open; a background open waits, then stops on Continue or asks
+    // its own question on Cancel. Neither outcome depends on microtask order.
+    if (kind === 'new' && autosaveReplacementPending.current) {
+      const answer = autosaveReplacementAnswer.current;
+      autosaveReplacementAnswer.current = null;
+      autosaveReplacementPending.current = null;
+      answer?.(false);
+    } else {
+      while (autosaveReplacementPending.current) {
+        if (await autosaveReplacementPending.current) return false;
+      }
+    }
+    if (autosaveReplacementUnmounted.current) return false;
     setAutosaveReplacementAction(action);
     setAutosaveDownloadError(null);
     setConfirmAutosaveReplacement(true);
@@ -1252,7 +1263,7 @@ export function App() {
     // Save/discard the on-screen design first; this second question protects
     // the different design still held in the autosave slot.
     setConfirmNew(false);
-    if (autosavePaused && !await askAutosaveReplacement('starts a new design')) return;
+    if (autosavePaused && !await askAutosaveReplacement('starts a new design', 'new')) return;
     let newDesign: ReturnType<typeof planNewDesign>;
     try {
       newDesign = planNewDesign({ launch, measured: { massKg: null, cgM: null } }, openSeq);
@@ -3042,7 +3053,7 @@ export function App() {
       // work look saved.
       if (!openSeq.isCurrent(openId)) return;
       if (autosavePaused) {
-        const accepted = await askAutosaveReplacement(file ? `opens “${noteField(file.name)}”` : 'opens the design from the link');
+        const accepted = await askAutosaveReplacement(file ? `opens “${noteField(file.name)}”` : 'opens the design from the link', 'open');
         if (!accepted || !openSeq.isCurrent(openId)) {
           if (!accepted && !file && !autosaveReplacementUnmounted.current && openSeq.isCurrent(openId)) {
             setFileNote('The link was not opened. To open it, download the autosaved design if you want it, then open the link again.', 'warn');
