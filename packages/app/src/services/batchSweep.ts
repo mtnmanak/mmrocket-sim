@@ -317,8 +317,8 @@ export function listsNoDelay(entry: TcMotor): boolean {
  * probe flights make such a flight several times dearer than one at a fixed
  * delay, so the batch dialog's time estimate prices the two apart and needs
  * this count (review of the batch cap, 2026-10-01: it priced every flight of an
- * unticked sweep at a fixed delay). Every flight searches while "optimal delay
- * per motor" is ticked, or while a motor on another mount is on Auto (it is
+ * unticked sweep at a fixed delay). A flight with a lit target searches while
+ * "optimal delay per motor" is ticked, or while a motor on another mount is on Auto (it is
  * solved on every flight). Unticked, flyLegs' rule: a flight searches when one
  * of its motors lists no delay at all, or when every one of its motors is sold
  * plugged only and the design deploys its recovery on the charge
@@ -327,7 +327,7 @@ export function listsNoDelay(entry: TcMotor): boolean {
  * plugged-only ones on such a design, and each count is the sweep's own: every
  * candidate alone, then each split's combinations (mixedComboCount).
  */
-export function batchSolverFlights({ candidates, groups, autoDelay, deploysOnCharge, othersAuto, includeSingles = true }: {
+export function batchSolverFlights({ candidates, groups, autoDelay, deploysOnCharge, othersAuto, targetsCanIgnite = true, includeSingles = true }: {
   candidates: readonly TcMotor[];
   /** Each ticked split's group count (split.mountIds.length), as mixedComboCount takes it. */
   groups: readonly BatchCombination[];
@@ -336,12 +336,16 @@ export function batchSolverFlights({ candidates, groups, autoDelay, deploysOnCha
   deploysOnCharge: boolean;
   /** A motor on a mount other than the swept one is on Auto delay. */
   othersAuto: boolean;
+  /** At least one swept target can ignite; unlit legs never search. */
+  targetsCanIgnite?: boolean;
   includeSingles?: boolean;
 }): number {
   /** The flights drawn entirely from `n` of the candidates. */
   const flightsFrom = (n: number) => batchFlightCount(n, groups, includeSingles);
   const all = flightsFrom(candidates.length);
-  if (autoDelay || othersAuto) return all;
+  if (othersAuto) return all;
+  if (!targetsCanIgnite) return 0;
+  if (autoDelay) return all;
   const listed = candidates.filter((e) => !listsNoDelay(e));
   const pluggedOnly = listed.filter((e) => provisionalDelay(e, false) === Infinity).length;
   return all - flightsFrom(listed.length) + (deploysOnCharge ? flightsFrom(pluggedOnly) : 0);

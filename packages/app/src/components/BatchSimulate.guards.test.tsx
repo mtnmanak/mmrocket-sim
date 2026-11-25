@@ -242,7 +242,9 @@ describe('the batch dialog', () => {
     if (searching === flights) {
       expect(meta).toContain('2 sims each (delay probe + final)');
     } else if (searching > 0) {
-      expect(meta).toContain(`${en(searching)} of ${en(flights)} flights run 2 sims (delay probe + final)`);
+      expect(meta).toContain(searching === 1
+        ? '1 of 2 flights runs 2 sims (delay probe + final)'
+        : `${en(searching)} of ${en(flights)} flights run 2 sims (delay probe + final)`);
       expect(meta).not.toContain('2 sims each');
     } else {
       expect(meta).not.toContain('delay probe');

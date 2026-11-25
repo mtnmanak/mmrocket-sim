@@ -173,7 +173,7 @@ const group = (n: number) => n.toLocaleString('en-US');
 export function batchDelayProbeText({ flights, solverFlights }: BatchPace): string {
   if (solverFlights === 0) return '';
   if (solverFlights === flights) return ' · 2 sims each (delay probe + final)';
-  return ` · ${group(solverFlights)} of ${group(flights)} flights run 2 sims (delay probe + final)`;
+  return ` · ${group(solverFlights)} of ${group(flights)} flights ${solverFlights === 1 ? 'runs' : 'run'} 2 sims (delay probe + final)`;
 }
 
 /**
@@ -213,7 +213,7 @@ export const BATCH_FLIGHT_S = { optimalDelay: 2, fixedDelay: 0.6 } as const;
 /** A sweep as the estimate reads it: its flights, how many of them search for their delay, and the step. */
 export interface BatchPace {
   flights: number;
-  /** batchSweep's batchSolverFlights for this sweep — all of them with "optimal delay per motor" ticked. */
+  /** batchSweep's batchSolverFlights for this sweep — excludes unlit targets. */
   solverFlights: number;
   timeStepS?: number | null;
 }

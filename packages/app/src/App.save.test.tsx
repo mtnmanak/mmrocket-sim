@@ -311,7 +311,7 @@ describe('AS1 preserved autosave replacement', () => {
       launch: { windAverage: 17 } });
     localStorage.setItem(SESSION_KEY, original);
     const host = await mountApp();
-    expect(host.querySelector('.autosave-paused-alert')?.textContent).toContain('could not be read');
+    expect(host.querySelector('.autosave-paused-alert')?.textContent).toContain('The autosave stored in this browser could not be read.');
     await act(async () => { button(host, 'Download the autosaved design (JSON)').click(); });
     expect(vi.mocked(saveFile).mock.calls.at(-1)![0]).toBe(original);
     flush();
@@ -394,6 +394,11 @@ describe('AS1 preserved autosave replacement', () => {
     expect(vi.mocked(saveFile).mock.calls.at(-1)![0]).toBe(raw);
     expect(question(host)).not.toBeNull();
     expect(localStorage.getItem(SESSION_KEY)).toBe(raw);
+    if (door === 'share' || door === 'motor link') {
+      const toggle = host.querySelector<HTMLButtonElement>('.notice-toggle[aria-expanded="true"]');
+      if (toggle) await act(async () => { toggle.click(); });
+      expect(host.querySelector('.notice-toggle')?.getAttribute('aria-expanded')).toBe('false');
+    }
     await act(async () => { button(question(host)!, 'Cancel').click(); });
     flush();
     expect(localStorage.getItem(SESSION_KEY)).toBe(raw);
@@ -401,9 +406,15 @@ describe('AS1 preserved autosave replacement', () => {
     expect(question(host)).toBeNull();
     expect(sessionUnreadable()).toBe(true);
     if (door === 'picker' || door === 'Examples' || door === 'Recent') {
-      expect(record).toHaveBeenCalledWith('import-failed', expect.any(Error));
+      expect(record).toHaveBeenCalledWith('import-failed', expect.objectContaining({
+        message: 'Import cancelled by the user at the autosave replacement question.',
+      }));
     }
-    if (door === 'share' || door === 'motor link') expect(host.textContent).toContain('The link was not opened.');
+    if (door === 'share' || door === 'motor link') {
+      expect(host.textContent).toContain('The link was not opened.');
+      expect(host.querySelector('.notice-bar')?.textContent).toContain('The link was not opened.');
+      expect(host.querySelector('.notice-toggle')?.getAttribute('aria-expanded')).toBe('true');
+    }
     expect(host.querySelector('.autosave-paused-alert')?.textContent).toContain('could not be read');
     await act(async () => { button(host, 'Download the autosaved design (JSON)').click(); });
     expect(vi.mocked(saveFile).mock.calls.at(-1)![0]).toBe(raw);
@@ -522,6 +533,70 @@ describe('AS1 preserved autosave replacement', () => {
     expect(question(host)).toBeNull();
   }, 30_000);
 
+  it.each(['Cancel', 'Continue'] as const)('i1 keeps New’s question when an older read finishes before %s', async answer => {
+    localStorage.setItem(SESSION_KEY, raw);
+    const tree = { ...defaultTree(), name: 'Older completed open' };
+    const bytes = new TextEncoder().encode(exportOrk({ name: tree.name, tree })).buffer;
+    let finishRead!: (value: ArrayBuffer) => void;
+    const file = new File([], 'Older.ork');
+    Object.defineProperty(file, 'arrayBuffer', { value: () => new Promise<ArrayBuffer>(resolve => { finishRead = resolve; }) });
+    const resolveMotors = vi.spyOn(importApply, 'resolveImportMotors');
+    const host = await mountApp();
+    const record = vi.spyOn(sessionDebugLog, 'record');
+    await pick(host, file);
+    await act(async () => { button(host, '✕ New').click(); });
+    await act(async () => { finishRead(bytes); });
+    await waitFor(() => resolveMotors.mock.calls.length > 0, 'older read completed');
+    await settle(50);
+    expect(question(host)!.textContent).toContain('starts a new design');
+    expect(question(host)!.textContent).not.toContain('opens “Older.ork”');
+    await act(async () => { button(question(host)!, answer).click(); });
+    if (answer === 'Cancel') {
+      await waitFor(() => !!question(host)?.textContent?.includes('opens “Older.ork”'), 'older open asks next');
+      flush();
+      expect(localStorage.getItem(SESSION_KEY)).toBe(raw);
+      expect(sessionUnreadable()).toBe(true);
+      await act(async () => { button(question(host)!, 'Continue').click(); });
+      expect(shownName(host)).toBe(tree.name);
+    } else {
+      await settle(50);
+      expect(question(host)).toBeNull();
+      expect(shownName(host)).toBe('New Rocket');
+      expect(host.querySelector('.autosave-paused-alert')?.textContent).toBe('');
+      expect(record).not.toHaveBeenCalledWith('import-failed', expect.anything());
+    }
+    flush();
+    expect(storedSession()!.tree.name).toBe(answer === 'Cancel' ? tree.name : 'New Rocket');
+  }, 30_000);
+
+  it.each([false, true])('i1 superseded file reads do not log a user cancellation (paused: %s)', async paused => {
+    if (paused) localStorage.setItem(SESSION_KEY, raw);
+    const oldTree = { ...defaultTree(), name: 'Superseded file' };
+    const bytes = new TextEncoder().encode(exportOrk({ name: oldTree.name, tree: oldTree })).buffer;
+    let finishRead!: (value: ArrayBuffer) => void;
+    const older = new File([], 'Older.ork');
+    Object.defineProperty(older, 'arrayBuffer', { value: () => new Promise<ArrayBuffer>(resolve => { finishRead = resolve; }) });
+    const host = await mountApp();
+    const record = vi.spyOn(sessionDebugLog, 'record');
+    await pick(host, older);
+    const newTree = { ...defaultTree(), name: 'Latest file' };
+    await pick(host, new File([exportOrk({ name: newTree.name, tree: newTree })], 'Latest.ork'));
+    if (paused) {
+      await waitFor(() => question(host) !== null, 'latest file question');
+      expect(question(host)!.textContent).toContain('opens “Latest.ork”');
+    } else await waitFor(() => shownName(host) === newTree.name, 'latest file applied');
+    await act(async () => { finishRead(bytes); });
+    await settle(100);
+    if (paused) {
+      expect(question(host)!.textContent).toContain('opens “Latest.ork”');
+      await act(async () => { button(question(host)!, 'Continue').click(); });
+    }
+    expect(shownName(host)).toBe(newTree.name);
+    expect(record).not.toHaveBeenCalledWith('import-failed', expect.anything());
+    flush();
+    expect(storedSession()!.tree.name).toBe(newTree.name);
+  }, 30_000);
+
   it.each(['import', 'New'] as const)('a failed %s apply keeps the pause, unreadable flag and original bytes', async door => {
     localStorage.setItem(SESSION_KEY, raw);
     const host = await mountApp();
@@ -560,7 +635,23 @@ describe('AS1 preserved autosave replacement', () => {
     if (failure === 'throw') expect(localStorage.getItem(SESSION_KEY)).toBe(raw);
   }, 30_000);
 
-  it('a late open after unmount finishes its activity and records cancellation', async () => {
+  it('i1 clears a failed download on a successful retry in the question', async () => {
+    localStorage.setItem(SESSION_KEY, raw);
+    const host = await mountApp();
+    await act(async () => { button(host, '✕ New').click(); });
+    const alert = question(host)!.querySelector('[role="alert"]');
+    expect(alert).not.toBeNull();
+    expect(alert!.textContent).toBe('');
+    vi.mocked(saveFile).mockRejectedValueOnce(new Error('Blocked download'));
+    await act(async () => { button(question(host)!, 'Download the autosaved design (JSON)').click(); });
+    expect(alert!.textContent).toContain('Autosave download failed: Blocked download');
+    await act(async () => { button(question(host)!, 'Download the autosaved design (JSON)').click(); });
+    expect(question(host)!.querySelector('[role="alert"]')).toBe(alert);
+    expect(alert!.textContent).toBe('');
+    expect(vi.mocked(saveFile).mock.calls.at(-1)![0]).toBe(raw);
+  }, 30_000);
+
+  it('a late open after unmount finishes its activity without recording a user cancellation', async () => {
     localStorage.setItem(SESSION_KEY, raw);
     const bytes = new TextEncoder().encode(exportOrk({ name: 'Late', tree: defaultTree() })).buffer;
     let finishRead!: (value: ArrayBuffer) => void;
@@ -574,7 +665,7 @@ describe('AS1 preserved autosave replacement', () => {
     await unmountAll();
     await act(async () => { finishRead(bytes); });
     await waitFor(() => pageActivity.importsInProgress() === baseline, 'late import finished');
-    expect(record).toHaveBeenCalledWith('import-failed', expect.any(Error));
+    expect(record).not.toHaveBeenCalledWith('import-failed', expect.any(Error));
     expect(localStorage.getItem(SESSION_KEY)).toBe(raw);
   }, 30_000);
 

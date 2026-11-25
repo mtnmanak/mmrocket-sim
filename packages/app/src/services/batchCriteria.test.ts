@@ -2,8 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { timeStepCostFactor } from './launchConditions.js';
 import { mixedComboCount } from './batchSweep.js';
 import { MOTOR_DB } from './motorDb.js';
-import { gradeBatchRun, type Criteria } from './batchCriteria.js';
+import { batchDelayProbeText, gradeBatchRun, type Criteria } from './batchCriteria.js';
 import type { SimRun } from './simReport.js';
+
+it('i1 uses a singular verb for one searching flight', () => {
+  expect(batchDelayProbeText({ flights: 2, solverFlights: 1 })).toBe(' · 1 of 2 flights runs 2 sims (delay probe + final)');
+  expect(batchDelayProbeText({ flights: 3, solverFlights: 2 })).toBe(' · 2 of 3 flights run 2 sims (delay probe + final)');
+});
 
 it('r2 explicit Batch guidance criteria override only the matching Danger', () => {
   const criteria: Criteria = { minRodExit: 12, minThrustToWeight: 3, minApogee: null, maxApogee: null,

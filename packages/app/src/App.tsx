@@ -382,20 +382,25 @@ export function App() {
   const [autosaveReplacementAction, setAutosaveReplacementAction] = useState('starts a new design');
   const [autosaveDownloadError, setAutosaveDownloadError] = useState<string | null>(null);
   const autosaveReplacementAnswer = useRef<((continueOpening: boolean) => void) | null>(null);
+  const autosaveReplacementPending = useRef<Promise<boolean> | null>(null);
   const autosaveReplacementUnmounted = useRef(false);
-  const askAutosaveReplacement = (action: string): Promise<boolean> => {
-    if (autosaveReplacementUnmounted.current) return Promise.resolve(false);
-    if (!autosavePaused) return Promise.resolve(true);
-    // A newer replacement cancels the older pending action, just like Open.
-    autosaveReplacementAnswer.current?.(false);
+  const askAutosaveReplacement = async (action: string): Promise<boolean> => {
+    // An older background open waits for the question already on screen.
+    let prior = false;
+    while (autosaveReplacementPending.current) prior = await autosaveReplacementPending.current;
+    if (autosaveReplacementUnmounted.current) return false;
+    if (prior || !autosavePaused) return true;
     setAutosaveReplacementAction(action);
     setAutosaveDownloadError(null);
     setConfirmAutosaveReplacement(true);
-    return new Promise(resolve => { autosaveReplacementAnswer.current = resolve; });
+    const pending = new Promise<boolean>(resolve => { autosaveReplacementAnswer.current = resolve; });
+    autosaveReplacementPending.current = pending;
+    return pending;
   };
   const answerAutosaveReplacement = (continueOpening: boolean) => {
     const answer = autosaveReplacementAnswer.current;
     autosaveReplacementAnswer.current = null;
+    autosaveReplacementPending.current = null;
     setConfirmAutosaveReplacement(false);
     answer?.(continueOpening);
   };
@@ -403,8 +408,10 @@ export function App() {
     autosaveReplacementUnmounted.current = false;
     return () => {
       autosaveReplacementUnmounted.current = true;
-      autosaveReplacementAnswer.current?.(false);
+      const answer = autosaveReplacementAnswer.current;
       autosaveReplacementAnswer.current = null;
+      autosaveReplacementPending.current = null;
+      answer?.(false);
     };
   }, []);
   const [importedDocument, setImportedDocument] = useState(() => session?.importedDocument);
@@ -2656,6 +2663,7 @@ export function App() {
   };
 
   const downloadAutosavedDesign = async () => {
+    setAutosaveDownloadError(null);
     const generation = documentGeneration.current;
     try {
     const file = autosavedDesignFile();
@@ -3037,9 +3045,9 @@ export function App() {
         const accepted = await askAutosaveReplacement(file ? `opens “${noteField(file.name)}”` : 'opens the design from the link');
         if (!accepted || !openSeq.isCurrent(openId)) {
           if (!accepted && !file && !autosaveReplacementUnmounted.current && openSeq.isCurrent(openId)) {
-            setFileNote('The link was not opened. To open it, download the autosaved design if you want it, then open the link again.');
+            setFileNote('The link was not opened. To open it, download the autosaved design if you want it, then open the link again.', 'warn');
           }
-          return;
+          return !accepted && !autosaveReplacementUnmounted.current && openSeq.isCurrent(openId) ? 'cancelled' as const : undefined;
         }
       }
       documentGeneration.current++;
@@ -3414,8 +3422,9 @@ export function App() {
       // does, and say which one in the import note; the Flight configurations
       // panel on Motors & Configuration switches between them (motors AND recovery
       // deployment, since applyConfig applies both now).
-      if (!await applyImported(imported, openId, openedDesignFileRef(file.name, imported.sourceFormat!, imported.fileRocketName))) {
-        sessionDebugLog.record('import-failed', new Error('Import cancelled before application.'));
+      const applied = await applyImported(imported, openId, openedDesignFileRef(file.name, imported.sourceFormat!, imported.fileRocketName));
+      if (!applied || applied === 'cancelled') {
+        if (applied === 'cancelled') sessionDebugLog.record('import-failed', new Error('Import cancelled by the user at the autosave replacement question.'));
         return;
       }
       if (openSeq.isCurrent(openId)) {
@@ -4265,7 +4274,7 @@ export function App() {
         <div className="autosave-paused-alert" role="alert">
         {autosavePaused && (
           <Note tier="caution" className="file-note autosave-warn">
-            {sessionUnreadable() ? 'The existing autosave could not be read.' : 'The autosaved design was not restored because it exceeds the 10,000 expanded component instance limit.'}{' '}
+            {sessionUnreadable() ? 'The autosave stored in this browser could not be read.' : 'The autosaved design was not restored because it exceeds the 10,000 expanded component instance limit.'}{' '}
             Autosave is paused to keep that original design. Download it before choosing New or opening another
             design, which resumes autosave. Save edits to the starter design with Save As / Export.{' '}
             <button className="file-btn" onClick={() => { void downloadAutosavedDesign(); }}>Download the autosaved design{sessionUnreadable() ? ' (JSON)' : ''}</button>

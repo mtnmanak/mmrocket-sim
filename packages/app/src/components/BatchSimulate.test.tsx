@@ -10,7 +10,7 @@ import { AERO_NAME, PrefsProvider, type AeroChoice } from '../prefs/PrefsContext
 import { MOTOR_DB, filterMotors, sortMotors } from '../services/motorDb.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
 import { BatchSimulate } from './BatchSimulate.js';
-import { batchSummary, batchUnavailableReason } from '../services/batchCriteria.js';
+import { batchEstimate, batchSummary, batchUnavailableReason } from '../services/batchCriteria.js';
 import {
   batchFlownSpec, candidateIdentity, isWeighedCandidate, mixedComboCount,
   type BatchMountOption, type BatchWeighed, batchStageExit,
@@ -205,7 +205,31 @@ describe('the batch dialog', () => {
   it('A25:6-3 shows delay probes for a kept Auto motor with a Never target', () => {
     mount({}, { ...separateMounts([24, 38]), assignedMotors: { side1: motor(2) },
       assignedIgnitions: { mount: { event: 'never', delay: 0 } }, assignedAutoDelays: { side1: true } });
+    const toggle = [...host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
+      .find(input => input.closest('label')?.textContent?.includes('optimal delay per motor'))!;
+    act(() => toggle.click());
+    expect(toggle.checked).toBe(false);
     expect(host.textContent).toContain('2 sims each (delay probe + final)');
+    mount({}, { ...separateMounts([24, 38]),
+      assignedIgnitions: { mount: { event: 'never', delay: 0 } }, assignedAutoDelays: { side1: true } });
+    expect(host.textContent).not.toContain('delay probe + final');
+  });
+  it('i1 neither announces nor prices probes when every target is Never', () => {
+    const extra = separateMounts([75, 75]);
+    mount({}, { ...extra, assignedIgnitions: { mount: { event: 'never', delay: 0 }, side1: { event: 'never', delay: 0 } } });
+    expect(host.textContent).not.toContain('delay probe + final');
+    const count = filterMotors({ boreMm: 75, manufacturers: new Set(), classes: new Set(), includeOOP: false, text: '' }, MOTOR_DB).length;
+    const primary = [...host.querySelectorAll('button')].find(b => b.textContent?.trim().startsWith('Simulate '))!;
+    expect(primary.textContent).toContain(batchEstimate({ flights: count, solverFlights: 0 }));
+    expect(batchEstimate({ flights: count, solverFlights: 0 })).not.toBe(batchEstimate({ flights: count, solverFlights: count }));
+  });
+  it('i1 gives all unlit matching mounts a Caution and the consequence', () => {
+    mount({}, { ...separateMounts([75, 75]),
+      assignedIgnitions: { mount: { event: 'never', delay: 0 }, side1: { event: 'never', delay: 0 } } });
+    const note = [...host.querySelectorAll('p')].find(p => p.textContent?.includes('Candidates fly in'))!;
+    expect(note.textContent).toContain('MMT 1 (never ignites) and MMT 2 (never ignites)');
+    expect(note.textContent).toContain('so no candidate motor will burn in these flights.');
+    expect(note.classList.contains('message-caution')).toBe(true);
   });
   it('discloses four matching mounts with Caution, and updates on picker changes', () => {
     const extra = separateMounts();

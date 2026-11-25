@@ -87,11 +87,13 @@ export function batchMountDisclosure(tree: RocketTree, mounts: readonly BatchMou
   const kept = [...groups.values()].filter(g => g.motor !== null);
   const empty = [...groups.values()].find(g => g.motor === null);
   const targetName = (id: string) => `${mountMotorCount(tree, id) > 1 ? `×${mountMotorCount(tree, id)} ` : ''}${nameOf(id)}${ignitionSuffix(id)}`;
-  const targetUnlit = targetIds.length === 1
-    && knownUnlitIgnition(batchTargetIgnition(tree, ignitions, selected.id).event, !hasIgnitionSourceStage(tree, selected.id));
+  const targetUnlit = targetIds.every(id =>
+    knownUnlitIgnition(batchTargetIgnition(tree, ignitions, id).event, !hasIgnitionSourceStage(tree, id)));
   const sentences = [targetIds.length > 1 ? `Candidates fly in ${and(targetIds.map(targetName))}.`
     : `Candidates fly ${count > 1 ? `×${count} ` : ''}in ${nameOf(selected.id)}${ignitionSuffix(selected.id)} only.`];
-  if (targetUnlit) sentences.push(`${nameOf(selected.id)} keeps its own ignition setting (${noteText(describeIgnitionTuple(batchTargetIgnition(tree, ignitions, selected.id), 'warning'))}), so no candidate motor will burn in these flights.`);
+  if (targetUnlit) sentences.push(targetIds.length > 1
+    ? 'These mounts keep their own ignition settings, so no candidate motor will burn in these flights.'
+    : `${nameOf(selected.id)} keeps its own ignition setting (${noteText(describeIgnitionTuple(batchTargetIgnition(tree, ignitions, selected.id), 'warning'))}), so no candidate motor will burn in these flights.`);
   if (keptMounts.some(m => m.count > 1)) sentences.push(`Each flight keeps ${mountLoadoutText(keptMounts)}.`);
   else if (kept.length) sentences.push(`${and(kept.map(g => `${and(g.names)} ${g.names.length === 1 ? 'keeps' : 'keep'} ${g.motor!}`))} for every flight.`);
   if (empty) sentences.push(`${and(empty.names)} ${empty.names.length === 1 ? 'stays' : 'stay'} empty.`);

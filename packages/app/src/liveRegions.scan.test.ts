@@ -41,6 +41,12 @@ const TAB = 'A workspace tab panel mounts with its content when the user opens t
  */
 const ALLOWED: { file: string; pattern: Pattern; snippet: string; reason: string }[] = [
   {
+    file: 'components/DesignConfirms.tsx', pattern: 'nested',
+    snippet: '{preservedAutosave && ( … <div role="alert">',
+    reason: 'The replacement question clears the download error before opening. Its alert mounts empty with the '
+      + 'modal and stays mounted for download failures and retries while the question is open.',
+  },
+  {
     file: 'components/MotorPadMass.tsx', pattern: 'ternary',
     snippet: '{live ? line : <Note as="p" role="status"',
     reason: 'PadMassLine: both arms render a <p role="status"> in the same position, so React keeps the one node '

@@ -83,9 +83,9 @@ export function DesignConfirms({ tree, unprotected = false, lossDialog, setLossD
             <button className="file-btn modal-danger" onClick={preservedAutosave.onContinue}>Continue</button>
             <button className="file-btn" onClick={preservedAutosave.onCancel}>Cancel</button>
           </div>
-          {preservedAutosave.downloadError && <div role="alert"><Note tier="danger">
+          <div role="alert">{preservedAutosave.downloadError && <Note tier="danger">
             <p className="note-para">{preservedAutosave.downloadError}</p>
-          </Note></div>}
+          </Note>}</div>
         </Modal>
       )}
       {lossDialog && <FormatLossDialog report={lossDialog.report} confirm={lossDialog.confirm}

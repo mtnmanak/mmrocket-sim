@@ -955,6 +955,21 @@ describe('per-mount policy plumbing', () => {
     const searched = (rows: readonly BatchRow[]) =>
       rows.filter((r) => r.run!.delayResolution!.mounts.some((m) => m.mode === 'auto')).length;
 
+    it.each([false, true])('i1 matches an entirely unlit sweep with autoDelay %s', async autoDelay => {
+      fakeTelemetry();
+      const t = rocket();
+      const { rows } = await sweep(input(t, { candidates: cands, autoDelay,
+        assignedIgnitions: { mount: { event: 'never', delay: 0 } } }),
+      { fetchSpec: fetchFrom(specs), nozzleFor: nozzles({}) });
+      expect(rows).toHaveLength(cands.length);
+      expect(rows.every(r => r.run)).toBe(true);
+      expect(searched(rows)).toBe(0);
+      expect(batchSolverFlights({ candidates: cands, groups: [], autoDelay,
+        deploysOnCharge: true, othersAuto: false, targetsCanIgnite: false })).toBe(0);
+      expect(batchSolverFlights({ candidates: cands, groups: [], autoDelay,
+        deploysOnCharge: true, othersAuto: true, targetsCanIgnite: false })).toBe(cands.length);
+    }, 30_000);
+
     it.each([
       ['waits for the motor’s charge', 'ejection', 7],
       ['deploys at apogee', 'apogee', 4],

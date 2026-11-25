@@ -549,6 +549,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   // motor is on Auto. The estimate prices them apart from the rest.
   const solverFlights = batchSolverFlights({
     candidates, groups: ticked, autoDelay: criteria.autoDelay, deploysOnCharge, includeSingles: effectiveIncludeSingles,
+    targetsCanIgnite: firingCount > 0,
     othersAuto: Object.keys(assignedMotors).some((id) => !targetIds.includes(id) && assignedAutoDelays?.[id] === true),
   });
   // How long that takes, and whether it is more than one sweep will fly. Past
