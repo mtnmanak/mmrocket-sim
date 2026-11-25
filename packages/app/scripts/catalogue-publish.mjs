@@ -28,6 +28,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { isDeepStrictEqual, parseArgs } from 'node:util';
+import { curveFileIdentity, curveFileMultiset, diffCurveFiles } from './curve-file-diff.mjs';
 
 const SOURCE = 'thrustcurve.org API v1, curated by MMRocket Sim (github.com/mtnmanak/mmrocket-sim)';
 const CONTENT_TYPE = 'application/json; charset=utf-8';
@@ -64,13 +65,22 @@ function assertNewer(entry, live) {
   }
 }
 const digest = (s) => typeof s === 'string' && /^[a-f0-9]{64}$/.test(s);
+const canonical = (v) => Array.isArray(v) ? v.map(canonical)
+  : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canonical(v[k])])) : v;
+
+// Plan-time comparison only: retain full content, including duplicate identities,
+// but ignore each motor's file order. Published bytes and manifest hashes stay exact.
+function unorderedCurveContentHash(bytes) {
+  const doc = JSON.parse(Buffer.from(bytes).toString('utf8'));
+  const curves = Object.fromEntries(Object.entries(doc.curves).map(([id, files]) => [id,
+    curveFileMultiset(files)]));
+  return contentHash(jsonBytes({ ...doc, curves }));
+}
 
 // Only these root fields are run-specific in catalogueDocument/curvesDocument.
 // In particular a motor's updatedOn is upstream data, not our generation clock.
 export function contentHash(bytes) {
   const { generated: _generated, catalogueGenerated: _catalogueGenerated, ...content } = JSON.parse(Buffer.from(bytes).toString('utf8'));
-  const canonical = (v) => Array.isArray(v) ? v.map(canonical)
-    : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canonical(v[k])])) : v;
   return hash(JSON.stringify(canonical(content)));
 }
 
@@ -158,10 +168,21 @@ export function planPublication({ motorsBytes, curvesBytes, previousManifest, pr
     if (previous && hash(previous) !== meta.sha256) throw new Error(`Previous ${kind} sha256 mismatch`);
     return meta.sha256 === hash(next) || (meta.contentSha256 ?? (previous && contentHash(previous))) === contentHash(next);
   };
+  let fileOrderOnlyMotors = 0;
+  const curvesMatch = () => {
+    if (contentMatches('curves', curvesBytes, previousCurvesBytes)) return true;
+    // The recorded contentSha256 remains order-sensitive. Only verified prior
+    // bytes can establish that a mismatch is entirely within-motor file order.
+    if (!previousCurvesBytes || unorderedCurveContentHash(previousCurvesBytes) !== unorderedCurveContentHash(curvesBytes)) return false;
+    const before = JSON.parse(Buffer.from(previousCurvesBytes).toString('utf8')).curves;
+    fileOrderOnlyMotors = Object.keys(curves.curves).filter(id => !isDeepStrictEqual(before[id], curves.curves[id])).length;
+    return true;
+  };
   // A missing/corrupt current object needs an approved repair even if its recorded
   // content hash matches. Otherwise every later refresh would skip that repair.
-  if (!previousSnapshotUnavailable && contentMatches('motors', motorsBytes, previousMotorsBytes) && contentMatches('curves', curvesBytes, previousCurvesBytes)) {
+  if (!previousSnapshotUnavailable && contentMatches('motors', motorsBytes, previousMotorsBytes) && curvesMatch()) {
     return { liveEntry: current, changed: false, snapshotId: current.id, baseManifestSha256, entry: current, uploads: [],
+      ...(fileOrderOnlyMotors ? { fileOrderOnlyMotors } : {}),
       input: { commit, sourceRunId, fetchedAt, sourceAttempt },
       alreadyPublished: current.sourceRunId === sourceRunId && current.motors.sha256 === motorsHash && current.curves.sha256 === curvesHash };
   }
@@ -203,19 +224,16 @@ export function publicationSummary(plan, { motorsBytes, curvesBytes, previousMot
   const curves = JSON.parse(Buffer.from(curvesBytes).toString('utf8')).curves;
   const curveChanges = [], fileSets = [], samples = [], other = [], fileAdded = [], fileRemoved = [];
   for (const id of new Set([...Object.keys(priorCurves), ...Object.keys(curves)])) {
-    const oldFiles = new Map((Object.hasOwn(priorCurves, id) ? priorCurves[id] : []).map((f) => [f.simfileId, f]));
-    const newFiles = new Map((Object.hasOwn(curves, id) ? curves[id] : []).map((f) => [f.simfileId, f]));
-    const addedFiles = [...newFiles.keys()].filter((key) => !oldFiles.has(key));
-    const removedFiles = [...oldFiles.keys()].filter((key) => !newFiles.has(key));
-    const sampleChange = [...newFiles.keys()].some((key) => oldFiles.has(key)
-      && !isDeepStrictEqual(oldFiles.get(key).samples, newFiles.get(key).samples));
-    const anyChange = addedFiles.length || removedFiles.length || [...newFiles.keys()].some((key) => !isDeepStrictEqual(oldFiles.get(key), newFiles.get(key)));
+    const summaryKey = (file) => typeof file?.simfileId === 'string' && file.simfileId !== '' ? file.simfileId : curveFileIdentity(file);
+    const { added: addedFiles, removed: removedFiles, revised, samplesChanged: sampleChange } = diffCurveFiles(
+      Object.hasOwn(priorCurves, id) ? priorCurves[id] : [], Object.hasOwn(curves, id) ? curves[id] : []);
+    const anyChange = addedFiles.length || removedFiles.length || revised;
     if (anyChange) curveChanges.push(id);
     if (addedFiles.length || removedFiles.length) fileSets.push(id);
     if (sampleChange) samples.push(id);
     if (anyChange && !sampleChange && !addedFiles.length && !removedFiles.length) other.push(id);
-    fileAdded.push(...addedFiles.map((key) => `${id}/${key}`));
-    fileRemoved.push(...removedFiles.map((key) => `${id}/${key}`));
+    fileAdded.push(...addedFiles.map((file) => `${id}/${summaryKey(file)}`));
+    fileRemoved.push(...removedFiles.map((file) => `${id}/${summaryKey(file)}`));
   }
   const rowCount = hasPrevious && !previousMotorsBytes ? 'UNAVAILABLE' : added.length + removed.length + changed.length;
   const curveCount = hasPrevious && !previousCurvesBytes ? 'UNAVAILABLE' : curveChanges.length;
@@ -240,7 +258,7 @@ export function publicationSummary(plan, { motorsBytes, curvesBytes, previousMot
       && !isDeepStrictEqual(beforeDoc[key], afterDoc[key]));
     if (roots.length) otherContent.push(`${kind} root fields: ${roots.join(', ')}`);
     const order = (doc) => kind === 'motors' ? doc.motors.map((row) => row.motorId)
-      : Object.fromEntries(Object.entries(doc.curves).map(([id, files]) => [id, files.map((file) => file.simfileId)]));
+      : Object.fromEntries(Object.entries(doc.curves).map(([id, files]) => [id, files.map(curveFileIdentity).sort()]));
     if (!isDeepStrictEqual(order(beforeDoc), order(afterDoc))) otherContent.push(`${kind} row/file identity or array order`);
   }
   const source = plan.input ?? entry;
@@ -253,6 +271,7 @@ export function publicationSummary(plan, { motorsBytes, curvesBytes, previousMot
     ...(plan.changed ? [`NEW snapshot: ${plan.snapshotId}; fetched: ${entry.fetchedAt}.`,
       'The final snapshot id may gain a suffix at upload time if an orphan occupies this id.']
       : [plan.alreadyPublished ? `already published as ${plan.snapshotId}` : `No content change; keeping live snapshot ${plan.snapshotId}.`]),
+    ...(!plan.changed && plan.fileOrderOnlyMotors ? [`Only curve file order changed for ${plan.fileOrderOnlyMotors} motor${plan.fileOrderOnlyMotors === 1 ? '' : 's'}; nothing is published.`] : []),
     ...unavailable.map((reason) => `**UNAVAILABLE: ${reason}**`),
     `Catalogue rows: ${rowCount} ${hasPrevious ? 'changed' : 'added'} · Curves: ${curveCount} motors changed · Dates only: ${datesOnly}`,
     `Content vs recorded hash: motors ${motorContent}, curves ${curveContent}${hasPrevious && motorContent === 'unchanged' && curveContent === 'unchanged' ? ' (identical content)' : ''}.`,

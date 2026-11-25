@@ -125,6 +125,155 @@ it('explains how to recover an incomplete bundle before publication', () => {
 });
 
 describe('planPublication and contentHash', () => {
+  function curveInputs(filesByMotor) {
+    const input = inputs({ motors: Object.keys(filesByMotor).map(motorId => ({ motorId, designation: 'F1' })) });
+    const curves = JSON.parse(input.curvesBytes);
+    return { ...input, curvesBytes: bytes({ ...curves, curves: filesByMotor,
+      motors: Object.keys(filesByMotor).length, files: Object.values(filesByMotor).reduce((n, files) => n + files.length, 0) }) };
+  }
+  const fileA = { simfileId: 'file-a', source: 'cert', samples: [[0, 0], [1, 1]] };
+  const fileB = { simfileId: 'file-b', source: 'cert', samples: [[0, 0], [1, 2]] };
+  function compareCurves(before, after, extra = {}) {
+    return planPublication({ ...after, previousManifest: manifest(planPublication(before)),
+      previousMotorsBytes: before.motorsBytes, previousCurvesBytes: before.curvesBytes, ...extra });
+  }
+
+  it.each([false, true])('CAT-ORDER: ignores only file order and counts affected motors (anonymous files: %s)', anonymous => {
+    const files = anonymous ? [fileA, fileB].map(({ simfileId: _id, ...file }) => file) : [fileA, fileB];
+    const before = curveInputs({ a: files, b: files, c: files });
+    const after = curveInputs({ a: [...files].reverse(), b: [...files].reverse(), c: files });
+    // Generation clocks still do not count as a data change.
+    const curves = JSON.parse(after.curvesBytes);
+    after.curvesBytes = bytes({ ...curves, generated: '2026-10-23' });
+    const plan = compareCurves(before, after);
+    expect(plan.changed).toBe(false);
+    expect(plan.uploads).toEqual([]);
+    expect(readPublication(staged(plan)).changed).toBe(false);
+    expect(contentHash(before.curvesBytes)).not.toBe(contentHash(after.curvesBytes));
+    const summary = publicationSummary(plan, { ...after, previousMotorsBytes: before.motorsBytes,
+      previousCurvesBytes: before.curvesBytes, hasPrevious: true });
+    expect(summary).toContain('Only curve file order changed for 2 motors; nothing is published.');
+    expect(summary).toContain('Curves: 0 motors changed');
+    expect(summary).toContain('Other content changes: none identified.');
+  });
+
+  it.each([
+    ['sample revised', [fileB, { ...fileA, samples: [[0, 0], [1, 3]] }]],
+    ['metadata revised', [fileB, { ...fileA, source: 'user' }]],
+    ['file added', [fileB, fileA, { ...fileA, simfileId: 'file-c' }]],
+    ['file removed', [fileB]],
+    ['file identity revised', [fileB, { ...fileA, simfileId: 'file-c' }]],
+    ['duplicate identity revised', [fileB, { ...fileB, source: 'user' }]],
+  ])('CAT-ORDER: publishes fetched bytes when order changes with %s', (_reason, files) => {
+    const before = curveInputs({ a: [fileA, fileB] }), after = curveInputs({ a: files });
+    const plan = compareCurves(before, after);
+    expect(plan.changed).toBe(true);
+    expect(plan.uploads[1].bytes).toEqual(after.curvesBytes);
+    expect(plan.entry.curves.contentSha256).toBe(contentHash(after.curvesBytes));
+    expect(publicationSummary(plan, { ...after, previousCurvesBytes: before.curvesBytes, hasPrevious: true }))
+      .not.toContain('nothing is published');
+  });
+
+  it('CAT-ORDER: keeps identical inputs unchanged and motor order, roots, and nested arrays strict', () => {
+    const before = curveInputs({ a: [fileA, fileB], b: [fileA, fileB] });
+    expect(compareCurves(before, before).changed).toBe(false);
+    const after = curveInputs({ a: [fileB, fileA], b: [fileA, fileB] });
+    const motorDoc = JSON.parse(after.motorsBytes), curveDoc = JSON.parse(after.curvesBytes);
+    for (const patch of [
+      { motorsBytes: bytes({ ...motorDoc, motors: [...motorDoc.motors].reverse() }) },
+      { curvesBytes: bytes({ ...curveDoc, future: 'new field' }) },
+      { curvesBytes: bytes({ ...curveDoc, curves: { ...curveDoc.curves,
+        a: [fileB, { ...fileA, samples: [...fileA.samples].reverse() }] } }) },
+    ]) expect(compareCurves(before, { ...after, ...patch }).changed).toBe(true);
+    for (const files of [[fileA, fileB], [fileB, fileA]]) {
+      const changedMotors = curveInputs({ a: files });
+      expect(compareCurves(before, changedMotors).changed).toBe(true);
+      expect(compareCurves(changedMotors, before).changed).toBe(true);
+    }
+    expect(compareCurves(before, after, { previousSnapshotUnavailable: true }).changed).toBe(true);
+    expect(compareCurves(before, after, { previousCurvesBytes: undefined }).changed).toBe(true);
+    expect(() => compareCurves(before, after, { previousCurvesBytes: bytes({}) })).toThrow(/sha256 mismatch/);
+  });
+
+  it.each([undefined, null, ''])('R2-2 CAT-ORDER: compares every anonymous file and repeated identity in full (anonymous id %s)', anonymousId => {
+    const anonymous = [fileA, fileB].map(file => ({ ...file, simfileId: anonymousId }));
+    const before = curveInputs({ a: anonymous });
+    const swapped = curveInputs({ a: [...anonymous].reverse() });
+    const unchanged = compareCurves(before, swapped);
+    expect(unchanged.changed).toBe(false);
+    const summary = publicationSummary(unchanged, { ...swapped, previousMotorsBytes: before.motorsBytes,
+      previousCurvesBytes: before.curvesBytes, hasPrevious: true });
+    expect(summary).toContain('Only curve file order changed for 1 motor; nothing is published.');
+    expect(summary).toContain('Curves: 0 motors changed');
+    expect(summary).toContain('Other content changes: none identified.');
+    for (const files of [
+      [anonymous[1], { ...anonymous[0], source: 'user' }],
+      [anonymous[1]],
+      [anonymous[1], anonymous[0], { ...anonymous[0], source: 'user' }],
+    ]) {
+      const revised = curveInputs({ a: files });
+      const plan = compareCurves(before, revised);
+      expect(plan.changed).toBe(true);
+      const text = publicationSummary(plan, { ...revised, previousMotorsBytes: before.motorsBytes,
+        previousCurvesBytes: before.curvesBytes, hasPrevious: true });
+      expect(text).toContain('Curves: 1 motors changed');
+      expect(text).toContain('Motors with simfile ids added/removed: 1;');
+    }
+    const duplicate = { ...fileB, simfileId: fileA.simfileId };
+    const repeated = curveInputs({ a: [fileA, duplicate] });
+    const reversed = curveInputs({ a: [duplicate, fileA] });
+    const reordered = compareCurves(repeated, reversed);
+    expect(reordered.changed).toBe(false);
+    const reorderedSummary = publicationSummary(reordered, { ...reversed, previousMotorsBytes: repeated.motorsBytes,
+      previousCurvesBytes: repeated.curvesBytes, hasPrevious: true });
+    expect(reorderedSummary).toContain('Only curve file order changed for 1 motor; nothing is published.');
+    expect(reorderedSummary).toContain('Curves: 0 motors changed');
+    expect(reorderedSummary).toContain('Other content changes: none identified.');
+    for (const [files, sampleChanges] of [
+      [[{ ...fileA, source: 'user' }, duplicate], 0],
+      [[fileA, { ...duplicate, source: 'user' }], 0],
+      [[{ ...fileA, samples: [[0, 0], [1, 3]] }, duplicate], 1],
+    ]) {
+      const revised = curveInputs({ a: files });
+      const plan = compareCurves(repeated, revised);
+      expect(plan.changed).toBe(true);
+      const text = publicationSummary(plan, { ...revised, previousMotorsBytes: repeated.motorsBytes,
+        previousCurvesBytes: repeated.curvesBytes, hasPrevious: true });
+      expect(text).toContain('Curves: 1 motors changed');
+      expect(text).toContain(`Motors with existing simfile samples changed: ${sampleChanges};`);
+      expect(text).toContain(`Motors with other file metadata changed: ${1 - sampleChanges};`);
+    }
+    for (const [oldFiles, files] of [[[fileA], [fileA, fileA]], [[fileA, fileA], [fileA]]]) {
+      const old = curveInputs({ a: oldFiles }), next = curveInputs({ a: files });
+      const plan = compareCurves(old, next);
+      expect(plan.changed).toBe(true);
+      const text = publicationSummary(plan, { ...next, previousMotorsBytes: old.motorsBytes,
+        previousCurvesBytes: old.curvesBytes, hasPrevious: true });
+      expect(text).toContain('Curves: 1 motors changed');
+      expect(text).toContain('Motors with simfile ids added/removed: 1;');
+      expect(text).toContain('Motors with existing simfile samples changed: 0;');
+    }
+  });
+
+  it('CAT-ORDER: emits changed=false and the file-order summary through the plan CLI', async () => {
+    const before = curveInputs({ a: [fileA, fileB] }), after = curveInputs({ a: [fileB, fileA] });
+    const dir = tmp(), out = join(dir, 'plan'), summary = join(dir, 'summary.md');
+    const documents = { motors: after.motorsBytes, curves: after.curvesBytes,
+      previous: bytes(manifest(planPublication(before))), 'previous-motors': before.motorsBytes,
+      'previous-curves': before.curvesBytes };
+    const fileArgs = Object.entries(documents).flatMap(([key, data]) => {
+      const file = join(dir, `${key}.json`); writeFileSync(file, data); return [`--${key}`, file];
+    });
+    const stdout = vi.fn(), stderr = vi.fn(), fetchImpl = vi.fn();
+    expect(await main(['plan', ...fileArgs, '--out', out, '--summary', summary, '--commit', commit,
+      '--source-run-id', after.sourceRunId, '--fetched-at', after.fetchedAt], { env: {}, stdout, stderr, fetchImpl })).toBe(0);
+    expect(stdout).toHaveBeenCalledWith(`changed=false\nsnapshot=${JSON.parse(documents.previous).current}\n`);
+    expect(readPublication(out).uploads).toEqual([]);
+    expect(readFileSync(summary, 'utf8')).toContain('Only curve file order changed for 1 motor; nothing is published.');
+    expect(stderr).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it.each(['constructor', 'toString', '__proto__'])('diffs own curve keys safely: %s', id => {
     const args = inputs();
     const one = bytes({ curves: { [id]: [{ simfileId: 'f', samples: [[0, 0], [1, 1]] }] } });
@@ -349,13 +498,13 @@ describe('freezeInputs, publicationSummary, stagePublication and readPublication
     expect(lines.every((line) => line.startsWith('- ') || line.startsWith('#'))).toBe(true);
   });
 
-  it('R7: names root metadata and array order changes beyond row/file identity', () => {
+  it('R7: names root metadata changes, excluding within-motor file order', () => {
     const old = inputs(), oldCurves = JSON.parse(old.curvesBytes);
     oldCurves.curves.a.push({ simfileId: 'second', samples: [[0, 0]] }); oldCurves.files++;
     for (const [kind, inputDoc, patch, expected] of [
       ['motors', JSON.parse(old.motorsBytes), (doc) => { doc.fields.reverse(); }, 'motors root fields: fields'],
       ['curves', oldCurves, (doc) => { doc.source = 'changed'; }, 'curves root fields: source'],
-      ['curves', oldCurves, (doc) => { doc.curves.a.reverse(); }, 'curves row/file identity or array order'],
+      ['curves', oldCurves, (doc) => { doc.curves.a.reverse(); }, 'none identified'],
     ]) {
       const next = structuredClone(inputDoc); patch(next);
       const input = { ...old, curvesBytes: bytes(oldCurves), [`${kind}Bytes`]: bytes(next) };
