@@ -1,5 +1,5 @@
 {
-  "version": "0.214",
+  "version": "0.215",
   "released": "2026-11-24",
-  "note": "Opened files follow a rocket rename on Save; OpenRocket 26.11 automatic line and cord lengths are read; the site band is 45 px tall and its links are at least 44 px high and wide. No existing tester flight moves."
+  "note": "On screens 768 px and wider, the site band’s search button is now a 44 px by 44 px target, to the left of the unchanged Search field. No flight moves."
 }

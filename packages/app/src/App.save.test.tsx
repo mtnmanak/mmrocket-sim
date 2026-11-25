@@ -4073,7 +4073,12 @@ describe('a hand-edited autosave', () => {
     try {
       await saveAs(host, door);
       await settle();
-      const notice = [...host.querySelectorAll('.notice-item')].find(n => n.textContent?.includes(missing ? 'no maker is available' : 'Used EX motors are embedded'));
+      // Wait for the receipt: on a slow runner the clipboard-fallback path posts it after settle()
+      // returns (API deploy run 45519555510 failed here once on a commit that had passed twice).
+      const receipt = (): Element | undefined => [...host.querySelectorAll('.notice-item')]
+        .find(n => n.textContent?.includes(missing ? 'no maker is available' : 'Used EX motors are embedded'));
+      await waitFor(() => receipt() !== undefined, 'the EX receipt notice');
+      const notice = receipt();
       expect(notice).toBeTruthy();
       expect(notice!.classList.contains('message-caution')).toBe(missing);
       expect(notice!.textContent).not.toContain('original maker');

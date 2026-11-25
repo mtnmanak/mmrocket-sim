@@ -40,6 +40,21 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.215",
+    "date": "2026-11-24",
+    "title": "The site band’s search button is a full-size tap target",
+    "summary": [
+      "On screens 768 px and wider, the magnifier button beside the Search field in the Mountain Man Rockets band is now a 44 px by 44 px target (it was 17 px by 17 px). It sits to the left of the field; the field itself has not moved.",
+      "Search works as before: type a term and press Enter, or use the button.",
+      "With the keyboard, the button now comes before the field. No flight moves."
+    ],
+    "items": [
+      "A FULL-SIZE SEARCH BUTTON IN THE SITE BAND. v0.214 made every link in the Mountain Man Rockets band at least 44 px high and wide, but on screens 768 px and wider the magnifier button that submits the band’s Search field was still 17 px by 17 px. It is now 44 px by 44 px, with the icon the same size as before. There was not room for a button that size to the right of the field without moving the field, so it now sits immediately to the left of it; the field is the same size and in the same place. The band is still 45 px tall. The button takes 48 px from the menu (its own width and a 4 px gap); on an 800 px wide screen, where the menu already scrolled sideways inside the band, it scrolls a little further. With the keyboard, the button now comes before the field, and its focus ring is drawn inside it.",
+      "SEARCH STILL WORKS BOTH WAYS. Type a term in the field and press Enter, or select the magnifier button: either opens the search results on mountainmanrockets.com. On screens narrower than 768 px nothing changes: the field is hidden and the magnifier link opens the site’s search page.",
+      "NO FLIGHT MOVES. This release changes the band’s search button and the guide’s sentence about it; no calculation changes."
+    ]
+  },
+  {
     "version": "0.214",
     "date": "2026-11-24",
     "title": "Opened files follow a rocket rename on Save, OpenRocket 26.11 automatic lengths are read, and a taller site band",
