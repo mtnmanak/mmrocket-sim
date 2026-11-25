@@ -5,6 +5,17 @@ import { compileGuide } from '../../../scripts/build-user-guide.mjs';
 const html = () => [...compileGuide().ts.matchAll(/"html": (".*")/g)]
   .map((match) => JSON.parse(match[1])).join('\n');
 
+it('R2-8 introduces the motor catalogue and browser before explaining its three dates', () => {
+  const rendered = html();
+  const explanation = rendered.indexOf('The catalogue line reads');
+  expect(explanation).toBeGreaterThan(rendered.indexOf('The browser\'s header names the source'));
+  expect(rendered.indexOf('The browser\'s header names the source')).toBeGreaterThan(-1);
+  for (const phrase of ['Motor data last changed', 'This browser last looked', "since the app's built-in data of"]) {
+    expect(rendered.slice(explanation)).toContain(phrase);
+  }
+  expect(rendered).not.toContain('whether the bundled catalogue is still fresh');
+});
+
 it('J4 r4 introduces recovery weight and sizing before their detailed limits', () => {
   const rendered = html();
   const intro = rendered.indexOf('Under the component properties on the right');

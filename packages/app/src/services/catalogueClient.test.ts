@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   CATALOGUE_BASE, CatalogueError, MOTORS_MAX_BYTES, catalogueFileUrl, fetchCatalogueFile, fetchCatalogueManifest,
-  readCatalogueBytes, validSnapshotRef, validateCatalogueManifest,
+  readCatalogueBytes, readSnapshotRef, validSnapshotRef, validateCatalogueManifest,
 } from './catalogueClient.js';
 import { NetError } from './net.js';
 import { MOTOR_DB, MOTOR_DB_DATE } from './motorDb.js';
@@ -23,6 +23,41 @@ const here = dirname(fileURLToPath(import.meta.url));
 const ID = daysAfter(MOTOR_DB_DATE, 14);
 const OLD_ID = daysAfter(MOTOR_DB_DATE, 7);
 const pick = MOTOR_DB.slice(0, 3);
+
+it('CAT-CHECKED reads optional checked provenance and ignores unusable dates', async () => {
+  const pub = await publication(MOTOR_DB_DATE, pick);
+  const checkedAt = `${daysAfter(MOTOR_DB_DATE, 7)}T12:00:00Z`;
+  vi.spyOn(Date, 'now').mockReturnValue(Date.parse(daysAfter(MOTOR_DB_DATE, 8)));
+  const doc = { ...manifestOf(pub), checkedAt, checkedRunId: '123' };
+  expect(validateCatalogueManifest(doc).checkedAt).toBe(checkedAt);
+  expect(validateCatalogueManifest(doc).checkedRunId).toBe('123');
+  for (const invalid of [undefined, 'bad', '2026-02-30T00:00:00Z', `${daysAfter(MOTOR_DB_DATE, 7)}T22:00:00-05:00`,
+    `${daysAfter(MOTOR_DB_DATE, 7)}T12:00:00`, `${daysAfter(MOTOR_DB_DATE, -1)}T00:00:00Z`, `${daysAfter(MOTOR_DB_DATE, 9)}T00:00:00Z`]) {
+    expect(validateCatalogueManifest({ ...doc, checkedAt: invalid }).checkedAt).toBeUndefined();
+  }
+  expect(validateCatalogueManifest({ ...doc, checkedRunId: 'bad' }).checkedAt).toBeUndefined();
+});
+it('R2-6 uses the manifest freshness check to sanitize stored snapshots without discarding data', async () => {
+  const pub = await publication(MOTOR_DB_DATE, pick);
+  const data = { id: pub.id, generated: MOTOR_DB_DATE, motorsSha256: pub.entry.motors.sha256, curves: pub.entry.curves };
+  const checkedAt = `${daysAfter(MOTOR_DB_DATE, 7)}T12:00:00.000Z`;
+  vi.spyOn(Date, 'now').mockReturnValue(Date.parse(daysAfter(MOTOR_DB_DATE, 8)));
+  const good = { ...data, checkedAt, checkedRunId: '123' };
+  expect(readSnapshotRef(good)).toBe(good);
+  for (const bad of [{ checkedAt: 123 }, { checkedRunId: 123 }, { checkedAt: {} }, { checkedRunId: null },
+    { checkedAt: `${daysAfter(MOTOR_DB_DATE, 7)}T22:00:00-05:00` },
+    { checkedAt: `${daysAfter(MOTOR_DB_DATE, -1)}T00:00:00Z` }]) {
+    const raw = { ...good, ...bad };
+    expect(validSnapshotRef(raw)).toBe(false);
+    expect(readSnapshotRef(raw)).toEqual(data);
+    const manifest = validateCatalogueManifest({ ...manifestOf(pub), checkedAt: raw.checkedAt, checkedRunId: raw.checkedRunId });
+    expect(manifest.checkedAt).toBeUndefined();
+    expect(manifest.checkedRunId).toBeUndefined();
+  }
+  vi.spyOn(Date, 'now').mockReturnValue(Date.parse(daysAfter(MOTOR_DB_DATE, 6)));
+  expect(validSnapshotRef(good)).toBe(true); // A clock correction cannot invalidate the data identity.
+  expect(readSnapshotRef(good)).toEqual(data); // Its future freshness is still ignored.
+});
 let pub: Publication;
 let old: Publication;
 const valid = async () => {

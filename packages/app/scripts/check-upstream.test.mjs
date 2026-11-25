@@ -13,6 +13,9 @@ import { CORRECTIONS, MATERIAL_CORRECTIONS, UPSTREAM_WATCH } from './apply-prese
 import { createThrustcurveFetch, ThrustcurveChallengeError, ThrustcurveUnavailableError } from './thrustcurve-client.mjs';
 import * as thrustcurveClient from './thrustcurve-client.mjs';
 
+const noPublishedCatalogue = async () => { throw new Error('offline catalogue fixture'); };
+const offlineSection4 = () => Object.assign(() => checkThrustCurve(undefined, noPublishedCatalogue), checkThrustCurve);
+
 const { unexpectedFetch } = vi.hoisted(() => {
   const unexpectedFetch = vi.fn(() => { throw new Error('unexpected network request'); });
   vi.stubGlobal('fetch', unexpectedFetch);
@@ -501,7 +504,7 @@ describe('a stop on one service skips only the checks that need it', () => {
     const fetchImpl = vi.fn().mockRejectedValueOnce(new Error('ECONNRESET'))
       .mockResolvedValueOnce(new Response(JSON.stringify({ manufacturers: [{ abbrev: 'A', name: 'A' }] })));
     const client = createThrustcurveFetch({ fetchImpl, intervalMs: 0 });
-    const section4 = Object.assign(() => checkThrustCurve(async (url, init) => (await client(url, init)).json()),
+    const section4 = Object.assign(() => checkThrustCurve(async (url, init) => (await client(url, init)).json(), noPublishedCatalogue),
       { section: c.tc.section, needs: [] });
     const { status, out } = await run([section4, c.tcRows]);
     // Local catalogue-age verdicts still apply; the probe must not cause exit 2.
@@ -515,8 +518,8 @@ describe('a stop on one service skips only the checks that need it', () => {
   it.each(['headers', 'body'])('default sequence keeps a %s probe stall advisory but latches required deadlines', async phase => {
     // Run the default ordering, dependencies and real sections 4/4b; unrelated
     // services are stand-ins so this integration test stays entirely offline.
-    const checks = DEFAULT_CHECKS.map(check => [checkThrustCurve, checkMotorCorrections].includes(check)
-      ? check : stand(check.section, check.needs));
+    const checks = DEFAULT_CHECKS.map(check => check === checkThrustCurve ? offlineSection4()
+      : check === checkMotorCorrections ? check : stand(check.section, check.needs));
     const execute = async failedPath => {
       const asked = [];
       const client = createThrustcurveFetch({ intervalMs: 0, fetchImpl: async url => {
@@ -552,14 +555,14 @@ describe('a stop on one service skips only the checks that need it', () => {
       expect(result.asked).toHaveLength(required === 'metadata' ? 2 : 3);
       if (required === 'metadata') expect(summary(result.out)).toContain('4b. thrustcurve.org rows this app corrects — skipped');
     }
-    for (const check of checks.filter(check => ![checkThrustCurve, checkMotorCorrections].includes(check))) {
+    for (const check of checks.filter(check => ![checkThrustCurve.section, checkMotorCorrections.section].includes(check.section))) {
       expect(check).toHaveBeenCalledTimes(4);
     }
   });
 
   it.each([503, 429])('default sequence treats a probe-only HTTP %s as a note and runs metadata and 4b', async probeStatus => {
-    const checks = DEFAULT_CHECKS.map(check => [checkThrustCurve, checkMotorCorrections].includes(check)
-      ? check : stand(check.section, check.needs));
+    const checks = DEFAULT_CHECKS.map(check => check === checkThrustCurve ? offlineSection4()
+      : check === checkMotorCorrections ? check : stand(check.section, check.needs));
     const execute = async (status, failMetadata = false) => {
       let clock = 0;
       const asked = [];
@@ -597,14 +600,14 @@ describe('a stop on one service skips only the checks that need it', () => {
     expect(requiredFailure.status).toBe(2);
     expect(requiredFailure.asked).toHaveLength(2);
     expect(summary(requiredFailure.out)).toContain('4b. thrustcurve.org rows this app corrects — skipped');
-    for (const check of checks.filter(check => ![checkThrustCurve, checkMotorCorrections].includes(check))) {
+    for (const check of checks.filter(check => ![checkThrustCurve.section, checkMotorCorrections.section].includes(check.section))) {
       expect(check).toHaveBeenCalledTimes(3);
     }
   });
 
   it('default sequence stops on a plain probe HTTP 403 (audit S2-1): nothing more is asked and 4b is skipped', async () => {
-    const checks = DEFAULT_CHECKS.map(check => [checkThrustCurve, checkMotorCorrections].includes(check)
-      ? check : stand(check.section, check.needs));
+    const checks = DEFAULT_CHECKS.map(check => check === checkThrustCurve ? offlineSection4()
+      : check === checkMotorCorrections ? check : stand(check.section, check.needs));
     let clock = 0;
     const asked = [];
     const client = createThrustcurveFetch({ intervalMs: 0, retries: 0,
@@ -620,7 +623,7 @@ describe('a stop on one service skips only the checks that need it', () => {
   it('checkThrustCurve notes a challenge on its probe, runs its local checks, asks nothing more, and 4b is skipped', async () => {
     const c = sections();
     const getJson = vi.fn(async (url) => { throw Object.assign(new ThrustcurveChallengeError(url, 403), { url }); });
-    const section4 = Object.assign(() => checkThrustCurve(getJson), { section: '4. ThrustCurve API and the bundled motor catalogue', needs: [] });
+    const section4 = Object.assign(() => checkThrustCurve(getJson, noPublishedCatalogue), { section: '4. ThrustCurve API and the bundled motor catalogue', needs: [] });
     const { status, out } = await run([section4, c.tcRows, c.nozzles]);
     expect(status).toBe(2);
     expect(getJson).toHaveBeenCalledOnce();

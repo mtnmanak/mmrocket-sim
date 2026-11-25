@@ -27,7 +27,7 @@
     "components/LaunchPanel.tsx": 26,
     "components/MaximumFlightTimeField.tsx": 13,
     "components/MeasuredMassBox.tsx": 17,
-    "components/MotorBrowser.tsx": 13,
+    "components/MotorBrowser.tsx": 14,
     "components/MotorLengthField.tsx": 8,
     "components/MotorPadMass.tsx": 10,
     "components/MountDelayReport.tsx": 2,

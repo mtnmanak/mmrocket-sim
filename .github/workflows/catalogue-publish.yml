@@ -40,6 +40,7 @@ jobs:
       actions: read
     outputs:
       changed: ${{ steps.catalogue.outputs.changed }}
+      update: ${{ steps.catalogue.outputs.update }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -128,7 +129,7 @@ jobs:
           cat "$RUNNER_TEMP/catalogue-summary.md" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: steps.catalogue.outputs.changed == 'true'
+        if: steps.catalogue.outputs.update == 'true'
         with:
           name: catalogue-plan
           path: ${{ runner.temp }}/catalogue-plan
@@ -140,12 +141,13 @@ jobs:
 
   catalogue:
     needs: plan
-    if: ${{ !cancelled() && github.repository == 'mtnmanak/mmrocket-sim' && github.ref == 'refs/heads/main' && needs.plan.outputs.changed == 'true' }}
-    # Only eligible, changed publications compete for the approval slot; an
+    if: ${{ !cancelled() && github.repository == 'mtnmanak/mmrocket-sim' && github.ref == 'refs/heads/main' && needs.plan.outputs.update == 'true' }}
+    # Only eligible publications/checks compete for the approval slot; an
     # ineligible run must never replace an eligible pending publication.
     concurrency:
       group: catalogue-publish
       cancel-in-progress: false
+    # Approval for both kinds of write is controlled here, in one place.
     environment: catalogue-publish
     runs-on: ubuntu-24.04
     # Three resources can each need six one-minute sleeps AND seven bounded

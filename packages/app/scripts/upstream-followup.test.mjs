@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { afterEach, expect, it, vi } from 'vitest';
-import { aerotechDocumentLinks, rowsByPart, materialDensityIn, checkHead, checkThrustCurve, checkMotorCorrections, main, checkOpenMeteoTerms } from '../../../scripts/check-upstream.mjs';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { aerotechDocumentLinks, rowsByPart, materialDensityIn, checkHead, checkThrustCurve, checkMotorCorrections, main, checkOpenMeteoTerms, DEFAULT_CHECKS } from '../../../scripts/check-upstream.mjs';
 import { parseOrc } from './fetch-component-presets.mjs';
 
 // check-upstream sends thrustcurve.org requests through the paced client, one
@@ -13,7 +13,10 @@ vi.mock('./thrustcurve-client.mjs', async (importOriginal) => ({
   thrustcurveFetch: (url, init) => { paced.push(String(url)); return globalThis.fetch(url, init); },
 }));
 
-afterEach(() => vi.restoreAllMocks());
+const noPublishedCatalogue = async () => { throw new Error('offline catalogue fixture'); };
+const offlineSection4 = () => checkThrustCurve(undefined, noPublishedCatalogue);
+beforeEach(() => vi.stubGlobal('fetch', () => { throw new Error('unexpected network request'); }));
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 it('sends thrustcurve.org requests, and only those, through the paced client', async () => {
   // Through main(), as the other checks here run, so its per-run state (failedHosts and the
@@ -25,11 +28,11 @@ it('sends thrustcurve.org requests, and only those, through the paced client', a
   vi.stubGlobal('fetch', fetcher);
   paced.length = 0;
   try {
-    const run = main([() => checkThrustCurve(), () => checkHead()], () => {});
+    const run = main([offlineSection4, () => checkHead()], () => {});
     await vi.runAllTimersAsync();
     await run;
     const tc = fetcher.mock.calls.map(([url]) => String(url)).filter((url) => new URL(url).hostname === 'www.thrustcurve.org');
-    expect(tc.length).toBeGreaterThan(0);
+    expect(tc).toHaveLength(2); // Advisory population probe, then required metadata.
     expect(paced).toEqual(tc);
     expect(fetcher.mock.calls.some(([url]) => new URL(String(url)).hostname === 'api.github.com')).toBe(true);
   } finally { vi.useRealTimers(); vi.unstubAllGlobals(); }
@@ -58,7 +61,7 @@ it.each(['page', 'catalogue population'])('stops thrustcurve.org checks, and onl
   const fetcher = vi.fn(async () => ({ ok: false, status: 403 }));
   vi.stubGlobal('fetch', fetcher);
   try {
-    const check = source === 'page' ? () => checkMotorCorrections() : () => checkThrustCurve();
+    const check = source === 'page' ? () => checkMotorCorrections() : offlineSection4;
     expect(await main([check, later, unrelated], () => {})).toBe(2);
     expect(later).not.toHaveBeenCalled();
     expect(unrelated).toHaveBeenCalledOnce();
@@ -78,7 +81,8 @@ it.each(['pauses', 'caches'])('%s failed host requests and failed ORC files for 
     return { ok: false, status: 503 };
   });
   try {
-    const run = main(undefined, () => {});
+    const run = main(DEFAULT_CHECKS.map(check => check === checkThrustCurve
+      ? Object.assign(offlineSection4, checkThrustCurve) : check), () => {});
     await vi.runAllTimersAsync();
     expect(await run).toBe(2);
     const hosts = new Map();
@@ -136,7 +140,9 @@ it.each([
 it.each([{}, { manufacturers: [null] }])('flags metadata shape changes and completes later checks', async meta => {
   const log = vi.spyOn(console, 'log').mockImplementation(() => {});
   const later = vi.fn();
-  const status = await main([() => checkThrustCurve(async url => url.includes('metadata') ? meta : { matches: 1 }), later], () => {});
+  const getJson = vi.fn(async url => url.includes('metadata') ? meta : { matches: 1 });
+  const status = await main([() => checkThrustCurve(getJson, noPublishedCatalogue), later], () => {});
+  expect(getJson).toHaveBeenCalledTimes(2);
   expect(status).toBe(1);
   expect(later).toHaveBeenCalledOnce();
   expect(log.mock.calls.flat().join('\n')).toMatch(/metadata.*shape/i);
@@ -159,7 +165,7 @@ it.each(['page', 'catalogue metadata'])('stops requests to the host that sent a 
   const fetcher = vi.fn(async () => ({ ok: false, status: 429 }));
   vi.stubGlobal('fetch', fetcher);
   try {
-    expect(await main([source === 'page' ? () => checkOpenMeteoTerms() : () => checkThrustCurve(), later, unrelated], () => {})).toBe(2);
+    expect(await main([source === 'page' ? () => checkOpenMeteoTerms() : offlineSection4, later, unrelated], () => {})).toBe(2);
     expect(later).not.toHaveBeenCalled();
     expect(unrelated).toHaveBeenCalledOnce();
     expect(fetcher).toHaveBeenCalledTimes(source === 'page' ? 1 : 2);

@@ -51,6 +51,8 @@ export interface CatalogueFileRef {
 /** The current snapshot, after the whole manifest has passed validateCatalogueManifest. */
 export interface ManifestSnapshot {
   id: string;
+  checkedAt?: string;
+  checkedRunId?: string;
   motors: CatalogueFileRef & { count: number; generated: string };
   curves: CatalogueFileRef & { motors: number; files: number; generated: string; catalogueGenerated: string };
 }
@@ -63,6 +65,8 @@ export interface ManifestSnapshot {
  */
 export interface CatalogueSnapshotRef {
   id: string;
+  checkedAt?: string;
+  checkedRunId?: string;
   /** The snapshot's motors.generated. */
   generated: string;
   motorsSha256: string;
@@ -91,7 +95,15 @@ const digest = (v: unknown): v is string => typeof v === 'string' && /^[a-f0-9]{
 const timestamp = (v: unknown): boolean => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)
   && date(v.slice(0, 10)) && Number.isFinite(Date.parse(v));
 const runId = (v: unknown): boolean => typeof v === 'string' && /^[1-9]\d*$/.test(v);
+const checkedTimestamp = (v: unknown): v is string => typeof v === 'string'
+  && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(v) && timestamp(v);
 const FILE_NAMES = { motors: 'motors.json', curves: 'motorCurves.json' } as const;
+
+/** Optional freshness evidence must never predate the data or advance the clock. */
+export function catalogueCheckedAt(at: unknown, run: unknown, generated: string, now = Date.now()): string | undefined {
+  return checkedTimestamp(at) && runId(run) && Date.parse(at) >= Date.parse(generated)
+    && Date.parse(at) <= now ? at : undefined;
+}
 
 const bad = (why: string): never => { throw new CatalogueError('manifest', `The catalogue's manifest is not usable: ${why}.`); };
 
@@ -140,7 +152,8 @@ export function validateCatalogueManifest(manifest: unknown): ManifestSnapshot {
   const retained = manifest['retainedSnapshotIds'];
   if (retained !== undefined && (!Array.isArray(retained)
     || retained.some(id => !byId.has(id)))) return bad('invalid retained snapshot ids');
-  return current;
+  const checkedAt = catalogueCheckedAt(manifest['checkedAt'], manifest['checkedRunId'], current.motors.generated);
+  return { ...current, ...(checkedAt ? { checkedAt, checkedRunId: manifest['checkedRunId'] as string } : {}) };
 }
 
 /**
@@ -171,7 +184,20 @@ export function validSnapshotRef(v: unknown): v is CatalogueSnapshotRef {
   if (!object(v) || !snapshotId(v['id']) || !date(v['generated']) || !digest(v['motorsSha256'])) return false;
   const curves = v['curves'];
   return object(curves) && curves['path'] === `v1/${v['id']}/${FILE_NAMES.curves}`
-    && integer(curves['bytes']) && digest(curves['sha256']);
+    && integer(curves['bytes']) && digest(curves['sha256'])
+    // Identity stays usable if the device clock moves backward. The reader
+    // below separately drops freshness that is ahead of the current clock.
+    && ((!Object.hasOwn(v, 'checkedAt') && !Object.hasOwn(v, 'checkedRunId'))
+      || catalogueCheckedAt(v['checkedAt'], v['checkedRunId'], v['generated'], Infinity) !== undefined);
+}
+
+/** Untrusted optional freshness fields cannot discard otherwise usable data. */
+export function readSnapshotRef(v: unknown): CatalogueSnapshotRef | undefined {
+  if (!object(v)) return undefined;
+  const { checkedAt, checkedRunId, ...data } = v;
+  if (!validSnapshotRef(data)) return undefined;
+  if (catalogueCheckedAt(checkedAt, checkedRunId, data.generated)) return v as unknown as CatalogueSnapshotRef;
+  return Object.hasOwn(v, 'checkedAt') || Object.hasOwn(v, 'checkedRunId') ? data : v as unknown as CatalogueSnapshotRef;
 }
 
 /**

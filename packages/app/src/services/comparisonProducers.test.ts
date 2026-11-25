@@ -1,3 +1,9 @@
+// D1 r2: MotorBrowser remains 14: the three-date wording retains one data-date
+// producer and one delta producer. These dates do not compare flight numbers.
+// D1 CAT-CHECKED: MotorBrowser 13 -> 14 adds "last changed" to the catalogue
+// freshness label. This compares dates, not flight measurements or thresholds.
+// MotorBrowser.test covers both dates, checked-date age and offline fallback;
+// execution is blocked by the denied npx launcher in this lane.
 // K1 r2: census unchanged from r1. Name-presence flags reuse existing XML
 // selectors; early recovery-length resolution adds no comparison copy. The
 // plain-word hardware advice retains its one reviewed producer. New tests

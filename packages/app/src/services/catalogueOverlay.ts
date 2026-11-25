@@ -7,7 +7,7 @@ import { baseDesignation } from './motorMatch.js';
 import { NetError } from './net.js';
 import { validCatalogueDate } from './thrustcurve.js';
 import {
-  CatalogueError, MOTORS_MAX_BYTES, fetchCatalogueFile, fetchCatalogueManifest, isThrustcurvePull, validSnapshotRef,
+  CatalogueError, MOTORS_MAX_BYTES, fetchCatalogueFile, fetchCatalogueManifest, isThrustcurvePull, readSnapshotRef, validSnapshotRef,
   type CatalogueSnapshotRef, type ManifestSnapshot,
 } from './catalogueClient.js';
 import { correctMotorRow } from '../../scripts/motor-corrections.mjs';
@@ -255,14 +255,17 @@ function rescreen(o: CatalogueOverlay): CatalogueOverlay {
   }
   // The snapshot record names the curves file thrustcurve.ts will read, so it
   // is held to the manifest's own rules (catalogueClient.ts) on every restore.
-  // A bad one is dropped, never repaired: the next check writes a fresh one.
-  const badSnapshot = Object.hasOwn(o, 'snapshot') && !validSnapshotRef(o.snapshot);
+  // Bad data identity drops the snapshot; bad optional freshness drops only
+  // those two fields, using the same check as the manifest reader.
+  const snapshot = readSnapshotRef(o.snapshot);
+  const badSnapshot = Object.hasOwn(o, 'snapshot') && !snapshot;
+  if (snapshot !== o.snapshot) repaired = true;
   if (badSnapshot) {
     repaired = true;
     rejected.push({ entry: {}, reason: 'unreadable stored catalogue snapshot discarded; check the catalogue again' });
   }
   if (!repaired && !projected && added.length === o.added.length && changed.length === o.changed.length) return o;
-  const { snapshot, ...rest } = o;
+  const { snapshot: _snapshot, ...rest } = o;
   // An overlay with no snapshot field must not gain `snapshot: undefined`.
   return { ...rest, ...(snapshot !== undefined && !badSnapshot ? { snapshot } : {}), fetchedAt, added, changed, removed, rejected };
 }
@@ -447,6 +450,7 @@ export async function checkForCatalogueUpdates(
     const previous = overlayForCheck();
     const snapshot: CatalogueSnapshotRef = {
       id: manifest.id, generated: manifest.motors.generated, motorsSha256: manifest.motors.sha256,
+      ...(manifest.checkedAt ? { checkedAt: manifest.checkedAt, checkedRunId: manifest.checkedRunId } : {}),
       curves: { path: manifest.curves.path, bytes: manifest.curves.bytes, sha256: manifest.curves.sha256 },
     };
     const install = (overlay: CatalogueOverlay, silent: string[] = []) => {

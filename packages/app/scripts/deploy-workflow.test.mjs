@@ -689,7 +689,10 @@ describe('catalogue workflow isolation and approval boundary', () => {
 
   it('R8: confines ALL secret references and the environment to upload; pins commands and every action', () => {
     expect(value(path(CATALOGUE, 'jobs', 'catalogue'), 'needs')).toBe('plan');
-    expect(value(path(CATALOGUE, 'jobs', 'catalogue'), 'if')).toBe("${{ !cancelled() && github.repository == 'mtnmanak/mmrocket-sim' && github.ref == 'refs/heads/main' && needs.plan.outputs.changed == 'true' }}");
+    expect(value(path(CATALOGUE, 'jobs', 'catalogue'), 'if')).toBe("${{ !cancelled() && github.repository == 'mtnmanak/mmrocket-sim' && github.ref == 'refs/heads/main' && needs.plan.outputs.update == 'true' }}");
+    expect(value(path(CATALOGUE, 'jobs', 'plan', 'outputs'), 'update')).toBe('${{ steps.catalogue.outputs.update }}');
+    const artifact = steps(CATALOGUE, 'plan').find(s => value(s, 'uses')?.startsWith('actions/upload-artifact@'));
+    expect(value(artifact, 'if')).toBe("steps.catalogue.outputs.update == 'true'");
     expect(value(path(CATALOGUE, 'jobs', 'catalogue'), 'environment')).toBe('catalogue-publish');
     expect(value(path(CATALOGUE, 'jobs', 'plan', 'outputs'), 'changed')).toBe('${{ steps.catalogue.outputs.changed }}');
     const list = steps(CATALOGUE, 'catalogue'), upload = list.find((s) => value(s, 'name') === 'Upload snapshots, then manifest');
