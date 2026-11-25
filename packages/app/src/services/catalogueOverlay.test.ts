@@ -63,6 +63,35 @@ const stalled = (): typeof fetch => (_input, init) => new Promise<Response>((_re
 
 beforeEach(() => { resetThrustcurveBackoffForTests(); localStorage.clear(); setCatalogueOverlay(null); });
 
+it('CAT-CHECKED carries a new check through the same-snapshot shortcut without downloading data', async () => {
+  const pub = await publication(MOTOR_DB_DATE, MOTOR_DB);
+  const first = catalogueFetch(manifestOf(pub), [pub]);
+  await checkForCatalogueUpdates({ fetchImpl: first, force: true });
+  const at = `${daysAfter(MOTOR_DB_DATE, 1)}T00:00:00Z`;
+  vi.spyOn(Date, 'now').mockReturnValue(Date.parse(daysAfter(MOTOR_DB_DATE, 2)));
+  const second = catalogueFetch({ ...manifestOf(pub), checkedAt: at, checkedRunId: '123' }, []);
+  const result = await checkForCatalogueUpdates({ fetchImpl: second, force: true });
+  expect(second.seen.map(r => new URL(r.url).pathname)).toEqual(['/manifest.json']);
+  expect(result.overlay?.snapshot?.checkedAt).toBe(at);
+  expect(loadStoredOverlay()?.snapshot?.checkedAt).toBe(at);
+  vi.restoreAllMocks();
+});
+
+it.each(['checkedAt', 'checkedRunId'])('R2-6 drops malformed stored %s provenance but keeps the snapshot and rows', async field => {
+  const pub = await publication(MOTOR_DB_DATE, MOTOR_DB);
+  const snapshot = { id: pub.id, generated: MOTOR_DB_DATE, motorsSha256: pub.entry.motors.sha256, curves: pub.entry.curves };
+  for (const bad of [123, {}, null, ['bad']]) {
+    localStorage.setItem(OVERLAY_KEY, JSON.stringify({ baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(),
+      liveCount: MOTOR_DB.length, added: [row()], changed: [], removed: [], rejected: [],
+      snapshot: { ...snapshot, checkedAt: `${MOTOR_DB_DATE}T00:00:00Z`, checkedRunId: '123', [field]: bad } }));
+    const restored = loadStoredOverlay()!;
+    expect(restored.snapshot).toEqual(snapshot);
+    expect(restored.snapshot).not.toHaveProperty('checkedAt');
+    expect(restored.snapshot).not.toHaveProperty('checkedRunId');
+    expect(restored.added).toHaveLength(1);
+  }
+});
+
 it('Stop during the motors digest installs and stores nothing', async () => {
   const fetchImpl = stubCatalogue([row()]);
   await fetchImpl.pub; // Fixture hashing must finish before deferring verification.
@@ -92,17 +121,20 @@ it('Stop during the motors digest installs and stores nothing', async () => {
 it('keeps the six-hour throttle and snapshot shortcut when overlay storage is full', async () => {
   const fetchImpl = stubCatalogue([row()]);
   const now = Date.now();
-  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('Full', 'QuotaExceededError'); });
+  // happy-dom binds methods on the instance after their first use; a prototype
+  // spy can miss the already-bound method under a different test order.
+  const write = vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new DOMException('Full', 'QuotaExceededError'); });
   try {
     const first = await checkForCatalogueUpdates({ fetchImpl, now: () => now });
     expect(first.stored).toBe(false);
+    expect(localStorage.getItem(OVERLAY_KEY)).toBeNull();
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     const recent = await checkForCatalogueUpdates({ fetchImpl, now: () => now + 1 });
     expect(recent.skipped).toBe('recent');
     expect(recent.stored).toBe(false);
     expect(recent.overlay).toBe(first.overlay);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
-    await checkForCatalogueUpdates({ fetchImpl, now: () => now + RECHECK_MIN_MS });
+    expect((await checkForCatalogueUpdates({ fetchImpl, now: () => now + RECHECK_MIN_MS })).stored).toBe(false);
     expect(fetchImpl).toHaveBeenCalledTimes(3);
     await checkForCatalogueUpdates({ fetchImpl, force: true, now: () => now + RECHECK_MIN_MS + 1 });
     expect(fetchImpl).toHaveBeenCalledTimes(4);

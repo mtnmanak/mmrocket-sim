@@ -16,6 +16,7 @@ import { resetThrustcurveBackoffForTests } from '../services/thrustcurveTraffic.
 import { loadExMotors, parseEng } from '../services/exMotors.js';
 import * as thrustcurve from '../services/thrustcurve.js';
 import { catalogueFetch, daysAfter, manifestOf, publication } from '../services/catalogueFixture.testSupport.js';
+import { runDate } from '../services/simReport.js';
 
 /**
  * The motor database's sortable column headers.
@@ -40,6 +41,45 @@ describe('MotorBrowser — sortable headers stay column headers', () => {
   const headers = () => Array.from(host.querySelectorAll('thead th'));
   const impulse = () => headers()
     .find((th) => (th.textContent ?? '').includes('Impulse'))!;
+  it('CAT-CHECKED distinguishes the data, published check, delta base and browser look dates', async () => {
+    const dataDate = daysAfter(MOTOR_DB_DATE, 1), checkedDay = daysAfter(MOTOR_DB_DATE, 14);
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse(daysAfter(MOTOR_DB_DATE, 15)));
+    const pub = await publication(dataDate, MOTOR_DB.slice(0, 1));
+    const snapshot = { id: pub.id, generated: dataDate, motorsSha256: pub.entry.motors.sha256,
+      curves: pub.entry.curves, checkedAt: `${checkedDay}T00:00:00Z`, checkedRunId: '123' };
+    const lookedDay = daysAfter(MOTOR_DB_DATE, 15);
+    const overlay = { baseGenerated: MOTOR_DB_DATE, fetchedAt: `${lookedDay}T00:00:00Z`, liveCount: MOTOR_DB.length,
+      added: [{ ...MOTOR_DB[0]!, motorId: 'new-date-test' }], changed: [], removed: [], rejected: [], snapshot };
+    act(() => setCatalogueOverlay(overlay));
+    const text = () => host.querySelector('.motor-db-meta')!.textContent;
+    expect(text()).toContain(`Motor data last changed ${runDate(new Date(dataDate), true)}; checked ${runDate(new Date(checkedDay), true)}`);
+    expect(text()).toContain('(1 day old)');
+    expect(text()).toContain(`+1 new, 0 changed since the app's built-in data of ${runDate(new Date(MOTOR_DB_DATE), true)}`);
+    expect(text()).toContain(`this browser last looked ${runDate(new Date(lookedDay), true)}`);
+    expect(text()).not.toContain('catalogue checked');
+    for (const at of [undefined, 'bad', `${MOTOR_DB_DATE}T00:00:00Z`, `${daysAfter(MOTOR_DB_DATE, 16)}T00:00:00Z`]) {
+      act(() => setCatalogueOverlay({ ...overlay, snapshot: { ...snapshot, checkedAt: at } }));
+      expect(text()).not.toContain('; checked');
+      expect(text()).toContain(`Motor data last changed ${runDate(new Date(dataDate), true)}`);
+      expect(text()).toContain('(14 days old)');
+    }
+    const older = daysAfter(MOTOR_DB_DATE, -8);
+    act(() => setCatalogueOverlay({ ...overlay, snapshot: { ...snapshot, generated: older,
+      checkedAt: `${daysAfter(MOTOR_DB_DATE, -4)}T00:00:00Z` } }));
+    expect(text()).not.toContain('; checked');
+    expect(text()).toContain('(23 days old)');
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    act(() => setCatalogueOverlay(overlay));
+    expect(text()).not.toContain('; checked');
+    expect(text()).toContain('(14 days old)');
+    expect(text()).toContain(`this browser last looked ${runDate(new Date(lookedDay), true)}`);
+    act(() => setCatalogueOverlay(null));
+    expect(text()).toContain(`Motor data last changed ${runDate(new Date(MOTOR_DB_DATE), true)}`);
+    expect(text()).toContain('(15 days old)');
+    expect(text()).not.toContain('; checked');
+    expect(text()).not.toContain('this browser last looked');
+    vi.restoreAllMocks();
+  });
   it('names an unreadable catalogue-check date instead of showing an empty header date', () => {
     act(() => setCatalogueOverlay({ baseGenerated: MOTOR_DB_DATE, fetchedAt: '', liveCount: 0,
       added: [], changed: [], removed: [], rejected: [] }));

@@ -4,8 +4,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { contentHash, freezeInputs, main, planPublication, publicationSummary, readPublication, stagePublication,
-  uploadPublication, validateInputs, validatePreviousManifest, verifyPublication } from './catalogue-publish.mjs';
+  uploadPublication, validateCheckUpdate, validateInputs, validatePreviousManifest, verifyPublication } from './catalogue-publish.mjs';
 import { FULL_FIELDS } from './fetch-motor-db.mjs';
+const bundledDate = JSON.parse(readFileSync(new URL('../src/data/motors.json', import.meta.url))).generated;
+const checkedDay = days => new Date(Date.parse(bundledDate) + days * 86_400_000).toISOString().slice(0, 10);
 
 const dirs = [];
 const tmp = () => { const dir = mkdtempSync(join(tmpdir(), 'catalogue-publish-')); dirs.push(dir); return dir; };
@@ -62,6 +64,137 @@ function bucket(initial = [], intercept = () => undefined) {
   return { objects, calls, runCommand };
 }
 const puts = (b) => b.calls.filter(([, args]) => args[1] === 'put-object').map(([, args]) => args[args.indexOf('--key') + 1]);
+
+describe('CAT-CHECKED', () => {
+  function fixture() {
+    const priorInput = inputs({ generated: bundledDate, fetchedAt: `${bundledDate}T00:00:00Z` });
+    const prior = planPublication(priorInput);
+    const live = { schema: 1, current: prior.snapshotId, snapshots: [{ ...prior.entry, publishedAt: `${bundledDate}T01:00:00Z` }], extension: { keep: true } };
+    const next = { ...inputs({ generated: checkedDay(7), fetchedAt: `${checkedDay(7)}T12:00:00Z`, sourceRunId: '456' }),
+      previousManifest: live, previousManifestBytes: bytes(live),
+      previousMotorsBytes: priorInput.motorsBytes, previousCurvesBytes: priorInput.curvesBytes };
+    return { live, next, plan: planPublication(next), now: `${checkedDay(8)}T00:00:00Z` };
+  }
+  it('records a no-change check in one conditional manifest PUT and verifies without snapshots', async () => {
+    const { live, plan, now } = fixture();
+    expect(plan.changed).toBe(false);
+    expect(plan.checkedUpdate).toBe(true);
+    expect(plan.uploads).toEqual([]);
+    const b = bucket([['manifest.json', bytes(live)]]), dir = staged(plan);
+    expect(await uploadPublication(dir, { env, now, runCommand: b.runCommand })).toBe('checked');
+    expect(puts(b)).toEqual(['manifest.json']);
+    const final = JSON.parse(b.objects.get('manifest.json'));
+    expect(final).toEqual({ ...live, checkedAt: plan.input.fetchedAt, checkedRunId: '456' });
+    const put = b.calls.find(([, args]) => args[1] === 'put-object')[1];
+    expect(put[put.indexOf('--if-match') + 1]).toBe(`"${sha(bytes(live))}"`);
+    const fetchImpl = vi.fn(async () => response(b.objects.get('manifest.json')));
+    await verifyPublication(dir, { base: 'https://catalogue.example.invalid', fetchImpl });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(await uploadPublication(dir, { env, now, runCommand: b.runCommand })).toBe('already checked');
+    expect(puts(b)).toEqual(['manifest.json']);
+  });
+  it('a real publication carries the same refresh provenance', async () => {
+    const { next, live, now } = fixture();
+    const plan = planPublication({ ...next, ...inputs({ generated: checkedDay(7), fetchedAt: next.fetchedAt, sourceRunId: '456', force: 2 }) });
+    const b = bucket([['manifest.json', bytes(live)]]);
+    await uploadPublication(staged(plan), { env, now, runCommand: b.runCommand });
+    const final = JSON.parse(b.objects.get('manifest.json'));
+    expect(final.checkedAt).toBe(next.fetchedAt);
+    expect(final.checkedRunId).toBe('456');
+  });
+  it.each(['current', 'snapshots', 'extension', 'publishedAt'])('rejects checked-only changes to %s', key => {
+    const { live, next, now } = fixture();
+    expect(() => validateCheckUpdate(live, { ...live, checkedAt: next.fetchedAt, checkedRunId: '456', [key]: null }, now)).toThrow(/more than checked/);
+  });
+  it.each(['bad', 'old', 'future', 'run', 'stale'])('rejects %s check provenance before any PUT', async kind => {
+    const { live, plan, now } = fixture();
+    if (kind === 'bad') plan.input.fetchedAt = 'unreadable';
+    if (kind === 'old') plan.input.fetchedAt = `${checkedDay(-1)}T00:00:00Z`;
+    if (kind === 'future') plan.input.fetchedAt = `${checkedDay(9)}T00:00:00Z`;
+    if (kind === 'run') plan.input.sourceRunId = 'oops';
+    if (kind === 'stale') plan.input.fetchedAt = live.snapshots[0].fetchedAt;
+    const b = bucket([['manifest.json', bytes(live)]]);
+    await expect(uploadPublication(staged(plan), { env, now, runCommand: b.runCommand })).rejects.toThrow();
+    expect(puts(b)).toEqual([]);
+  });
+  it('rejects a non-boolean staged checked-update verdict', () => {
+    const { plan } = fixture();
+    expect(() => readPublication(staged({ ...plan, checkedUpdate: 'true' }))).toThrow(/verdict/);
+  });
+  it.each(['moved', 'entry', 'etag', 'race'])('refuses %s live state without overwriting it', async kind => {
+    const { live, plan, now } = fixture();
+    if (kind === 'entry') plan.entry = { ...plan.entry, commit: 'b'.repeat(40) };
+    const b = bucket([['manifest.json', bytes(kind === 'moved' ? { ...live, extension: false } : live)]], ({ operation, key, args, objects }) => {
+      if (kind === 'etag' && operation === 'get-object') {
+        writeFileSync(args.at(-1), objects.get(key)); return { ...ok, stdout: '{}' };
+      }
+      if (kind === 'race' && operation === 'put-object') {
+        objects.set(key, bytes({ ...live, extension: 'raced' }));
+        return { status: 254, stderr: 'PreconditionFailed' };
+      }
+    });
+    await expect(uploadPublication(staged(plan), { env, now, runCommand: b.runCommand })).rejects.toThrow();
+    if (kind !== 'race') expect(puts(b)).toEqual([]);
+  });
+  it('does not regress a newer checked date or publish stale changed data', () => {
+    const { live, next } = fixture();
+    live.checkedAt = `${checkedDay(8)}T00:00:00Z`; live.checkedRunId = '789';
+    expect(planPublication({ ...next, previousManifestBytes: undefined }).checkedUpdate).toBe(false);
+    expect(() => planPublication({ ...next, ...inputs({ generated: checkedDay(7), fetchedAt: next.fetchedAt, force: 2 }),
+      previousManifestBytes: undefined })).toThrow(/not newer/);
+  });
+  it('accepts legacy snapshots with no fetchedAt', async () => {
+    const { live, next, now } = fixture();
+    delete live.snapshots[0].fetchedAt;
+    const plan = planPublication({ ...next, previousManifestBytes: bytes(live) });
+    const b = bucket([['manifest.json', bytes(live)]]);
+    await expect(uploadPublication(staged(plan), { env, now, runCommand: b.runCommand })).resolves.toBe('checked');
+    expect(puts(b)).toEqual(['manifest.json']);
+  });
+  it.each(['offset', 'zone-less', 'predates'])('R2-7 refuses %s timestamps at plan and staged upload', async kind => {
+    const { next, now, live } = fixture();
+    const fetchedAt = kind === 'offset' ? `${checkedDay(7)}T22:00:00-05:00`
+      : kind === 'zone-less' ? `${checkedDay(7)}T12:00:00` : `${checkedDay(6)}T23:59:59Z`;
+    const changedInput = { ...next, ...inputs({ generated: checkedDay(7), fetchedAt, force: 2 }) };
+    expect(() => planPublication(changedInput)).toThrow(/UTC|predates/);
+    const good = planPublication({ ...changedInput, fetchedAt: next.fetchedAt });
+    const dir = staged(good);
+    const raw = JSON.parse(readFileSync(join(dir, 'plan.json')));
+    raw.entry.fetchedAt = fetchedAt;
+    writeFileSync(join(dir, 'plan.json'), bytes(raw));
+    const b = bucket([['manifest.json', bytes(live)]]);
+    await expect(uploadPublication(dir, { env, now, runCommand: b.runCommand })).rejects.toThrow(/UTC|predates|checked date/);
+    expect(puts(b)).toEqual([]);
+  });
+  it.each(['offset', 'zone-less', 'predates', 'future'])('R2-7 refuses %s checked-only timestamps', async kind => {
+    const { live, next, now } = fixture();
+    const checkedAt = kind === 'offset' ? `${checkedDay(7)}T22:00:00-05:00`
+      : kind === 'zone-less' ? `${checkedDay(7)}T12:00:00`
+        : `${checkedDay(kind === 'future' ? 9 : -1)}T00:00:00Z`;
+    expect(() => validateCheckUpdate(live, { ...live, checkedAt, checkedRunId: next.sourceRunId }, now)).toThrow(/Invalid checked date/);
+  });
+  it('R2-7 refuses future changed-publication timestamps before writing any object', async () => {
+    const { next, live, now } = fixture();
+    const plan = planPublication({ ...next, ...inputs({ generated: checkedDay(7), fetchedAt: `${checkedDay(9)}T00:00:00Z`, force: 2 }) });
+    const b = bucket([['manifest.json', bytes(live)]]);
+    await expect(uploadPublication(staged(plan), { env, now, runCommand: b.runCommand })).rejects.toThrow(/Invalid checked date/);
+    expect(puts(b)).toEqual([]);
+  });
+  it.each(['offset', 'zone-less', 'predates'])('R2-7 public verification refuses a %s checked receipt', async kind => {
+    const { live, plan, now } = fixture();
+    const dir = staged(plan), b = bucket([['manifest.json', bytes(live)]]);
+    await uploadPublication(dir, { env, now, runCommand: b.runCommand });
+    const final = JSON.parse(readFileSync(join(dir, 'uploaded-manifest.json')));
+    final.checkedAt = kind === 'offset' ? `${checkedDay(7)}T22:00:00-05:00`
+      : kind === 'zone-less' ? `${checkedDay(7)}T12:00:00` : `${checkedDay(-1)}T00:00:00Z`;
+    const body = bytes(final);
+    writeFileSync(join(dir, 'uploaded-manifest.json'), body);
+    writeFileSync(join(dir, 'uploaded.json'), bytes({ snapshotId: final.current, sha256: sha(body) }));
+    const fetchImpl = vi.fn();
+    await expect(verifyPublication(dir, { base: 'https://example.invalid', fetchImpl })).rejects.toThrow(/Invalid uploaded checked-date receipt/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
 
 it('prunes unneeded manifest history but retains explicit reader pins and the previous current', async () => {
   const previous = manifest();
@@ -147,6 +280,7 @@ describe('planPublication and contentHash', () => {
     after.curvesBytes = bytes({ ...curves, generated: '2026-10-23' });
     const plan = compareCurves(before, after);
     expect(plan.changed).toBe(false);
+    expect(plan.checkedUpdate).toBe(true);
     expect(plan.uploads).toEqual([]);
     expect(readPublication(staged(plan)).changed).toBe(false);
     expect(contentHash(before.curvesBytes)).not.toBe(contentHash(after.curvesBytes));
@@ -267,7 +401,7 @@ describe('planPublication and contentHash', () => {
     const stdout = vi.fn(), stderr = vi.fn(), fetchImpl = vi.fn();
     expect(await main(['plan', ...fileArgs, '--out', out, '--summary', summary, '--commit', commit,
       '--source-run-id', after.sourceRunId, '--fetched-at', after.fetchedAt], { env: {}, stdout, stderr, fetchImpl })).toBe(0);
-    expect(stdout).toHaveBeenCalledWith(`changed=false\nsnapshot=${JSON.parse(documents.previous).current}\n`);
+    expect(stdout).toHaveBeenCalledWith(`changed=false\nsnapshot=${JSON.parse(documents.previous).current}\nupdate=true\n`);
     expect(readPublication(out).uploads).toEqual([]);
     expect(readFileSync(summary, 'utf8')).toContain('Only curve file order changed for 1 motor; nothing is published.');
     expect(stderr).not.toHaveBeenCalled();
@@ -339,7 +473,7 @@ describe('planPublication and contentHash', () => {
 
   it('F5: dates/formatting only do not request publication, while rows and existing samples do', () => {
     const previousManifest = manifest();
-    for (const input of [inputs(), inputs({ generated: '2026-10-29' }), { ...inputs(), motorsBytes: Buffer.concat([inputs().motorsBytes, Buffer.from('\n')]) }]) {
+    for (const input of [inputs(), inputs({ generated: '2026-10-29', fetchedAt: '2026-10-29T12:00:00Z' }), { ...inputs(), motorsBytes: Buffer.concat([inputs().motorsBytes, Buffer.from('\n')]) }]) {
       const plan = planPublication({ ...input, previousManifest });
       expect(plan.changed).toBe(false);
       expect(plan.uploads).toEqual([]);
@@ -357,11 +491,11 @@ describe('planPublication and contentHash', () => {
     delete previousManifest.snapshots[0].motors.contentSha256;
     delete previousManifest.snapshots[0].curves.contentSha256;
     const previousManifestBytes = Buffer.from(`${JSON.stringify(previousManifest)}\n\n`);
-    const plan = planPublication({ ...inputs({ generated: '2026-10-29' }), previousManifest, previousManifestBytes,
+    const plan = planPublication({ ...inputs({ generated: '2026-10-29', fetchedAt: '2026-10-29T12:00:00Z' }), previousManifest, previousManifestBytes,
       previousMotorsBytes: inputs().motorsBytes, previousCurvesBytes: inputs().curvesBytes });
     expect(plan.changed).toBe(false);
     expect(plan.baseManifestSha256).toBe(sha(previousManifestBytes));
-    expect(planPublication({ ...inputs({ generated: '2026-10-29' }), previousManifest }).changed).toBe(true);
+    expect(planPublication({ ...inputs({ generated: '2026-10-29', fetchedAt: '2026-10-29T12:00:00Z' }), previousManifest }).changed).toBe(true);
     expect(() => planPublication({ ...inputs(), previousManifest, previousManifestBytes: bytes({}) })).toThrow(/bytes differ/);
     expect(() => planPublication({ ...inputs(), previousManifest, previousMotorsBytes: bytes({}) })).toThrow(/sha256/);
   });
@@ -544,7 +678,7 @@ describe('freezeInputs, publicationSummary, stagePublication and readPublication
     const many = inputs({ motors: Array.from({ length: 25 }, (_, i) => ({ motorId: i ? `motor-${i}` : 'a' })) });
     const line = publicationSummary(planPublication(many), many).split('\n').find((s) => s.startsWith('- Rows added:'));
     expect(line).toContain('25;'); expect(line).toContain('motor-19'); expect(line).not.toContain('motor-20');
-    const dated = inputs({ generated: '2026-10-29' });
+    const dated = inputs({ generated: '2026-10-29', fetchedAt: '2026-10-29T12:00:00Z' });
     expect(publicationSummary(planPublication(dated), { ...dated, previousMotorsBytes: inputs().motorsBytes,
       previousCurvesBytes: inputs().curvesBytes, hasPrevious: true })).toContain('Dates only: yes');
     expect(publicationSummary(first(), inputs())).toContain('First publication');
@@ -754,7 +888,7 @@ describe('uploadPublication', () => {
   });
 
   it('does no AWS work for no change or invalid account configuration', async () => {
-    const runCommand = vi.fn(), noOp = planPublication({ ...inputs(), previousManifest: manifest() });
+    const runCommand = vi.fn(), noOp = planPublication({ ...inputs(), previousManifest: { ...manifest(), snapshots: [first().entry] } });
     await uploadPublication(staged(noOp), { runCommand, env: {} });
     await expect(uploadPublication(staged(), { runCommand, env: {} })).rejects.toThrow(/CLOUDFLARE_ACCOUNT_ID/);
     expect(runCommand).not.toHaveBeenCalled();
@@ -813,8 +947,20 @@ describe('verifyPublication', () => {
       await expect(verifyPublication(dir, { base, fetchImpl, attempts: 2, sleep: vi.fn(), delayMs: 0 })).rejects.toThrow(/snapshot/);
     }
     const fetchImpl = vi.fn();
-    await expect(verifyPublication(staged(), { base, fetchImpl })).rejects.toThrow(/uploaded.json/);
-    await verifyPublication(staged(planPublication({ ...inputs(), previousManifest: manifest() })), { base, fetchImpl });
+    await expect(verifyPublication(staged(), { base, fetchImpl })).rejects.toThrow(/Missing or unreadable uploaded.json.*receipt/);
+    const unchanged = planPublication({ ...inputs(), previousManifest: manifest() });
+    expect(unchanged.checkedUpdate).toBe(true);
+    await expect(verifyPublication(staged(unchanged), { base, fetchImpl })).rejects.toThrow(/Missing or unreadable uploaded.json.*receipt/);
+    const unreadable = staged();
+    writeFileSync(join(unreadable, 'uploaded.json'), 'not JSON');
+    await expect(verifyPublication(unreadable, { base, fetchImpl })).rejects.toThrow(/Missing or unreadable uploaded.json.*receipt/);
+    const missingManifest = staged();
+    writeFileSync(join(missingManifest, 'uploaded.json'), bytes({ snapshotId: first().snapshotId, sha256: 'a'.repeat(64) }));
+    await expect(verifyPublication(missingManifest, { base, fetchImpl })).rejects.toThrow(/Missing or unreadable uploaded.json.*receipt/);
+    const noUpdate = planPublication({ ...inputs(), previousManifest: { ...manifest(),
+      checkedAt: inputs().fetchedAt, checkedRunId: inputs().sourceRunId } });
+    expect(noUpdate.checkedUpdate).toBe(false);
+    await verifyPublication(staged(noUpdate), { base, fetchImpl });
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
@@ -832,7 +978,7 @@ describe('CLI main (all external dependencies faked)', () => {
     const args = ['plan', '--source-run-id', '123', '--fetched-at', '2026-10-25T00:00:00.000Z', '--motors', motors, '--curves', curves, '--previous', 'none', '--out', out, '--summary', summary,
       '--inputs', join(frozen, 'inputs.json')];
     expect(await main(args, options)).toBe(0);
-    expect(stdout).toHaveBeenCalledWith('changed=true\nsnapshot=2026-10-22\n');
+    expect(stdout).toHaveBeenCalledWith('changed=true\nsnapshot=2026-10-22\nupdate=true\n');
     expect(readFileSync(summary, 'utf8')).toContain('Motors: 1');
     const b = bucket();
     expect(await main(['upload', '--plan', out], { env, now, runCommand: b.runCommand, stdout, stderr })).toBe(0);
@@ -956,7 +1102,7 @@ describe('CLI main (all external dependencies faked)', () => {
     const stdout = vi.fn(), stderr = vi.fn();
     expect(await main(args, { env: {}, stdout, stderr })).toBe(0);
     expect(stderr).toHaveBeenCalledWith('already published as 2026-10-22');
-    expect(stdout).toHaveBeenCalledWith('changed=false\nsnapshot=2026-10-22\n');
+    expect(stdout).toHaveBeenCalledWith('changed=false\nsnapshot=2026-10-22\nupdate=false\n');
     const b = bucket([[plan.uploads[0].key, bytes({ orphan: true })]]);
     expect(await main(['upload', '--plan', staged(plan)], { env: { ...env, GITHUB_STEP_SUMMARY: summary },
       stdout, stderr, runCommand: b.runCommand })).toBe(0);

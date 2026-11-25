@@ -29,6 +29,8 @@ import { noticeQuantity, siToUi } from '../prefs/units.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import type { MotorMeta } from '../services/simReport.js';
+import { runDate } from '../services/simReport.js';
+import { catalogueCheckedAt } from '../services/catalogueClient.js';
 
 /**
  * Full-database motor browser: manufacturer + diameter-class toggles (motors
@@ -222,8 +224,13 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const loadAbort = useRef<AbortController | null>(null);
   const pendingSelection = useRef<{ settled?: () => void } | null>(null);
   useEffect(() => () => { loadAbort.current?.abort(); pendingSelection.current?.settled?.(); }, []);
-  const catalogueAgeDays = Math.max(0, Math.floor((Date.now() - Date.parse(MOTOR_DB_DATE)) / 86_400_000));
   const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+  const dataDate = overlay?.snapshot?.generated ?? MOTOR_DB_DATE;
+  const checkedDate = offline || dataDate < MOTOR_DB_DATE ? undefined : catalogueCheckedAt(overlay?.snapshot?.checkedAt,
+    overlay?.snapshot?.checkedRunId, dataDate);
+  const catalogueAgeDays = Math.max(0, Math.floor((Date.now() - Date.parse(checkedDate ?? dataDate)) / 86_400_000));
+  const formatDate = (at: string): string => Number.isFinite(Date.parse(at))
+    ? runDate(new Date(at), true) : 'on an unknown date';
 
   /**
    * The button always FORCES its check (row 110): the check also runs by
@@ -609,13 +616,15 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
           <h2 style={{ flex: 1 }}>
             Motor database
             <span className="motor-db-meta">
-              {' '}thrustcurve.org · {MOTOR_DB_DATE}
+              {' '}thrustcurve.org · Motor data last changed {formatDate(dataDate)}
+              {checkedDate ? `; checked ${formatDate(checkedDate)}` : ''}
               {/* The age is always shown: the catalogue sat 63 days unrefreshed
                   once and nobody could see it. */}
               {catalogueAgeDays > 0 ? ` (${catalogueAgeDays} day${catalogueAgeDays === 1 ? '' : 's'} old)` : ''}
               {overlay && (overlay.added.length || overlay.changed.length || overlay.removed.length)
-                ? ` · +${overlay.added.length} new, ${overlay.changed.length} changed since, catalogue checked ${overlay.fetchedAt.slice(0, 10) || 'on an unknown date'}`
-                : overlay ? ` · up to date, catalogue checked ${overlay.fetchedAt.slice(0, 10) || 'on an unknown date'}` : ''}
+                ? ` · +${overlay.added.length} new, ${overlay.changed.length} changed since the app's built-in data of ${formatDate(MOTOR_DB_DATE)}`
+                : overlay ? ' · up to date' : ''}
+              {overlay ? ` · this browser last looked ${formatDate(overlay.fetchedAt)}` : ''}
               {' '}· mount ⌀ {dimUi(mountDiameterMm).toFixed(1)} {motorSym}
             </span>
           </h2>

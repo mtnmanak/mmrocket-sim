@@ -3,7 +3,8 @@
 #
 # CATALOGUE PUBLICATION: pre-install inputs feed the separate catalogue-publish.yml
 # workflow after this refresh job succeeds. That workflow requires Eric's approval
-# before uploading immutable rows/curves and changing the public pointer.
+# before uploading immutable rows/curves and changing the public pointer, or
+# recording an unchanged refresh's fetchedAt and run ID in the manifest only.
 #
 # WHY A PR AND NOT A PUSH. In this repo a push to main IS the production deploy
 # (.github/workflows/deploy.yml, `on: push: branches: [main]`). A motor-data diff
@@ -291,8 +292,9 @@ jobs:
             cat "$RUNNER_TEMP/pr-body.md" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      # Nothing moved: nothing is uploaded, so the publish job does not run. No
-      # PR, no branch, no deploy — and the re-dated files die with this runner.
+      # Nothing moved: no PR artifact is uploaded, so this publish job does not run.
+      # No PR, branch or deploy. The separate approval-gated catalogue workflow
+      # still records this successful check in the manifest.
       # Not shipping them is not cosmetic: see FRESHNESS_FLOOR_DAYS in
       # motor-diff-summary.mjs for why a date-only bump has a real cost to users
       # (it deletes their stored catalogue overlay).

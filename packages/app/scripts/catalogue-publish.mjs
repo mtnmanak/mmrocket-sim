@@ -47,6 +47,8 @@ const snapshotId = (id) => typeof id === 'string' && /^\d{4}-\d{2}-\d{2}(?:\.[2-
 const integer = (n) => Number.isSafeInteger(n) && n >= 0;
 const timestamp = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(s)
   && date(s.slice(0, 10)) && Number.isFinite(Date.parse(s));
+export const checkedTimestamp = (s) => timestamp(s)
+  && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(s);
 const runId = (s) => typeof s === 'string' && /^[1-9]\d*$/.test(s);
 const currentEntry = (manifest) => manifest?.snapshots.find((s) => s.id === manifest.current);
 const withoutPublishedAt = ({ publishedAt: _publishedAt, ...entry }) => entry;
@@ -60,7 +62,7 @@ function assertNewer(entry, live) {
   const stale = current && (current.fetchedAt
     ? Date.parse(entry.fetchedAt) <= Date.parse(current.fetchedAt)
     : entry.motors.generated <= current.motors.generated);
-  if (stale) {
+  if (stale || (checkedTimestamp(live?.checkedAt) && Date.parse(entry.fetchedAt) <= Date.parse(live.checkedAt))) {
     throw new Error(`Input fetchedAt ${entry.fetchedAt} is not newer than live ${current.id} (${current.fetchedAt ?? current.motors.generated}); re-run the refresh`);
   }
 }
@@ -70,7 +72,7 @@ const canonical = (v) => Array.isArray(v) ? v.map(canonical)
 
 // Plan-time comparison only: retain full content, including duplicate identities,
 // but ignore each motor's file order. Published bytes and manifest hashes stay exact.
-function unorderedCurveContentHash(bytes) {
+export function unorderedCurveContentHash(bytes) {
   const doc = JSON.parse(Buffer.from(bytes).toString('utf8'));
   const curves = Object.fromEntries(Object.entries(doc.curves).map(([id, files]) => [id,
     curveFileMultiset(files)]));
@@ -135,7 +137,7 @@ export function validatePreviousManifest(manifest) {
 export function planPublication({ motorsBytes, curvesBytes, previousManifest, previousManifestBytes,
   previousMotorsBytes, previousCurvesBytes, previousSnapshotUnavailable = false, commit, sourceRunId, fetchedAt, sourceAttempt }) {
   validatePreviousManifest(previousManifest);
-  if (!runId(sourceRunId) || !timestamp(fetchedAt)) throw new Error('Valid sourceRunId and fetchedAt are required');
+  if (!runId(sourceRunId) || !checkedTimestamp(fetchedAt)) throw new Error('Valid sourceRunId and fetchedAt are required (UTC ending in Z)');
   if (!/^[0-9a-f]{40}$/.test(commit ?? '')) throw new Error('A valid 40-hex commit is required');
   if (sourceAttempt !== undefined && !runId(String(sourceAttempt))) throw new Error('Invalid source attempt');
   const motors = JSON.parse(Buffer.from(motorsBytes).toString('utf8'));
@@ -181,12 +183,17 @@ export function planPublication({ motorsBytes, curvesBytes, previousManifest, pr
   // A missing/corrupt current object needs an approved repair even if its recorded
   // content hash matches. Otherwise every later refresh would skip that repair.
   if (!previousSnapshotUnavailable && contentMatches('motors', motorsBytes, previousMotorsBytes) && curvesMatch()) {
-    return { liveEntry: current, changed: false, snapshotId: current.id, baseManifestSha256, entry: current, uploads: [],
+    if (Date.parse(fetchedAt) < Date.parse(motors.generated)) throw new Error('Checked date predates motor data');
+    const lastCheck = Math.max(Date.parse(current.fetchedAt ?? current.motors.generated),
+      checkedTimestamp(previousManifest.checkedAt) ? Date.parse(previousManifest.checkedAt) : 0);
+    return { liveEntry: current, changed: false, checkedUpdate: Date.parse(fetchedAt) > lastCheck,
+      snapshotId: current.id, baseManifestSha256, entry: current, uploads: [],
       ...(fileOrderOnlyMotors ? { fileOrderOnlyMotors } : {}),
       input: { commit, sourceRunId, fetchedAt, sourceAttempt },
       alreadyPublished: current.sourceRunId === sourceRunId && current.motors.sha256 === motorsHash && current.curves.sha256 === curvesHash };
   }
   assertNewer({ fetchedAt, motors }, previousManifest);
+  if (Date.parse(fetchedAt) < Date.parse(motors.generated)) throw new Error('Checked date predates motor data');
   const used = new Set(previousManifest?.snapshots.map((s) => s.id));
   let id = motors.generated;
   // Earlier same-day IDs may have been pruned while their immutable objects remain.
@@ -272,6 +279,7 @@ export function publicationSummary(plan, { motorsBytes, curvesBytes, previousMot
       'The final snapshot id may gain a suffix at upload time if an orphan occupies this id.']
       : [plan.alreadyPublished ? `already published as ${plan.snapshotId}` : `No content change; keeping live snapshot ${plan.snapshotId}.`]),
     ...(!plan.changed && plan.fileOrderOnlyMotors ? [`Only curve file order changed for ${plan.fileOrderOnlyMotors} motor${plan.fileOrderOnlyMotors === 1 ? '' : 's'}; nothing is published.`] : []),
+    ...(plan.checkedUpdate ? [`Approval requested: record checked ${source.fetchedAt} (run ${source.sourceRunId}); only manifest.json changes, with no new snapshot.`] : []),
     ...unavailable.map((reason) => `**UNAVAILABLE: ${reason}**`),
     `Catalogue rows: ${rowCount} ${hasPrevious ? 'changed' : 'added'} · Curves: ${curveCount} motors changed · Dates only: ${datesOnly}`,
     `Content vs recorded hash: motors ${motorContent}, curves ${curveContent}${hasPrevious && motorContent === 'unchanged' && curveContent === 'unchanged' ? ' (identical content)' : ''}.`,
@@ -312,9 +320,13 @@ export function stagePublication(plan, outDir) {
 export function readPublication(dir) {
   const plan = JSON.parse(readFileSync(join(dir, 'plan.json'), 'utf8'));
   if (plan.schema !== 1 || typeof plan.changed !== 'boolean') throw new Error('Invalid staged plan schema/verdict');
+  if (plan.checkedUpdate !== undefined && typeof plan.checkedUpdate !== 'boolean') throw new Error('Invalid staged checked-update verdict');
   if (plan.baseManifestSha256 !== 'absent' && !digest(plan.baseManifestSha256)) throw new Error('Invalid staged base manifest hash');
   validatePreviousManifest({ schema: 1, current: plan.snapshotId, snapshots: [plan.entry] });
   if (plan.snapshotId !== plan.entry.id) throw new Error('Invalid staged current snapshot');
+  if (plan.checkedUpdate && (plan.changed || !checkedTimestamp(plan.input?.fetchedAt) || !runId(plan.input?.sourceRunId))) {
+    throw new Error('Invalid staged checked-date provenance');
+  }
   const keys = plan.changed ? [`v1/${plan.snapshotId}/motors.json`, `v1/${plan.snapshotId}/motorCurves.json`] : [];
   if (!isDeepStrictEqual(plan.uploads?.map((u) => u.key), keys)) throw new Error('Invalid staged upload order/keys');
   for (const upload of plan.uploads) {
@@ -346,6 +358,18 @@ export function readPublication(dir) {
 const scrub = (message, env) => [env.AWS_ACCESS_KEY_ID, env.AWS_SECRET_ACCESS_KEY, env.R2_ACCESS_KEY_ID, env.R2_SECRET_ACCESS_KEY]
   .filter(Boolean).reduce((s, secret) => s.split(secret).join('[REDACTED]'), String(message));
 
+/** A checked-only PUT may change exactly these two fields, never snapshot data. */
+export function validateCheckUpdate(live, next, now = new Date()) {
+  const strip = ({ checkedAt: _at, checkedRunId: _run, ...rest }) => rest;
+  if (!isDeepStrictEqual(strip(live), strip(next))) throw new Error('Checked update changes more than checked fields');
+  if (!checkedTimestamp(next.checkedAt) || !runId(next.checkedRunId)
+    || Date.parse(next.checkedAt) < Date.parse(currentEntry(live).motors.generated)
+    || Date.parse(next.checkedAt) > new Date(now).getTime()) throw new Error('Invalid checked date or run');
+  const lastCheck = Math.max(Date.parse(currentEntry(live).fetchedAt ?? currentEntry(live).motors.generated),
+    checkedTimestamp(live.checkedAt) ? Date.parse(live.checkedAt) : 0);
+  if (Date.parse(next.checkedAt) <= lastCheck) throw new Error('Checked date is not newer than live');
+}
+
 /** Authoritative base check before ANY writes, resumable immutable files, conditional pointer LAST. */
 export async function uploadPublication(dir, {
   runCommand = run,
@@ -353,7 +377,7 @@ export async function uploadPublication(dir, {
   now = new Date(),
 } = {}) {
   const plan = readPublication(dir);
-  if (!plan.changed) return;
+  if (!plan.changed && !plan.checkedUpdate) return;
   if (!/^[a-f0-9]{32}$/i.test(env.CLOUDFLARE_ACCOUNT_ID ?? '')) throw new Error('Missing/invalid CLOUDFLARE_ACCOUNT_ID');
   const childEnv = { ...env, AWS_REQUEST_CHECKSUM_CALCULATION: 'when_required', AWS_RESPONSE_CHECKSUM_VALIDATION: 'when_required' };
   const common = ['--bucket', BUCKET, '--region', 'auto', '--endpoint-url',
@@ -404,13 +428,36 @@ export async function uploadPublication(dir, {
   try {
     const initial = await getLive(), live = initial.manifest;
     if ((initial.bytes ? hash(initial.bytes) : 'absent') !== plan.baseManifestSha256) {
-      if (own(live)) { receipt(initial.bytes, live.current); return 'already live'; }
+      if (plan.changed && own(live)) { receipt(initial.bytes, live.current); return 'already live'; }
+      if (plan.checkedUpdate && live?.checkedAt === plan.input.fetchedAt && live?.checkedRunId === plan.input.sourceRunId
+        && isDeepStrictEqual(currentEntry(live), plan.entry)) { receipt(initial.bytes, live.current); return 'already checked'; }
       throw stale(live);
     }
-    assertNewer(plan.entry, live);
     if (live && (typeof initial.etag !== 'string' || !initial.etag.length)) {
       throw new Error('Live manifest GET returned no ETag; refusing an unconditional PUT');
     }
+    if (plan.checkedUpdate) {
+      if (!live || live.current !== plan.snapshotId || !isDeepStrictEqual(currentEntry(live), plan.entry)) {
+        throw new Error('Checked update differs from live snapshot');
+      }
+      const manifest = { ...live, checkedAt: plan.input.fetchedAt, checkedRunId: plan.input.sourceRunId };
+      validateCheckUpdate(live, manifest, now);
+      const manifestBytes = jsonBytes(manifest), file = join(temp, 'checked-manifest.json');
+      if (manifestBytes.length > 256 * 1024) throw new Error('Checked manifest exceeds 256 KiB');
+      writeFileSync(file, manifestBytes);
+      const put = await aws('put-object', 'manifest.json', ['--body', file, '--content-type', CONTENT_TYPE,
+        '--cache-control', MANIFEST_CACHE, '--if-match', initial.etag]);
+      if (!success(put)) {
+        const latest = await getLive();
+        if (!latest.bytes || hash(latest.bytes) !== hash(manifestBytes)) throw failure('Checked manifest conditional PUT failed', put);
+      }
+      receipt(manifestBytes, live.current);
+      return 'checked';
+    }
+    assertNewer(plan.entry, live);
+    if (!checkedTimestamp(plan.entry.fetchedAt)
+      || Date.parse(plan.entry.fetchedAt) < Date.parse(plan.entry.motors.generated)
+      || Date.parse(plan.entry.fetchedAt) > new Date(now).getTime()) throw new Error('Invalid checked date for motor data');
     const used = new Set(live?.snapshots.map((entry) => entry.id));
     let entry = plan.entry, pending, uploads;
     // A different orphan is never overwritten. Choose the next available ID,
@@ -453,6 +500,7 @@ export async function uploadPublication(dir, {
     // Preserve schema-1 extensions; only the pointer/publication fields change.
     const retained = new Set([live?.current, ...(live?.retainedSnapshotIds ?? [])]);
     const manifest = { ...live, schema: 1, current: entry.id, publishedAt, commit: entry.commit, source: SOURCE,
+      checkedAt: entry.fetchedAt, checkedRunId: entry.sourceRunId,
       snapshots: [entry, ...(live?.snapshots ?? []).filter(snapshot => retained.has(snapshot.id))] };
     validatePreviousManifest(manifest);
     const manifestBytes = jsonBytes(manifest), finalFile = join(temp, 'final-manifest.json');
@@ -483,14 +531,28 @@ export async function verifyPublication(dir, { base, fetchImpl = fetch,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)), attempts = 7, delayMs = 60_000,
 } = {}) {
   const plan = readPublication(dir);
-  if (!plan.changed) return;
-  const receipt = JSON.parse(readFileSync(join(dir, 'uploaded.json'), 'utf8'));
-  const finalBytes = readFileSync(join(dir, 'uploaded-manifest.json'));
-  if (!snapshotId(receipt.snapshotId) || receipt.sha256 !== hash(finalBytes)) throw new Error('Invalid uploaded manifest receipt');
+  if (!plan.changed && !plan.checkedUpdate) return;
+  let receipt, finalBytes;
+  try {
+    receipt = JSON.parse(readFileSync(join(dir, 'uploaded.json'), 'utf8'));
+    finalBytes = readFileSync(join(dir, 'uploaded-manifest.json'));
+  } catch {
+    throw new Error('Missing or unreadable uploaded.json or uploaded-manifest.json receipt');
+  }
+  if (!receipt || !snapshotId(receipt.snapshotId) || receipt.sha256 !== hash(finalBytes)) throw new Error('Invalid uploaded manifest receipt');
   const finalManifest = JSON.parse(finalBytes);
   validatePreviousManifest(finalManifest);
+  if (!checkedTimestamp(finalManifest.checkedAt) || !runId(finalManifest.checkedRunId)
+    || Date.parse(finalManifest.checkedAt) < Date.parse(currentEntry(finalManifest).motors.generated)) {
+    throw new Error('Invalid uploaded checked-date receipt');
+  }
   if (finalManifest.current !== receipt.snapshotId || !isDeepStrictEqual(
-    withoutPublishedAt(currentEntry(finalManifest)), withId(plan.entry, receipt.snapshotId))) throw new Error('Invalid uploaded manifest entry');
+    withoutPublishedAt(currentEntry(finalManifest)), plan.changed ? withId(plan.entry, receipt.snapshotId) : withoutPublishedAt(plan.entry))) {
+    throw new Error('Invalid uploaded manifest entry');
+  }
+  if (plan.checkedUpdate && (finalManifest.checkedAt !== plan.input.fetchedAt || finalManifest.checkedRunId !== plan.input.sourceRunId)) {
+    throw new Error('Invalid uploaded checked-date receipt');
+  }
   const root = new URL(base);
   if (root.protocol !== 'https:') throw new Error('Verification base must use HTTPS');
   root.pathname = `${root.pathname.replace(/\/$/, '')}/`;
@@ -611,7 +673,7 @@ export async function main(argv = process.argv.slice(2), { env = process.env, st
       if (values.summary) writeFileSync(values.summary, summary);
       else stderr(summary);
       if (plan.alreadyPublished) stderr(`already published as ${plan.snapshotId}`);
-      stdout(`changed=${plan.changed}\nsnapshot=${plan.snapshotId}\n`);
+      stdout(`changed=${plan.changed}\nsnapshot=${plan.snapshotId}\nupdate=${plan.changed || !!plan.checkedUpdate}\n`);
     }
     return 0;
   } catch (error) {

@@ -95,6 +95,7 @@ import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkAdvisories } from './upstream-advisories.mjs';
+import { publishedCatalogueCheck } from './catalogue-freshness.mjs';
 import { markupAttributes, markupTagEnd } from './markup-scan.mjs';
 import { childElements, convertLength, convertMass, elementBlocks, round } from '../packages/app/scripts/fetch-component-presets.mjs';
 
@@ -414,7 +415,10 @@ export function cataloguePopulationNote(bundled, upstream) {
     : `thrustcurve.org now lists ${upstream} motors, ${-d} FEWER than the bundled ${bundled} — motors have been withdrawn since this catalogue was built.`;
 }
 
-export async function checkThrustCurve(getJson = json) {
+const readPublishedCatalogueBytes = url => request(url,
+  async res => Buffer.from(await res.arrayBuffer()), AbortSignal.timeout(30_000));
+
+export async function checkThrustCurve(getJson = json, getPublishedBytes = readPublishedCatalogueBytes) {
   say('');
   say('4. ThrustCurve API and the bundled motor catalogue');
   const dataDir = join(here, '..', 'packages', 'app', 'src', 'data');
@@ -428,8 +432,17 @@ export async function checkThrustCurve(getJson = json) {
   checked++;
   const generated = snapshot.generated;
   const ageDays = generated ? Math.floor((Date.now() - Date.parse(generated)) / 86_400_000) : NaN;
+  let publishedCheck = null;
+  if (ageDays > CATALOGUE_MAX_AGE_DAYS) {
+    try {
+      const curves = JSON.parse(readFileSync(join(dataDir, 'motorCurves.json'), 'utf8'));
+      publishedCheck = await publishedCatalogueCheck(snapshot, curves, getPublishedBytes);
+    } catch { /* Local curve failure is reported below; age alarm stays. */ }
+  }
   if (!Number.isFinite(ageDays)) {
     flag('motors.json carries no readable `generated` date — cannot judge its age. Run `npm run motors:refresh`.');
+  } else if (publishedCheck) {
+    say(`  ok   motors.json checked ${publishedCheck}, unchanged; data generated ${generated}; ${bundled} motors`);
   } else if (ageDays > CATALOGUE_MAX_AGE_DAYS) {
     flag(`motors.json was generated ${generated} — ${ageDays} days ago, over the ${CATALOGUE_MAX_AGE_DAYS}-day limit. Run \`npm run motors:refresh\` before this release.`);
     notes.push(`motor catalogue ${ageDays} days old`);

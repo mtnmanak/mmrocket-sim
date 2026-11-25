@@ -1023,7 +1023,7 @@ export function runLabelText(v: unknown): string {
 let historyClock: Intl.DateTimeFormat | undefined;
 let historyDate: Intl.DateTimeFormat | undefined;
 let historyDateYear: Intl.DateTimeFormat | undefined;
-const runDate = (date: Date, year: boolean) => {
+export const runDate = (date: Date, year: boolean) => {
   if (year) {
     historyDateYear ??= new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
     return historyDateYear.format(date);
