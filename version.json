@@ -1,5 +1,5 @@
 {
-  "version": "0.215",
+  "version": "0.216",
   "released": "2026-11-24",
-  "note": "On screens 768 px and wider, the site band’s search button is now a 44 px by 44 px target, to the left of the unchanged Search field. No flight moves."
+  "note": "The motor browser can show when the motor data was last checked as well as when it last changed; the checked date appears after the next approved weekly catalogue update. No motor data changes and no flight moves."
 }

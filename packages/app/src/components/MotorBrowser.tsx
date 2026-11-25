@@ -225,9 +225,11 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const pendingSelection = useRef<{ settled?: () => void } | null>(null);
   useEffect(() => () => { loadAbort.current?.abort(); pendingSelection.current?.settled?.(); }, []);
   const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
-  const dataDate = overlay?.snapshot?.generated ?? MOTOR_DB_DATE;
-  const checkedDate = offline || dataDate < MOTOR_DB_DATE ? undefined : catalogueCheckedAt(overlay?.snapshot?.checkedAt,
-    overlay?.snapshot?.checkedRunId, dataDate);
+  // A stored snapshot older than the built-in data is not the data in use (thrustcurve.ts's
+  // activeSnapshot refuses it): show the built-in date, and never that snapshot's check.
+  const snapshot = overlay?.snapshot && overlay.snapshot.generated >= MOTOR_DB_DATE ? overlay.snapshot : undefined;
+  const dataDate = snapshot?.generated ?? MOTOR_DB_DATE;
+  const checkedDate = offline ? undefined : catalogueCheckedAt(snapshot?.checkedAt, snapshot?.checkedRunId, dataDate);
   const catalogueAgeDays = Math.max(0, Math.floor((Date.now() - Date.parse(checkedDate ?? dataDate)) / 86_400_000));
   const formatDate = (at: string): string => Number.isFinite(Date.parse(at))
     ? runDate(new Date(at), true) : 'on an unknown date';

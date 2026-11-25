@@ -66,8 +66,12 @@ describe('MotorBrowser — sortable headers stay column headers', () => {
     const older = daysAfter(MOTOR_DB_DATE, -8);
     act(() => setCatalogueOverlay({ ...overlay, snapshot: { ...snapshot, generated: older,
       checkedAt: `${daysAfter(MOTOR_DB_DATE, -4)}T00:00:00Z` } }));
+    // A stored snapshot older than the built-in data is not the data in use: the heading shows the
+    // built-in date and its age (15 days at this clock), never the older snapshot's date or check.
     expect(text()).not.toContain('; checked');
-    expect(text()).toContain('(23 days old)');
+    expect(text()).toContain(`Motor data last changed ${runDate(new Date(MOTOR_DB_DATE), true)}`);
+    expect(text()).toContain('(15 days old)');
+    expect(text()).not.toContain('(23 days old)');
     vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
     act(() => setCatalogueOverlay(overlay));
     expect(text()).not.toContain('; checked');

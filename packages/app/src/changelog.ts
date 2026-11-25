@@ -40,6 +40,24 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.216",
+    "date": "2026-11-24",
+    "title": "The motor browser can show when the motor data was last checked, not only when it last changed",
+    "summary": [
+      "The motor browser’s heading now reads “Motor data last changed” with the date of the motor data in use. When the published catalogue also says when it was last checked against thrustcurve.org, the line adds “checked” and that date, and counts the age (shown once it is a day or more) from it.",
+      "The checked date is not published yet. It appears after the next weekly catalogue update is approved; until then the line shows the last-changed date and its age, as before.",
+      "The same line now says “this browser last looked” for the date your browser last fetched the catalogue, and names what a “+N new, M changed” count is compared with.",
+      "No motor data changes, and no flight moves."
+    ],
+    "items": [
+      "LAST CHANGED AND LAST CHECKED. The motor catalogue’s date used to be the date its data last changed, so a catalogue that had been checked against thrustcurve.org a day ago and found unchanged could still read as two weeks old. The published catalogue can now also record when a weekly refresh last checked it. When it does, the motor browser’s heading reads “Motor data last changed <date>; checked <date>”, followed by “(N days old)” once the check is a day or more old, counted from the check. Without a usable published check the heading reads “Motor data last changed <date>”, with the age counted from that date.",
+      "WHEN THE CHECKED DATE APPEARS. The checked date is added to the published catalogue by the same approved weekly update that publishes new motor data, so it is not there yet: it appears after the first such update following this release, and then moves forward each time a newer check is approved. A check that finds nothing new changes only the catalogue’s small index file; a browser that already has the current catalogue downloads no motor or curve file for it.",
+      "WHEN THE CHECKED DATE IS NOT SHOWN. The app ignores a checked date that is malformed, in the future, or earlier than the motor data’s own date, and one that belongs to a downloaded catalogue older than the app’s built-in data. It is also not shown while the browser is offline. In each case the heading reads as it does without one.",
+      "THE REST OF THE LINE SAYS WHAT IT MEANS. The date of your browser’s own last fetch of the catalogue used to read “catalogue checked <date>”, which could be taken for the published check; it now reads “this browser last looked <date>”. A “+N new, M changed” count now ends “since the app’s built-in data of <date>”. The date shown first is the date of the motor data in use: the downloaded catalogue’s when one is in use, otherwise the app’s built-in data (the heading used to show the built-in date in both cases). Dates in this line use the app’s usual date format instead of year-month-day.",
+      "NO MOTOR DATA CHANGES AND NO FLIGHT MOVES. This release changes how the catalogue’s dates are recorded and shown, not the motors or their curves."
+    ]
+  },
+  {
     "version": "0.215",
     "date": "2026-11-24",
     "title": "The site band’s search button is a full-size tap target",
