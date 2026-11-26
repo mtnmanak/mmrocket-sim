@@ -36,6 +36,19 @@ it('explains each example, opens ordinary files, and labels the sample assumptio
   expect(onOpen).toHaveBeenCalledWith(file);
 });
 
+it('AS2 hands the selection to the door before starting the asset read', async () => {
+  const file = new File(['bytes'], 'cluster.ork');
+  vi.mocked(examples.loadExampleFile).mockResolvedValue(file);
+  const choose = vi.fn();
+  await act(async () => root.render(<ExampleDesignsDialog onOpen={onOpen} onClose={onClose} onChoose={choose} />));
+  await click('Three-motor cluster');
+  expect(choose).toHaveBeenCalledWith('cluster.ork', expect.any(Function));
+  expect(examples.loadExampleFile).not.toHaveBeenCalled();
+  expect(onOpen).not.toHaveBeenCalled();
+  expect(await choose.mock.calls[0]![1]()).toBe(file);
+  expect(examples.loadExampleFile).toHaveBeenCalledOnce();
+});
+
 it('tracks the example read before its first await and releases a failed read', async () => {
   let rejectRead!: (error: Error) => void;
   vi.mocked(examples.loadExampleFile).mockImplementation(() => new Promise((_resolve, reject) => { rejectRead = reject; }));

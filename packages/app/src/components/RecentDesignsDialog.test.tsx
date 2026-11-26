@@ -41,6 +41,19 @@ it('opens the stored file through its caller and labels it as a browser copy', a
   await click('café.ork');
   expect(onOpen).toHaveBeenCalledWith(file);
 });
+
+it('AS2 hands the selection to the door before reading the stored file', async () => {
+  const file = new File(['bytes'], 'café.ork');
+  vi.mocked(recent.recentDesignFile).mockResolvedValue(file);
+  const choose = vi.fn();
+  await act(async () => root.render(<RecentDesignsDialog onOpen={onOpen} onClose={onClose} onChoose={choose} />));
+  await click('café.ork');
+  expect(choose).toHaveBeenCalledWith('café.ork', expect.any(Function));
+  expect(recent.recentDesignFile).not.toHaveBeenCalled();
+  expect(onOpen).not.toHaveBeenCalled();
+  expect(await choose.mock.calls[0]![1]()).toBe(file);
+  expect(recent.recentDesignFile).toHaveBeenCalledOnce();
+});
 it('keeps the current design when another tab removed a file', async () => {
   vi.mocked(recent.recentDesignFile).mockResolvedValue(null);
   await show(); await click('café.ork');

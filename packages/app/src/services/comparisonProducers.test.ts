@@ -882,6 +882,9 @@ it('requires inventory review and a boundary case or scope exemption for new pro
     api: comparisonCensus(fileURLToPath(new NodeURL('../../../api/src/', import.meta.url))),
   }).toEqual(reviewedCensus);
 }, 30_000);
+// Inventory review (2026-11-25, AS2): RecentDesignsDialog 1 -> 2. The new hit is the
+// deferred loader's "This copy is no longer in Recent" notice: wording about a missing
+// stored copy, not a numeric comparison: scope exemption. No flight behavior changed.
 // Inventory review (2026-11-02, integration of lanes N1-N9): counts where several lanes touched one file are the
 // merged totals of additions each lane reviewed in its own note below — noteExplanations.ts 34 (N2, N3, N5, N6 help
 // entries: static text, no thresholds) and orkFile.ts 529 (N2, N3, N4, N7). No comparison was added at integration.
