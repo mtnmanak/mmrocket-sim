@@ -227,6 +227,8 @@ export const XML_JS_SUITES = [
 
 /** Files that call an importer but are NOT run twice, each with the reason. */
 export const XML_JS_EXCLUDED = {
+  'src/components/DesignConfirms.test.tsx': 'renders the design questions with mocked File objects (new File([], "Next.ork")) and '
+    + 'never calls an importer or parses XML',
   'src/components/RecentDesignsDialog.test.tsx': 'passes mocked File objects through the chooser callback '
     + 'without calling an importer or parsing XML',
   'src/App.simulate.test.tsx': 'holds the mounted app and the headless Launch to the same flight; BOTH sides '
