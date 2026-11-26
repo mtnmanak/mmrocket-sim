@@ -60,6 +60,8 @@ export interface Preferences {
   daylight?: boolean;
   /** Viewer-only opt-in; short windows keep the normal scrolling layout. */
   stickyWorkspaceBar?: boolean;
+  /** F150: extra viewer key; older builds still read stickyWorkspaceBar as On. */
+  compactWorkspaceBar?: boolean;
   /**
    * Which metrics show as the highlighted tiles on the Results tab, by
    * catalog id (RESULT_TILE_METRICS in StatTiles.tsx), in catalog order.

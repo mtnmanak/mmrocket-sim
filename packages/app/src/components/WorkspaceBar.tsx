@@ -1,10 +1,26 @@
-import { useCallback, useLayoutEffect, useRef, type ReactNode } from 'react';
+import { Children, cloneElement, isValidElement, useCallback, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
+import { AERO_NAME, type AeroChoice } from '../prefs/aeroChoice.js';
+
+/** The collapsed reading names its model without adding a control to the line. */
+export function CompactAeroMarker({ choice, preference, autoSupersonic }: {
+  choice: AeroChoice; preference: AeroChoice; autoSupersonic: boolean;
+}) {
+  if (choice === preference && !autoSupersonic) return null;
+  const shortName: Record<AeroChoice, string> = { kbf: 'Kbf', eb: 'EB', auto: 'Auto', supersonic: 'Super', hybrid: 'Hyb' };
+  return <span className="vitals-aero-compact" role="img"
+    aria-label={`Stability uses ${AERO_NAME[autoSupersonic ? 'supersonic' : choice]}${autoSupersonic ? ', chosen by Auto' : ', session override'}`}>
+    {autoSupersonic ? 'M+' : shortName[choice]}
+  </span>;
+}
 
 /** Measure the desktop band or phone vitals; phone tabs keep their own root layer. */
 export function WorkspaceBar({ children }: { children: ReactNode }) {
   const { prefs } = usePrefs();
   const enabled = prefs.stickyWorkspaceBar === true;
+  const compact = enabled && prefs.compactWorkspaceBar === true;
+  const [expanded, setExpanded] = useState(false);
+  const summaryId = useId();
   const ref = useRef<HTMLDivElement>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
   const observed = useRef<Element | null>(null);
@@ -51,5 +67,18 @@ export function WorkspaceBar({ children }: { children: ReactNode }) {
     };
   }, [measure]);
 
-  return <div ref={ref} className={`workspace-bar${enabled ? ' workspace-bar-sticky' : ''}`}>{children}</div>;
+  return <div ref={ref} className={`workspace-bar${enabled ? ' workspace-bar-sticky' : ''}${compact ? ' workspace-bar-compact' : ''}${compact && expanded ? ' workspace-bar-expanded' : ''}`}>
+    {Children.map(children, child => {
+      // Reuse the original strip, including its labels and warning descriptions.
+      // Phone CSS alone collapses it; desktop, short windows and print stay full.
+      if (!isValidElement<{ className?: string; id?: string; children?: ReactNode }>(child)
+        || child.props.className !== 'vitals-strip') return child;
+      // Keep both the outer keys and inner child-array shape stable across modes.
+      return cloneElement(child, { id: compact ? summaryId : child.props.id }, child.props.children,
+        compact && <button type="button" className="file-btn workspace-summary-toggle"
+          aria-label={expanded ? 'Less: collapse rocket summary' : 'Details: expand rocket summary'}
+          aria-expanded={expanded} aria-controls={summaryId}
+          onClick={() => setExpanded(value => !value)}>{expanded ? 'Less' : 'Details'}</button>);
+    })}
+  </div>;
 }

@@ -92,6 +92,24 @@ it('N005 offers displayed decimals as a persisted, labelled preference', () => {
   expect(stored().fieldPrecision).toBe('auto');
 });
 
+it('F150 offers compact phones beside On and Off, and persists all three choices', () => {
+  mount();
+  const sticky = () => byLabel('Keep the rocket summary and tabs in view while scrolling') as HTMLSelectElement;
+  expect([...sticky().options].map(o => [o.value, o.textContent])).toEqual([
+    ['off', 'Off'], ['on', 'On'], ['compact', 'On — compact on phones'],
+  ]);
+  expect(guide).toContain('On — compact on phones');
+  for (const choice of ['compact', 'on', 'off', 'compact']) {
+    pick(sticky(), choice);
+    expect(stored().stickyWorkspaceBar).toBe(choice !== 'off');
+    expect(stored().compactWorkspaceBar).toBe(choice === 'compact');
+    act(() => root.unmount());
+    root = createRoot(host);
+    mount();
+    expect(sticky().value).toBe(choice);
+  }
+});
+
 // audit 2026-10-11, CR-2: check live paths against the controls people can find.
 // Releases through 0.180 are frozen history, allow-listed by version; never
 // excuse the newest entry, even when it is correcting an older release.

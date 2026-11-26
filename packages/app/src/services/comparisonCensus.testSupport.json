@@ -1,6 +1,6 @@
 {
   "app": {
-    "App.tsx": 35,
+    "App.tsx": 37,
     "components/BatchSimulate.tsx": 23,
     "components/ComparisonChart.tsx": 4,
     "components/ComponentTree.tsx": 1,

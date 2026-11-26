@@ -194,19 +194,30 @@ export function FirstRunTour({ onSetTab, onClose }: {
     if (step.tab) onSetTab(step.tab);
   }, [step, onSetTab]);
 
-  // Measure the anchor; re-measure on resize/scroll (capture: the workspace
-  // scrolls in nested containers). rAF gives the tab switch a frame to render.
+  // Also observe layout changes such as compact Details/Less at scroll 0.
+  // rAF gives the tab switch a frame to render before choosing the target.
   useEffect(() => {
     let raf = 0;
     const measure = () => {
       const el = document.querySelector(`[data-tour="${step.target}"]`);
-      setAnchor({ rect: el ? el.getBoundingClientRect() : null });
+      const rect = el?.getBoundingClientRect();
+      setAnchor({ rect: rect && rect.width > 0 && rect.height > 0 ? rect : null });
     };
-    raf = requestAnimationFrame(measure);
+    const observer = new ResizeObserver(measure);
+    raf = requestAnimationFrame(() => {
+      measure();
+      const target = document.querySelector(`[data-tour="${step.target}"]`);
+      if (target) {
+        observer.observe(target);
+        const strip = document.querySelector('.vitals-strip');
+        if (strip) observer.observe(strip);
+      }
+    });
     window.addEventListener('resize', measure);
     window.addEventListener('scroll', measure, true);
     return () => {
       cancelAnimationFrame(raf);
+      observer.disconnect();
       window.removeEventListener('resize', measure);
       window.removeEventListener('scroll', measure, true);
     };
