@@ -583,6 +583,12 @@ import { designNotices } from './notices.js';
 import { setXmlParser } from './xmlParse.js';
 import ts from 'typescript';
 import { join, relative } from 'node:path';
+// F150 r2 inventory: App.tsx 35 -> 36 is "under Details", a navigation
+// location in stale-apogee speech, not a numerical comparison. Exempt;
+// WorkspaceBar.test covers the Launch location. No flight threshold changed.
+// F150 r3: App.tsx 36 -> 37 is the second "above" location in the compact
+// Results empty-state directions. Exempt: navigation, no measured quantity;
+// WorkspaceBar.test covers both conditional copies and their viewport scope.
 import reviewedCensus from './comparisonCensus.testSupport.json';
 // J5 inventory review: added .ork size/reference/ignition notices, RockSim
 // integer-stage and removed-pod/motorless-recovery notices, and corrected the

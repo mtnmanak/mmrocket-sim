@@ -49,6 +49,31 @@ describe('row 140 sticky workspace preference', () => {
   });
 });
 
+describe('F150 compact phone preference', () => {
+  // Compatibility controls: these intentionally pass on the old loader, which
+  // spreads saved keys. Malformed-key rejection below is the regression guard.
+  it.each([undefined, false, true])('keeps the legacy sticky value %s without enabling compact', stickyWorkspaceBar => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ stickyWorkspaceBar }));
+    mount();
+    expect(seen.prefs.stickyWorkspaceBar).toBe(stickyWorkspaceBar ?? false);
+    expect(seen.prefs.compactWorkspaceBar).not.toBe(true);
+  });
+  it.each([null, 'true', 1, {}, []].map(value => [value]))('rejects malformed compact setting %j', compactWorkspaceBar => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ stickyWorkspaceBar: true, compactWorkspaceBar }));
+    mount();
+    expect(seen.prefs.stickyWorkspaceBar).toBe(true);
+    expect(seen.prefs.compactWorkspaceBar).toBeUndefined();
+  });
+  it.each([false, true])('round trips the additional boolean %s', compactWorkspaceBar => {
+    mount();
+    act(() => seen.setPrefs({ ...seen.prefs, stickyWorkspaceBar: true, compactWorkspaceBar }));
+    act(() => root.unmount());
+    root = createRoot(host);
+    mount();
+    expect(seen.prefs).toMatchObject({ stickyWorkspaceBar: true, compactWorkspaceBar });
+  });
+});
+
 describe('N032 altitude preference migration', () => {
   it.each(['m', 'km', 'ft', 'yd', 'mi'])('inherits legacy distance %s and persists the split on the next write', distance => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ units: { distance } }));

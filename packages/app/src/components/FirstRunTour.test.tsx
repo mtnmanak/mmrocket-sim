@@ -1,8 +1,10 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { clearTourDone, FirstRunTour, shouldAutoStartTour } from './FirstRunTour.js';
+import { WorkspaceBar } from './WorkspaceBar.js';
+import { PrefsProvider } from '../prefs/PrefsContext.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -72,6 +74,10 @@ describe('FirstRunTour', () => {
       '<button data-tour="guide"></button>',
     ].join('');
     document.body.appendChild(anchors);
+    // happy-dom has no layout; visible anchors need a nonempty browser-like box.
+    for (const anchor of anchors.children) {
+      anchor.getBoundingClientRect = () => new DOMRect(40, 60, 80, 24);
+    }
     host = document.createElement('div');
     document.body.appendChild(host);
     root = createRoot(host);
@@ -82,6 +88,7 @@ describe('FirstRunTour', () => {
     host.remove();
     anchors.remove();
     localStorage.clear();
+    vi.unstubAllGlobals();
   });
 
   function mount(onSetTab: (t: 'design' | 'motors' | 'results') => void, onClose: () => void) {
@@ -240,6 +247,80 @@ describe('FirstRunTour', () => {
     await settle();
     expect(host.querySelector('.tour-card')).toBeTruthy();
     expect(host.querySelector('.tour-ring')).toBeFalsy();
+  });
+
+  it('F150 r3 follows Details/Less without a resize or scroll event', async () => {
+    anchors.querySelector('[data-tour="launch"]')!.remove();
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ stickyWorkspaceBar: true, compactWorkspaceBar: true }));
+    const observers: { notify: () => void; targets: Set<Element>; disconnect: ReturnType<typeof vi.fn> }[] = [];
+    vi.stubGlobal('ResizeObserver', class {
+      entry = { notify: () => {}, targets: new Set<Element>(), disconnect: vi.fn() };
+      constructor(notify: () => void) {
+        this.entry.notify = notify;
+        observers.push(this.entry);
+      }
+      observe = (target: Element) => { this.entry.targets.add(target); };
+      unobserve = (target: Element) => { this.entry.targets.delete(target); };
+      disconnect = () => { this.entry.disconnect(); this.entry.targets.clear(); };
+    });
+    act(() => root.render(<PrefsProvider><WorkspaceBar><div className="vitals-strip">
+      <button data-tour="launch">Launch</button>
+    </div></WorkspaceBar><FirstRunTour onSetTab={() => {}} onClose={() => {}} /></PrefsProvider>));
+    const launch = host.querySelector<HTMLElement>('[data-tour="launch"]')!;
+    const band = host.querySelector('.workspace-bar')!;
+    const strip = host.querySelector('.vitals-strip')!;
+    launch.getBoundingClientRect = () => band.classList.contains('workspace-bar-expanded')
+      ? new DOMRect(40, 60, 80, 24) : new DOMRect(0, 0, 0, 0);
+    for (let i = 0; i < 3; i++) act(() => { (host.querySelector('.tour-next') as HTMLButtonElement).click(); });
+    await settle();
+    expect(host.querySelector('.tour-ring')).toBeNull();
+    // happy-dom has no layout notifications: deliver the browser's ResizeObserver
+    // notification only to observers of the target or the changing summary strip.
+    const notify = () => {
+      for (const observer of observers) {
+        if (observer.targets.has(launch) || observer.targets.has(strip)) observer.notify();
+      }
+    };
+    const toggle = host.querySelector<HTMLButtonElement>('.workspace-summary-toggle')!;
+    act(() => { toggle.click(); });
+    act(notify);
+    expect(host.querySelector<HTMLElement>('.tour-ring')?.style.width).toBe('90px');
+    act(() => { toggle.click(); });
+    act(notify);
+    expect(host.querySelector('.tour-ring')).toBeNull();
+    expect(host.querySelector('.tour-scrim')).not.toBeNull();
+    const targetObserver = observers.find(observer => observer.targets.has(launch));
+    expect(targetObserver?.targets.has(strip)).toBe(true);
+    act(() => { (host.querySelector('.tour-next') as HTMLButtonElement).click(); });
+    expect(targetObserver?.disconnect).toHaveBeenCalledOnce();
+    // The next step's target lies outside the band (the strip still moves it when Details/Less toggles at scroll 0):
+    // its observer watches the strip too.
+    await settle();
+    expect(observers.at(-1)?.targets.has(strip)).toBe(true);
+  });
+
+  it.each([
+    ['tree', 0], ['canvas', 1], ['motors-tab', 2], ['launch', 3], ['results-panel', 4], ['guide', 5],
+  ] as const)('F150 r2 centers the card for an empty %s anchor and reanchors when shown', async (target, step) => {
+    const anchor = anchors.querySelector(`[data-tour="${target}"]`)!;
+    let rect = new DOMRect(0, 0, 0, 0);
+    anchor.getBoundingClientRect = () => rect;
+    mount(() => {}, () => {});
+    for (let i = 0; i < step; i++) act(() => (host.querySelector('.tour-next') as HTMLButtonElement).click());
+    await settle();
+    const card = host.querySelector<HTMLElement>('.tour-card')!;
+    for (const [width, height] of [[0, 0], [0, 24], [80, 0]]) {
+      rect = new DOMRect(0, 0, width, height);
+      act(() => { window.dispatchEvent(new Event('resize')); });
+      expect(host.querySelector('.tour-ring')).toBeNull();
+      expect(host.querySelector('.tour-scrim')).not.toBeNull();
+      expect(card.style.left).toBe(`${Math.max(8, (document.documentElement.clientWidth - 300) / 2)}px`);
+      expect(card.style.top).toBe(`${document.documentElement.clientHeight * 0.3}px`);
+    }
+    rect = new DOMRect(40, 60, 80, 24);
+    act(() => { window.dispatchEvent(new Event('resize')); });
+    expect(host.querySelector<HTMLElement>('.tour-ring')?.style.width).toBe('90px');
+    expect(host.querySelector('.tour-scrim')).toBeNull();
   });
 
   /**

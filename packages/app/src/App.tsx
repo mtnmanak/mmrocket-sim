@@ -1,5 +1,5 @@
 import { ignitionDefaultFor } from './services/ignitionDefault.js';
-import { WorkspaceBar } from './components/WorkspaceBar.js';
+import { CompactAeroMarker, WorkspaceBar } from './components/WorkspaceBar.js';
 import { noteField, noteText } from './services/noteField.js';
 import { motorLinkParams, type MotorLinkParams } from './services/motorLink.js';
 import { planMotorLink, motorLinkMayReplace, motorLinkLoadFailure, type LinkNote } from './services/motorLinkOpen.js';
@@ -4572,7 +4572,7 @@ export function App() {
           </span>
           {built ? (
             <>
-              <span className="vitals-item"
+              <span className="vitals-item vitals-item-stability"
                 title="Static stability margin. ✓ = 1–3 cal, △ = over-stable (weathercocks in wind), ⚠ = under-stable. Calibers or % of length: Preferences → Display.">
                 <span className="vitals-label">Stability</span>
                 {(() => {
@@ -4591,7 +4591,7 @@ export function App() {
                   );
                 })()}
               </span>
-              <span className="vitals-item" title="Mass, loaded (with motors, and any hardware the weighed pad mass carries)">
+              <span className="vitals-item vitals-item-mass" title="Mass, loaded (with motors, and any hardware the weighed pad mass carries)">
                 <span className="vitals-label">Mass</span>
                 <span className="vitals-value">
                   {fmtSi('mass', prefs.units.mass, built.info.mass)}&nbsp;<UnitChip quantity="mass" />
@@ -4618,7 +4618,7 @@ export function App() {
               </span>
             </>
           ) : buildError && (
-            <span className="vitals-item" title={buildError}>
+            <span className="vitals-item vitals-item-build" title={buildError}>
               <span className="vitals-label">Build</span>
               <span className="vitals-value stability-bad">⚠ error</span>
             </span>
@@ -4658,6 +4658,8 @@ export function App() {
             title="Which aerodynamics model computes stability, drag and flights. Changing it here applies for this session only — Preferences → Aerodynamics is the setting that persists.">
             <span className="vitals-label">Aero</span>
             <span className="vitals-value">
+              <CompactAeroMarker choice={aeroOverride ?? aeroChoiceOf(prefs)} preference={aeroChoiceOf(prefs)}
+                autoSupersonic={effectiveSupersonic && aeroMode === 'auto'} />
               <select className="vitals-aero-select"
                 aria-label="Aerodynamics model (this session)"
                 value={aeroOverride ?? aeroChoiceOf(prefs)}
@@ -4670,7 +4672,7 @@ export function App() {
               {effectiveSupersonic && aeroMode === 'auto' && (
                 // Auto has upgraded itself on this design — worth saying,
                 // because the select still reads "Auto".
-                <span className="vitals-aero" title="Auto aero: this design flew past Mach 0.9, so stability, drag analysis and flights use the supersonic model">
+                <span className="vitals-aero" role="img" aria-label="Auto aero is using the supersonic model" title="Auto aero: this design flew past Mach 0.9, so stability, drag analysis and flights use the supersonic model">
                   {' '}M+
                 </span>
               )}
@@ -4682,7 +4684,7 @@ export function App() {
             </span>
           </span>
           {lastApogee !== null && (
-            <span className="vitals-item"
+            <span className={`vitals-item vitals-item-apogee${apogeeStaleWhy ? ' vitals-item-stale' : ''}`}
               title={apogeeStaleWhy ?? 'Apogee of the most recent flight'}>
               <span className="vitals-label">Apogee</span>
               <span className="vitals-value">
@@ -4696,6 +4698,7 @@ export function App() {
                         the sr-only sentence below carries the same fact. */}
                     <span className="vitals-stale" aria-hidden="true"> ⚠ previous flight</span>
                     <span className="sr-only">{` — warning: ${apogeeStaleWhy}`}</span>
+                    <span className="sr-only vitals-compact-launch-help"> Launch is under Details in the compact summary, or on the phone Fly screen.</span>
                   </>
                 )}
               </span>
@@ -5689,7 +5692,8 @@ export function App() {
               <Icon name="rocket" size={30} />
               <p><strong>Nothing to show yet</strong></p>
               <p>
-                Press <strong>Launch</strong> (above) to fly this design and see altitude,
+                <span className="results-full-launch-help">Press <strong>Launch</strong> (above)</span>
+                <span className="results-compact-launch-help">Press <strong>Launch</strong> in <strong>Details</strong> above or on <strong>Fly</strong></span> to fly this design and see altitude,
                 velocity and acceleration plots.
                 {chartableRun && ' Its previous flights are saved below — the report and the plots for any of them can be brought back without flying a new one.'}
               </p>
