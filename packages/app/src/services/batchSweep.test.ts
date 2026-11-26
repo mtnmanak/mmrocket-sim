@@ -1,5 +1,5 @@
 import * as flightRunner from './flightRunner.js';
-import { gradeBatchRun } from './batchCriteria.js';
+import { batchFlightCount, batchSweepSeconds, BATCH_FLIGHT_S, gradeBatchRun } from './batchCriteria.js';
 import { notePluggedAtOptimum } from './batchSweep.js';
 import type { SimRun } from './simReport.js';
 
@@ -102,7 +102,8 @@ import { strFromU8, unzipSync } from 'fflate';
 import { buildFlightDataBundle } from './flightDataBundle.js';
 import type { WeatherSnapshot } from './weatherSnapshot.js';
 import {
-  batchMotorIds, batchMotorNames, batchRowKey, batchSolverFlights, batchSplitCombination, deploysOnEjectionCharge, listsNoDelay,
+  batchMirrorReason, batchMirrorMembers, batchSplitCombination, mixedComboCount,
+  batchMotorIds, batchMotorNames, batchRowKey, batchSolverFlights, deploysOnEjectionCharge, listsNoDelay,
   provisionalDelay, runBatchSweep, type BatchMountOption, type BatchRow, type BatchSweepDeps, type BatchSweepInput,
 } from './batchSweep.js';
 
@@ -2129,7 +2130,7 @@ describe('DP1 per-lit-group delay-probe counts', () => {
     expect(rows).toHaveLength(includeSingles ? 4 : 2);
     for (const row of rows) expect(row.error).toBeUndefined();
     const searched = rows.filter(r => r.run!.delayResolution!.mounts.some(m => m.mode === 'auto')).length;
-    const counted = batchSolverFlights({ candidates, groups: [batchSplitCombination(split, id => !neverIds.includes(id))],
+    const counted = batchSolverFlights({ candidates, groups: [batchSplitCombination(split, { canIgnite: id => !neverIds.includes(id) })],
       targetsCanIgnite: setup.targetMountIds.some(id => !neverIds.includes(id)),
       autoDelay, deploysOnCharge: deployEvent === 'ejection', othersAuto: false, includeSingles });
     expect(counted).toBe(searched);
@@ -2151,6 +2152,368 @@ describe('DP1 per-lit-group delay-probe counts', () => {
       }
     }
   }, 240_000);
+});
+
+describe('152 identical-tube mirror reduction', () => {
+  function setup(n = 4) {
+    const s = separateRing(n);
+    const fins = s.tree.components[0]!.children![1]!.children!.find(c => c.type === 'trapezoidfinset')!;
+    fins['finCount'] = n;
+    fins['crossSection'] = 'airfoil';
+    return s;
+  }
+  const settings = { assignedMountMotors: {}, launch: DEFAULT_CONDITIONS, model: 'kbf' as const };
+  it.each([
+    { deployEvent: 'apogee', delays: '' }, { deployEvent: 'ejection', delays: 'P' },
+  ])('i1 counts recorded searches and button estimate with mirrors requested: $deployEvent/$delays', async ({ deployEvent, delays }) => {
+    for (const neverIds of [[], ['ring0', 'ring2']]) {
+      const s = setup();
+      s.tree.components[0]!.children![1]!.children!.find(m => m.id === 'chute')!.deployEvent = deployEvent;
+      const split = batchRingSplits(s.tree, s.mounts).halves!;
+      const candidates = [entry('a', 'Acme', 'E20', delays), entry('b', 'Acme', 'E22', '5')];
+      const inp = input(s.tree, { ...s, candidates, autoDelay: false, skipMirrors: true, splits: [split],
+        assignedIgnitions: Object.fromEntries(neverIds.map(id => [id, { event: 'never' as const, delay: 0 }])),
+      });
+      const totals: number[] = [];
+      const { rows } = await runBatchSweep(inp, {
+        signal: new AbortController().signal, onProgress: progress => totals.push(progress.total),
+      }, {
+        yieldToUi: noYield,
+        fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22', 1.1) }), nozzleFor: nozzles({}),
+      });
+      const eligible = batchMirrorReason(s.tree, s.targetMountIds, inp.assignedIgnitions, inp) === null;
+      expect(eligible).toBe(neverIds.length === 0 && deployEvent === 'apogee');
+      expect(rows).toHaveLength(eligible ? 3 : 4);
+      for (const row of rows) expect(row.error).toBeUndefined();
+      const searched = rows.filter(r => r.run!.delayResolution!.mounts.some(m => m.mode === 'auto')).length;
+      const groups = [batchSplitCombination(split, { skipMirrors: eligible, canIgnite: id => !neverIds.includes(id) })];
+      const flights = batchFlightCount(candidates.length, groups);
+      const solverFlights = batchSolverFlights({ candidates, groups, autoDelay: false,
+        deploysOnCharge: deployEvent === 'ejection', othersAuto: false });
+      expect(flights).toBe(rows.length);
+      expect(new Set(totals)).toEqual(new Set([flights]));
+      expect(solverFlights).toBe(searched);
+      expect(batchSweepSeconds({ flights, solverFlights })).toBeCloseTo(
+        searched * BATCH_FLIGHT_S.optimalDelay + (rows.length - searched) * BATCH_FLIGHT_S.fixedDelay, 10);
+    }
+  }, 120_000);
+
+  it('i1 counts only searching representatives for each lit-group mask', () => {
+    const candidates = [entry('a', 'Acme', 'E20', ''), entry('b', 'Acme', 'E22', '5'), entry('c', 'Acme', 'E24', 'P')];
+    for (const size of [2, 3]) for (let mask = 0; mask < 2 ** size; mask++) {
+      const litGroups = Array.from({ length: size }, (_, i) => Boolean(mask & (1 << i)));
+      for (const autoDelay of [false, true]) for (const deploysOnCharge of [false, true]) {
+        const assignments: number[][] = [];
+        const visit = (prefix: number[]) => {
+          if (prefix.length === size) {
+            if (!prefix.every(i => i === prefix[0])) assignments.push(prefix);
+            return;
+          }
+          for (let i = prefix.at(-1) ?? 0; i < candidates.length; i++) visit([...prefix, i]);
+        };
+        visit([]);
+        const expected = assignments.filter(ids => {
+          const lit = ids.filter((_, i) => litGroups[i]);
+          return lit.length > 0 && (autoDelay || lit.includes(0) || deploysOnCharge && lit.every(i => i === 2));
+        }).length;
+        expect(batchSolverFlights({ candidates, groups: [{ groups: size, ordered: true, skipMirrors: true, litGroups }],
+          includeSingles: false, autoDelay, deploysOnCharge, othersAuto: false })).toBe(expected);
+      }
+    }
+  });
+
+  it.each([4, 6])('152 allows the %s-ring in every aero model, wind and rod setting', n => {
+    for (const model of ['kbf', 'eb', 'auto', 'supersonic', 'hybrid'] as const) {
+      for (const launch of [DEFAULT_CONDITIONS,
+        { ...DEFAULT_CONDITIONS, windAverage: 5 },
+        { ...DEFAULT_CONDITIONS, windStdDev: 1 },
+        { ...DEFAULT_CONDITIONS, windLevels: [{ altitude: 100, speed: 8, direction: 1 }] },
+        { ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, launchRodAimDeg: 17 },
+        { ...DEFAULT_CONDITIONS, windAverage: 5, windStdDev: 1, launchRodAngleDeg: 5, launchRodAimDeg: 73,
+          windLevels: [{ altitude: 100, speed: 8, direction: 1 }] },
+      ]) {
+        const s = setup(n);
+        expect(batchMirrorReason(s.tree, s.targetMountIds, {}, { ...settings, launch, model })).toBeNull();
+      }
+    }
+  });
+  it('152 merges both reflections and rotations of six-ring opposite pairs', () => {
+    expect(batchMirrorMembers([0, 1, 2])).toEqual([
+      [0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0],
+    ]);
+    expect(batchMirrorMembers([0, 0, 1])).toEqual([[0, 0, 1], [0, 1, 0], [1, 0, 0]]);
+    expect(batchMirrorMembers([1, 1, 1])).toEqual([[1, 1, 1]]);
+  });
+  it.each([4, 6])('152 Off preserves planned flights and exact kernel inputs for %s tubes', async n => {
+    const s = setup(n), ring = batchRingSplits(s.tree, s.mounts);
+    const candidates = [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')];
+    const inp = input(s.tree, { ...s, candidates, autoDelay: false, includeSingles: false,
+      splits: [ring.halves!, ...(ring.pairs ? [ring.pairs] : [])] });
+    const deps = { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22', 1.1) }), nozzleFor: nozzles({}) };
+    const handle = OrkRocket.buildTree(engineTree(rocket()));
+    handle.setMotorById('mount', curve('E20'));
+    const normal = handle.simulate(kernelSimOptions(DEFAULT_CONDITIONS));
+    const calls: unknown[] = [];
+    const realBuild = OrkRocket.buildTree, realSet = OrkRocket.prototype.setMotorById;
+    vi.spyOn(OrkRocket, 'buildTree').mockImplementation(tree => { calls.push(['tree', structuredClone(tree)]); return realBuild(tree); });
+    vi.spyOn(OrkRocket.prototype, 'setMotorById').mockImplementation(function (this: OrkRocket, id, spec) {
+      calls.push(['motor', id, structuredClone(spec)]); return realSet.call(this, id, spec);
+    });
+    vi.spyOn(OrkRocket.prototype, 'simulate').mockImplementation(options => {
+      calls.push(['simulate', structuredClone(options)]); return structuredClone(normal);
+    });
+    const full = await sweep(inp, deps), planned = structuredClone(calls);
+    calls.length = 0;
+    const off = await sweep({ ...inp, skipMirrors: false }, deps);
+    expect(calls).toEqual(planned);
+    const rows = (rs: BatchRow[]) => rs.map(r => ({ key: r.key, label: r.label, combo: r.combo, error: r.error,
+      mirrors: r.mirrors, loadout: r.run?.batchMounts, delay: r.run?.delayResolution, motor: r.run?.motor,
+      config: r.run?.motorConfig, comments: r.run?.comments, exitM: r.exitM }));
+    expect(rows(off.rows)).toEqual(rows(full.rows));
+    expect(full.rows).toHaveLength(n === 4 ? 2 : 8);
+    if (process.env['B152_BASE'] === '1') {
+      const { createHash } = await import('node:crypto');
+      console.log('B152_OFF_PLAN', n, createHash('sha256').update(JSON.stringify({ planned, rows: rows(full.rows) })).digest('hex'));
+    }
+  }, 30_000);
+  it.runIf(process.env['B152_MEASURE'] === '1')('152 measures ring symmetries and repeatability', async () => {
+    if (process.env['B152_REUSE'] === '1') {
+      const realBuild = OrkRocket.buildTree, handles = new Map<string, OrkRocket>();
+      vi.spyOn(OrkRocket, 'buildTree').mockImplementation(tree => {
+        const key = JSON.stringify(tree);
+        if (!handles.has(key)) handles.set(key, realBuild(tree));
+        return handles.get(key)!;
+      });
+    }
+    const candidates = MOTOR_DB.filter(m => m.diameter === 24 && m.length <= 200
+      && delayOptions(m).some(Number.isFinite)).slice(0, 3);
+    const deps = { fetchSpec: fetchFrom(Object.fromEntries(candidates.map((m, i) => [m.motorId,
+      { ...curve(m.designation, 1 + i / 10), diameter: m.diameter / 1000, length: m.length / 1000,
+        ...(process.env['B152_FOUR_MASS'] === '1' ? { masses: curve(m.designation).masses.map(mass => mass * (1 + i / 10)) } : {}),
+      }]))), nozzleFor: nozzles({}) };
+    const fields = ['maxAltitude', 'maxVelocity', 'timeToApogee'] as const;
+    for (const n of [4, 6]) for (const wind of [0, 5]) for (const tilt of [0, 5]) for (const offset of [0, 0.173]) {
+      if (process.env['B152_BASE'] === '1' && (wind || tilt || offset)) continue;
+      if (process.env['B152_FOUR_MASS'] === '1' && (n !== 4 || wind || tilt)) continue;
+      const s = setup(n);
+      for (const tube of motorMounts(s.tree)) tube['radialDirection'] = Number(tube['radialDirection']) + offset;
+      s.tree.components[0]!.children![1]!.children!.find(c => c.type === 'trapezoidfinset')!['rotation'] = offset;
+      const ring = batchRingSplits(s.tree, s.mounts);
+      const inp = input(s.tree, { ...s, candidates, autoDelay: false, includeSingles: false,
+        launch: { ...DEFAULT_CONDITIONS, windAverage: wind, windStdDev: 0, launchRodAngleDeg: tilt, launchRodAimDeg: 17 },
+        splits: [ring.halves!, ...(ring.pairs ? [ring.pairs] : [])] });
+      const full = await sweep(inp, deps), repeat = await sweep(inp, deps);
+      const maxima = { repeat: [0, 0, 0], reflection: [0, 0, 0], rotation: [0, 0, 0] };
+      const assignment = (r: BatchRow) => (JSON.parse(r.key.slice(r.key.indexOf(':') + 1)) as [string[], string][]).map(([, id]) => id);
+      const measure = (kind: keyof typeof maxima, a: BatchRow, b: BatchRow) => {
+        expect(a.error).toBeUndefined(); expect(b.error).toBeUndefined();
+        fields.forEach((field, i) => { maxima[kind][i] = Math.max(maxima[kind][i]!, Math.abs(a.run![field] - b.run![field])); });
+      };
+      for (let i = 0; i < full.rows.length; i++) {
+        const row = full.rows[i]!, a = assignment(row);
+        measure('repeat', row, repeat.rows[i]!);
+        for (let k = 0; k < a.length; k++) for (const kind of ['reflection', 'rotation'] as const) {
+          const transformed = a.map((_, j) => a[(k + (kind === 'rotation' ? j : a.length - j)) % a.length]);
+          const other = full.rows.find(r => r.run!.motorConfig === row.run!.motorConfig && JSON.stringify(assignment(r)) === JSON.stringify(transformed))!;
+          measure(kind, row, other);
+        }
+      }
+      console.log('B152_MEASURE', JSON.stringify({ n, wind, tilt, offset, ...maxima }));
+    }
+  }, 600_000);
+  it('proves a synthetic four-ring, ignoring only names and paint', () => {
+    const s = setup();
+    motorMounts(s.tree)[1]!.name = 'Other name';
+    motorMounts(s.tree)[1]!['color'] = '#abcdef';
+    expect(batchMirrorReason(s.tree, s.targetMountIds, {}, settings)).toBeNull();
+  });
+  it.each(([
+    ['component kind', (s: ReturnType<typeof setup>) => { motorMounts(s.tree)[1]!.type = 'bodytube'; }, 'same body tube'],
+    ['inner diameter', (s: ReturnType<typeof setup>) => { motorMounts(s.tree)[1]!['thickness'] = 0.0006; }, 'inner diameters'],
+    ['unknown bore', (s: ReturnType<typeof setup>) => { delete motorMounts(s.tree)[0]!['thickness']; }, 'inner diameters'],
+    ['length', (s: ReturnType<typeof setup>) => { motorMounts(s.tree)[1]!['length'] = 0.21; }, 'lengths'],
+    ['axial position', (s: ReturnType<typeof setup>) => { motorMounts(s.tree)[1]!.position = { method: 'bottom', offset: 0.01 }; }, 'axial positions'],
+    ['radius', (s: ReturnType<typeof setup>) => { motorMounts(s.tree)[1]!['radialPosition'] = 0.0231; }, 'distances'],
+    ['overhang', (s: ReturnType<typeof setup>) => { motorMounts(s.tree)[1]!['motorOverhang'] = 0.001; }, 'overhang'],
+    ['retention', (s: ReturnType<typeof setup>) => { motorMounts(s.tree)[1]!['retention'] = 'different'; }, 'retention'],
+    ['tube mass', (s: ReturnType<typeof setup>) => { motorMounts(s.tree)[1]!['overrideMass'] = 0.1; }, 'material, mass'],
+    ['attached child', (s: ReturnType<typeof setup>) => { motorMounts(s.tree)[1]!.children = [{ type: 'masscomponent', id: 'child' }]; }, 'Attached parts'],
+    ['angle', (s: ReturnType<typeof setup>) => { motorMounts(s.tree)[1]!['radialDirection'] = Math.PI / 2 + 1e-5; }, 'equally spaced'],
+    ['unknown angle', (s: ReturnType<typeof setup>) => { delete motorMounts(s.tree)[1]!['radialDirection']; }, 'known, equally spaced'],
+    ['fin count', (s: ReturnType<typeof setup>) => { s.tree.components[0]!.children![1]!.children![0]!['finCount'] = 3; }, 'fins'],
+    ['fin cant', (s: ReturnType<typeof setup>) => { s.tree.components[0]!.children![1]!.children![0]!['cant'] = 0.01; }, 'fins'],
+    ['fin rotation', (s: ReturnType<typeof setup>) => { s.tree.components[0]!.children![1]!.children![0]!['rotation'] = 0.1; }, 'fins'],
+    ['off-axis mass', (s: ReturnType<typeof setup>) => { s.tree.components[0]!.children![1]!.children!.push({ type: 'masscomponent', id: 'offset', radialPosition: 0.01 }); }, 'off the centreline'],
+    ['attachment', (s: ReturnType<typeof setup>) => { s.tree.components[0]!.children![1]!.children!.push({ type: 'railbutton', id: 'button' }); }, 'attachment'],
+    ['charge recovery', (s: ReturnType<typeof setup>) => { s.tree.components[0]!.children![1]!.children!.find(c => c.type === 'parachute')!['deployEvent'] = 'ejection'; }, 'recovery independent'],
+    ['typed nozzle', (s: ReturnType<typeof setup>) => { s.tree.components[0]!['nozzleExitDiameter'] = 0; }, 'typed stage nozzle'],
+    ['missing component identity', (s: ReturnType<typeof setup>) => { delete s.tree.components[0]!.children![0]!.id; }, 'unique identity'],
+    ['another cluster', (s: ReturnType<typeof setup>) => { s.tree.components[0]!.children![1]!.children!.push({ type: 'innertube', id: 'extra', cluster: '3-ring' }); }, 'Another cluster'],
+  ] as const).flatMap(([name, change, reason]) => [4, 6].map(n => ({ name, change, reason, n }))))(
+    'disables when only $name differs on a $n-ring', ({ change, reason, n }) => {
+    const s = setup(n);
+    change(s);
+    expect(batchMirrorReason(s.tree, s.targetMountIds, {}, settings)).toContain(reason);
+  });
+  it('152 reports the first failed design condition even with wind, tilt and another aero model', () => {
+    const s = setup(6);
+    motorMounts(s.tree)[1]!['length'] = 0.21;
+    motorMounts(s.tree)[2]!['radialPosition'] = 0.03;
+    expect(batchMirrorReason(s.tree, s.targetMountIds, {}, { ...settings, model: 'hybrid',
+      launch: { ...DEFAULT_CONDITIONS, windAverage: 5, launchRodAngleDeg: 5 },
+    })).toContain('lengths');
+  });
+  it.each([4, 6])('checks %s-tube configuration ignition, ignition delays and weighed hardware', n => {
+    const s = setup(n);
+    expect(batchMirrorReason(s.tree, s.targetMountIds, { ring1: { event: 'never', delay: 0 } }, settings)).toContain('identical ignition');
+    expect(batchMirrorReason(s.tree, s.targetMountIds, { ring1: { event: 'automatic', delay: 1 } }, settings)).toContain('ignition-delay');
+    const delayed = Object.fromEntries(s.targetMountIds.map(id => [id, { event: 'launch' as const, delay: 1 }]));
+    expect(batchMirrorReason(s.tree, s.targetMountIds, delayed, settings)).toContain('together at launch');
+    // Loaded fixed/Auto/plugged delays are replaced by the sweep's candidate policy.
+    expect(batchMirrorReason(s.tree, s.targetMountIds, {}, { ...settings, assignedAutoDelays: { ring1: true } })).toBeNull();
+    expect(batchMirrorReason(s.tree, s.targetMountIds, {}, { assignedMountMotors: { ring1: {
+      spec: curve('Delay'), label: 'Delay', meta: { label: 'Delay' }, ignition: { event: 'automatic', delay: 0 },
+    } }, launch: DEFAULT_CONDITIONS, model: 'kbf' })).toBeNull();
+    expect(batchMirrorReason(s.tree, s.targetMountIds, {}, { assignedMountMotors: { ring1: {
+      spec: { ...curve('Plugged'), ejectionDelay: Infinity }, label: 'Plugged', meta: { label: 'Plugged' }, ignition: { event: 'automatic', delay: 0 },
+    } }, launch: DEFAULT_CONDITIONS, model: 'kbf' })).toBeNull();
+    expect(batchMirrorReason(s.tree, s.targetMountIds, {}, { ...settings,
+      weighed: { mountId: 'ring1', identity: 'Acme/E20', name: 'E20', pinned: false, perMotorShiftKg: 0.01, deltaKg: 0.01 },
+    })).toContain('weighed');
+  });
+  it.each([4, 6].flatMap(n => [false, true].map(autoDelay => ({ n, autoDelay }))))(
+    '152 replaces loaded ring delays with candidate policy: %j', async ({ n, autoDelay }) => {
+    const s = setup(n), ring = batchRingSplits(s.tree, s.mounts);
+    const candidates = MOTOR_DB.filter(m => m.diameter === 24 && m.length <= 200
+      && delayOptions(m).some(Number.isFinite)).slice(0, 2);
+    expect(candidates).toHaveLength(2);
+    const assignedMountMotors = Object.fromEntries(s.targetMountIds.map((id, i) => [id, {
+      spec: { ...curve(i % 2 ? 'Loaded B' : 'Loaded A'), ejectionDelay: i % 2 ? 7 : 5 },
+      label: 'Loaded', meta: { label: 'Loaded', autoDelay: i % 2 === 0 },
+      ignition: { event: 'automatic' as const, delay: 0 },
+    }]));
+    const fly = vi.spyOn(flightRunner, 'flyLaunch');
+    const result = await sweep(input(s.tree, { ...s, candidates, autoDelay, includeSingles: false,
+      splits: [ring.halves!], skipMirrors: true, assignedMountMotors,
+      assignedMotors: Object.fromEntries(s.targetMountIds.map(id => [id, assignedMountMotors[id]!.spec])),
+      assignedAutoDelays: Object.fromEntries(s.targetMountIds.map((id, i) => [id, i % 2 === 0])),
+    }), { fetchSpec: fetchFrom(Object.fromEntries(candidates.map(m => [m.motorId,
+      { ...curve(m.designation), diameter: m.diameter / 1000, length: m.length / 1000 }]))), nozzleFor: nozzles({}) });
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]!.run).toBeDefined();
+    expect(result.rows[0]!.mirrors).toHaveLength(1);
+    expect(fly).toHaveBeenCalledTimes(1);
+    const assigned = fly.mock.calls[0]![1].assigned;
+    expect(assigned).toHaveLength(n);
+    for (const [, mm] of assigned) {
+      const candidate = candidates.find(m => m.motorId === mm.meta.motorId)!;
+      expect(candidate).toBeDefined();
+      expect(mm.spec.ejectionDelay).toBe(provisionalDelay(candidate, autoDelay));
+      expect(mm.meta.autoDelay).toBe(autoDelay);
+    }
+  }, 60_000);
+  it('152 r6 persists stored motor names in both sides of every mirror mapping', async () => {
+    const s = setup(), ring = batchRingSplits(s.tree, s.mounts);
+    const candidates = MOTOR_DB.filter(m => m.diameter === 24 && m.length <= 200
+      && delayOptions(m).some(Number.isFinite)).slice(0, 2).map((m, i) => ({
+      ...m, motorId: `ex:mirror-${i}`, manufacturerAbbrev: 'EX', realManufacturer: `Mirror maker ${i}`,
+    }));
+    expect(candidates).toHaveLength(2);
+    const result = await sweep(input(s.tree, { ...s, candidates, autoDelay: false, includeSingles: false,
+      splits: [ring.halves!], skipMirrors: true }), {
+      fetchSpec: fetchFrom(Object.fromEntries(candidates.map(m => [m.motorId,
+        { ...curve(m.designation), diameter: m.diameter / 1000, length: m.length / 1000 }]))), nozzleFor: nozzles({}),
+    });
+    expect(result.rows).toHaveLength(1);
+    const row = result.rows[0]!;
+    expect(row.error).toBeUndefined();
+    const run = row.run!;
+    const comment = commentsOf(run).find(c => c.text.startsWith('Skipped symmetric'))!.text;
+    const storedNames = batchMotorNames(candidates, false), displayNames = batchMotorNames(candidates);
+    const arrangement = (assignment: readonly number[]) => ring.halves!.mountGroups!.map((ids, k) =>
+      `${ids.map(id => s.mounts.find(m => m.id === id)!.label).join(', ')}: ${storedNames.get(candidates[assignment[k]!]!.motorId)!}`).join('; ');
+    expect(comment).toContain(`${arrangement([1, 0])} — same flight as ${arrangement([0, 1])}`);
+    const table = runsToTable([run]);
+    const exportedComment = table.rows[0]![table.headers.indexOf('Comments')];
+    expect(exportedComment).toContain(comment);
+    expect(runsToCsv([run])).toContain(comment);
+    for (const candidate of candidates) {
+      expect(run.motor).toContain(storedNames.get(candidate.motorId));
+      expect(comment).not.toContain(displayNames.get(candidate.motorId));
+      expect(row.mirrors![0]).toContain(displayNames.get(candidate.motorId));
+    }
+  }, 60_000);
+  it.each([4, 6])('counts the %s-ring classes and all their members', n => {
+    const s = setup(n), ring = batchRingSplits(s.tree, s.mounts);
+    expect(mixedComboCount(3, batchSplitCombination(ring.halves!, { skipMirrors: true }))).toBe(3);
+    expect(mixedComboCount(2, batchSplitCombination(ring.halves!, { skipMirrors: true }))).toBe(1);
+    if (ring.pairs) {
+      expect(mixedComboCount(2, batchSplitCombination(ring.pairs, { skipMirrors: true }))).toBe(2); // six 4+2 arrangements -> two classes
+      expect(mixedComboCount(3, batchSplitCombination(ring.pairs, { skipMirrors: true }))).toBe(7); // eighteen 4+2 -> six; six 2+2+2 -> one
+    }
+    expect(batchMirrorMembers([0, 1])).toEqual([[0, 1], [1, 0]]);
+  });
+  it.each([
+    { n: 4, wind: 0, tilt: 0, model: 'kbf' }, { n: 6, wind: 0, tilt: 0, model: 'kbf' },
+    { n: 4, wind: 5, tilt: 5, model: 'eb' }, { n: 6, wind: 5, tilt: 5, model: 'auto' },
+  ] as const)(
+    'flies only representatives and records every skipped loadout: %j', async ({ n, wind, tilt, model }) => {
+    const s = setup(n), ring = batchRingSplits(s.tree, s.mounts);
+    const candidates = MOTOR_DB.filter(m => m.diameter === 24 && m.length <= 200
+      && delayOptions(m).some(Number.isFinite)).slice(0, 3);
+    expect(candidates).toHaveLength(3);
+    const names = batchMotorNames(candidates);
+    const inp = input(s.tree, { ...s, candidates, autoDelay: false, includeSingles: false, model,
+      launch: { ...DEFAULT_CONDITIONS, windAverage: wind, windStdDev: wind ? 1 : 0,
+        launchRodAngleDeg: tilt, launchRodAimDeg: 17,
+        ...(wind ? { windLevels: [{ altitude: 100, speed: 8, direction: 1 }] } : {}),
+      }, splits: [ring.halves!, ...(ring.pairs ? [ring.pairs] : [])] });
+    // Real catalogue identities selected at runtime; synthetic curves isolate
+    // permutation behavior from network access and catalogue curve revisions.
+    const deps = { fetchSpec: fetchFrom(Object.fromEntries(candidates.map((m, i) => [m.motorId,
+      { ...curve(m.designation, 1 + i / 10), diameter: m.diameter / 1000, length: m.length / 1000 }]))), nozzleFor: nozzles({}) };
+    const full = await sweep(inp, deps);
+    const reduced = await sweep({ ...inp, skipMirrors: true }, deps);
+    expect(full.rows).toHaveLength(n === 4 ? 6 : 30);
+    expect(reduced.rows).toHaveLength(n === 4 ? 3 : 10);
+    expect(reduced.rows.every(r => r.run && !r.error)).toBe(true);
+    expect(reduced.rows.filter(r => r.run!.motorConfig === 'mixed 4+2')).toHaveLength(n === 4 ? 0 : 6);
+    expect(reduced.rows.filter(r => r.run!.motorConfig === 'mixed 2+2+2')).toHaveLength(n === 4 ? 0 : 1);
+    expect(reduced.rows.reduce((sum, r) => sum + 1 + (r.mirrors?.length ?? 0), 0)).toBe(full.rows.length);
+    const groupIds = (row: BatchRow) => JSON.parse(row.key.slice(row.key.indexOf(':') + 1)) as [string[], string][];
+    const classKey = (row: BatchRow) => `${row.run!.motorConfig}:${groupIds(row).map(([, motor]) => motor).sort().join(',')}`;
+    const classes = new Set(reduced.rows.map(classKey));
+    expect(classes.size).toBe(reduced.rows.length);
+    expect(new Set(full.rows.map(classKey))).toEqual(classes);
+    for (const row of reduced.rows) {
+      const representative = full.rows.find(r => r.key === row.key)!;
+      expect(representative).toBeDefined();
+      const comment = commentsOf(row.run!).find(c => c.text.startsWith('Skipped symmetric'))!;
+      expect(comment.level).toBe('info');
+      expect(comment.text).toContain('Delay and optimum delay are not shown');
+      expect(comment.text).toContain('computed numbers can differ slightly from rounding (by millimetres in the app’s tests)');
+      expect(comment.text).not.toContain('few millimetres');
+      expect(commentLevelsAlign(row.run!)).toBe(true);
+      for (const mirror of row.mirrors!) {
+        expect(comment.text).toContain(`${mirror} — same flight as`);
+        expect(runsToCsv([row.run!])).toContain(mirror);
+      }
+      expect(row.run!.batchMounts).toEqual(representative.run!.batchMounts);
+      const members = full.rows.filter(r => classKey(r) === classKey(row));
+      expect(members).toHaveLength(1 + row.mirrors!.length);
+      for (const member of members) {
+        if (member.key === row.key) continue;
+        const arrangement = groupIds(member).map(([ids, motorId]) =>
+          `${ids.map(id => member.run!.batchMounts!.find(m => m.mountId === id)!.mountName).join(', ')}: ${names.get(motorId)!}`).join('; ');
+        expect(row.mirrors).toContain(arrangement);
+      }
+    }
+    // Off is checked above against exact kernel inputs and fixed telemetry.
+    // The opt-in characterization measures real repeat flights separately;
+    // UUID-dependent motor iteration makes their floats unsuitable as a golden.
+    const invalid = { ...inp, assignedIgnitions: { ring1: { event: 'never' as const, delay: 0 } }, skipMirrors: true };
+    expect((await sweep(invalid, deps)).rows).toHaveLength(full.rows.length);
+  }, 120_000);
 });
 
 it('r2 replaces refused secondary targets in matching and mixed ring flights', async () => {

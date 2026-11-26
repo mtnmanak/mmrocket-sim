@@ -625,6 +625,92 @@ it('r4-5 distinguishes six-ring arrangements with identical motor totals in Open
   expect(bodyRows().map(tr => tr.querySelector('td')!.textContent!)).toEqual(cells);
 });
 
+it.each([2, 3, 4, 6])('152 r6 shows mirror skipping only for selectable separate ring splits: %s tubes', n => {
+  const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [{ type: 'bodytube', id: 'b', children:
+    Array.from({ length: n }, (_, i) => ({ type: 'innertube', id: i ? `m${i}` : 'mount', motorMount: true,
+      length: 0.2, outerRadius: 0.0125, thickness: 0.0005, radialPosition: 0.025, radialDirection: i * 2 * Math.PI / n })) }] }] };
+  const mounts = Array.from({ length: n }, (_, i) => ({ ...MOUNTS[0]!, id: i ? `m${i}` : 'mount' }));
+  mount({ tree, mounts });
+  expect(host.textContent?.includes('Skip mirror arrangements')).toBe(n === 4 || n === 6);
+  expect(host.querySelector('#batch-mirror-condition') !== null).toBe(n === 4 || n === 6);
+  if (n === 4 || n === 6) {
+    act(() => [...host.querySelectorAll('label')].find(l => l.textContent?.includes(`Use all ${n} matching mounts`))!.querySelector('input')!.click());
+    expect(checkbox('Skip mirror arrangements').disabled).toBe(true);
+    expect(host.querySelector('#batch-mirror-condition')).not.toBeNull();
+  }
+});
+
+it.each([4, 6])('152 hides mirror skipping for one %s-ring cluster mount', n => {
+  const tree = structuredClone(CLUSTER_TREE);
+  tree.components[0]!.children![0]!.children![0]!['cluster'] = `${n}-ring`;
+  mount({ tree, mounts: [{ ...CLUSTER_MOUNTS[0]!, motorCount: n }] });
+  expect(checkbox(n === 4 ? 'mixed 2+2' : 'mixed 3+3')).toBeDefined();
+  expect(host.textContent).not.toContain('Skip mirror arrangements');
+  expect(host.querySelector('#batch-mirror-condition')).toBeNull();
+});
+
+it.each([4, 6])('152 keeps mirror skipping off and offers wide %s-ring reduction with rounding disclosure', async n => {
+  const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [{ type: 'bodytube', id: 'b', children:
+    Array.from({ length: n }, (_, i) => ({ type: 'innertube', id: i ? `m${i}` : 'mount', name: `MMT ${i + 1}`, motorMount: true,
+      length: 0.2, outerRadius: 0.0125, thickness: 0.0005, radialPosition: 0.025, radialDirection: i * 2 * Math.PI / n })) }] }] };
+  const mounts = Array.from({ length: n }, (_, i) => ({ ...MOUNTS[0]!, id: i ? `m${i}` : 'mount' }));
+  const motors = MOTOR_DB.filter(m => fitsMount(24, m) && isAvailable(m)).slice(0, 3);
+  localStorage.setItem('online-openrocket.batch-my-motors.v1', JSON.stringify(motors.map(m => m.motorId)));
+  const r = { ...row('representative', 'Representative', 300), combo: true, mirrors: ['MMT 1: B; MMT 2: A'] };
+  r.run = { ...r.run!, batch: true, batchMounts: [
+    { mountId: 'mount', mountName: 'MMT 1', motor: 'A', role: 'candidate', count: 1 },
+    { mountId: 'm1', mountName: 'MMT 2', motor: 'B', role: 'candidate', count: 1 },
+  ] };
+  sweep.mockResolvedValue({ rows: [r], stopped: false });
+  mount({ tree, mounts });
+  act(() => checkbox('Fly only my motors').click());
+  const halvesName = n === 4 ? 'mixed 2+2' : 'mixed 3+3';
+  act(() => checkbox(halvesName).click());
+  if (n === 6) act(() => checkbox('mixed 4+2 / 2+2+2').click());
+  const mirrors = checkbox('Skip mirror arrangements');
+  expect(mirrors.checked).toBe(false);
+  expect(mirrors.disabled).toBe(false); // Auto is the dialog default.
+  expect(checkbox(halvesName).closest('label')!.title).toContain('adds 6 mixed flights');
+  expect(checkbox(halvesName).closest('label')!.title).toContain('Fly every arrangement across the separate tubes.');
+  await start();
+  expect(sweep.mock.calls[0]![0].skipMirrors).toBeUndefined();
+  expect(primary().textContent).toContain(`Simulate ${n === 4 ? 9 : 33} flights`);
+  act(() => mirrors.click());
+  expect(mirrors.checked).toBe(true);
+  expect(checkbox(halvesName).closest('label')!.title).toContain('adds 3 mixed flights');
+  expect(host.querySelector('#batch-mirror-condition')!.textContent).toContain(`${halvesName} adds 3 mixed flights`);
+  expect(host.querySelector('#batch-mirror-condition')!.textContent).toContain('no per-motor');
+  expect(host.querySelector('#batch-mirror-condition')!.textContent).toContain('Mirrored layouts of identical tubes fly the same physics');
+  expect(host.querySelector('#batch-mirror-condition')!.textContent).toContain('computed numbers can differ slightly from rounding (by millimetres in the app’s tests)');
+  expect(host.querySelector('#batch-mirror-condition')!.textContent).not.toContain('few millimetres');
+  if (n === 6) {
+    expect(checkbox('mixed 4+2 / 2+2+2').closest('label')!.title).toContain('adds 7 mixed flights');
+    expect(host.querySelector('#batch-mirror-condition')!.textContent).toContain('mixed 4+2 / 2+2+2 adds 7 mixed flights');
+  }
+  expect(primary().textContent).toContain(`Simulate ${n === 4 ? 6 : 13} flights`);
+  await start();
+  expect(sweep.mock.calls[1]![0].skipMirrors).toBe(true);
+  expect(bodyRows()[0]!.textContent).toContain('MMT 1: B; MMT 2: A — same flight as A in MMT 1; B in MMT 2');
+  expect(bodyRows()[0]!.textContent).toContain('Delay and optimum delay not shown');
+  for (const launch of [{ ...DEFAULT_CONDITIONS, windAverage: 5 }, { ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5 }]) {
+    mount({ tree, mounts, launch });
+    expect(checkbox('Skip mirror arrangements').disabled).toBe(false);
+    expect(checkbox('Skip mirror arrangements').checked).toBe(true);
+    expect(primary().textContent).toContain(`Simulate ${n === 4 ? 6 : 13} flights`);
+  }
+  mount({ tree, mounts, assignedIgnitions: { m1: { event: 'never', delay: 0 } } });
+  expect(checkbox('Skip mirror arrangements').disabled).toBe(true);
+  expect(checkbox('Skip mirror arrangements').checked).toBe(false);
+  expect(host.querySelector('#batch-mirror-condition')!.textContent).toContain('identical ignition');
+  await start();
+  expect(sweep.mock.calls[2]![0].skipMirrors).toBeUndefined();
+  // Keep the choice discoverable when only one tube is currently targeted:
+  // selecting all matching mounts makes the separate ring available again.
+  act(() => [...host.querySelectorAll('label')].find(l => l.textContent?.includes(`Use all ${n} matching mounts`))!.querySelector('input')!.click());
+  expect(checkbox('Skip mirror arrangements').disabled).toBe(true);
+  expect(host.querySelector('#batch-mirror-condition')!.textContent).toContain('Select four or six separate ring tubes');
+});
+
 it('124/125 offers all matching empty tubes by default, restores defaults on picker change and passes ring groups', async () => {
   localStorage.setItem('online-openrocket.batch-criteria.v1', JSON.stringify({ manufacturers: ['Klima'] }));
   const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [{ type: 'bodytube', id: 'b', children:

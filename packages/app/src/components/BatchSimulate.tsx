@@ -32,7 +32,7 @@ import {
 import { XLSX_MIME } from '../services/xlsx.js';
 import { TimeStepCaution, type LaunchConditions } from './LaunchPanel.js';
 import {
-  batchMotorNames, batchSolverFlights, batchSplitCombination, deploysOnEjectionCharge, isWeighedCandidate, mixedComboCount, runBatchSweep,
+  batchMirrorReason, batchMotorNames, batchSolverFlights, batchSplitCombination, deploysOnEjectionCharge, isWeighedCandidate, mixedComboCount, runBatchSweep,
   type BatchModel, type BatchMountOption, type BatchRow, type BatchSplit, type BatchWeighed,
 } from '../services/batchSweep.js';
 import { useCatalogue } from './useCatalogue.js';
@@ -235,15 +235,17 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   //    pair of candidates;
   //  - pair mode (6-ring only): split into THREE opposite-tube pairs, every
   //    candidate multiset — covers 4+2 and 2+2+2 (the owner flies these).
-  // Separate ring tubes use these same groups but fly every ordered arrangement.
+  // Separate ring tubes default to every ordered arrangement; mirror skipping is opt-in.
   const [comboMode, setComboMode] = useState(false);
   const [pairMode, setPairMode] = useState(false);
   const [includeSingles, setIncludeSingles] = useState(true);
+  const [skipMirrors, setSkipMirrors] = useState(false);
   if (targetChoice && (targetChoice.tree !== tree || targetChoice.id !== sel.id || targetChoice.settings !== motorSettings)) {
     setTargetChoice(null);
     setComboMode(false);
     setPairMode(false);
     setIncludeSingles(true);
+    setSkipMirrors(false);
   }
   const [myMotors, setMyMotors] = useState(loadBatchMyMotors);
   const [onlyMyMotors, setOnlyMyMotors] = useState(false);
@@ -271,10 +273,14 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   // T:W, optimum delay) while leaving the ranking roughly intact. Same
   // treatment, and the same reason, as the stripped nozzle above.
   const includedMotor = useMemo(() => includedMotorOf(tree, sel.id), [tree, sel.id]);
+  const selectableRingSplits = useMemo(() => batchRingSplits(tree, ringSubset ?? matchingMounts), [tree, ringSubset, matchingMounts]);
   const ringSplits = useMemo(() => allMatching ? batchRingSplits(tree, targets) : null, [tree, allMatching, targets]);
   const clusterSplit = useMemo<BatchSplit | null>(() => allMatching ? ringSplits?.halves ?? null : splitClusterTree(tree, sel.id), [tree, sel.id, allMatching, ringSplits]);
   const pairSplit = useMemo<BatchSplit | null>(() => allMatching ? ringSplits?.pairs ?? null : splitClusterPairsTree(tree, sel.id), [tree, sel.id, allMatching, ringSplits]);
   const effectiveIncludeSingles = includeSingles || (!clusterSplit && !pairSplit);
+  const mirrorReason = batchMirrorReason(tree, targets.map(m => m.id), assignedIgnitions,
+    { assignedMountMotors, assignedAutoDelays, weighed, launch, model: batchModel });
+  const effectiveSkipMirrors = skipMirrors && mirrorReason === null;
   const disclosure = useMemo(() => batchMountDisclosure(tree, mounts, sel, assignedMotors, assignedMountMotors, assignedMotorIds, assignedIgnitions, targetIds),
     [tree, mounts, sel, assignedMotors, assignedMountMotors, assignedMotorIds, assignedIgnitions, targetIds]);
   /** The halves box's words — on the box, and in the refusal that tells you to untick it. */
@@ -398,6 +404,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
         units: prefs.units,
         advisoryLimits: prefs.flightAdvisories,
         tree, info, mounts, target: sel, candidates, splits, includeSingles: effectiveIncludeSingles,
+        ...(effectiveSkipMirrors ? { skipMirrors: true } : {}),
         ...(allMatching ? { targetMountIds: targetIds } : {}),
         configuration: configurationForMount?.(allMatching ? undefined : sel.id, allMatching ? targetIds : undefined),
         assignedMountMotors, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, refusedMountIds, weighed, retainedHardware,
@@ -535,12 +542,16 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   // The time-step caution multiplies by this: a fine step's cost is per
   // flight, and the launch panel's per-flight caution says nothing about a
   // candidate list turning 15 s of freeze into 20 minutes of it.
-  const halvesCombination = clusterSplit ? batchSplitCombination(clusterSplit,
-    id => canIgnite(id, clusterSplit.tree, clusterSplit.mountGroups ? id : sel.id)) : null;
-  const pairsCombination = pairSplit ? batchSplitCombination(pairSplit,
-    id => canIgnite(id, pairSplit.tree, pairSplit.mountGroups ? id : sel.id)) : null;
+  const halvesCombination = clusterSplit ? batchSplitCombination(clusterSplit, {
+    canIgnite: id => canIgnite(id, clusterSplit.tree, clusterSplit.mountGroups ? id : sel.id),
+    skipMirrors: effectiveSkipMirrors,
+  }) : null;
+  const pairsCombination = pairSplit ? batchSplitCombination(pairSplit, {
+    canIgnite: id => canIgnite(id, pairSplit.tree, pairSplit.mountGroups ? id : sel.id),
+    skipMirrors: effectiveSkipMirrors,
+  }) : null;
   const mixedTitle = (combination: NonNullable<typeof halvesCombination>, groups: string) =>
-    `Fly ${groups}. ${combination.ordered ? 'Fly every arrangement across the separate tubes.' : 'Fly each mix once because the groups share one cluster mount.'} With ${candidates.length} candidates, adds ${mixedComboCount(candidates.length, combination)} mixed flights. All-same loadouts use the separate single-pass box. Each group balances around its own centre; an off-centre cluster or ring can still push the rocket unevenly, so check the thrust balance warnings.`;
+    `Fly ${groups}. ${combination.skipMirrors ? 'Fly one representative per symmetric class across the identical tubes.' : combination.ordered ? 'Fly every arrangement across the separate tubes.' : 'Fly each mix once because the groups share one cluster mount.'} With ${candidates.length} candidates, adds ${mixedComboCount(candidates.length, combination)} mixed flights. All-same loadouts use the separate single-pass box. Each group balances around its own centre; an off-centre cluster or ring can still push the rocket unevenly, so check the thrust balance warnings.`;
   const ticked = [
     ...(comboMode && halvesCombination ? [{ name: halvesName, ...halvesCombination }] : []),
     ...(pairMode && pairsCombination ? [{ name: PAIRS_NAME, ...pairsCombination }] : []),
@@ -570,11 +581,11 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   // invalidate confirmation during render, before any layout or passive effect.
   // A memo eviction can only disarm; returning to old settings cannot re-arm.
   const sweepIdentity = useMemo(() => ({
-    totalFlights, candidates, criteria, mountId, allMatching, comboMode, pairMode, clusterSplit, pairSplit, includeSingles: effectiveIncludeSingles, onlyMyMotors,
+    totalFlights, candidates, criteria, mountId, allMatching, comboMode, pairMode, clusterSplit, pairSplit, includeSingles: effectiveIncludeSingles, skipMirrors: effectiveSkipMirrors, onlyMyMotors,
     tree, info, mounts, sel, assignedMountMotors, assignedMotors, assignedMotorIds,
     assignedIgnitions, assignedAutoDelays, weighed, retainedHardware, batchModel, launch, rocketName,
   }), [
-    totalFlights, candidates, criteria, mountId, allMatching, comboMode, pairMode, clusterSplit, pairSplit, effectiveIncludeSingles, onlyMyMotors,
+    totalFlights, candidates, criteria, mountId, allMatching, comboMode, pairMode, clusterSplit, pairSplit, effectiveIncludeSingles, effectiveSkipMirrors, onlyMyMotors,
     tree, info, mounts, sel, assignedMountMotors, assignedMotors, assignedMotorIds,
     assignedIgnitions, assignedAutoDelays, weighed, retainedHardware, batchModel, launch, rocketName,
   ]);
@@ -759,6 +770,25 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
                 {PAIRS_NAME}
               </label>
             )}
+            {(selectableRingSplits.halves || selectableRingSplits.pairs) && <div>
+              <label className="motor-inline-label">
+                <input type="checkbox" checked={effectiveSkipMirrors} disabled={running || mirrorReason !== null}
+                  aria-describedby="batch-mirror-condition" style={{ width: 'auto' }}
+                  onChange={e => setSkipMirrors(e.target.checked)} />
+                Skip mirror arrangements
+              </label>
+              <p id="batch-mirror-condition" className="motor-db-meta">
+                {mirrorReason !== null ? `Unavailable: ${mirrorReason} ` : ''}
+                Only four or six identical, equally spaced tubes with simultaneous launch ignition,
+                symmetric uncanted fins, no asymmetric attachments and recovery independent of motor charges qualify.
+                Mirrored layouts of identical tubes fly the same physics. The app flies one and lists the others as “same flight as”;
+                their computed numbers can differ slightly from rounding (by millimetres in the app’s tests). Reflections and rotations are combined.
+                The model has no per-motor thrust-offset torque. Skipped loadouts name their flown representative;
+                their delay and optimum delay are not shown. Exports and saved-run comments keep that list.
+                {effectiveSkipMirrors && comboMode && halvesCombination && ` ${halvesName} adds ${mixedComboCount(candidates.length, halvesCombination)} mixed flights.`}
+                {effectiveSkipMirrors && pairMode && pairsCombination && ` ${PAIRS_NAME} adds ${mixedComboCount(candidates.length, pairsCombination)} mixed flights.`}
+              </p>
+            </div>}
             {(clusterSplit || pairSplit) && <label className="motor-inline-label"
               title="Fly each candidate as the same motor in every target position. Off excludes all-same loadouts: the same motor in every tube is not flown. Select a mixed configuration to fly with this off.">
               <input type="checkbox" checked={includeSingles} disabled={running} style={{ width: 'auto' }}
@@ -1015,7 +1045,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
                 {/* Keyed on the row's own identity (batchRowKey: configuration
                     plus the motor ids flown), never on its label or its sorted
                     position — see batchRowKey for what each of those broke. */}
-                {table.shown.map(({ key, entry, label, combo, run, error, failed, optimumForPlugged, weighed: mixedWeighed }) => (
+                {table.shown.map(({ key, entry, label, combo, run, error, failed, optimumForPlugged, weighed: mixedWeighed, mirrors }) => (
                   <tr key={key} className={failed.length ? 'motor-row-long' : ''}>
                     <td>
                       {label}
@@ -1038,6 +1068,10 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
                       {run && !(run.aeroModel === 'classic' && !run.rogersKbf) && (run.nozzleStages?.length ?? 0) > 0
                         && <span className="motor-db-meta"> · nozzle</span>}
                       {run && batchLoadoutText(run) && batchLoadoutText(run) !== label && <div className="motor-db-meta">{batchLoadoutText(run)}</div>}
+                      {mirrors?.map(mirror => <div className="motor-db-meta" key={mirror}>
+                        {mirror} — {run ? <>same flight as {batchLoadoutText(run)}. Delay and optimum delay not shown.</>
+                          : 'not flown; its representative failed.'}
+                      </div>)}
                       {!running && run && savedRuns.has(run.id) && <button className="file-btn"
                         aria-label={`Open ${noteText(label)}${batchLoadoutText(run) && batchLoadoutText(run) !== label ? ` · ${batchLoadoutText(run) ?? ''}` : ''} in Results`}
                         onClick={() => openRun(savedRuns.get(run.id)!)}>Open</button>}

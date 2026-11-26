@@ -356,15 +356,15 @@ export function batchRefusal({ candidates, withoutOOP, modes, solverFlights, tim
   /** How many unticking "include OOP" would leave (batchCandidates); null while it is unticked. */
   withoutOOP: number | null;
   /** The ticked combination modes: the words on each box, and its split's group count. */
-  modes: readonly { name: string; groups: number; ordered?: boolean }[];
+  modes: readonly (Exclude<BatchCombination, number> & { name: string })[];
   /** How many of this sweep's flights search for their delay (BatchPace). */
   solverFlights: number;
   timeStepS?: number | null;
   includeSingles?: boolean;
   myMotors?: boolean;
 }): string | null {
-  const groupsOf = (ms: readonly { groups: number; ordered?: boolean }[]) => ms;
-  const fits = (n: number, ms: readonly { groups: number; ordered?: boolean }[]) => {
+  const groupsOf = (ms: readonly Exclude<BatchCombination, number>[]) => ms;
+  const fits = (n: number, ms: readonly Exclude<BatchCombination, number>[]) => {
     const count = batchFlightCount(n, groupsOf(ms), includeSingles);
     return count > 0 && count <= BATCH_MAX_FLIGHTS;
   };

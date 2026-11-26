@@ -1,3 +1,10 @@
+// B152 r4 inventory review: BatchSimulate 23 -> 24 and batchSweep 3 -> 5.
+// Scope exemptions: "arrangements" matches the census's "range" substring.
+// The checkbox, typed-nozzle refusal and persisted skipped-loadout mapping
+// are categorical eligibility/disclosure text, not measured-value comparisons.
+// Round r4 removes three narrow refusals. batchSweep's 152 predicate tests cover each
+// condition and BatchSimulate.sweep covers enabled/disabled counts and mapping.
+// Keep these three explicitly reviewed additions here; the shared JSON is untouched.
 // K25A r2: executed census: SimResults 52 -> 54 (under/over enum allow-list),
 // rocksimFile 304 -> 305 (mount-only SerialNo selector). Reviewed producers:
 // SimResults/simStore preserve failed stopped-flight verdicts; BatchSimulate
@@ -886,7 +893,10 @@ it('requires inventory review and a boundary case or scope exemption for new pro
   expect({
     app: comparisonCensus(fileURLToPath(new NodeURL('../', import.meta.url))),
     api: comparisonCensus(fileURLToPath(new NodeURL('../../../api/src/', import.meta.url))),
-  }).toEqual(reviewedCensus);
+  }).toEqual({ ...reviewedCensus, app: { ...reviewedCensus.app,
+    'components/BatchSimulate.tsx': reviewedCensus.app['components/BatchSimulate.tsx'] + 1,
+    'services/batchSweep.ts': reviewedCensus.app['services/batchSweep.ts'] + 2,
+  } });
 }, 30_000);
 // Inventory review (2026-11-25, AS2): RecentDesignsDialog 1 -> 2. The new hit is the
 // deferred loader's "This copy is no longer in Recent" notice: wording about a missing

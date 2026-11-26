@@ -10,7 +10,7 @@ import { hasIgnitionSourceStage,
   type ClusterSplit,
 } from '../tree/treeModel.js';
 import { equivalentExitDiameterM, stageMotors } from './nozzleFollow.js';
-import { numOrNull } from '../tree/nodeNum.js';
+import { num, numOpt, numOrNull } from '../tree/nodeNum.js';
 import { noteText } from './noteField.js';
 import { nozzleForMotorId } from './nozzleDb.js';
 import { displayDesignation, displayMotorManufacturer, fitsMount, motorLabel, isHighPower, type MotorDbEntry } from './motorDb.js';
@@ -75,19 +75,23 @@ export interface BatchSplit extends ClusterSplit {
  * How many mixed combinations a split into `groups` mounts adds for `n`
  * candidates — exactly what the comboAssignments() generator below yields:
  * multisets of group assignments minus the all-same ones, which are the
- * single-motor rows already flown. Separate-tube rings always use ordered
- * assignments instead: n^groups - n. Two cluster groups: C(n,2). Three groups (the
+ * single-motor rows already flown. Separate-tube rings default to ordered
+ * assignments: n^groups - n. Identical-tube mirrors opt into multiset counts.
+ * Two cluster groups: C(n,2). Three groups (the
  * 4+2 / 2+2+2 pair split): C(n+2,3) − n. ONE definition, keyed on the split's
  * own mountIds.length, because the count used to be spelled out in three
  * places — the sweep's progress total, the meta line, and the time-step
  * caution's flight count — and a new split shape would have had to be taught
  * to each of them separately.
  */
-export type BatchCombination = number | { groups: number; ordered?: boolean; litGroups?: readonly boolean[] };
+export type BatchCombination = number | {
+  groups: number; ordered?: boolean; litGroups?: readonly boolean[]; skipMirrors?: boolean;
+};
 
 export function mixedComboCount(n: number, combination: BatchCombination): number {
-  const { groups, ordered } = typeof combination === 'number' ? { groups: combination, ordered: false } : combination;
-  if (ordered) return n ** groups - n;
+  const { groups, ordered, skipMirrors } = typeof combination === 'number'
+    ? { groups: combination, ordered: false, skipMirrors: false } : combination;
+  if (ordered && !skipMirrors) return n ** groups - n;
   return groups === 2 ? (n * (n - 1)) / 2 : (n * (n + 1) * (n + 2)) / 6 - n;
 }
 
@@ -96,12 +100,119 @@ export function batchFlightCount(n: number, groups: readonly BatchCombination[],
   return (includeSingles ? n : 0) + groups.reduce<number>((sum, g) => sum + mixedComboCount(n, g), 0);
 }
 
-/** Every arrangement flies on separate tubes; split clusters keep their multiset enumeration. */
-export function batchSplitCombination(split: BatchSplit, canIgnite?: (id: string) => boolean): {
-  groups: number; ordered: boolean; litGroups?: boolean[];
-} {
+/** Separate tubes default to every arrangement; mirror reduction is explicitly selected. */
+export function batchSplitCombination(split: BatchSplit, { canIgnite, skipMirrors = false }: {
+  canIgnite?: (id: string) => boolean; skipMirrors?: boolean;
+} = {}): { groups: number; ordered: boolean; litGroups?: boolean[]; skipMirrors?: boolean } {
   return { groups: split.mountIds.length, ordered: split.mountGroups !== undefined,
-    ...(canIgnite ? { litGroups: (split.mountGroups ?? split.mountIds.map(id => [id])).map(ids => ids.some(canIgnite)) } : {}) };
+    ...(canIgnite ? { litGroups: (split.mountGroups ?? split.mountIds.map(id => [id])).map(ids => ids.some(canIgnite)) } : {}),
+    ...(skipMirrors && split.mountGroups ? { skipMirrors: true } : {}) };
+}
+
+/** Null only when the design proves the full ring symmetry, not merely a close fit.
+ * Deliberately narrower than batchRingSplits' mounting tolerances. The only angular
+ * slack is floating-point roundoff (1e-12 rad), not the layout's one-degree window.
+ */
+export function batchMirrorReason(
+  tree: RocketTree, ids: readonly string[],
+  ignitions: BatchSweepInput['assignedIgnitions'],
+  settings: Pick<BatchSweepInput, 'assignedMountMotors' | 'assignedAutoDelays' | 'weighed' | 'launch' | 'model'>,
+): string | null {
+  if (![4, 6].includes(ids.length) || new Set(ids).size !== ids.length) return 'Select four or six separate ring tubes.';
+  const nodes = new Map<string, { node: ComponentNode; parent?: ComponentNode }>();
+  let uniqueIds = true;
+  const walk = (children: ComponentNode[], parent?: ComponentNode) => {
+    for (const node of children) {
+      if (!node.id || nodes.has(node.id)) uniqueIds = false;
+      else nodes.set(node.id, { node, parent });
+      walk(node.children ?? [], node);
+    }
+  };
+  walk(tree.components);
+  if (!uniqueIds) return 'Every component needs a unique identity to prove symmetry.';
+  const tubes = ids.map(id => nodes.get(id));
+  const first = tubes[0];
+  if (!first || tubes.some(t => !t || t.node.type !== 'innertube' || t.parent !== first.parent)
+    || first.parent?.type !== 'bodytube') return 'The ring needs single inner tubes in the same body tube.';
+  const ring = tubes.map(t => t!.node);
+  if (ring.some(t => t['cluster'] !== undefined && t['cluster'] !== 'single' || mountMotorCount(tree, t.id!) !== 1)) {
+    return 'Each ring tube must hold one motor.';
+  }
+  const same = (read: (n: ComponentNode) => unknown) => ring.every(t => JSON.stringify(read(t)) === JSON.stringify(read(first.node)));
+  const bore = (t: ComponentNode) => {
+    const radius = numOpt(t, 'outerRadius'), wall = numOpt(t, 'thickness');
+    return radius !== undefined && wall !== undefined && radius > wall && wall >= 0 ? 2 * (radius - wall) : null;
+  };
+  if (bore(first.node) === null || !same(bore)) return 'The tubes need identical known inner diameters.';
+  if (!ring.every(t => num(t, 'length', 0) > 0) || !same(t => numOpt(t, 'length'))) return 'The tubes need identical known lengths.';
+  if (!same(t => t.position ?? null)) return 'The tubes need identical axial positions.';
+  if (!ring.every(t => num(t, 'radialPosition', 0) > 0) || !same(t => numOpt(t, 'radialPosition'))) return 'The tubes need identical distances from the centreline.';
+  if (ring.some(t => t['motorOverhang'] !== undefined && numOpt(t, 'motorOverhang') === undefined)
+    || !same(t => num(t, 'motorOverhang', 0))) return 'The tubes need identical motor overhang settings.';
+  if (ring.some(t => (t.children?.length ?? 0) > 0)) return 'Attached parts on the ring tubes prevent proving symmetry.';
+  // Compare every remaining setting, including imported retention/mass settings;
+  // only identity, paint and the angular placement may differ.
+  const physical = (t: ComponentNode) => Object.fromEntries(Object.entries(t)
+    .filter(([key]) => !['id', 'name', 'color', 'radialDirection', 'children'].includes(key))
+    .sort(([a], [b]) => a.localeCompare(b)));
+  if (!same(physical)) return 'The tubes need identical material, mass and motor retention settings.';
+  const angles = ring.map(t => numOpt(t, 'radialDirection'));
+  if (angles.some(a => a === undefined)) return 'The tubes need known, equally spaced angles.';
+  const turn = 2 * Math.PI;
+  const ordered = angles.map(a => ((a! % turn) + turn) % turn).sort((a, b) => a - b);
+  if (ordered.some((a, i) => Math.abs((ordered[(i + 1) % ids.length]! + (i === ids.length - 1 ? turn : 0)) - a - turn / ids.length) > 1e-12)) {
+    return 'The tube angles must be equally spaced.';
+  }
+  const ignitionTable = lookupTable(ignitions);
+  const firing = ids.map(id => batchTargetIgnition(tree, ignitionTable, id));
+  if (firing.some(i => i.event !== firing[0]!.event || i.delay !== firing[0]!.delay)) return 'The tubes need identical ignition and ignition-delay settings.';
+  if (firing.some(i => !['launch', 'automatic'].includes(i.event) || i.delay !== 0)) return 'All ring motors must ignite together at launch.';
+  // Every ring motor is replaced: provisionalDelay and flyLegs apply the
+  // candidate's listed/no-delay/plugged policy and the global autoDelay choice,
+  // independently of the loaded motor's fixed delay or per-mount Auto flag.
+  if (settings.weighed && ids.includes(settings.weighed.mountId)) return 'A weighed motor correction on one ring tube prevents proving symmetry.';
+  const axisymmetric = new Set(['stage', 'nosecone', 'transition', 'bodytube', 'innertube', 'tubecoupler',
+    'centeringring', 'bulkhead', 'engineblock', 'parachute', 'streamer', 'shockcord', 'masscomponent']);
+  for (const { node } of nodes.values()) {
+    if (ids.includes(node.id!)) continue;
+    if (node['nozzleExitDiameter'] !== undefined) return 'A typed stage nozzle exit can treat one arrangement differently.';
+    if (['parachute', 'streamer'].includes(node.type) && !['apogee', 'altitude', 'never', 'launch'].includes(String(node['deployEvent'] ?? 'ejection'))) {
+      return 'Use recovery independent of motor ejection charges to prove equivalent flights.';
+    }
+    if (node['radialPosition'] !== undefined && numOpt(node, 'radialPosition') !== 0) return 'Another part is off the centreline.';
+    if (node.type === 'innertube' && node['cluster'] !== undefined && node['cluster'] !== 'single') {
+      return 'Another cluster prevents proving ring symmetry.';
+    }
+    if (['trapezoidfinset', 'ellipticalfinset', 'freeformfinset'].includes(node.type)) {
+      const cant = node['cant'] === undefined ? 0 : numOpt(node, 'cant');
+      const rotation = node['rotation'] === undefined ? 0 : numOpt(node, 'rotation');
+      if (num(node, 'finCount', 3) !== ids.length || cant !== 0 || rotation === undefined
+        || Math.abs(Math.sin(ids.length * (rotation - ordered[0]!))) > 1e-12) {
+        return 'The fins must share the ring symmetry, with no cant.';
+      }
+    } else if (!axisymmetric.has(node.type)) return 'An external attachment or assembly prevents proving ring symmetry.';
+  }
+  return null;
+}
+
+/** Reflections and rotations exchange the two alternating groups (S2), or act
+ * as D3 = S3 on the six-ring's three opposite pairs. Thus every distinct group
+ * permutation is in the same class for these supported splits. The representative
+ * comes first; member flights can differ slightly through numerical rounding.
+ */
+export function batchMirrorMembers(indices: readonly number[]): number[][] {
+  const members: number[][] = [];
+  const visit = (prefix: number[], remaining: readonly number[]) => {
+    if (!remaining.length) { members.push(prefix); return; }
+    const seen = new Set<number>();
+    remaining.forEach((value, i) => {
+      if (seen.has(value)) return;
+      seen.add(value);
+      visit([...prefix, value], [...remaining.slice(0, i), ...remaining.slice(i + 1)]);
+    });
+  };
+  visit([], indices);
+  return members;
 }
 
 /**
@@ -357,18 +468,38 @@ export function batchSolverFlights({ candidates, groups, autoDelay, deploysOnCha
   const pluggedOnly = candidates.filter(e => targetDelaySearch([e], false, true).plugged.has(e)).length;
   let searching = includeSingles && targetsCanIgnite ? singleSearches : 0;
   for (const combination of groups) {
-    const { groups: size, ordered, litGroups } = typeof combination === 'number' ? { groups: combination } : combination;
+    const { groups: size, ordered, skipMirrors, litGroups } = typeof combination === 'number' ? { groups: combination } : combination;
     const lit = litGroups ? litGroups.filter(Boolean).length : targetsCanIgnite ? size : 0;
     if (lit === 0) continue;
     if (autoDelay) { searching += mixedComboCount(n, combination); continue; }
-    if (ordered) {
+    if (ordered && skipMirrors && lit < size) {
+      // Representatives have non-decreasing candidate indices. Count them by
+      // prefix sums, restricting only lit positions, without enumerating a
+      // potentially huge proposed sweep in the dialog's render path.
+      const restricted = (allowed: ReadonlySet<TcMotor>) => {
+        let counts = candidates.map<number>((_, i) => i === 0 ? 1 : 0);
+        for (const isLit of litGroups!) {
+          let prefix = 0;
+          counts = counts.map((count, i) => {
+            prefix += count;
+            return !isLit || allowed.has(candidates[i]!) ? prefix : 0;
+          });
+        }
+        return counts.reduce((sum, count) => sum + count, 0) - allowed.size;
+      };
+      const listedEntries = new Set(candidates.filter(e => targetDelaySearch([e], false, false).auto.size === 0));
+      const pluggedEntries = new Set(candidates.filter(e => targetDelaySearch([e], false, true).plugged.has(e)));
+      searching += mixedComboCount(n, combination) - restricted(listedEntries)
+        + (deploysOnCharge ? restricted(pluggedEntries) : 0);
+    } else if (ordered && !skipMirrors) {
       // Count all assignments on lit groups, with free choices on unlit ones,
       // then remove all-same loadouts (the separate single pass). This stays
       // cheap even when the proposed sweep exceeds the flight ceiling.
       searching += (n ** lit - listed ** lit + (deploysOnCharge ? pluggedOnly ** lit : 0)) * n ** (size - lit)
         - singleSearches;
     } else {
-      // Split clusters inherit one source mount's ignition for every group.
+      // All-lit mirror representatives use the same multiset count as split
+      // clusters, which inherit one source mount's ignition for every group.
       searching += mixedComboCount(n, combination) - mixedComboCount(listed, combination)
         + (deploysOnCharge ? mixedComboCount(pluggedOnly, combination) : 0);
     }
@@ -439,6 +570,8 @@ export interface BatchRow {
   optimumForPlugged?: boolean;
   /** Separate-ring mixed row carrying hardware on its recorded target mount. */
   weighed?: boolean;
+  /** Unflown symmetric loadouts; no flight or delay values are assigned to them. */
+  mirrors?: string[];
 }
 
 export interface BatchSweepInput {
@@ -461,6 +594,8 @@ export interface BatchSweepInput {
   splits: readonly BatchSplit[];
   /** Default on; off excludes every all-same loadout, even with no mixed split selected. */
   includeSingles?: boolean;
+  /** Off by default; independently rechecked against the design before use. */
+  skipMirrors?: boolean;
   /** Current flown specs by mount id; only motors outside the target set are retained. */
   assignedMotors: Record<string, MotorSpec>;
   /** Catalogue specs and identities, before weighed hardware is applied. */
@@ -826,7 +961,9 @@ export async function runBatchSweep(
 
   const n = candidates.length;
   const includeSingles = input.includeSingles ?? true;
-  const total = batchFlightCount(n, splits.map(split => batchSplitCombination(split)), includeSingles);
+  const mirrorsFor = (split: BatchSplit) => input.skipMirrors === true && !!split.mountGroups
+    && batchMirrorReason(tree, split.mountGroups.flat(), input.assignedIgnitions, input) === null;
+  const total = batchFlightCount(n, splits.map(s => batchSplitCombination(s, { skipMirrors: mirrorsFor(s) })), includeSingles);
   const comboActive = splits.length > 0;
   const out: BatchRow[] = [];
   let lastPublish = -Infinity;
@@ -962,7 +1099,7 @@ export async function runBatchSweep(
   // ---- Combination passes (opt-in): symmetric group splits of the
   // cluster, each on a SEPARATE engine handle (the design handle is
   // untouched). Group mode = 2 halves (2+2 / 3+3); pair mode (6-ring) =
-  // 3 opposite-tube pairs. Separate tubes fly every ordered arrangement;
+  // 3 opposite-tube pairs. Separate tubes default to every ordered arrangement;
   // split clusters fly every MULTISET except all-same (covers 4+2 and 2+2+2 —
   // the owner's real-world configs, 2026-08-05d).
   let done = includeSingles ? n : 0;
@@ -995,9 +1132,10 @@ export async function runBatchSweep(
     // 2026-09-22, row 351, from review — the single-motor pass above already
     // counted the pods through `target.motorCount`).
     const groupFires = groups.map(ids => ids.reduce((sum, id) => sum + mountMotorCount(split.tree, id), 0));
-    const combination = batchSplitCombination(split);
+    const skipMirrors = mirrorsFor(split);
+    const combination = batchSplitCombination(split, { skipMirrors });
     const ordered = combination.ordered;
-    for (const idxs of comboAssignments(n, split.mountIds.length, ordered)) {
+    for (const idxs of comboAssignments(n, split.mountIds.length, ordered && !skipMirrors)) {
       if (signal.aborted) break;
       const entries = idxs.map((i) => candidates[i]!);
       // Collapse equal groups for the label: [A,A,B] → "4× A + 2× B", each
@@ -1016,6 +1154,10 @@ export async function runBatchSweep(
         : counts.size === 2 ? 'mixed 4+2' : 'mixed 2+2+2';
       const key = ordered ? `${configTag}:${JSON.stringify(groups.map((ids, k) => [ids, entries[k]!.motorId]))}`
         : batchRowKey(configTag, entries.map((e) => e.motorId));
+      const arrangement = (assignment: readonly number[], motorNames = names) => groups.map((ids, k) =>
+        `${ids.map(id => noteText(splitMountNames.get(id)!)).join(', ')}: ${noteText(motorNames.get(candidates[assignment[k]!]!.motorId)!)}`).join('; ');
+      const mirrorMembers = skipMirrors ? batchMirrorMembers(idxs).slice(1) : [];
+      const mirrors = mirrorMembers.map(member => arrangement(member));
       hooks.onProgress?.({ done, total, current: label });
       done++;
       await yieldToUi();
@@ -1120,14 +1262,22 @@ export async function runBatchSweep(
           .join(' + ');
         noteRefused(run);
         if (f.optimumForPlugged) notePluggedAtOptimum(run, entries.length);
+        if (mirrors.length) {
+          const storedMappings = mirrorMembers.map(member => `${arrangement(member, storedNames)} — same flight as ${arrangement(idxs, storedNames)}`);
+          const note = `Skipped symmetric arrangements (identical tubes; the model has no per-motor thrust-offset torque): ${storedMappings.join('. ')}. Their computed numbers can differ slightly from rounding (by millimetres in the app’s tests). Delay and optimum delay are not shown for skipped arrangements.`.replace(/\|/g, '/');
+          run.comments = run.comments ? `${run.comments} | ${note}` : note;
+          if (run.commentLevels) run.commentLevels = [...run.commentLevels, 'info'];
+        }
         out.push({
           key, entry: entries[0]!, label, combo: true, run, exitM,
+          ...(mirrors.length ? { mirrors } : {}),
           ...(appliedWeighed ? { weighed: true } : {}),
           ...(f.optimumForPlugged ? { optimumForPlugged: true } : {}),
         });
       } catch (e) {
         if (signal.aborted) break;
-        out.push({ key, entry: entries[0]!, label, combo: true, error: errorText(e) });
+        out.push({ key, entry: entries[0]!, label, combo: true, error: errorText(e),
+          ...(mirrors.length ? { mirrors } : {}) });
       }
       publish();
     }
