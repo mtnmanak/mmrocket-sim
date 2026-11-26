@@ -732,7 +732,7 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
    * OrkFlightConfig.deployments).
    */
   const noteLowerStageDeployment = (node: ComponentNode, event: string): void => {
-    if (!ownFile && event === 'lowerstageseparation') {
+    if (!ownFile && event.toLowerCase() === 'lowerstageseparation') {
       outsideTreeEnums.set(`${String(node.id)}\u0000deployment\u0000${event}`,
         `“${noteField(String(node.name ?? 'Recovery device'))}”: deployment event lowerstageseparation is not supported; the app uses the motor ejection charge instead of lower-stage separation. Recovery can open at a different time from desktop OR. Check deployment before flying.`);
     }

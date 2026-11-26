@@ -31,6 +31,13 @@ const infoFor = (id: string): ComponentInfo | null => (id === 'n' ? {
 const prefs = { units: INITIAL_UNITS, radiusMode: 'diameter' as const };
 
 describe('componentTable', () => {
+  it.each(['parachute', 'streamer'] as const)('B153 r2 labels mixed-case deployment for %s', type => {
+    const input: RocketTree = { components: [{ type: 'stage', children: [
+      { type, name: 'Main', deployEvent: 'Altitude' },
+    ] }] };
+    const table = componentTable(input, prefs);
+    expect(table.rows[0]![table.headers.indexOf('Deploy at')]).toBe('Altitude (descending)');
+  });
   it('J4 r2 S7b-g4 gives parts of blank stages and strap-ons readable stage cells', () => {
     const input: RocketTree = { components: [{ type: 'stage', id: 's', name: '   ', children: [
       { type: 'bodytube', id: 'core', name: 'Core' },

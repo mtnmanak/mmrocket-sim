@@ -11,7 +11,7 @@ import { hasIgnitionSourceStage,
 } from '../tree/treeModel.js';
 import { equivalentExitDiameterM, stageMotors } from './nozzleFollow.js';
 import { num, numOpt, numOrNull } from '../tree/nodeNum.js';
-import { noteText } from './noteField.js';
+import { noteField, noteText } from './noteField.js';
 import { nozzleForMotorId } from './nozzleDb.js';
 import { displayDesignation, displayMotorManufacturer, fitsMount, motorLabel, isHighPower, type MotorDbEntry } from './motorDb.js';
 import { boundedLoadoutMotorNames, loadoutMotorNames, motorLabelEntry } from './motorLabels.js';
@@ -27,7 +27,10 @@ import { overrideFor } from './flightState.js';
 import { flownDeployEvent } from '../tree/deployEvent.js';
 import { flyLaunch, writeMountMotor } from './flightRunner.js';
 import { flownMaxFlightTimeS, kernelSimOptions, type LaunchConditions } from './launchConditions.js';
-import { physicsKeyOf, provenanceKeyOf } from './designDerivation.js';
+import { NON_PHYSICAL_COMPONENT_KEYS, physicsKeyOf, provenanceKeyOf } from './designDerivation.js';
+import { CATALOGUE_LINK_KEYS } from './presets.js';
+import { KERNEL_DEFAULT_MATERIALS } from '../tree/kernelDefaults.js';
+import { positionOf } from '../tree/position.js';
 import type { WeatherSnapshot } from './weatherSnapshot.js';
 import { batchMatchingMounts, batchTargetIgnition } from './batchMountDisclosure.js';
 export { batchTargetIgnition } from './batchMountDisclosure.js';
@@ -145,17 +148,39 @@ export function batchMirrorReason(
   };
   if (bore(first.node) === null || !same(bore)) return 'The tubes need identical known inner diameters.';
   if (!ring.every(t => num(t, 'length', 0) > 0) || !same(t => numOpt(t, 'length'))) return 'The tubes need identical known lengths.';
-  if (!same(t => t.position ?? null)) return 'The tubes need identical axial positions.';
+  if (!same(t => [positionOf(t).method, positionOf(t).offset])) return 'The tubes need identical axial positions.';
   if (!ring.every(t => num(t, 'radialPosition', 0) > 0) || !same(t => numOpt(t, 'radialPosition'))) return 'The tubes need identical distances from the centreline.';
   if (ring.some(t => t['motorOverhang'] !== undefined && numOpt(t, 'motorOverhang') === undefined)
     || !same(t => num(t, 'motorOverhang', 0))) return 'The tubes need identical motor overhang settings.';
   if (ring.some(t => (t.children?.length ?? 0) > 0)) return 'Attached parts on the ring tubes prevent proving symmetry.';
-  // Compare every remaining setting, including imported retention/mass settings;
-  // only identity, paint and the angular placement may differ.
-  const physical = (t: ComponentNode) => Object.fromEntries(Object.entries(t)
-    .filter(([key]) => !['id', 'name', 'color', 'radialDirection', 'children'].includes(key))
-    .sort(([a], [b]) => a.localeCompare(b)));
-  if (!same(physical)) return 'The tubes need identical material, mass and motor retention settings.';
+  // ComponentFactory's inner-tube and common-override defaults (and orkFile's
+  // cluster/overhang readers). Missing and explicitly defaulted keys fly alike.
+  const defaults = lookupTable<unknown>({
+    // ComponentFactory.applyCommon (542-551) leaves absent density at the bulk default.
+    density: KERNEL_DEFAULT_MATERIALS.bulk.density,
+    motorOverhang: 0, cluster: 'single', clusterScale: 1, clusterRotation: 0,
+    overrideSubcomponentsMass: false, overrideSubcomponentsCG: false, overrideSubcomponentsCD: false,
+  });
+  const labels = lookupTable<string>({
+    density: 'material density', outerRadius: 'outer radius',
+    overrideMass: 'mass override', overrideCGX: 'centre of gravity override', overrideCD: 'drag coefficient override',
+    overrideSubcomponentsMass: 'subcomponent mass override', overrideSubcomponentsCG: 'subcomponent centre of gravity override',
+    overrideSubcomponentsCD: 'subcomponent drag override',
+    retention: 'motor retention', clusterScale: 'cluster spacing', clusterRotation: 'cluster rotation',
+  });
+  // Keep all remaining settings conservative, including unknown imported keys.
+  // maxMotorLength only filters fit; both sweep passes check every target limit.
+  // presets.ts owns link metadata; materialName only labels the density's material.
+  // position was compared above through the kernel's default axial method.
+  const keys = [...new Set(ring.flatMap(t => Object.keys(t)))].filter(key =>
+    ![...NON_PHYSICAL_COMPONENT_KEYS, ...CATALOGUE_LINK_KEYS,
+      'id', 'materialName', 'position', 'radialDirection', 'children', 'maxMotorLength'].includes(key)).sort();
+  for (const key of keys) {
+    if (same(t => t[key] === undefined ? defaults[key] : t[key])) continue;
+    const label = labels[key];
+    return label ? `The tubes need identical ${label} settings.`
+      : `The tubes differ in another setting (${noteField(key)}).`;
+  }
   const angles = ring.map(t => numOpt(t, 'radialDirection'));
   if (angles.some(a => a === undefined)) return 'The tubes need known, equally spaced angles.';
   const turn = 2 * Math.PI;
@@ -176,7 +201,7 @@ export function batchMirrorReason(
   for (const { node } of nodes.values()) {
     if (ids.includes(node.id!)) continue;
     if (node['nozzleExitDiameter'] !== undefined) return 'A typed stage nozzle exit can treat one arrangement differently.';
-    if (['parachute', 'streamer'].includes(node.type) && !['apogee', 'altitude', 'never', 'launch'].includes(String(node['deployEvent'] ?? 'ejection'))) {
+    if (['parachute', 'streamer'].includes(node.type) && flownDeployEvent(node['deployEvent']) === 'ejection') {
       return 'Use recovery independent of motor ejection charges to prove equivalent flights.';
     }
     if (node['radialPosition'] !== undefined && numOpt(node, 'radialPosition') !== 0) return 'Another part is off the centreline.';

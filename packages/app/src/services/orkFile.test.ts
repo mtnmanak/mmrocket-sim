@@ -68,6 +68,15 @@ const automaticRecoveryXml = (line = 'auto', cord = 'auto') => `<openrocket vers
   </subcomponents></stage></subcomponents></rocket></openrocket>`;
 const recoveryParts = (tree: RocketTree) => tree.components[0]!.children![1]!.children!;
 
+it.each(['LowerStageSeparation', 'LOWERSTAGESEPARATION'])('B153 r2 warns about unsupported deployment %s', event => {
+  const xml = automaticRecoveryXml('0.4', '1.5').replace('<diameter>0.254</diameter>',
+    `<diameter>0.254</diameter><deployevent>${event}</deployevent>`);
+  const opened = importOrk(xml);
+  expect(recoveryParts(opened.tree)[0]!['deployEvent']).toBe(event);
+  expect(opened.notes.join(' ')).toContain('instead of lower-stage separation');
+  expect(opened.notes.join(' ')).toContain('Check deployment before flying');
+});
+
 describe('OR2611-1 automatic recovery lengths', () => {
   it.each(['auto', 'AUTO', ' auto '])('resolves %j and explains the fixed lengths once per file', token => {
     const opened = importOrk(automaticRecoveryXml(token, token));
