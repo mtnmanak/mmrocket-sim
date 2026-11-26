@@ -6,9 +6,8 @@ import { Note } from './Note.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { noticeQuantity } from '../prefs/units.js';
 
-export function ExampleDesignsDialog({ onOpen, onClose, onChoose }: {
+export function ExampleDesignsDialog({ onOpen, onClose }: {
   onOpen: (file: File) => void; onClose: () => void;
-  onChoose?: (name: string, load: () => Promise<File>) => void;
 }) {
   const { prefs } = usePrefs();
   const [busy, setBusy] = useState(false);
@@ -44,10 +43,7 @@ export function ExampleDesignsDialog({ onOpen, onClose, onChoose }: {
     </div>
     <ul className="recent-design-list example-design-list" aria-busy={busy}>
       {EXAMPLE_DESIGNS.map(example => <li key={example.id}>
-        <button type="button" className="file-btn" disabled={busy} onClick={() => {
-          if (onChoose) onChoose(example.fileName, () => loadExampleFile(example));
-          else void open(example);
-        }}>
+        <button type="button" className="file-btn" disabled={busy} onClick={() => { void open(example); }}>
           <span>{example.name}</span><small>{(example.quantities ?? []).reduce((text, [literal, quantity, si]) => text.replace(literal, noticeQuantity(quantity, si, prefs.units)), example.explanation)}</small>
         </button>
       </li>)}

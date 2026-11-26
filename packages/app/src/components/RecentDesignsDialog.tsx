@@ -4,9 +4,8 @@ import { Modal } from './Modal.js';
 import { Note } from './Note.js';
 import { clearRecentDesigns, listRecentDesigns, recentDesignFile, type RecentDesign } from '../services/recentDesigns.js';
 
-export function RecentDesignsDialog({ onOpen, onClose, onChoose }: {
+export function RecentDesignsDialog({ onOpen, onClose }: {
   onOpen: (file: File) => void; onClose: () => void;
-  onChoose?: (name: string, load: () => Promise<File>) => void;
 }) {
   const [entries, setEntries] = useState<RecentDesign[]>([]);
   const [busy, setBusy] = useState(true);
@@ -62,14 +61,7 @@ export function RecentDesignsDialog({ onOpen, onClose, onChoose }: {
       {!busy && !error && entries.length === 0 ? <p>No recent designs. Open or save a design file to keep a copy here.</p> : null}
     </div>
     <ul className="recent-design-list">{entries.map(e => <li key={e.name}>
-      <button className="file-btn" disabled={busy} onClick={() => {
-        if (onChoose) onChoose(e.name, async () => {
-          const file = await recentDesignFile(e.name);
-          if (!file) throw new Error('This copy is no longer in Recent. Open the file from your device instead.');
-          return file;
-        });
-        else void open(e.name);
-      }}>
+      <button className="file-btn" disabled={busy} onClick={() => { void open(e.name); }}>
         <span>{e.name}</span>
         <small>{new Date(e.openedAt).toLocaleString()} · {(e.size / 1024).toFixed(1)} KiB</small>
       </button>

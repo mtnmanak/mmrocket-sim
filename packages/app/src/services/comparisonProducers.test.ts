@@ -900,11 +900,14 @@ it('requires inventory review and a boundary case or scope exemption for new pro
     api: comparisonCensus(fileURLToPath(new NodeURL('../../../api/src/', import.meta.url))),
   }).toEqual({ ...reviewedCensus, app: { ...reviewedCensus.app,
     'App.tsx': reviewedCensus.app['App.tsx'] - 2,
+    'components/RecentDesignsDialog.tsx': reviewedCensus.app['components/RecentDesignsDialog.tsx'] - 1,
     'components/ScreenModeSwitch.tsx': 1,
     'components/BatchSimulate.tsx': reviewedCensus.app['components/BatchSimulate.tsx'] + 1,
     'services/batchSweep.ts': reviewedCensus.app['services/batchSweep.ts'] + 2,
   } });
 }, 30_000);
+// AS3 inventory review: RecentDesignsDialog 2 -> 1 removes the duplicate deferred
+// loader's missing-copy message. No numeric comparison or flight number changed.
 // Inventory review (2026-11-25, AS2): RecentDesignsDialog 1 -> 2. The new hit is the
 // deferred loader's "This copy is no longer in Recent" notice: wording about a missing
 // stored copy, not a numeric comparison: scope exemption. No flight behavior changed.
