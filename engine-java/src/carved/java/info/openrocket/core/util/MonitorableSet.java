@@ -1,15 +1,22 @@
 package info.openrocket.core.util;
 
 import java.util.Collection;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Iterator;
 
 /**
  * A Set that additionally implements the Monitorable interface.
- * 
+ *
+ * DETERMINISM PATCH (KD1, 2026-11-25; see engine-java/patches/LEDGER.md):
+ * upstream extends HashSet. Its one user is SimulationStatus's deployed
+ * recovery devices, which BasicLandingStepper sums CdA over; a RocketComponent
+ * hashes by its random UUID, so with three or more devices out at once the sum
+ * was taken in a different order every time the same design was rebuilt.
+ * LinkedHashSet (a HashSet) iterates in deployment order instead.
+ *
  * @author Sampo Niskanen <sampo.niskanen@iki.fi>
  */
-public class MonitorableSet<E> extends HashSet<E> implements Monitorable {
+public class MonitorableSet<E> extends LinkedHashSet<E> implements Monitorable {
 
 	private ModID modID;
 
