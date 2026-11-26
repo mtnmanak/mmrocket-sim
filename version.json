@@ -1,5 +1,5 @@
 {
-  "version": "0.218",
+  "version": "0.219",
   "released": "2026-11-26",
-  "note": "RockSim fin sets keep the angle the file gives them; the same design now flies the same every time; a compact phone summary; Batch can skip mirrored layouts of identical tubes; the replace-autosave question is asked when you choose a design."
+  "note": "A Dark / Light / Daylight switch in the header, and the first-run tour starts with it; a correction to v0.218’s notes."
 }

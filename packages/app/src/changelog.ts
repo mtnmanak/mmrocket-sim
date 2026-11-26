@@ -40,6 +40,23 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.219",
+    "date": "2026-11-26",
+    "title": "A Dark / Light / Daylight switch in the header, and the first-run tour starts with it",
+    "summary": [
+      "A correction first: v0.218’s notes said the same design could differ by up to about 1.5 cm of apogee between builds on a six-motor test ring. The measurement shows about 1.1 cm. v0.218’s fix is unchanged.",
+      "The header’s Daylight button is now a switch with three choices: Dark, Light and Daylight, each one tap. Dark is still the default; Follow system stays in Preferences.",
+      "The first-run tour now starts by letting you choose Dark, Light or Daylight, and has seven steps.",
+      "Nothing in this release changes what flies."
+    ],
+    "items": [
+      "CORRECTION TO v0.218’S NOTES: HOW MUCH THE SAME DESIGN COULD DIFFER. v0.218 made the simulator add the thrust of motors firing together, and the drag of recovery devices opening together, in one fixed order, so the same design gives the same flight every time it is built. Its notes said the old differences reached “up to about 1.5 cm of apogee” on a six-motor test ring. The measurement behind that fix, 24 builds of a synthetic ring of six tubes, shows differences of about 1.1 cm of apogee when flown vertically in calm air, and about 0.04 s of time to apogee from a 5° rod in a 5 m/s wind. The fix itself is unchanged.",
+      "A DARK / LIGHT / DAYLIGHT SWITCH IN THE HEADER. The header’s Daylight button is replaced, in the same place, by one switch with three choices: Dark, Light and Daylight (black on white at maximum contrast, for reading the screen in bright sun). Each is one tap, and Daylight is always the right-hand choice. On a wide screen and on a phone only the chosen mode shows its name; on a medium-width screen (768 to 1365 px wide) all three show only their icons, so the switch is narrower than the old Daylight button, and hovering one shows its name. Choosing Dark or Light sets the theme, as the Theme setting in Preferences does, and turns Daylight off; tapping the mode already selected does nothing. Follow system stays in Preferences; while it is on and Daylight is off, the switch shows the theme your system is using. Leaving Daylight from the header is a tap on Dark or Light, so if you were following your system you then have a fixed theme until you choose Follow system again in Preferences; turning Daylight mode off in Preferences keeps Follow system. Dark is still the default. The arrow keys, Home and End move between the three choices. On a phone’s Fly screen the header stays slim, as before; the switch is on the other tabs.",
+      "THE FIRST-RUN TOUR STARTS WITH THE CHOICE. On a first visit the tour now opens with “Light or dark?”, which points at the new switch and has the same three choices in its card. A choice changes the screen at once, and Next goes on to the six stops the tour had before. On a phone’s Fly screen, where the header hides the switch, the card opens without pointing at anything, with the choices in it. The ⟲ Tour button in the header replays it.",
+      "WHAT FLIES. Nothing in this release changes what flies."
+    ]
+  },
+  {
     "version": "0.218",
     "date": "2026-11-26",
     "title": "RockSim fin sets keep the angle the file gives them; the same design now flies the same every time; a compact phone summary; Batch can skip mirrored layouts of identical tubes",
