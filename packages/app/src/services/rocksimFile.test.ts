@@ -7,6 +7,8 @@ import { rocksimCorpusPath } from './rocksimCorpusPath.testSupport.mjs';
 import { referenceFile } from '../../../../scripts/reference-docs.mjs';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { exportRkt, importRkt, rktComponentInfo, rktEveryDelay, rktPackedChuteSize } from './rocksimFile.js';
+import { noteFlags } from './importNotes.js';
+import { autoAlignFinSets } from '../tree/finAlign.js';
 import { exportOrk, importOrk, type OrkExportMotor } from './orkFile.js';
 import { exportCdx1, importCdx1 } from './rasaeroFile.js';
 import { matchImportedMotor, refToExportMotor } from './motorMatch.js';
@@ -104,6 +106,176 @@ function flatten(nodes: ComponentNode[]): ComponentNode[] {
   walk(nodes);
   return out;
 }
+
+describe('FA1 RockSim fin planform clearance', () => {
+  function design(parts: string): string {
+    return `<RockSimDocument><DesignInformation><RocketDesign>
+      <Name>Fin clearance</Name><StageCount>1</StageCount><Stage3Parts>
+      <BodyTube><Name>Booster</Name><OD>152</OD><ID>148</ID><Len>1000</Len>
+      <AttachedParts>${parts}</AttachedParts></BodyTube>
+      </Stage3Parts><Stage2Parts/><Stage1Parts/>
+      </RocketDesign></DesignInformation></RockSimDocument>`;
+  }
+  function freeform(name: string, xb: number, points: string): string {
+    return `<CustomFinSet><Name>${name}</Name><FinCount>3</FinCount><ShapeCode>2</ShapeCode>
+      <PointList>${points}</PointList><Thickness>4</Thickness>
+      <Xb>${xb}</Xb><LocationMode>2</LocationMode><RadialAngle>0</RadialAngle></CustomFinSet>`;
+  }
+  function straight(name: string, shape = 0): string {
+    return `<FinSet><Name>${name}</Name><ShapeCode>${shape}</ShapeCode><FinCount>3</FinCount>
+      <RootChord>245</RootChord><TipChord>100</TipChord><SweepDistance>60</SweepDistance>
+      <SemiSpan>177</SemiSpan><Thickness>4</Thickness>
+      <Xb>13</Xb><LocationMode>2</LocationMode><RadialAngle>0</RadialAngle></FinSet>`;
+  }
+  const fins = (nodes: ComponentNode[]) => flatten(nodes).filter(n => n.type.endsWith('finset'));
+  const darkstar = () => design(
+    freeform('Front Fins', 320, '305,0|423.5,177|341.5,177|0,0')
+    + freeform('Rear Fins', 13, '245,0|125.5,177|61.5,148|0,0'));
+
+  it('keeps v0.217 span rotation for unresolved mixed absolute and aft positions', () => {
+    const front = freeform('Front Fins', 775, '305,0|423.5,177|341.5,177|0,0')
+      .replace('<LocationMode>2</LocationMode>', '<LocationMode>1</LocationMode>');
+    const xml = design(front + freeform('Rear Fins', 13, '245,0|125.5,177|61.5,148|0,0'))
+      .replace('<BodyTube>', '<NoseCone><Len>400</Len><BaseDia>152</BaseDia></NoseCone><BodyTube>');
+    const result = importRkt(xml);
+    expect(fins(result.tree.components)[1]!['rotation']).toBeCloseTo(Math.PI / 3, 10);
+    for (const n of fins(result.tree.components)) n['rotation'] = 0;
+    expect(fins(autoAlignFinSets(result.tree).tree.components)[1]!['rotation']).toBeCloseTo(Math.PI / 3, 10);
+  });
+
+  it('keeps v0.217 span rotation for absolute fins on a flare', () => {
+    const parts = (freeform('Front Fins', 300, '20,0|200,60|180,60|0,0')
+      + freeform('Aft Fins', 450, '50,0|40,45|10,45|0,0'))
+      .replaceAll('<LocationMode>2</LocationMode>', '<LocationMode>1</LocationMode>');
+    const xml = design(parts).replace('<BodyTube><Name>Booster</Name><OD>152</OD><ID>148</ID><Len>1000</Len>',
+      '<NoseCone><Len>300</Len><BaseDia>40</BaseDia></NoseCone>'
+      + '<Transition><Name>Flare</Name><ShapeCode>0</ShapeCode><Len>200</Len><FrontDia>40</FrontDia><RearDia>100</RearDia>')
+      .replace('</AttachedParts></BodyTube>', '</AttachedParts></Transition>');
+    const result = importRkt(xml);
+    expect(fins(result.tree.components)[1]!['rotation']).toBeCloseTo(Math.PI / 3, 10);
+    for (const n of fins(result.tree.components)) n['rotation'] = 0;
+    expect(fins(autoAlignFinSets(result.tree).tree.components)[1]!['rotation']).toBeCloseTo(Math.PI / 3, 10);
+  });
+
+  it.each([
+    ['cancelling', '70,0|120,-100|50,0|25,40|0,0', 50],
+    ['gap', '200,0|180,40|160,0|40,0|20,40|0,0', 80],
+  ])('keeps v0.217 span rotation for a multi-lobe freeform (%s)', (_label, points, xb) => {
+    const rear = straight('Second').replace('<RootChord>245</RootChord>', '<RootChord>20</RootChord>')
+      .replace('<Xb>13</Xb>', `<Xb>${xb}</Xb>`).replace('<SweepDistance>60</SweepDistance>', '<SweepDistance>0</SweepDistance>');
+    const result = importRkt(design(freeform('Lobes', 0, String(points)) + rear));
+    expect(fins(result.tree.components)[1]!['rotation']).toBeCloseTo(Math.PI / 3, 10);
+    for (const n of fins(result.tree.components)) n['rotation'] = 0;
+    expect(fins(autoAlignFinSets(result.tree).tree.components)[1]!['rotation']).toBeCloseTo(Math.PI / 3, 10);
+  });
+
+  it('says the outline check was skipped when app-written pairs exhaust its budget', () => {
+    const points = Array.from({ length: 1501 }, (_, i) =>
+      `${100 * i / 1500},${i === 0 || i === 1500 ? 0 : 50 * Math.sin(Math.PI * i / 1500)}`).join('|');
+    const result = importRkt(design(freeform('Large A', 13, points) + freeform('Large B', 13, points)));
+    for (const n of fins(result.tree.components)) delete n['rotation'];
+    const reopened = importRkt(exportRkt({ name: result.name, tree: result.tree }));
+    expect(fins(reopened.tree.components).map(n => n['rotation'] ?? 0)).toEqual([0, 0]);
+    expect(reopened.notes.join('\n')).toContain('outline check was skipped');
+    expect(reopened.notes.join('\n')).not.toContain('and overlaps it');
+  });
+
+  it('keeps the aligned Darkstar freeform fins whose axial spans overlap but outlines are apart', () => {
+    const result = importRkt(darkstar());
+    const sets = fins(result.tree.components);
+    expect(sets.map(n => n.name)).toEqual(['Front Fins', 'Rear Fins']);
+    expect(sets.map(n => n['rotation'] ?? 0)).toEqual([0, 0]);
+    expect(noteFlags(result.notes).map(n => n.kind)).not.toContain('I21.fin-rotated');
+  });
+
+  it.each([
+    ['6 in', () => darkstar()],
+    ['8 in', () => design(
+      freeform('Rear Fin set', 50.8, '323,0|241,192|158,231|0,0')
+      + freeform('FWD Fin set', 423, '402,0|560,233|451,233|0,0'))],
+  ] as const)('keeps the %s Darkstar aligned on import and after Align fins', (_size, xml) => {
+    const result = importRkt(xml());
+    expect(fins(result.tree.components).map(n => n['rotation'] ?? 0)).toEqual([0, 0]);
+    expect(noteFlags(result.notes).map(n => n.kind)).not.toContain('I21.fin-rotated');
+    const aligned = autoAlignFinSets(result.tree);
+    expect(aligned.changes).toEqual([]);
+    expect(aligned.caution).toBeUndefined();
+    expect(aligned.tree).toBe(result.tree);
+  });
+
+  it.each([
+    ['2.6 in', 130.81, 133.35, 34.925, 149.713, 76.2, '106.934,0|80.01,64.262|52.07,77.47|0,0'],
+    ['3 in', 174.625, 156.37, 41.91, 176.212, 91.44, '127,0|93.98,77.47|48.2072,91.5985|0,0'],
+    ['4 in', 212.725, 200.66, 53.34, 225.425, 116.205, '161.29,0|120.65,97.79|79.248,115.57|0,0'],
+  ] as const)('keeps the %s swept trapezoid over freeform fins aligned', (_size, xb, root, tip, sweep, height, points) => {
+    const upper = `<FinSet><Name>Upper Fin set</Name><ShapeCode>0</ShapeCode><FinCount>3</FinCount>
+      <RootChord>${root}</RootChord><TipChord>${tip}</TipChord><SweepDistance>${sweep}</SweepDistance>
+      <SemiSpan>${height}</SemiSpan><Thickness>4</Thickness><Xb>${xb}</Xb><LocationMode>2</LocationMode>
+      <RadialAngle>0</RadialAngle></FinSet>`;
+    const result = importRkt(design(upper + freeform('Lower Fin set', 12.7, points)));
+    expect(fins(result.tree.components).map(n => n['rotation'] ?? 0)).toEqual([0, 0]);
+    expect(noteFlags(result.notes).map(n => n.kind)).not.toContain('I21.fin-rotated');
+    const aligned = autoAlignFinSets(result.tree);
+    expect(aligned.changes).toEqual([]);
+    expect(aligned.tree).toBe(result.tree);
+  });
+
+  it('does not warn about the separated outlines when reopening an app-written file', () => {
+    const result = importRkt(darkstar());
+    for (const n of fins(result.tree.components)) delete n['rotation'];
+    const reopened = importRkt(exportRkt({ name: result.name, tree: result.tree }));
+    expect(fins(reopened.tree.components).map(n => n['rotation'] ?? 0)).toEqual([0, 0]);
+    expect(noteFlags(reopened.notes).map(n => n.kind)).not.toContain('I21.fin-rotated');
+  });
+
+  it.each([0, 1])('still interleaves coincident planforms (ShapeCode %i)', shape => {
+    const result = importRkt(design(straight('First', shape) + straight('Second', shape)));
+    const sets = fins(result.tree.components);
+    expect(sets[0]!['rotation'] ?? 0).toBe(0);
+    expect(sets[1]!['rotation']).toBeCloseTo(Math.PI / 3, 10);
+    expect(noteFlags(result.notes).map(n => n.kind)).toContain('I21.fin-rotated');
+  });
+
+  it('still interleaves a straight fin that passes through a tube fin at the same station', () => {
+    const tube = `<TubeFinSet><Name>Tubes</Name><TubeCount>6</TubeCount><OD>50</OD><ID>48</ID>
+      <Len>245</Len><Xb>13</Xb><LocationMode>2</LocationMode><RadialAngle>0</RadialAngle></TubeFinSet>`;
+    const result = importRkt(design(tube + straight('Straight')));
+    expect(fins(result.tree.components)[1]!['rotation']).toBeCloseTo(Math.PI / 6, 10);
+    const colliding = importRkt(design(tube + straight('Straight'))).tree;
+    for (const n of fins(colliding.components)) n['rotation'] = 0;
+    const corrected = autoAlignFinSets(colliding);
+    expect(fins(corrected.tree.components)[1]!['rotation']).toBeCloseTo(Math.PI / 6, 10);
+    expect(corrected.changes).toHaveLength(1);
+  });
+
+  it('bounds outline work and warns when remaining import pairs use axial spans only', () => {
+    const points = Array.from({ length: 1501 }, (_, i) =>
+      `${100 * i / 1500},${i === 0 || i === 1500 ? 0 : 50 * Math.sin(Math.PI * i / 1500)}`).join('|');
+    const result = importRkt(design(freeform('Large A', 13, points) + freeform('Large B', 13, points)));
+    expect(fins(result.tree.components).map(n => n['rotation'] ?? 0)).toEqual([0, Math.PI / 3]);
+    expect(result.notes.join('\n')).toContain('Remaining fin sets were checked by axial span only');
+    expect(result.notes.filter(n => n.includes('Too much fin-outline work'))).toHaveLength(1);
+  });
+
+  it('keeps saved angles and the caution for genuinely overlapping app-written fins', () => {
+    const result = importRkt(design(straight('First') + straight('Second')));
+    for (const n of fins(result.tree.components)) delete n['rotation'];
+    const reopened = importRkt(exportRkt({ name: result.name, tree: result.tree }));
+    expect(fins(reopened.tree.components).map(n => n['rotation'] ?? 0)).toEqual([0, 0]);
+    expect(reopened.notes.join('\n')).toContain('The saved angles are kept');
+  });
+
+  it('checks later sets against the outlines they meet, excluding the separated front fins', () => {
+    const result = importRkt(design(
+      freeform('Front Fins', 320, '305,0|423.5,177|341.5,177|0,0')
+      + freeform('Rear Fins', 13, '245,0|125.5,177|61.5,148|0,0')
+      + freeform('Extra Rear Fins', 13, '245,0|125.5,177|61.5,148|0,0')));
+    expect(fins(result.tree.components).map(n => n['rotation'] ?? 0)).toEqual([0, 0, Math.PI / 3]);
+    const notes = noteFlags(result.notes).filter(n => n.kind === 'I21.fin-rotated');
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.text).toContain('same angle as “Rear Fins”');
+  });
+});
 
 describe('RockSim import — desktop fixture files', () => {
   it('imports the minimal test rocket with desktop-equivalent values', () => {

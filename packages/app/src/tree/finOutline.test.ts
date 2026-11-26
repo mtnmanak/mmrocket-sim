@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { finOutlineIntersection, finOutlineProblem, kernelFinPoints } from './finOutline.js';
+import { finOutlineIntersection, finOutlineProblem, finOutlinesMeet, kernelFinPoints, type FinOutlinePoint } from './finOutline.js';
 import { engineTree } from './treeModel.js';
 
 /**
@@ -18,6 +18,31 @@ import { engineTree } from './treeModel.js';
 
 /** The editor's own starting outline: a 4-point clipped-delta fin. */
 const GOOD: [number, number][] = [[0, 0], [0.020, 0.030], [0.045, 0.030], [0.060, 0]];
+
+describe('FA1 fin planforms in a common frame', () => {
+  const square: FinOutlinePoint[] = [[0, 0], [2, 0], [2, 2], [0, 2]];
+  it.each<{ name: string; other: FinOutlinePoint[]; meet: boolean }>([
+    { name: 'coincident outlines', other: square, meet: true },
+    { name: 'contained outline', other: [[0.5, 0.5], [1, 0.5], [1, 1]], meet: true },
+    { name: 'crossing edges with no contained vertex', other: [[-1, 0.5], [3, 0.5], [3, 1], [-1, 1]], meet: true },
+    { name: 'shared edge', other: [[2, 0], [3, 0], [3, 2], [2, 2]], meet: true },
+    { name: 'corner contact', other: [[2, 2], [3, 2], [3, 3], [2, 3]], meet: true },
+    { name: 'separated outlines', other: [[3, 0], [4, 0], [4, 2], [3, 2]], meet: false },
+    { name: 'zero-area outline', other: [[0, 0], [1, 0], [2, 0]], meet: false },
+  ])('$name (both orders and windings)', ({ other, meet }) => {
+    for (const a of [square, [...square].reverse()]) {
+      expect(finOutlinesMeet(a, other)).toBe(meet);
+      expect(finOutlinesMeet(other, a)).toBe(meet);
+    }
+  });
+
+  it('does not fill the empty part of a concave outline or merely compare bounding boxes', () => {
+    const l: FinOutlinePoint[] = [[0, 0], [3, 0], [3, 1], [1, 1], [1, 3], [0, 3]];
+    const apart: FinOutlinePoint[] = [[1.5, 1.5], [2, 1.5], [2, 2]];
+    expect(finOutlinesMeet(l, apart)).toBe(false);
+    expect(finOutlinesMeet(apart, l)).toBe(false);
+  });
+});
 
 describe('finOutlineProblem — degenerate outlines', () => {
   it('accepts the editor default and a plain triangle', () => {

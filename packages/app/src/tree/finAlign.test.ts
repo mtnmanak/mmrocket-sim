@@ -58,6 +58,26 @@ describe('autoAlignFinSets (issue 2026-08-05e: one-click interleave)', () => {
     expect(result.changes).toEqual([]);
     expect(result).toHaveProperty('caution', expect.stringMatching(/too many.*fin sets|too much.*work/i));
   }, 30_000);
+  it('also counts outline edge work in the alignment budget and rolls back every rotation', () => {
+    const points = Array.from({ length: 1501 }, (_, i) => [0.1 * i / 1500,
+      i === 0 || i === 1500 ? 0 : 0.05 * Math.sin(Math.PI * i / 1500)]);
+    const input = tree([straight({ id: 'a' }), straight({ id: 'b' }),
+      { type: 'freeformfinset', id: 'large-a', points }, { type: 'freeformfinset', id: 'large-b', points }]);
+    const result = autoAlignFinSets(input);
+    expect(result.tree).toBe(input);
+    expect(result.changes).toEqual([]);
+    expect(result.caution).toContain('Nothing was rotated');
+  });
+  it('describes work exhaustion without claiming two large sets overlap', () => {
+    const points = Array.from({ length: 1501 }, (_, i) => [0.1 * i / 1500,
+      i === 0 || i === 1500 ? 0 : 0.05 * Math.sin(Math.PI * i / 1500)]);
+    const input = tree(['a', 'b'].map(id => ({ type: 'freeformfinset', id, points })));
+    const result = autoAlignFinSets(input);
+    expect(result.tree).toBe(input);
+    expect(result.changes).toEqual([]);
+    expect(result.caution).toContain('Too much fin-alignment work');
+    expect(result.caution).not.toContain('overlapping');
+  });
   it('rotates 3 straight fins between 6 tube fins (Ultra Neon case) — 30°', () => {
     const res = autoAlignFinSets(tree([tubes(), straight()]));
     expect(res.changes.length).toBe(1);
@@ -108,12 +128,23 @@ describe('autoAlignFinSets — a freeform fin with an overhanging tip', () => {
     position: { method: 'top', offset: 0 }, ...params,
   } as ComponentNode);
 
-  it('still collides out to the tip — the overhang is real geometry', () => {
+  it('leaves an overhanging tip above a rear fin whose span overlaps', () => {
+    const input = tree([
+      overhang(),
+      straight({ id: 'b', finCount: 4, position: { method: 'top', offset: 0.10 } }),
+    ]);
+    const result = autoAlignFinSets(input);
+    expect(result.changes).toEqual([]);
+    expect(result.tree).toBe(input);
+  });
+
+  it('still collides out to the tip when the rear fin reaches the overhang', () => {
     // ff spans 0–0.12 (extent), the second set 0.10–0.16: they overlap only
     // because the tip reaches past the 90 mm root chord.
     const res = autoAlignFinSets(tree([
       overhang(),
-      straight({ id: 'b', finCount: 4, position: { method: 'top', offset: 0.10 } }),
+      straight({ id: 'b', finCount: 4, sweep: 0, height: 0.06,
+        position: { method: 'top', offset: 0.10 } }),
     ]));
     expect(res.changes.length).toBe(1);
     expect(findNode(res.tree, 'b')!['rotation'] as number).toBeCloseTo(Math.PI / 4, 6);
