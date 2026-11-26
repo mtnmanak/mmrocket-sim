@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 
 export type IconName =
   | 'rocket' | 'wrench' | 'flame' | 'chart'
-  | 'folder' | 'save' | 'book' | 'sliders' | 'zap' | 'sun' | 'bug' | 'search' | 'eye' | 'eye-off';
+  | 'folder' | 'save' | 'book' | 'sliders' | 'zap' | 'sun' | 'moon' | 'sun-bold' | 'bug' | 'search' | 'eye' | 'eye-off';
 
 const PATHS: Record<IconName, ReactNode> = {
   eye: <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></>,
@@ -71,6 +71,14 @@ const PATHS: Record<IconName, ReactNode> = {
   ),
   zap: (
     <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
+  ),
+  moon: <path d="M20.5 14A9 9 0 0 1 10 3.5 9 9 0 1 0 20.5 14Z" />,
+  'sun-bold': (
+    <>
+      <rect x={2} y={2} width={20} height={20} rx={2} />
+      <circle cx={12} cy={12} r={3} fill="currentColor" />
+      <path d="M12 5v1M12 18v1M5 12h1M18 12h1M7 7l1 1M16 16l1 1M7 17l1-1M16 8l1-1" />
+    </>
   ),
   sun: (
     <>

@@ -181,7 +181,7 @@ describe('App header banners — regions mounted before their message', () => {
     await mountApp();
     const region = emptyRegion('.prefs-failing-alert');
     refuseWrites(key => key === PREFS_KEY);
-    await act(async () => { host.querySelector<HTMLButtonElement>('.hc-toggle')!.click(); });
+    await act(async () => { host.querySelector<HTMLButtonElement>('.screen-mode-switch [aria-label="Daylight"]')!.click(); });
     await waitFor(() => (host.textContent ?? '').includes('isn\'t keeping your preferences'), 'the preferences banner');
     expect(host.querySelector('.prefs-failing-alert')).toBe(region);
     expect(region.textContent).toContain('This browser isn\'t keeping your preferences');

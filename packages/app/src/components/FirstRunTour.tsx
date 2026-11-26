@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { ScreenModeSwitch } from './ScreenModeSwitch.js';
 
 /**
- * First-run tour (batch 2026-08-21b, proposal S3): six anchored tooltips that
+ * First-run tour (batch 2026-08-21b, proposal S3): seven anchored tooltips that
  * orient a first-time visitor in ~30 seconds. In-house on purpose — the
  * anchors are our own `data-tour` attributes, so a tour library would buy
  * nothing but bytes. Shown once (its own localStorage flag), replayable from
@@ -25,6 +26,10 @@ interface TourStep {
 }
 
 const STEPS: TourStep[] = [
+  {
+    target: 'screen-mode', title: 'Light or dark?',
+    body: 'Pick how the app looks. The same three buttons are in the header, so you can switch any time. Daylight is black on white for bright sun. Follow system is in Preferences.',
+  },
   {
     target: 'tree', tab: 'design', title: 'Build here',
     body: 'Every part of the rocket lives in this tree. Add and nest components — the drawing updates live.',
@@ -159,7 +164,7 @@ export function FirstRunTour({ onSetTab, onClose }: {
   }, []);
 
   /**
-   * A dialog opened mid-tour (the Guide button is step 6's own anchor) owns the
+   * A dialog opened mid-tour (the Guide button is step 7's own anchor) owns the
    * screen: the card, at z-index 120, painted over it. So the tour steps aside
    * while any modal is open — hidden, not closed, so it comes back on the same
    * step — and leaves Escape to that dialog.
@@ -230,22 +235,22 @@ export function FirstRunTour({ onSetTab, onClose }: {
   // under/past the scrollbar on the right-anchored steps.
   const vw = document.documentElement.clientWidth;
   const vh = document.documentElement.clientHeight;
+  const cardH = step.target === 'screen-mode' ? 260 : 170;
+  const onScreen = (v: number) => Math.min(Math.max(8, v), Math.max(8, vh - cardH - 8));
   let cardStyle: React.CSSProperties;
   if (anchor.rect) {
     const r = anchor.rect;
-    const cardH = 170; // the card's height, near enough to place it by
     const below = r.bottom + GAP + cardH < vh;
     // Vertically clamped too (audit 2026-09-22): only `left` was, so an anchor
     // taller than the room above it (the tree on a short window) or one
     // scrolled out of view put the card, Next button and all, off the top or
     // bottom edge. Better over the anchor than off the screen.
-    const onScreen = (v: number) => Math.min(Math.max(8, v), Math.max(8, vh - cardH - 8));
     cardStyle = {
       left: Math.min(Math.max(8, r.left), Math.max(8, vw - CARD_W - 8)),
       ...(below ? { top: onScreen(r.bottom + GAP) } : { bottom: onScreen(vh - r.top + GAP) }),
     };
   } else {
-    cardStyle = { left: Math.max(8, (vw - CARD_W) / 2), top: vh * 0.3 };
+    cardStyle = { left: Math.max(8, (vw - CARD_W) / 2), top: onScreen(vh * 0.3) };
   }
 
   return (
@@ -272,6 +277,7 @@ export function FirstRunTour({ onSetTab, onClose }: {
         <button className="tour-close" onClick={close} aria-label="Close tour">×</button>
         <h3 className="tour-title">{step.title}</h3>
         <p className="tour-body" id={bodyId}>{step.body}</p>
+        {step.target === 'screen-mode' && <div className="tour-screen-mode"><ScreenModeSwitch label="Choose a screen mode" /></div>}
         <div className="tour-footer">
           <button className="tour-skip" onClick={close}>Skip</button>
           <span style={{ flex: 1 }} />

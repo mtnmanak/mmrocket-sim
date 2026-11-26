@@ -261,7 +261,10 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           so a phone screen stays readable in direct sun. It <strong>overrides the theme
           above</strong> while it&rsquo;s on — a high-contrast <em>dark</em> screen is the
           right answer indoors and the wrong one on the field. Turning it off puts your theme
-          back. The <strong>Daylight</strong> button in the header is the same switch.
+          back. The <strong>Dark | Light | Daylight</strong> switch in the header sets
+          these modes in one tap. <strong>Follow system</strong> is here in Preferences;
+          the header shows the current system theme. To leave Daylight from the header,
+          choose Dark or Light; that fixes the theme to your choice.
         </p>
         <p className="prefs-hint">
           <strong>CG / CP markers in 3D</strong> controls the two things the 3D view draws on

@@ -67,6 +67,19 @@ const mount = () => act(() => root.render(
   <PrefsProvider><PreferencesDialog onClose={() => {}} /></PrefsProvider>,
 ));
 
+it('THM describes the header modes while keeping the full Display selects', () => {
+  mount();
+  expect(byLabel('Theme')).not.toBeNull();
+  expect(byLabel('Daylight mode')).not.toBeNull();
+  expect(host.textContent).toContain('Dark | Light | Daylight');
+  expect(host.textContent).toContain('switch in the header');
+  expect([...((byLabel('Theme') as HTMLSelectElement).options)].map(o => o.textContent)).toEqual(['Light', 'Dark', 'Follow system']);
+  expect(guide).toContain('**seven-step tour** first lets you choose **Dark**, **Light**, or **Daylight**');
+  expect(guide).toContain('**Follow system** is only in Preferences');
+  expect(guide).toContain('header highlights the current system theme');
+  expect(guide).toContain('To leave Daylight from the header, tap **Dark** or **Light**');
+});
+
 it('row 140 offers an off-by-default layout choice with the short-window hint', () => {
   mount();
   const select = byLabel('Keep the rocket summary and tabs in view while scrolling') as HTMLSelectElement;

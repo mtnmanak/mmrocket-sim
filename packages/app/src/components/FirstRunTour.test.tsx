@@ -4,7 +4,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { clearTourDone, FirstRunTour, shouldAutoStartTour } from './FirstRunTour.js';
 import { WorkspaceBar } from './WorkspaceBar.js';
-import { PrefsProvider } from '../prefs/PrefsContext.js';
+import { PrefsProvider, usePrefs } from '../prefs/PrefsContext.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -66,6 +66,7 @@ describe('FirstRunTour', () => {
     // Stand-ins for the app's data-tour anchors.
     anchors = document.createElement('div');
     anchors.innerHTML = [
+      '<div data-tour="screen-mode"></div>',
       '<div data-tour="tree"></div>',
       '<div data-tour="canvas"></div>',
       '<button data-tour="motors-tab"></button>',
@@ -92,7 +93,7 @@ describe('FirstRunTour', () => {
   });
 
   function mount(onSetTab: (t: 'design' | 'motors' | 'results') => void, onClose: () => void) {
-    act(() => root.render(<FirstRunTour onSetTab={onSetTab} onClose={onClose} />));
+    act(() => root.render(<PrefsProvider><FirstRunTour onSetTab={onSetTab} onClose={onClose} /></PrefsProvider>));
   }
 
   async function settle() {
@@ -100,14 +101,32 @@ describe('FirstRunTour', () => {
     await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
   }
 
-  it('opens on step 1 with the counter, activates its tab, and highlights the anchor', async () => {
+  it('opens on screen mode with seven steps, leaves the home tab alone, and highlights the switch', async () => {
     const tabs: string[] = [];
     mount((t) => tabs.push(t), () => {});
     await settle();
-    expect(host.querySelector('.tour-title')?.textContent).toBe('Build here');
-    expect(host.querySelector('.tour-next')?.textContent).toContain('1 of 6');
-    expect(tabs).toContain('design');
+    expect(host.querySelector('.tour-title')?.textContent).toBe('Light or dark?');
+    expect(host.querySelector('.tour-next')?.textContent).toContain('1 of 7');
+    expect(tabs).toEqual([]);
     expect(host.querySelector('.tour-ring')).toBeTruthy();
+    expect(host.querySelectorAll('.tour-card [role="radio"]')).toHaveLength(3);
+  });
+
+  it('changes the screen immediately from step 1 and keeps the card open', () => {
+    function Screen() {
+      const { resolvedTheme, daylight } = usePrefs();
+      return <div className="viz-root" data-theme={daylight ? 'light' : resolvedTheme}>
+        <FirstRunTour onSetTab={() => {}} onClose={() => {}} />
+      </div>;
+    }
+    act(() => root.render(<PrefsProvider><Screen /></PrefsProvider>));
+    expect(host.querySelector('.viz-root')?.getAttribute('data-theme')).toBe('dark');
+    act(() => host.querySelector<HTMLButtonElement>('.tour-card [role="radio"][aria-label="Light"]')!.click());
+    expect(host.querySelector('.viz-root')?.getAttribute('data-theme')).toBe('light');
+    expect(JSON.parse(localStorage.getItem('online-openrocket.prefs.v1')!)).toMatchObject({ theme: 'light', themeExplicit: true });
+    expect(host.querySelector('.tour-card')?.getAttribute('aria-label')).toBe('Tour step 1 of 7: Light or dark?');
+    act(() => host.querySelector<HTMLButtonElement>('.tour-next')!.click());
+    expect(host.querySelector('.tour-title')?.textContent).toBe('Build here');
   });
 
   it('Next walks the steps and switches tabs for tab-bound stops', async () => {
@@ -117,19 +136,25 @@ describe('FirstRunTour', () => {
     const next = () => act(() => {
       (host.querySelector('.tour-next') as HTMLButtonElement).click();
     });
-    next(); // → 2: canvas
+    expect(host.querySelector('.tour-card [role="radiogroup"]')?.getAttribute('aria-label')).toBe('Choose a screen mode');
+    next(); // → 2: tree
+    expect(host.querySelector('.tour-title')?.textContent).toBe('Build here');
+    // F6: the choices belong to step 1 only.
+    expect(host.querySelector('.tour-card [role="radiogroup"]')).toBeNull();
+    expect(tabs).toContain('design');
+    next(); // → 3: canvas
     expect(host.querySelector('.tour-title')?.textContent).toBe('Check the drawing');
-    next(); // → 3: motors tab
+    next(); // → 4: motors tab
     expect(tabs).toContain('motors');
     expect(host.textContent).toContain('Motors & Configuration');
     expect(host.textContent).toContain('shared by every configuration');
     // CFG-3: recovery and staging are set there too (ruling D2a).
     expect(host.textContent).toContain('when the chutes open and the stages separate');
-    next(); // → 4: launch (no tab)
+    next(); // → 5: launch (no tab)
     expect(host.textContent).toContain('any tab');
-    next(); // → 5: results
+    next(); // → 6: results
     expect(tabs).toContain('results');
-    next(); // → 6: guide
+    next(); // → 7: guide
     expect(host.querySelector('.tour-next')?.textContent).toBe('Done');
   });
 
@@ -156,7 +181,7 @@ describe('FirstRunTour', () => {
     let closed = false;
     mount(() => {}, () => { closed = true; });
     await settle();
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
       act(() => { (host.querySelector('.tour-next') as HTMLButtonElement).click(); });
     }
     act(() => { (host.querySelector('.tour-next') as HTMLButtonElement).click(); }); // Done
@@ -184,13 +209,14 @@ describe('FirstRunTour', () => {
       expect(card().getAttribute('role')).toBe('dialog');
       expect(card().getAttribute('aria-modal')).toBeNull();
       const described = document.getElementById(card().getAttribute('aria-describedby') ?? '');
-      expect(described?.textContent).toContain('Every part of the rocket lives in this tree.');
+      expect(described?.textContent).toContain('Pick how the app looks.');
     });
 
     it('starts with focus in the card, and does not trap Tab', async () => {
       mount(() => {}, () => {});
       await settle();
       expect(card().contains(document.activeElement)).toBe(true);
+      expect(document.activeElement).toBe(card().querySelector('.tour-close'));
       // The last button in the card: a trap would take Tab and wrap.
       const buttons = card().querySelectorAll<HTMLButtonElement>('button');
       act(() => { buttons[buttons.length - 1]!.focus(); });
@@ -212,10 +238,10 @@ describe('FirstRunTour', () => {
       expect(region().getAttribute('aria-live')).toBe('polite');
       act(() => { (host.querySelector('.tour-next') as HTMLButtonElement).click(); });
       expect(region().textContent).toBe(
-        'Step 2 of 6: Check the drawing. Drag parts to reposition them, scroll to zoom.'
-        + ' The callouts flag CG, CP, and the stability margin.');
+        'Step 2 of 7: Build here. Every part of the rocket lives in this tree.'
+        + ' Add and nest components — the drawing updates live.');
       act(() => { (host.querySelectorAll('.tour-skip')[1] as HTMLButtonElement).click(); }); // Back
-      expect(region().textContent).toMatch(/^Step 1 of 6: Build here\. /);
+      expect(region().textContent).toMatch(/^Step 1 of 7: Light or dark\?\. /);
     });
 
     it('steps aside under a dialog opened mid-tour, and comes back where it was', async () => {
@@ -237,7 +263,7 @@ describe('FirstRunTour', () => {
 
       await act(async () => { dialog.remove(); await Promise.resolve(); });
       expect(card().hidden).toBe(false);
-      expect(host.querySelector('.tour-title')?.textContent).toBe('Check the drawing');
+      expect(host.querySelector('.tour-title')?.textContent).toBe('Build here');
     });
   });
 
@@ -271,7 +297,7 @@ describe('FirstRunTour', () => {
     const strip = host.querySelector('.vitals-strip')!;
     launch.getBoundingClientRect = () => band.classList.contains('workspace-bar-expanded')
       ? new DOMRect(40, 60, 80, 24) : new DOMRect(0, 0, 0, 0);
-    for (let i = 0; i < 3; i++) act(() => { (host.querySelector('.tour-next') as HTMLButtonElement).click(); });
+    for (let i = 0; i < 4; i++) act(() => { (host.querySelector('.tour-next') as HTMLButtonElement).click(); });
     await settle();
     expect(host.querySelector('.tour-ring')).toBeNull();
     // happy-dom has no layout notifications: deliver the browser's ResizeObserver
@@ -300,7 +326,7 @@ describe('FirstRunTour', () => {
   });
 
   it.each([
-    ['tree', 0], ['canvas', 1], ['motors-tab', 2], ['launch', 3], ['results-panel', 4], ['guide', 5],
+    ['screen-mode', 0], ['tree', 1], ['canvas', 2], ['motors-tab', 3], ['launch', 4], ['results-panel', 5], ['guide', 6],
   ] as const)('F150 r2 centers the card for an empty %s anchor and reanchors when shown', async (target, step) => {
     const anchor = anchors.querySelector(`[data-tour="${target}"]`)!;
     let rect = new DOMRect(0, 0, 0, 0);
@@ -315,7 +341,9 @@ describe('FirstRunTour', () => {
       expect(host.querySelector('.tour-ring')).toBeNull();
       expect(host.querySelector('.tour-scrim')).not.toBeNull();
       expect(card.style.left).toBe(`${Math.max(8, (document.documentElement.clientWidth - 300) / 2)}px`);
-      expect(card.style.top).toBe(`${document.documentElement.clientHeight * 0.3}px`);
+      const vh = document.documentElement.clientHeight;
+      const cardH = target === 'screen-mode' ? 260 : 170;
+      expect(card.style.top).toBe(`${Math.min(Math.max(8, vh * 0.3), Math.max(8, vh - cardH - 8))}px`);
     }
     rect = new DOMRect(40, 60, 80, 24);
     act(() => { window.dispatchEvent(new Event('resize')); });
@@ -329,9 +357,8 @@ describe('FirstRunTour', () => {
    * tree panel on a short window), or one scrolled out of view, put the card
    * — Next button and all — past the top or bottom edge.
    */
-  describe('keeps the card on screen vertically', () => {
+  describe.each([['screen-mode', 0, 260], ['tree', 1, 170]] as const)('keeps the %s card on screen vertically', (target, step, CARD_H) => {
     const VH = 600;
-    const CARD_H = 170; // the height the component places the card by
     // An own property over the prototype's getter; deleting it restores that.
     beforeEach(() => {
       Object.defineProperty(document.documentElement, 'clientHeight', { configurable: true, value: VH });
@@ -341,16 +368,20 @@ describe('FirstRunTour', () => {
     });
 
     const anchorAt = (top: number, bottom: number) => {
-      const tree = anchors.querySelector('[data-tour="tree"]') as HTMLElement;
+      const tree = anchors.querySelector(`[data-tour="${target}"]`) as HTMLElement;
       tree.getBoundingClientRect = () =>
         ({ top, bottom, left: 10, right: 210, width: 200, height: bottom - top, x: 10, y: top }) as DOMRect;
     };
     const card = () => host.querySelector('.tour-card') as HTMLElement;
     const px = (v: string) => Number.parseFloat(v);
+    const mountStep = () => {
+      mount(() => {}, () => {});
+      for (let i = 0; i < step; i++) act(() => host.querySelector<HTMLButtonElement>('.tour-next')!.click());
+    };
 
     it('an anchor too tall to fit the card above it', async () => {
       anchorAt(20, 590); // placed above: bottom = 600 − 20 + 10 = 590, top edge at −160
-      mount(() => {}, () => {});
+      mountStep();
       await settle();
       expect(px(card().style.bottom)).toBeLessThanOrEqual(VH - CARD_H - 8);
       expect(px(card().style.bottom)).toBeGreaterThanOrEqual(8);
@@ -358,14 +389,14 @@ describe('FirstRunTour', () => {
 
     it('an anchor scrolled below the window', async () => {
       anchorAt(900, 950); // placed above: bottom = 600 − 900 + 10 = −290
-      mount(() => {}, () => {});
+      mountStep();
       await settle();
       expect(px(card().style.bottom)).toBeGreaterThanOrEqual(8);
     });
 
     it('an anchor scrolled above the window', async () => {
       anchorAt(-300, -200); // placed below: top = −200 + 10 = −190
-      mount(() => {}, () => {});
+      mountStep();
       await settle();
       expect(px(card().style.top)).toBeGreaterThanOrEqual(8);
       expect(px(card().style.top)).toBeLessThanOrEqual(VH - CARD_H - 8);
@@ -373,7 +404,7 @@ describe('FirstRunTour', () => {
 
     it('an anchor with room below still gets the card right under it', async () => {
       anchorAt(40, 80);
-      mount(() => {}, () => {});
+      mountStep();
       await settle();
       expect(px(card().style.top)).toBe(90);
     });

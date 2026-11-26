@@ -233,6 +233,21 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline (test)'); }));
 });
 
+it('THM places the screen-mode radios before Preferences and applies every mode', async () => {
+  const host = await mountApp();
+  const group = host.querySelector<HTMLElement>('.app-header-row [role="radiogroup"]')!;
+  expect(group).not.toBeNull();
+  expect(group.dataset.tour).toBe('screen-mode');
+  expect(group.nextElementSibling?.getAttribute('title')).toBe('Preferences');
+  expect(host.querySelector('.hc-toggle')).toBeNull();
+  const screen = host.querySelector<HTMLElement>('.viz-root')!;
+  for (const [mode, theme, contrast] of [['Light', 'light', null], ['Daylight', 'light', 'high'], ['Dark', 'dark', null]]) {
+    await act(async () => group.querySelector<HTMLButtonElement>(`[aria-label="${mode}"]`)!.click());
+    expect(screen.dataset.theme).toBe(theme);
+    expect(screen.getAttribute('data-contrast')).toBe(contrast);
+  }
+});
+
 it('N009 marks only schematic stages as 2D as the viewer and tab change', async () => {
   const host = await mountApp();
   const stage = () => host.querySelector<HTMLElement>('.hero-stage')!;
@@ -1244,6 +1259,25 @@ describe('the workspace a first load lands on', () => {
     viewport(400);
     const host = await mountApp();
     expect(current(host)).toMatch(/Fly/);
+  }, 30000);
+
+  it('THM offers screen mode first on the phone home tab, then moves to Design', async () => {
+    localStorage.removeItem('online-openrocket.workspace.v1');
+    localStorage.setItem('online-openrocket.prefs.v1', '{}');
+    viewport(390);
+    const host = await mountApp();
+    expect(current(host)).toMatch(/Fly/);
+    expect(host.querySelector('.tour-card')?.getAttribute('aria-label')).toBe('Tour step 1 of 7: Light or dark?');
+    expect(host.querySelector('.app-header-row [data-tour="screen-mode"]')).not.toBeNull();
+    await act(async () => host.querySelector<HTMLButtonElement>('.tour-card [aria-label="Light"]')!.click());
+    expect(host.querySelector<HTMLElement>('.viz-root')!.dataset.theme).toBe('light');
+    expect(host.querySelector('.app-header-row [aria-label="Light"]')?.getAttribute('aria-checked')).toBe('true');
+    expect(host.querySelectorAll('[data-tour="screen-mode"]')).toHaveLength(1);
+    expect(current(host)).toMatch(/Fly/);
+    expect(host.querySelector('.tour-next')?.textContent).toContain('1 of 7');
+    await act(async () => host.querySelector<HTMLButtonElement>('.tour-next')!.click());
+    expect(current(host)).toMatch(/Design/);
+    expect(host.querySelector('.tour-title')?.textContent).toBe('Build here');
   }, 30000);
 
   it('is Design on anything wider', async () => {

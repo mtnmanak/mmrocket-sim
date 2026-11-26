@@ -230,7 +230,7 @@ describe('row 466', () => {
    * one orange primary per screen, so the fill is now only Launch, a dialog's
    * own primary and the tour's Next — labelled --on-accent (white on #BB4100
    * light, NAVY on #FF6509 dark: white there is 2.95:1) — and the guide's
-   * active TOC item, its current search match and the Daylight-on toggle take
+   * active TOC item, its current search match and the checked screen mode take
    * the SELECTED treatment: --text-primary on the --selected tint, plus a
    * shape (bar, ring or underline) and weight. Every rule for each selector
    * is checked, so a Daylight restatement cannot slip a different ink in.
@@ -241,7 +241,7 @@ describe('row 466', () => {
     ['.tour-next {', 'var(--on-accent)', 'var(--launch)'],
     ['.guide-toc-item.active {', 'var(--text-primary)', 'var(--selected)'],
     ['.guide-content .guide-match-current {', 'var(--text-primary)', 'var(--selected)'],
-    ['.hc-toggle.hc-on {', 'var(--text-primary)', 'var(--selected)'],
+    [".screen-mode-option[aria-checked='true'] {", 'var(--text-primary)', 'var(--selected)'],
   ];
   const colours = (sel: string) => rules(sel)
     .flatMap((b) => [...b.matchAll(/(?:^|[;\s])color:\s*([^;]+);/g)].map((c) => c[1]!.trim()));
@@ -281,6 +281,13 @@ describe('row 466', () => {
       expect(ratio(tok(t, '--accent-text'), tok(t, '--surface-0')), name).toBeGreaterThanOrEqual(AA);
       expect(ratio(tok(t, '--accent-graphic'), tok(t, '--surface-0')), name).toBeGreaterThanOrEqual(3);
     }
+  });
+
+  it('the checked screen mode is marked by the underline and a shipped weight, not only its tint', () => {
+    // The tint alone is ~1.02:1 against the tour card in Dark: the underline carries the selection.
+    const seg = rule(".screen-mode-option[aria-checked='true'] {");
+    expect(decl(seg, 'box-shadow')).toBe('inset 0 -2px 0 var(--accent-graphic)');
+    expect(Number(decl(seg, 'font-weight'))).toBe(600); // IBM Plex Mono ships 400/500/600
   });
 
   it('the active 2D/3D/Aft segment and workspace tab are marked by shape and weight, not a fill', () => {
@@ -1736,7 +1743,7 @@ describe('mmr-brand 1.1.0: selection, quiet row rules and the dark chart grid', 
     expect(hex(tok(THEMES.dark!, '--selected'))).toBe('#184570');
     expect(THEMES.daylight!['--selected']).toBe('#ffd18a');
     for (const sel of ['.tree-row-selected,', '.motor-row-picked,', '.tree-visibility[aria-pressed="true"] {',
-      '.guide-toc-item.active {', '.guide-content .guide-match-current {', '.hc-toggle.hc-on {']) {
+      '.guide-toc-item.active {', '.guide-content .guide-match-current {', ".screen-mode-option[aria-checked='true'] {"]) {
       expect(decl(rule(sel), 'background'), sel).toBe('var(--selected)');
     }
     // Nothing paints a selection by hand any more.

@@ -1,3 +1,8 @@
+// THM inventory review: App loses its two "maximum contrast" tooltip literals;
+// ScreenModeSwitch owns one shared copy instead. Scope exemption: display
+// contrast advice, with no flight-number comparison or changed threshold.
+// Deltas are from the source diff; execution is pending because npx was denied.
+// ScreenModeSwitch.test covers the tooltip, state selection and exact writes.
 // B152 r4 inventory review: BatchSimulate 23 -> 24 and batchSweep 3 -> 5.
 // Scope exemptions: "arrangements" matches the census's "range" substring.
 // The checkbox, typed-nozzle refusal and persisted skipped-loadout mapping
@@ -894,6 +899,8 @@ it('requires inventory review and a boundary case or scope exemption for new pro
     app: comparisonCensus(fileURLToPath(new NodeURL('../', import.meta.url))),
     api: comparisonCensus(fileURLToPath(new NodeURL('../../../api/src/', import.meta.url))),
   }).toEqual({ ...reviewedCensus, app: { ...reviewedCensus.app,
+    'App.tsx': reviewedCensus.app['App.tsx'] - 2,
+    'components/ScreenModeSwitch.tsx': 1,
     'components/BatchSimulate.tsx': reviewedCensus.app['components/BatchSimulate.tsx'] + 1,
     'services/batchSweep.ts': reviewedCensus.app['services/batchSweep.ts'] + 2,
   } });

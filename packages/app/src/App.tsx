@@ -50,6 +50,7 @@ import type { LongitudeReview } from './components/LongitudeCheck.js';
 import { Icon } from './components/Icon.js';
 import { LazyDialog } from './components/LazyDialog.js';
 import { FirstRunTour } from './components/FirstRunTour.js';
+import { ScreenModeSwitch } from './components/ScreenModeSwitch.js';
 import { FlyScreen } from './components/FlyScreen.js';
 import { ComponentTree } from './components/ComponentTree.js';
 import { FlightCharts } from './components/FlightCharts.js';
@@ -340,7 +341,7 @@ function replayLaunchFor(run: SimRun, launch: LaunchConditions): LaunchCondition
 
 export function App() {
   const {
-    prefs, setPrefs, resolvedTheme, daylight,
+    prefs, resolvedTheme, daylight,
     saveFailing: prefsSaveFailing, aeroOverride, setAeroOverride,
   } = usePrefs();
   // Daylight is the brand's LIGHT theme with a contrast layer on top (mmr-brand
@@ -4289,7 +4290,7 @@ export function App() {
           </button>
           {/* Replay lives in the header, not inside the Guide (batch 08-21c). */}
           <button className="file-btn" onClick={tour.start}
-            title="Replay the six-step interface tour">
+            title="Replay the seven-step interface tour">
             ⟲ Tour
           </button>
           <div className="file-menu-wrap">
@@ -4344,18 +4345,7 @@ export function App() {
               </>
             )}
           </div>
-          {/* One tap, no menus: the field toggle for reading the screen in
-              direct sun. Also mirrored in Preferences (Display → Daylight). */}
-          <button
-            className={`file-btn hc-toggle${daylight ? ' hc-on' : ''}`}
-            aria-pressed={daylight}
-            onClick={() => setPrefs({ ...prefs, daylight: !daylight })}
-            title={daylight
-              ? 'Daylight mode is ON — black on white at maximum contrast. Click to go back to your theme.'
-              : 'Daylight mode — black on white at maximum contrast, for reading the screen in bright sunlight'}
-          >
-            <Icon name="sun" /> Daylight
-          </button>
+          <ScreenModeSwitch tourAnchor />
           <button className="file-btn" onClick={() => setShowPrefs(true)} title="Preferences">
             <Icon name="sliders" /> Preferences
           </button>
