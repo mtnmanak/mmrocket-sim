@@ -12,6 +12,9 @@ import { App } from './App.js';
 import * as exportAssembly from './services/exportAssembly.js';
 import * as bundleDialog from './components/FlightDataBundleDialog.js';
 import * as importApply from './services/importApply.js';
+import * as designConfirms from './components/DesignConfirms.js';
+import * as noticeBar from './components/NoticeBar.js';
+import * as openMotorChoices from './services/openMotorChoices.js';
 import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
 import type { FlightTree, MountMotor, SavedConfig } from './model/design.js';
 import type { StageMassOverride } from './services/stageMassOverrides.js';
@@ -566,13 +569,12 @@ describe('AS1 preserved autosave replacement', () => {
       await waitFor(() => shownName(host) === (answer === 'Cancel' ? treeName : newer === 'New' ? 'New Rocket' : 'Newer design'), 'winning action applies');
       expect(host.querySelector('[aria-label="Open design from link"]')).toBeNull();
       expect(question(host)).toBeNull();
-      if (answer !== 'Cancel') expect(host.querySelector('.notice-bar')?.textContent).toContain('The link was not opened.');
-      else expect(host.querySelector('.notice-bar')?.textContent ?? '').not.toContain('The link was not opened.');
+      expect(host.querySelector('.notice-bar')?.textContent ?? '').not.toContain('The link was not opened.');
       flush();
       expect(storedSession()!.tree.name).toBe(shownName(host));
     }, 30_000);
 
-  it('r4 uses the live pause state after an earlier open finishes during Save .ork, then open', async () => {
+  it('AS3 row 3a cancels a pending save-then-open continuation when its design is replaced', async () => {
     const { host, release, treeName } = await acceptedSlowOpen('picker');
     await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Edited starter');
     const second = new File([exportOrk({ name: 'Second design', tree: { ...defaultTree(), name: 'Second design' } })], 'Second.ork');
@@ -585,11 +587,13 @@ describe('AS1 preserved autosave replacement', () => {
     await waitFor(() => shownName(host) === treeName, 'earlier accepted design applies');
     expect(host.textContent).not.toContain('Autosave is paused');
     await act(async () => { finishSave({ kind: 'downloaded', name: 'Starter.ork' }); });
-    await waitFor(() => question(host) !== null || shownName(host) === 'Second design', 'save continuation opens second file');
+    await waitFor(() => pageActivity.importsInProgress() === 0, 'save continuation settled');
     expect(question(host)).toBeNull();
-    expect(shownName(host)).toBe('Second design');
+    expect(host.querySelector('[aria-label="Unsaved changes"]')).toBeNull();
+    expect(shownName(host)).toBe(treeName);
+    expect(host.textContent).toContain('“Second.ork” was not opened because');
     flush();
-    expect(storedSession()!.tree.name).toBe('Second design');
+    expect(storedSession()!.tree.name).toBe(treeName);
   }, 30_000);
 
   it.each(['file + link', 'file + New', 'New + link'].flatMap(combination => [false, true].map(slow => ({ combination, slow }))))(
@@ -630,7 +634,7 @@ describe('AS1 preserved autosave replacement', () => {
       const notice = host.querySelector('.notice-bar')?.textContent;
       expect(notice).toContain(combination === 'New + link' ? 'A new design was not started because' : '“Second.ork” was not opened because');
       expect(notice).toContain(combination === 'file + New' ? 'a new design started first' : 'the design from the link opened first');
-      if (combination === 'file + New') expect(notice).toContain('The link was not opened.');
+      if (combination === 'file + New') expect(notice).not.toContain('The link was not opened.');
     }, 30_000);
 
   it.each(['share', 'motor link'].flatMap(door => ['Examples', 'Recent'].map(chooser => ({ door: door as 'share' | 'motor link', chooser }))))(
@@ -650,7 +654,7 @@ describe('AS1 preserved autosave replacement', () => {
       await act(async () => { button(host.querySelector('[aria-label="Unsaved changes"]')!, 'Open without saving').click(); });
       await waitFor(() => shownName(host) === 'Chosen design', 'chosen file applies');
       expect(host.querySelector('[aria-label="Open design from link"]')).toBeNull();
-      expect(host.querySelector('.notice-bar')?.textContent).toContain('The link was not opened.');
+      expect(host.querySelector('.notice-bar')?.textContent ?? '').not.toContain('The link was not opened.');
       expect(question(host)).toBeNull();
     }, 30_000);
 
@@ -743,15 +747,260 @@ describe('AS1 preserved autosave replacement', () => {
     return Object.assign(enter, { file, xml });
   }
 
-  it.each(doors)('AS2 %s asks at the door before its first read or New plan', async door => {
+  it.each([false, true].flatMap(paused => ['Recent', 'Examples'].map(door => ({ paused, door }))))(
+    'AS3 row 1 keeps $door read failures inside the chooser (paused: $paused)', async ({ paused, door }) => {
+      if (paused) localStorage.setItem(SESSION_KEY, raw);
+      else {
+        const state = { tree: defaultTree(), mountMotors: {}, launch: DEFAULT_CONDITIONS,
+          measured: { massKg: null, cgM: null }, savedConfigs: [], activeConfigId: null };
+        localStorage.setItem(SESSION_KEY, JSON.stringify({ ...state, appVersion: APP_VERSION,
+          savedMark: designFingerprint(state), configLayers: 1, savedAt: Date.now() }));
+      }
+      const enter = await prepareDoor(door as 'Recent' | 'Examples');
+      if (door === 'Recent') vi.mocked(recentDesigns.recentDesignFile).mockResolvedValueOnce(null);
+      else vi.mocked(examples.loadExampleFile).mockRejectedValueOnce(new Error('Example download failed'));
+      const host = await mountApp();
+      await enter(host);
+      const chooser = host.querySelector(`[aria-label="${door === 'Recent' ? 'Recent designs' : 'Example designs'}"]`);
+      expect(chooser).not.toBeNull();
+      expect(chooser!.textContent).toContain(door === 'Recent' ? 'no longer in Recent' : 'Example download failed');
+      expect(question(host)).toBeNull();
+      if (paused) { flush(); expect(localStorage.getItem(SESSION_KEY)).toBe(raw); }
+      await act(async () => { chooser!.querySelector<HTMLButtonElement>(door === 'Recent'
+        ? '.recent-design-list button' : '.example-design-list button')!.click(); });
+      if (paused) {
+        await waitFor(() => question(host) !== null, 'readable selection asks before applying');
+        expect(shownName(host)).not.toBe('Replacement design');
+        await act(async () => { button(question(host)!, 'Continue').click(); });
+      }
+      await waitFor(() => shownName(host) === 'Replacement design', 'retry opens readable selection');
+    }, 30_000);
+
+  it('AS3 row 2 clears only the successfully reopened file target', async () => {
+    const { host, release, treeName } = await acceptedSlowOpen('picker');
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Dirty starter');
+    await act(async () => { button(host, 'Scale').click(); });
+    await pick(host, new File(['unread'], 'Retry.ork'));
+    await act(async () => { release(); });
+    await waitFor(() => shownName(host) === treeName, 'older design replaces starter');
+    expect(host.textContent).toContain('“Retry.ork” was not opened because');
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    const file = (name: string) => new File([exportOrk({ name, tree: { ...defaultTree(), name } })], name);
+    await pick(host, file('Other.ork'));
+    await waitFor(() => shownName(host) === 'Other.ork', 'unrelated design opens');
+    expect(host.textContent).toContain('“Retry.ork” was not opened because');
+    await pick(host, file('Retry.ork'));
+    await waitFor(() => shownName(host) === 'Retry.ork', 'same target opens');
+    expect(host.textContent).not.toContain('“Retry.ork” was not opened because');
+  }, 30_000);
+
+  it.each(['picker', 'Recent', 'Examples', 'New'] as const)(
+    'AS3 r2 clears a declined startup link after successful %s replacement', async replacement => {
+      localStorage.setItem(SESSION_KEY, raw);
+      const enterLink = await prepareDoor('share');
+      const host = await mountApp();
+      await enterLink(host);
+      await waitFor(() => question(host) !== null, 'link consent');
+      await act(async () => { button(question(host)!, 'Cancel').click(); });
+      await waitFor(() => pageActivity.importsInProgress() === 0, 'declined link');
+      expect(host.querySelector('.notice-bar')?.textContent).toContain('The link was not opened.');
+      // A file-note mutation would disappear here, before any replacement.
+      await saveAs(host, 'Save .ork');
+      await waitFor(() => host.querySelector('.notice-bar')?.textContent?.includes('Saved') ?? false, 'save receipt replaces file note');
+      expect(host.querySelector('.notice-bar')?.textContent).toContain('The link was not opened.');
+      const enter = await prepareDoor(replacement);
+      await enter(host);
+      await waitFor(() => question(host) !== null, 'replacement consent');
+      await act(async () => { button(question(host)!, 'Continue').click(); });
+      await waitFor(() => shownName(host) === (replacement === 'New' ? 'New Rocket' : 'Replacement design'), 'replacement applies');
+      expect(host.querySelector('.notice-bar')?.textContent ?? '').not.toContain('The link was not opened.');
+    }, 30_000);
+
+  it('AS3 r2 keeps cancellation identities and individual dismissals stable', async () => {
+    const realConfirms = designConfirms.DesignConfirms;
+    const realNotices = noticeBar.NoticeBar;
+    let doors!: Parameters<typeof realConfirms>[0];
+    let notices!: noticeBar.Notice[];
+    vi.spyOn(designConfirms, 'DesignConfirms').mockImplementation(props => { doors = props; return realConfirms(props); });
+    vi.spyOn(noticeBar, 'NoticeBar').mockImplementation(props => { notices = props.notices; return realNotices(props); });
+    localStorage.setItem(SESSION_KEY, raw);
+    const host = await mountApp();
+    const first = new File(['unread'], 'First.ork');
+    await pick(host, first);
+    expect(question(host)).not.toBeNull();
+    // Exercise the guarded callback itself; the picker normally refuses even earlier.
+    await act(async () => { await doors.onOpenOrk(new File(['unread'], 'Second.ork')); });
+    await act(async () => { await doors.onOpenOrk(new File(['unread'], 'Third.ork')); });
+    await act(async () => { await doors.onOpenOrk(new File(['unread'], 'Third.ork')); });
+    const entries = notices.filter(n => n.text.includes('was not opened. Answer'));
+    expect(entries).toHaveLength(3);
+    expect(new Set(entries.map(n => n.id)).size).toBe(3);
+    const survivor = entries[1]!;
+    await act(async () => { host.querySelector<HTMLButtonElement>('.notice-toggle[aria-expanded="true"]')!.click(); });
+    const announcer = host.querySelector('.notice-announce[role="alert"]')!;
+    expect(announcer.textContent).toContain('Third.ork');
+    const alert = announcer.innerHTML;
+    await act(async () => { entries[0]!.onDismiss!(); });
+    expect(notices.find(n => n.id === survivor.id)?.text).toBe(survivor.text);
+    expect(notices.some(n => n.id === entries[0]!.id)).toBe(false);
+    expect(host.querySelector('.notice-toggle')?.getAttribute('aria-expanded')).toBe('false');
+    expect(announcer.innerHTML).toBe(alert);
+    await act(async () => { button(question(host)!, 'Cancel').click(); });
+    const file = (name: string) => new File([exportOrk({ name, tree: { ...defaultTree(), name } })], name);
+    await pick(host, file('Other.ork'));
+    await act(async () => { button(question(host)!, 'Continue').click(); });
+    await waitFor(() => shownName(host) === 'Other.ork', 'unrelated file opens');
+    expect(notices.find(n => n.id === survivor.id)?.text).toBe(survivor.text);
+    await pick(host, file('Third.ork'));
+    await waitFor(() => shownName(host) === 'Third.ork', 'matching refusal target opens');
+    expect(notices.some(n => n.id === survivor.id)).toBe(false);
+  }, 30_000);
+
+  it('AS3 r2 keeps an unconfirmed link apply in the cancellation channel until replacement', async () => {
+    const real = designConfirms.DesignConfirms;
+    let doors!: Parameters<typeof real>[0];
+    vi.spyOn(designConfirms, 'DesignConfirms').mockImplementation(props => { doors = props; return real(props); });
+    localStorage.setItem(SESSION_KEY, raw);
+    const host = await mountApp();
+    const imported = importOrk(exportOrk({ name: 'Unconfirmed', tree: { ...defaultTree(), name: 'Unconfirmed' } }));
+    await act(async () => { await doors.applyImported(imported); });
+    expect(host.querySelector('.notice-bar')?.textContent).toContain('The link was not opened because');
+    await saveAs(host, 'Save .ork');
+    await waitFor(() => host.querySelector('.notice-bar')?.textContent?.includes('Saved') ?? false, 'save receipt replaces file note');
+    expect(host.querySelector('.notice-bar')?.textContent).toContain('The link was not opened because');
+    expect(shownName(host)).not.toBe('Unconfirmed');
+    await act(async () => { button(host, '✕ New').click(); });
+    await act(async () => { button(question(host)!, 'Continue').click(); });
+    await waitFor(() => shownName(host) === 'New Rocket', 'New replaces starter');
+    expect(host.querySelector('.notice-bar')?.textContent ?? '').not.toContain('The link was not opened because');
+  }, 30_000);
+
+  it('AS3 r2 keeps an unconfirmed file apply targeted across an unrelated replacement', async () => {
+    const real = importApply.openShareLink;
+    let releaseConsent!: Parameters<typeof real>[1]['onError'];
+    vi.spyOn(importApply, 'openShareLink').mockImplementation((hash, deps) => {
+      releaseConsent = deps.onError;
+      return real(hash, deps);
+    });
+    localStorage.setItem(SESSION_KEY, raw);
+    const enterLink = await prepareDoor('share');
+    let rejectLink!: (error: Error) => void;
+    vi.mocked(decodeShareFragment).mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectLink = reject; }));
+    const host = await mountApp();
+    await enterLink(host);
+    await waitFor(() => question(host) !== null, 'link consent');
+    await act(async () => { button(question(host)!, 'Continue').click(); });
+    await waitFor(() => !!rejectLink, 'held link decode');
+    const file = (name: string) => new File([exportOrk({ name, tree: { ...defaultTree(), name } })], name);
+    const held = heldFile(exportOrk({ name: 'Unconfirmed', tree: { ...defaultTree(), name: 'Unconfirmed' } }), 'Retry.ork');
+    pendingReads.add(held.release);
+    await pick(host, held.file);
+    await act(async () => { button(question(host)!, 'Continue').click(); });
+    // Exercise the defensive missing-consent file branch through its real
+    // callbacks. The normal sequencer blocks stale errors; invoke the captured
+    // failure sink directly to release consent without superseding the read.
+    await act(async () => { releaseConsent(new Error('test consent release')); rejectLink(new Error('finish held decode')); });
+    await act(async () => { held.release(); });
+    pendingReads.delete(held.release);
+    await waitFor(() => pageActivity.importsInProgress() === 0, 'both reads finish');
+    const warning = '“Retry.ork” was not opened because its autosave replacement was not confirmed.';
+    expect(host.querySelector('.notice-bar')?.textContent).toContain(warning);
+    await saveAs(host, 'Save .ork');
+    await waitFor(() => host.querySelector('.notice-bar')?.textContent?.includes('Saved') ?? false, 'save receipt replaces file note');
+    expect(host.querySelector('.notice-bar')?.textContent).toContain(warning);
+    await pick(host, file('Other.ork'));
+    await act(async () => { button(question(host)!, 'Continue').click(); });
+    await waitFor(() => shownName(host) === 'Other.ork', 'unrelated replacement');
+    expect(host.querySelector('.notice-bar')?.textContent).toContain(warning);
+    await pick(host, file('Retry.ork'));
+    await waitFor(() => shownName(host) === 'Retry.ork', 'matching replacement');
+    expect(host.querySelector('.notice-bar')?.textContent).not.toContain(warning);
+  }, 30_000);
+
+  it.each([false, true])('AS3 row 3a retires the visible unsaved question (paused: %s)', async paused => {
+    const { host, release, treeName } = await acceptedSlowOpen('picker', paused);
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Dirty starter');
+    const next = new File(['must not be read'], 'Next.ork');
+    const read = vi.spyOn(next, 'arrayBuffer');
+    await pick(host, next);
+    expect(host.querySelector('[aria-label="Unsaved changes"]')).not.toBeNull();
+    await act(async () => { release(); });
+    await waitFor(() => shownName(host) === treeName, 'older design replaces starter');
+    expect(host.querySelector('[aria-label="Unsaved changes"]')).toBeNull();
+    expect(host.textContent).toContain('“Next.ork” was not opened because “Older.ork” opened first.');
+    expect(read).not.toHaveBeenCalled();
+  }, 30_000);
+
+  it.each(['motor', 'shroud'].flatMap(followup => ['parse failure', 'size refusal', 'success', 'New'].map(outcome => ({ followup, outcome }))))(
+    'AS3 r2 preserves the current $followup question until replacement ($outcome)', async ({ followup, outcome }) => {
+    const identities = vi.spyOn(openMotorChoices, 'collectOpenMotorIdentities');
+    const applied = vi.spyOn(importApply, 'applyImportPlan');
+    const { host, release } = await acceptedSlowOpen('picker', false);
+    await act(async () => { button(host, 'Scale').click(); });
+    const name = 'Follow-up design';
+    const shroudTree = { name, components: [{ type: 'stage', children: [{ type: 'bodytube',
+      length: 0.3, outerRadius: 0.02, thickness: 0.001, children: [{ type: 'freeformfinset',
+        name: 'Camera Shroud', finCount: 1, thickness: 0.025, crossSection: 'rounded', overrideMass: 0.05,
+        points: [[0, 0], [0, 0.02], [0.08, 0.02], [0.08, 0]] }] }] }] } as FlightTree;
+    let xml = exportOrk({ name, tree: shroudTree });
+    if (followup === 'motor') {
+      const db = (await Promise.all(MOTOR_DB.filter(m => m.diameter === 18 && m.delays?.split(',').some(d => /^\d+$/.test(d)))
+        .map(async m => await bundleHasCurve(m.motorId) ? m : null))).find(m => m !== null)!;
+      const delay = Number(db.delays!.split(',').find(d => /^\d+$/.test(d))!);
+      const motor = (await loadCatalogueMotor(db.manufacturerAbbrev, db.designation, delay))!;
+      const tree = { ...defaultTree(), name };
+      xml = exportOrk({ name, tree, motors: { [motorMounts(tree)[0]!.id!]: {
+        manufacturer: 'AS3 missing maker', designation: db.designation, delay,
+        diameter: motor.spec.diameter, length: motor.spec.length,
+      } } });
+    }
+    const motorFile = new File([xml], 'Followup.ork');
+    await act(async () => { release(); });
+    await waitFor(() => pageActivity.importsInProgress() === 0, 'first open completes');
+    await pick(host, motorFile);
+    await waitFor(() => shownName(host) === name, 'design applies behind Scale');
+    if (followup === 'motor') expect(identities.mock.results.at(-1)!.value.length).toBeGreaterThan(0);
+    else expect(applied.mock.calls.at(-1)![0].shrouds.length).toBeGreaterThan(0);
+    const label = followup === 'motor' ? 'Choose motors for this file' : 'Convert camera shrouds';
+    expect(host.querySelector(`[aria-label="${label}"]`)).toBeNull();
+    if (outcome === 'New') {
+      await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Edited follow-up design');
+      await act(async () => { button(host, '✕ New').click(); });
+      await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+      await act(async () => { button(host.querySelector('[aria-label="Start a new design"]')!, 'Discard & start new').click(); });
+      await waitFor(() => shownName(host) === 'New Rocket', 'New replaces follow-up design');
+      expect(host.querySelector(`[aria-label="${label}"]`)).toBeNull();
+      return;
+    }
+    const next = heldFile(outcome === 'parse failure' ? 'corrupt file'
+      : exportOrk({ name: 'Newer design', tree: { ...defaultTree(), name: 'Newer design' } }), 'Newer.ork');
+    if (outcome === 'size refusal') Object.defineProperty(next.file, 'size', { value: 1_000_000_000 });
+    pendingReads.add(next.release);
+    await pick(host, next.file);
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    // Starting a read has not replaced the design that earned this question.
+    expect(host.querySelector(`[aria-label="${label}"]`)).not.toBeNull();
+    await act(async () => { next.release(); });
+    pendingReads.delete(next.release);
+    await waitFor(() => pageActivity.importsInProgress() === 0, 'newer open finishes');
+    if (outcome === 'success') {
+      expect(shownName(host)).toBe('Newer design');
+      expect(host.querySelector(`[aria-label="${label}"]`)).toBeNull();
+    } else {
+      expect(shownName(host)).toBe(name);
+      const prompt = host.querySelector(`[aria-label="${label}"]`)!;
+      expect(prompt).not.toBeNull();
+      await act(async () => { button(prompt, followup === 'motor' ? 'Apply' : 'Convert to camera shroud').click(); });
+      await waitFor(() => !host.querySelector(`[aria-label="${label}"]`), 'current design can answer after failed open');
+    }
+  }, 30_000);
+
+  it.each(doors.filter(door => door !== 'Recent' && door !== 'Examples'))('AS2 %s asks at the door before its first read or New plan', async door => {
     localStorage.setItem(SESSION_KEY, raw);
     const enter = await prepareDoor(door);
     let release = () => {};
-    const held = new Promise<File>(resolve => { release = () => resolve(enter.file); });
     let firstWork;
     if (door === 'New') firstWork = vi.spyOn(importApply, 'planNewDesign');
-    else if (door === 'Examples') firstWork = vi.mocked(examples.loadExampleFile).mockReturnValueOnce(held);
-    else if (door === 'Recent') firstWork = vi.mocked(recentDesigns.recentDesignFile).mockReturnValueOnce(held);
     else if (door === 'share' || door === 'motor link') {
       firstWork = vi.mocked(decodeShareFragment).mockClear().mockImplementationOnce(() => new Promise<string>(resolve => {
         release = () => resolve(enter.xml);
@@ -899,7 +1148,7 @@ describe('AS1 preserved autosave replacement', () => {
     expect(question(host)!.textContent).toContain('The autosave stored in this browser could not be read');
     expect(question(host)!.textContent).toContain(door === 'New' ? 'starts a new design'
       : door === 'share' || door === 'motor link' ? 'opens the design from the link'
-      : `opens “${door === 'Examples' ? examples.EXAMPLE_DESIGNS[0]!.fileName : 'Replacement.ork'}”`);
+      : 'opens “Replacement.ork”');
     await act(async () => { button(question(host)!, 'Download the autosaved design (JSON)').click(); });
     expect(vi.mocked(saveFile).mock.calls.at(-1)![0]).toBe(raw);
     expect(question(host)).not.toBeNull();
@@ -1047,7 +1296,7 @@ describe('AS1 preserved autosave replacement', () => {
     expect(question(host)).toBeNull();
   }, 30_000);
 
-  it.each(['New', 'Open'] as const)('AS2 a slow open cannot steal keyboard focus beneath the %s question', async door => {
+  it('AS2 a slow open cannot steal keyboard focus beneath the New question', async () => {
     localStorage.setItem(SESSION_KEY, raw);
     const tree = { ...defaultTree(), name: 'Slow older open' };
     const { file, release } = heldFile(exportOrk({ name: tree.name, tree }), 'Older.ork');
@@ -1058,10 +1307,8 @@ describe('AS1 preserved autosave replacement', () => {
     expect(question(host)!.textContent).toContain('opens “Older.ork”');
     await act(async () => { button(question(host)!, 'Continue').click(); });
     await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Dirty paused starter');
-    if (door === 'New') await act(async () => { button(host, '✕ New').click(); });
-    else await pick(host, new File(['unread'], 'Next.ork'));
-    const visible = host.querySelector<HTMLElement>(door === 'New'
-      ? '[aria-label="Start a new design"]' : '[aria-label="Unsaved changes"]')!;
+    await act(async () => { button(host, '✕ New').click(); });
+    const visible = host.querySelector<HTMLElement>('[aria-label="Start a new design"]')!;
     expect(visible).not.toBeNull();
     const first = visible.querySelector<HTMLButtonElement>('button')!;
     const cancel = button(visible, 'Cancel');
@@ -1085,10 +1332,8 @@ describe('AS1 preserved autosave replacement', () => {
       (document.activeElement as HTMLButtonElement).click();
     });
     await waitFor(() => vi.mocked(saveFile).mock.calls.length > 0, 'visible Save action');
-    if (door === 'New') {
-      expect(visible.contains(document.activeElement)).toBe(true);
-      expect(question(host)).toBeNull();
-    } else await waitFor(() => host.textContent!.includes('Could not open'), 'next file read fails');
+    expect(visible.contains(document.activeElement)).toBe(true);
+    expect(question(host)).toBeNull();
     flush();
     expect(storedSession()!.tree.name).toBe(tree.name);
     expect(shownName(host)).toBe(tree.name);

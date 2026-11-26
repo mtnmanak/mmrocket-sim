@@ -472,7 +472,7 @@ export function App() {
   const flightEdit = useRef<{ owner: 'default' | 'detached' | { configId: string }; committed: boolean; cancel: () => void } | null>(null);
   const motorAnswerRevision = useRef<object>({});
   const restoringMotors = useRef<Record<string, MountMotor> | null>(null);
-  const [openMotorQuestion, setOpenMotorQuestion] = useState<{ identities: OpenMotorIdentity[]; openId: number; acceptedLines: string[] } | null>(null);
+  const [openMotorQuestion, setOpenMotorQuestion] = useState<{ identities: OpenMotorIdentity[]; openId: number; generation: number; acceptedLines: string[] } | null>(null);
   // The design tree and its undo/redo history (hooks/useTreeHistory.ts, audit
   // 2026-09-22 extraction #4). `onRestore` and `blocked` are read at call time,
   // so they may name what is declared further down. A tree off the stack is
@@ -892,9 +892,12 @@ export function App() {
     setFileNoteState(text === null ? null : { text, severity, ...(expand ? { expand: true } : {}), ...(tier ? { tier } : {}) });
   }, []);
   // A cancelled door's warning must survive the winning design's import receipt.
-  const [cancelledDoorNote, setCancelledDoorNote] = useState<string | null>(null);
-  const reportCancelledDoor = (text: string) => {
-    setCancelledDoorNote(previous => previous ? `${previous}\n${text}` : text);
+  const cancelledDoorCounter = useRef(0);
+  const [cancelledDoorNotes, setCancelledDoorNotes] = useState<{ id: number; text: string; target?: string | null }[]>([]);
+  // A filename identifies file/Recent/Example targets; null identifies any link.
+  const reportCancelledDoor = (text: string, target?: string | null) => {
+    const id = ++cancelledDoorCounter.current;
+    setCancelledDoorNotes(previous => [...previous, { id, text, target }]);
   };
   /** An open's or a configuration switch's note: its text and its tiered lines (services/importApply.ts). */
   const setGroupNote = useCallback((text: string, severity: NoticeSeverity, expand?: boolean, group?: NoteGroup) => {
@@ -953,7 +956,7 @@ export function App() {
   const clearMotorLink = (clearOrigin = true, acceptedOffer?: ImportedDesign) => {
     if (clearOrigin) setMotorLinkMark(null);
     if (shareOfferRef.current && shareOfferRef.current !== acceptedOffer) {
-      reportCancelledDoor('The link was not opened. To open it, open the link again.');
+      reportCancelledDoor('The link was not opened. To open it, open the link again.', null);
     }
     shareOfferRef.current = null;
     setShareOffer(null);
@@ -1037,11 +1040,11 @@ export function App() {
   const doorQuestions = useRef({ pendingOpen, confirmNew });
   doorQuestions.current = { pendingOpen, confirmNew };
   const visibleDesignQuestion = useRef<string | null>(null);
-  const retireQueuedDoors = (reason: string, queued?: { pendingOpen: File | null; confirmNew: boolean }) => {
+  const retireQueuedDoors = (reason: string, queued?: { confirmNew: boolean }) => {
     const held = doorQuestions.current;
-    // A visible Save-then-open question keeps its continuation; only queued doors expire.
-    if (held.pendingOpen && (visibleDesignQuestion.current !== 'open' || queued?.pendingOpen === held.pendingOpen)) {
-      reportCancelledDoor(`“${noteField(held.pendingOpen.name)}” was not opened because ${reason}.`);
+    // Save/discard describes the replaced design, even when already visible.
+    if (held.pendingOpen) {
+      reportCancelledDoor(`“${noteField(held.pendingOpen.name)}” was not opened because ${reason}.`, held.pendingOpen.name);
       held.pendingOpen = null;
       setPendingOpen(null);
     }
@@ -1069,8 +1072,9 @@ export function App() {
    * any open still in flight (audit 2026-09-22); each open checks it before
    * touching state. See applyImported.
    */
-  const openSeq = useRef(createSequencer()).current;
-  const deferredFiles = useRef(new WeakMap<File, () => Promise<File>>());
+  // Starting a read supersedes older reads, but does not replace the current
+  // document or its follow-up questions. Only a successful apply/New does that.
+  const [openSeq] = useState(createSequencer);
   const linkOpenIds = useRef(new WeakMap<ImportedDesign, number>());
   const designModalOpen = useRef(false);
   designModalOpen.current = confirmNew || pendingOpen !== null || shareOffer !== null || showExamples || showRecent
@@ -1084,15 +1088,6 @@ export function App() {
   const chooseFile = (file: File) => {
     if (refuseDesignDoor(`Opening “${noteField(file.name)}”`)) return;
     if (dirty) setPendingOpen(file); else void onOpenOrk(file);
-  };
-  const chooseDeferredFile = (name: string, load: () => Promise<File>) => {
-    setShowExamples(false);
-    setShowRecent(false);
-    // The chooser hands off ownership before any asset or IndexedDB read.
-    designModalOpen.current = false;
-    const file = new File([], name);
-    deferredFiles.current.set(file, load);
-    chooseFile(file);
   };
   // File writes may finish after Open/New or a newer save has taken ownership.
   const documentGeneration = useRef(0);
@@ -1338,6 +1333,7 @@ export function App() {
     retireQueuedDoors('a new design started first');
     setPendingOpen(null);
     clearMotorLink();
+    setCancelledDoorNotes(previous => previous.filter(note => note.target !== null));
     documentGeneration.current++;
     appliedSaveDestination.current = null;
     appliedOrkSaveDestination.current = null;
@@ -2160,11 +2156,11 @@ export function App() {
     fileNote: () => setFileNote(null),
     runsCapped: () => setRunsCapped({ evicted: 0, unsaved: 0, undoEvicted: 0 }),
     legacyPositions: () => writeTree(dismissLegacyPositions(treeRef.current)),
-  }), ...(cancelledDoorNote ? [{ id: 'cancelled-design-action', text: cancelledDoorNote, severity: 'warn' as const,
-    onDismiss: () => setCancelledDoorNote(null) }] : []),
+  }), ...cancelledDoorNotes.map(note => ({ id: `cancelled-design-action-${note.id}`, text: note.text, severity: 'warn' as const,
+    onDismiss: () => setCancelledDoorNotes(previous => previous.filter(entry => entry.id !== note.id)) })),
   ...(motorLoadoutRepair ? [motorLoadoutRepair] : []), ...(catalogueNotice ? [catalogueNotice] : [])],
   // eslint-disable-next-line react-hooks/exhaustive-deps -- components and legacy check deliberately: a rename must not re-run this (row 513)
-  [buildError, buildFailed, motorFailures, fileNoteState, setFileNote, cancelledDoorNote, motorLoadoutRepair, catalogueNotice,
+  [buildError, buildFailed, motorFailures, fileNoteState, setFileNote, cancelledDoorNotes, motorLoadoutRepair, catalogueNotice,
     restoredByOlderBuild, timeStepMigrated, timeStepMigratedFrom, padMassNote, runsCapped,
     tree.components, legacyPositionCheck, treeRef, writeTree, assigned, prefs.units.motorDimensions]);
 
@@ -3108,7 +3104,6 @@ export function App() {
     // Accepting a link closes its offer before motor resolution. Remember doors
     // queued behind it even if one becomes visible while those motors resolve.
     const queuedDoors = {
-      pendingOpen: visibleDesignQuestion.current === 'open' ? null : doorQuestions.current.pendingOpen,
       confirmNew: visibleDesignQuestion.current !== 'new' && doorQuestions.current.confirmNew,
     };
     try {
@@ -3136,9 +3131,9 @@ export function App() {
       // An accepted read may finish beneath an unrelated dialog. Its own link
       // offer still needs the explicit Open handoff.
       if (autosavePausedRef.current && (autosaveConsent.current !== openId || linkOfferPending)) {
-        setFileNote(file
+        reportCancelledDoor(file
           ? `“${noteField(file.name)}” was not opened because its autosave replacement was not confirmed. Open the file again to retry.`
-          : 'The link was not opened because its autosave replacement or link offer was not confirmed. Open the link again to retry.', 'warn');
+          : 'The link was not opened because its autosave replacement or link offer was not confirmed. Open the link again to retry.', file?.name ?? null);
         return;
       }
       // Consume this action's consent even if planning or applying throws.
@@ -3195,7 +3190,7 @@ export function App() {
       setDesignNotesEpoch(epoch => epoch + 1);
       const identities = collectOpenMotorIdentities(imported, resolved, plan.snapshot);
       setOpenMotorQuestion(identities.length ? {
-        identities, openId, acceptedLines,
+        identities, openId, generation: documentGeneration.current, acceptedLines,
       } : null);
       const storedCount = imported.storedSimulations?.length ?? 0;
       setImportedDocument(summaryDocument(imported));
@@ -3247,6 +3242,9 @@ export function App() {
         motor: plan.snapshot.mountMotors[flight.mountId]!, motorDelay: plan.snapshot.mountMotors[flight.mountId]!.spec.ejectionDelay, previousTree: tree, previousMotor: mountMotors[flight.mountId], committed: false };
       // All apply work succeeded, in one synchronous block, before releasing recovery bytes.
       retireQueuedDoors(file ? `“${noteField(file.name)}” opened first` : 'the design from the link opened first', queuedDoors);
+      // Startup links open once per mount. Any successful replacement clears
+      // link warnings; files keep the narrower same-filename rule.
+      setCancelledDoorNotes(previous => previous.filter(note => note.target !== null && (file === null || note.target !== file.name)));
       autosavePausedRef.current = false;
       setAutosavePaused(false);
       autosaveConsent.current = null;
@@ -3484,7 +3482,7 @@ export function App() {
 
   const onOpenOrk = async (file: File) => {
     if (autosaveReplacementAnswer.current) {
-      setFileNote(`“${noteField(file.name)}” was not opened. Answer the autosave replacement question, then open the file again.`, 'warn');
+      reportCancelledDoor(`“${noteField(file.name)}” was not opened. Answer the autosave replacement question, then open the file again.`, file.name);
       return;
     }
     const finishImport = pageActivity.startImport();
@@ -3501,9 +3499,6 @@ export function App() {
       }
       if (!openSeq.isCurrent(openId) || autosaveReplacementUnmounted.current) return;
       clearMotorLink();
-      const load = deferredFiles.current.get(file);
-      if (load) file = await load();
-      if (!openSeq.isCurrent(openId) || autosaveReplacementUnmounted.current) return;
       // Cheap pre-check before the bytes are read, let alone inflated — the
       // file door (services/designFile.ts), which the headless open uses too.
       const tooBig = designFileTooLarge(file.size, file.name);
@@ -3737,9 +3732,9 @@ export function App() {
         autosaveConsent.current = null;
         if (autosaveReplacementUnmounted.current) return;
         sessionDebugLog.record('import-failed', e);
-        setFileNote(e === declined
-          ? 'The link was not opened. To open it, download the autosaved design if you want it, then open the link again.'
-          : shareLinkOpenFailure(e), 'warn');
+        if (e === declined) reportCancelledDoor(
+          'The link was not opened. To open it, download the autosaved design if you want it, then open the link again.', null);
+        else setFileNote(shareLinkOpenFailure(e), 'warn');
       },
     }).finally(() => { finishImport(); setShareOpening(false); });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot startup decode
@@ -4598,12 +4593,14 @@ export function App() {
       {showExamples && <LazyDialog label="Example designs" className="modal-card example-design-dialog" onClose={() => setShowExamples(false)}>
         <ExampleDesignsDialog onClose={() => setShowExamples(false)} onOpen={file => {
           setShowExamples(false);
+          designModalOpen.current = false;
           if (dirty) setPendingOpen(file); else void onOpenOrk(file);
-        }} onChoose={autosavePaused ? chooseDeferredFile : undefined} /></LazyDialog>}
+        }} /></LazyDialog>}
       {showRecent && <RecentDesignsDialog onClose={() => setShowRecent(false)} onOpen={file => {
         setShowRecent(false);
+        designModalOpen.current = false;
         if (dirty) setPendingOpen(file); else void onOpenOrk(file);
-      }} onChoose={autosavePaused ? chooseDeferredFile : undefined} />}
+      }} />}
       <DesignConfirms tree={tree} lossDialog={lossDialog} setLossDialog={setLossDialog} saveLossy={saveLossy}
         preservedAutosave={confirmAutosaveReplacement ? {
           unreadable: sessionUnreadable(), action: autosaveReplacementAction, downloadError: autosaveDownloadError,
@@ -4634,9 +4631,9 @@ export function App() {
         <OpenMotorDialog key={openMotorQuestion.openId} identities={openMotorQuestion.identities}
           onLater={() => setOpenMotorQuestion(null)}
           onApply={async choices => {
-            const { identities, openId } = openMotorQuestion;
+            const { identities, generation } = openMotorQuestion;
             const next = await applyOpenMotorChoices({ tree, mountMotors, savedConfigs, unmatchedRefs }, activeConfigId, identities, choices, undefined, prefs.units);
-            if (!openSeq.isCurrent(openId)) return;
+            if (documentGeneration.current !== generation) return;
             // The chosen motor and its back-out are one undo step (audit 2026-10-11, S2-2).
             const changedMounts = new Set(identities.flatMap(g => g.locations.map(l => l.mountId)));
             const chosenTree = refreshFileMotorIds(treeRef.current, [next.mountMotors, ...next.savedConfigs.map(c => c.motors)], false, changedMounts);
