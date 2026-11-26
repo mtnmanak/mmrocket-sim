@@ -101,6 +101,9 @@ export function effectiveSupersonicOf(aeroMode: AeroMode, autoSupersonic: boolea
   return aeroMode === 'supersonic' || (aeroMode === 'auto' && autoSupersonic);
 }
 
+/** Fields shared by physics projection and identical-tube comparison. */
+export const NON_PHYSICAL_COMPONENT_KEYS: readonly string[] = ['name', 'color', 'comment', 'fileMotorIds', 'boreAssumed'];
+
 /**
  * The physics-relevant projection of the tree: names and display colours
  * stripped at every level, so a cosmetic edit keeps the key (and the flight
@@ -108,7 +111,8 @@ export function effectiveSupersonicOf(aeroMode: AeroMode, autoSupersonic: boolea
  */
 export function physicsKeyOf(components: readonly ComponentNode[]): string {
   const strip = (n: ComponentNode): unknown => {
-    const { name: _n, color: _c, comment: _comment, fileMotorIds: _fileMotors, boreAssumed: _boreAssumed, children, ...rest } = n as ComponentNode & { color?: string };
+    const { children, ...rest } = Object.fromEntries(Object.entries(n)
+      .filter(([key]) => !NON_PHYSICAL_COMPONENT_KEYS.includes(key))) as ComponentNode;
     return { ...rest, children: (children ?? []).map(strip) };
   };
   return JSON.stringify(components.map(strip));

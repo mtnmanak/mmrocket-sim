@@ -640,6 +640,27 @@ it.each([2, 3, 4, 6])('152 r6 shows mirror skipping only for selectable separate
   }
 });
 
+it.each([4, 6].flatMap(n => [
+  { setting: 'motorOverhang', value: 0 }, { setting: 'cluster', value: 'single' },
+  { setting: 'maxMotorLength', value: 0.25 }, { setting: 'density', value: 500 },
+].map(change => ({ n, ...change }))))('153 shows correct mirror eligibility and reason for $setting on $n tubes', ({ n, setting, value }) => {
+  const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [{ type: 'bodytube', id: 'b', children: [
+    ...Array.from({ length: n }, (_, i) => ({ type: 'innertube' as const, id: i ? `m${i}` : 'mount', motorMount: true,
+      length: 0.2, outerRadius: 0.0125, thickness: 0.0005, radialPosition: 0.025, radialDirection: i * 2 * Math.PI / n })),
+    { type: 'parachute', id: 'chute', deployEvent: 'Apogee' },
+  ] }] }] };
+  const mounts = Array.from({ length: n }, (_, i) => ({ ...MOUNTS[0]!, id: i ? `m${i}` : 'mount' }));
+  const tube = tree.components[0]!.children![0]!.children![1]!;
+  tube[setting] = value;
+  mount({ tree, mounts });
+  expect(checkbox('Skip mirror arrangements').disabled).toBe(setting === 'density');
+  if (setting === 'density') {
+    expect(host.querySelector('#batch-mirror-condition')!.textContent).toContain('identical material density settings');
+  } else {
+    expect(host.querySelector('#batch-mirror-condition')!.textContent).not.toContain('recovery independent of motor ejection charges to prove');
+  }
+});
+
 it.each([4, 6])('152 hides mirror skipping for one %s-ring cluster mount', n => {
   const tree = structuredClone(CLUSTER_TREE);
   tree.components[0]!.children![0]!.children![0]!['cluster'] = `${n}-ring`;

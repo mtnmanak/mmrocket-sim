@@ -2164,6 +2164,109 @@ describe('152 identical-tube mirror reduction', () => {
   }
   const settings = { assignedMountMotors: {}, launch: DEFAULT_CONDITIONS, model: 'kbf' as const };
   it.each([
+    ['name', 'Other name'], ['color', '#abcdef'], ['comment', 'Imported tube'], ['fileMotorIds', []],
+    ['boreAssumed', true], ['presetManufacturer', 'Maker'], ['presetPartNo', 'Part'],
+    ['orkPresetManufacturer', 'Maker'], ['orkPresetPartNo', 'Part'], ['orkPresetDigest', 'digest'],
+    ['orkPresetImportState', 'imported'], ['materialName', 'Other label'],
+  ])('B153 r2 ignores non-physical tube %s', (key, value) => {
+    const s = setup();
+    motorMounts(s.tree)[1]![key as string] = value;
+    expect(batchMirrorReason(s.tree, s.targetMountIds, {}, settings)).toBeNull();
+  });
+  it.each([4, 6])('B153 r2 equates missing density with the bulk default on a %s-ring', n => {
+    const s = setup(n), tubes = motorMounts(s.tree);
+    for (const tube of tubes) delete tube['density'];
+    tubes[1]!['density'] = 680;
+    expect(batchMirrorReason(s.tree, s.targetMountIds, {}, settings)).toBeNull();
+    delete tubes[1]!['density'];
+    tubes[0]!['density'] = 680;
+    expect(batchMirrorReason(s.tree, s.targetMountIds, {}, settings)).toBeNull();
+  });
+  it.each([4, 6])('B153 r2 equates default axial positions regardless of key order on a %s-ring', n => {
+    const s = setup(n), tubes = motorMounts(s.tree);
+    for (const tube of tubes) delete tube.position;
+    tubes[1]!.position = { offset: 0, method: 'bottom' };
+    expect(batchMirrorReason(s.tree, s.targetMountIds, {}, settings)).toBeNull();
+    tubes[0]!.position = { method: 'bottom', offset: 0 };
+    expect(batchMirrorReason(s.tree, s.targetMountIds, {}, settings)).toBeNull();
+    tubes[1]!.position.offset = 0.01;
+    expect(batchMirrorReason(s.tree, s.targetMountIds, {}, settings)).toBe('The tubes need identical axial positions.');
+    tubes[1]!.position = { method: 'top', offset: 0 };
+    expect(batchMirrorReason(s.tree, s.targetMountIds, {}, settings)).toBe('The tubes need identical axial positions.');
+  });
+  it.each([
+    { key: 'density', value: 500, label: 'material density' },
+    { key: 'outerRadius', value: 1 / 64, label: 'outer radius' },
+    { key: 'overrideMass', value: 0.05, label: 'mass override' },
+    { key: 'overrideCGX', value: 0.05, label: 'centre of gravity override' },
+    { key: 'overrideCD', value: 0.5, label: 'drag coefficient override' },
+    { key: 'overrideSubcomponentsMass', value: true, label: 'subcomponent mass override' },
+    { key: 'overrideSubcomponentsCG', value: true, label: 'subcomponent centre of gravity override' },
+    { key: 'overrideSubcomponentsCD', value: true, label: 'subcomponent drag override' },
+    { key: 'retention', value: 'clip', label: 'motor retention' },
+    { key: 'clusterScale', value: 2, label: 'cluster spacing' },
+    { key: 'clusterRotation', value: 0.1, label: 'cluster rotation' },
+  ])('B153 r2 names mapped physical $key differences', ({ key, value, label }) => {
+    const s = setup();
+    if (key === 'outerRadius') {
+      // Binary fractions keep both bores exactly equal while wall/OD differ.
+      for (const tube of motorMounts(s.tree)) {
+        tube['outerRadius'] = 1 / 128;
+        tube['thickness'] = 1 / 1024;
+      }
+      motorMounts(s.tree)[1]!['thickness'] = 9 / 1024;
+    }
+    motorMounts(s.tree)[1]![key] = value;
+    expect(batchMirrorReason(s.tree, s.targetMountIds, {}, settings)).toBe(`The tubes need identical ${label} settings.`);
+  });
+  it('B153 r2 names an unlabelled physical difference', () => {
+    const s = setup();
+    motorMounts(s.tree)[1]!['motorMount'] = false;
+    expect(batchMirrorReason(s.tree, s.targetMountIds, {}, settings)).toBe('The tubes differ in another setting (motorMount).');
+  });
+  it.each([4, 6].flatMap(n => ['parachute', 'streamer'].map(type => ({ n, type }))))(
+    '153 reads stored recovery case on a $n-ring with a $type', ({ n, type }) => {
+    const s = setup(n);
+    const recovery = s.tree.components[0]!.children![1]!.children!.find(m => m.id === 'chute')!;
+    recovery.type = type as ComponentNode['type'];
+    for (const event of ['Apogee', 'APOGEE', 'Altitude', 'NEVER', 'Launch']) {
+      recovery['deployEvent'] = event;
+      expect(batchMirrorReason(s.tree, s.targetMountIds, {}, settings), event).toBeNull();
+    }
+    for (const event of ['ejection', 'Ejection', 'EJECTION', 'lowerstageseparation', undefined]) {
+      recovery['deployEvent'] = event;
+      expect(batchMirrorReason(s.tree, s.targetMountIds, {}, settings), event).toContain('recovery independent');
+    }
+  });
+  it.each([4, 6].flatMap(n => [
+    { key: 'motorOverhang', value: 0 }, { key: 'cluster', value: 'single' },
+    { key: 'clusterScale', value: 1 }, { key: 'clusterRotation', value: 0 },
+    { key: 'overrideSubcomponentsMass', value: false }, { key: 'overrideSubcomponentsCG', value: false },
+    { key: 'overrideSubcomponentsCD', value: false },
+    { key: 'maxMotorLength', value: 0.25 },
+  ].map(change => ({ n, ...change }))))(
+    '153 allows omitted defaults or a fit-only $key on a $n-ring', ({ n, key, value }) => {
+    const s = setup(n), tubes = motorMounts(s.tree);
+    for (const tube of tubes) delete tube[key];
+    tubes[1]![key] = value;
+    expect(batchMirrorReason(s.tree, s.targetMountIds, {}, settings)).toBeNull();
+    // Also exercise a value present on the comparison's first tube only.
+    delete tubes[1]![key];
+    tubes[0]![key] = value;
+    expect(batchMirrorReason(s.tree, s.targetMountIds, {}, settings)).toBeNull();
+  });
+  it.each([
+    { key: 'density', value: 500, reason: 'The tubes need identical material density settings.' },
+    { key: 'overrideCGX', value: 0.05, reason: 'The tubes need identical centre of gravity override settings.' },
+    { key: 'unknownSetting', value: true, reason: 'The tubes differ in another setting (unknownSetting).' },
+    { key: 'constructor', value: true, reason: 'The tubes differ in another setting (constructor).' },
+    { key: 'file\nsetting\u202e', value: true, reason: 'The tubes differ in another setting (filesetting[U+202E]).' },
+  ])('153 names the actual differing $key', ({ key, value, reason }) => {
+    const s = setup();
+    motorMounts(s.tree)[1]![key] = value;
+    expect(batchMirrorReason(s.tree, s.targetMountIds, {}, settings)).toBe(reason);
+  });
+  it.each([
     { deployEvent: 'apogee', delays: '' }, { deployEvent: 'ejection', delays: 'P' },
   ])('i1 counts recorded searches and button estimate with mirrors requested: $deployEvent/$delays', async ({ deployEvent, delays }) => {
     for (const neverIds of [[], ['ring0', 'ring2']]) {
@@ -2336,7 +2439,7 @@ describe('152 identical-tube mirror reduction', () => {
     ['radius', (s: ReturnType<typeof setup>) => { motorMounts(s.tree)[1]!['radialPosition'] = 0.0231; }, 'distances'],
     ['overhang', (s: ReturnType<typeof setup>) => { motorMounts(s.tree)[1]!['motorOverhang'] = 0.001; }, 'overhang'],
     ['retention', (s: ReturnType<typeof setup>) => { motorMounts(s.tree)[1]!['retention'] = 'different'; }, 'retention'],
-    ['tube mass', (s: ReturnType<typeof setup>) => { motorMounts(s.tree)[1]!['overrideMass'] = 0.1; }, 'material, mass'],
+    ['tube mass', (s: ReturnType<typeof setup>) => { motorMounts(s.tree)[1]!['overrideMass'] = 0.1; }, 'mass override'],
     ['attached child', (s: ReturnType<typeof setup>) => { motorMounts(s.tree)[1]!.children = [{ type: 'masscomponent', id: 'child' }]; }, 'Attached parts'],
     ['angle', (s: ReturnType<typeof setup>) => { motorMounts(s.tree)[1]!['radialDirection'] = Math.PI / 2 + 1e-5; }, 'equally spaced'],
     ['unknown angle', (s: ReturnType<typeof setup>) => { delete motorMounts(s.tree)[1]!['radialDirection']; }, 'known, equally spaced'],

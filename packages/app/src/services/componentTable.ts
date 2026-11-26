@@ -1,6 +1,7 @@
 import type { ComponentInfo, ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { clusterCount } from '../tree/cluster.js';
 import { numOpt } from '../tree/nodeNum.js';
+import { flownDeployEvent } from '../tree/deployEvent.js';
 import { DISPLAY_NAME, FIELDS, type FieldDef } from '../tree/schema.js';
 import { shroudEnds } from '../tree/shroud.js';
 import { asStageNodes, flownInstanceCount, kernelStageIdByNode, nameOr } from '../tree/treeModel.js';
@@ -161,7 +162,8 @@ export function componentTable(
         if (f.key === 'filletDensity' && !((numOpt(n, 'filletRadius') ?? 0) > 0)) return '';
         const own = fieldsFor(n.type).find((d) => d.key === f.key && fieldHeader(d) === fieldHeader(f));
         if (!own) return '';
-        const raw = f.key === 'fairingForeShape' ? shroudEnds(n).fore
+        const raw = f.key === 'deployEvent' ? flownDeployEvent(n[f.key])
+          : f.key === 'fairingForeShape' ? shroudEnds(n).fore
           : f.key === 'fairingAftShape' ? shroudEnds(n).aft
             : n[f.key] === undefined ? own.dflt : n[f.key];
         if (own.bool) return raw === true ? 'yes' : raw === false ? 'no' : '';
