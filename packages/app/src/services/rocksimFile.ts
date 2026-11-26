@@ -10,6 +10,7 @@ import { nozzleExportNotes } from './nozzleExport.js';
 import { filletExportNotes } from './filletExport.js';
 import { simulationExtensionLossNotes } from './orkExtensions.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
+import { finCollisionFor, type FinComparisonBudget } from '../tree/finCollision.js';
 import { repairImportedFinOutline } from './importFinOutline.js';
 import { asStageNodes, findNode, flownInstanceCount, freshId, mountsIn, nameOr } from '../tree/treeModel.js';
 import { mountBore } from '../tree/scaleRocket.js';
@@ -21,7 +22,7 @@ import { foldDeployEvent } from '../tree/deployEvent.js';
 import { finRootChord, finTabFront } from '../tree/finTab.js';
 import { finCountOf } from '../tree/counts.js';
 import { airfoilFinMassEstimate } from '../tree/finMassEstimate.js';
-import { spansOverlap } from '../tree/finAlign.js';
+import { MAX_FIN_ALIGN_COMPARISONS, spansOverlap } from '../tree/finAlign.js';
 import { isFinSet } from '../tree/mountAngle.js';
 import { axialLength, positionOf, resolveAbsolutePositions, startFromPosition } from '../tree/position.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, inlineXmlCdata, lookupTable, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
@@ -1864,9 +1865,11 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
   // ---- Fin de-collision (2026-08-05d) ----
   // RockSim renders interleaved fin sets without storing an angle, so tube
   // fins + straight fins routinely arrive at the SAME rotation — physically
-  // impossible. Any fin-type set that axially overlaps an earlier set at the
-  // same angle gets rotated by half the earlier set's pitch (adjustable
-  // afterwards via the set's Rotation field).
+  // impossible when their planforms meet. A later same-angle set is rotated
+  // using sound single-lobe outlines on body tubes (FA1), otherwise the held
+  // axial span. Swept tips can pass above a rear fin without touching it.
+  const finBudget: FinComparisonBudget = { comparisons: 0, limit: MAX_FIN_ALIGN_COMPARISONS };
+  let finBudgetLimited = false;
   const deCollideFins = (nodes: ComponentNode[]) => {
     for (const parentNode of nodes) {
       const kids = parentNode.children ?? [];
@@ -1889,13 +1892,27 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
         };
         const rotOf = (k: ComponentNode) => nnum(k, 'rotation', 0);
         const ranges = finSets.map(range);
+        const outlinesMeet = finBudgetLimited ? null : finCollisionFor({ components }, parentNode);
+        // Keep the held v0.145 span as a necessary condition: this narrows
+        // import repairs and does not turn the Spaceman's overhanging arm.
+        const meet = (j: number, i: number): boolean => {
+          if (!spansOverlap(ranges[j]!, ranges[i]!)) return false;
+          if (finBudgetLimited) return true;
+          const result = outlinesMeet!(finSets[j]!, finSets[i]!, finBudget);
+          if (result !== undefined) return result;
+          if (finBudget.comparisons > finBudget.limit) finBudgetLimited = true;
+          return true;
+        };
         for (let i = 1; i < finSets.length; i++) {
           const me = finSets[i]!;
           const clash = finSets.slice(0, i).find((other, j) =>
-            Math.abs(rotOf(other) - rotOf(me)) < 1e-6 && spansOverlap(ranges[j]!, ranges[i]!));
+            Math.abs(rotOf(other) - rotOf(me)) < 1e-6 && meet(j, i));
           if (clash) {
             if (appWritten) {
-              cautionNote(notes, 'I21.fin-rotated', `“${noteField(me.name ?? me.type)}” sits at the same angle as “${noteField(clash.name ?? clash.type)}” and overlaps it. The saved angles are kept; both sets count in flight and may double the fins at that angle. Check the sets and stability before flying.`);
+              const overlap = finBudgetLimited
+                ? 'has an overlapping axial span; the outline check was skipped to bound the work'
+                : 'overlaps it in the fin-clearance check';
+              cautionNote(notes, 'I21.fin-rotated', `“${noteField(me.name ?? me.type)}” sits at the same angle as “${noteField(clash.name ?? clash.type)}” and ${overlap}. The saved angles are kept; both sets count in flight and may double the fins at that angle. Check the sets and stability before flying.`);
               continue;
             }
             // The count that is DRAWN AND FLOWN (finCountOf, 1..8): this pass
@@ -1904,7 +1921,7 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
             // that fly need 22.5° (seam review of audit 2026-09-22; finAlign.ts
             // made the same change for the one-click pass).
             const count = finCountOf(clash);
-            const others = i > 65 ? [] : finSets.slice(0, i).filter((_other, j) => spansOverlap(ranges[j]!, ranges[i]!));
+            const others = i > 65 ? [] : finSets.slice(0, i).filter((_other, j) => meet(j, i));
             const rotation = others.length > 1 ? interleaveRotation(others[0]!, me, others.slice(1))
               : rotOf(me) + Math.PI / count;
             const turn = 2 * Math.PI;
@@ -1918,6 +1935,8 @@ export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
     }
   };
   deCollideFins(components);
+  if (finBudgetLimited) cautionNote(notes, 'I21.fin-rotated',
+    'Too much fin-outline work to finish checking this import. Remaining fin sets were checked by axial span only and may have been rotated even where their outlines are apart. Saved angles in app-written files are kept. Check fin rotations and physical clearance before flying.');
   const recoveryIn = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap((node) => [
     ...(node.type === 'parachute' || node.type === 'streamer' ? [node] : []),
     ...recoveryIn(node.children ?? []),

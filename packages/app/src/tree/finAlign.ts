@@ -7,14 +7,15 @@ import { updateNode } from './treeModel.js';
 import { num } from './nodeNum.js';
 import { isFinSet } from './mountAngle.js';
 import { resolveTransitionRadii } from './transitionRadii.js';
+import { finCollisionFor, type FinComparisonBudget } from './finCollision.js';
 
 /**
- * One-click fin-set alignment (issue 2026-08-05e): rotates axially-overlapping
+ * One-click fin-set alignment (issue 2026-08-05e): rotates intersecting
  * sibling fin sets so their fins interleave with the widest possible angular
  * clearance — the manual counterpart of the importer's de-collision pass.
  *
  * The first set on each tube keeps its rotation; every later set that overlaps
- * an earlier one is rotated to the angle that maximizes the minimum circular
+ * an earlier outline (or span when outlines are unknown) is rotated to the angle that maximizes the minimum circular
  * distance between any of its fins and any fin of the overlapping sets. For
  * the common two-set cases this reproduces the half-pitch interleave (6 tube
  * fins + 3 straight fins → 30°), and it generalizes to three or more sets.
@@ -28,7 +29,7 @@ export interface FinAlignResult {
 }
 
 // Corpus whole-design upper bound: 4 sets, 276,864 fin-pair comparisons.
-const MAX_FIN_ALIGN_COMPARISONS = 2_000_000;
+export const MAX_FIN_ALIGN_COMPARISONS = 2_000_000;
 
 const rotOf = (n: ComponentNode, patches: Map<string, number>): number => {
   if (n.id && patches.has(n.id)) return patches.get(n.id)!;
@@ -59,9 +60,8 @@ const countOf = (n: ComponentNode): number => finCountOf(n);
  * fin whose tip overhangs its root collides with the set behind it out to the
  * tip, and one swept forward with the set ahead of it.
  *
- * Shared with the RockSim importer's de-collision pass (rocksimFile.ts), which
- * carried its own copy of this and of `spansOverlap` (audit 2026-09-22, from
- * the 8 September record) — two copies of one geometric question.
+ * finCollisionFor narrows this only for supported outlines; unknown keeps it.
+ * The RockSim importer retains a narrower historical axial prerequisite.
  */
 export function finSetSpan(k: ComponentNode, parentLength: number): [number, number] {
   const start = startFromPosition(positionOf(k), axialLength(k), parentLength);
@@ -95,7 +95,7 @@ export function autoAlignFinSets(tree: RocketTree, units: UnitSelection = INITIA
   const angle = (rad: number) => `${fmtSi('angle', unit, rad, unit === '°' ? 1 : 3)}${unit === '°' ? '' : ' '}${unit}`;
   const patches = new Map<string, number>();
   const changes: string[] = [];
-  let comparisons = 0;
+  const budget: FinComparisonBudget = { comparisons: 0, limit: MAX_FIN_ALIGN_COMPARISONS };
   let limited = false;
 
   const visit = (parentNode: ComponentNode) => {
@@ -108,14 +108,18 @@ export function autoAlignFinSets(tree: RocketTree, units: UnitSelection = INITIA
       // from — a cleared tube is its type's default, not 0.2 m.
       const pLen = axialLength(parentNode);
       const ranges = finSets.map(f => finSetSpan(f, pLen));
+      const outlinesMeet = finCollisionFor(tree, parentNode);
 
       for (let i = 1; i < finSets.length; i++) {
         const me = finSets[i]!;
         const myRange = ranges[i]!;
         const others: ComponentNode[] = [];
         for (let j = 0; j < i; j++) {
-          if (++comparisons > MAX_FIN_ALIGN_COMPARISONS) { limited = true; return; }
-          if (spansOverlap(ranges[j]!, myRange)) others.push(finSets[j]!);
+          if (++budget.comparisons > budget.limit) { limited = true; return; }
+          if (!spansOverlap(ranges[j]!, myRange)) continue;
+          const meet = outlinesMeet(finSets[j]!, me, budget);
+          if (budget.comparisons > budget.limit) { limited = true; return; }
+          if (meet !== false) others.push(finSets[j]!);
         }
         if (!others.length || !me.id) continue;
 
@@ -124,8 +128,8 @@ export function autoAlignFinSets(tree: RocketTree, units: UnitSelection = INITIA
         const myCount = countOf(me);
         const pitch = (Math.PI * 2) / myCount;
         const STEPS = 720;
-        comparisons += (STEPS + 1) * myCount * others.reduce((n, o) => n + countOf(o), 0);
-        if (comparisons > MAX_FIN_ALIGN_COMPARISONS) { limited = true; return; }
+        budget.comparisons += (STEPS + 1) * myCount * others.reduce((n, o) => n + countOf(o), 0);
+        if (budget.comparisons > budget.limit) { limited = true; return; }
         let bestRot = rotOf(me, patches);
         let bestClear = -1;
         for (let s = 0; s < STEPS; s++) {
@@ -162,7 +166,7 @@ export function autoAlignFinSets(tree: RocketTree, units: UnitSelection = INITIA
   for (const top of resolveTransitionRadii(tree).components) visit(top);
 
   if (limited) return { tree, changes: [], caution:
-    'Too many overlapping fin sets to auto-align in one step. Nothing was rotated. Adjust their rotations individually and check fin clearance before flying.' };
+    'Too much fin-alignment work to finish in one step. The remaining checks were skipped. Nothing was rotated. Adjust their rotations individually and check fin clearance before flying.' };
 
   let out = tree;
   for (const [id, rotation] of patches) out = updateNode(out, id, { rotation });

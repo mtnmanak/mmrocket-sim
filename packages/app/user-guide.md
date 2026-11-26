@@ -387,7 +387,13 @@ In the freeform fin coordinate table, **Insert after** adds the midpoint of the 
 
 Adding a fin set with **+ Add** places its fins between all existing fin sets on that tube, choosing the widest angular clearance. Existing sets keep their rotations. Check physical clearance when mixing fin counts or tube fins.
 
-When a RockSim import rotates a third or later fin set that overlaps another at the same angle, its new angle clears every earlier overlapping set. The import note names the rotation; check the arrangement against the physical rocket.
+RockSim imports first check whether fin sets at the same angle overlap along the body, from each set's front to the end of its root chord (or its furthest aft point for a freeform fin). Only pairs that overlap in that range have their outlines checked. A trapezoid's swept tip alone does not extend this import check. Outlines that cross or touch count as a collision; swept tips that pass above another fin without touching keep their alignment. When an import rotates a third or later set, its new angle clears every earlier set whose outline it meets within that range. The import note names the rotation; check the arrangement against the physical rocket.
+
+**🧭 Auto-align fin sets** checks the full outlines, including swept tips beyond the root chord, before choosing the widest angular clearance for intersecting sets. It shares the importer's outline test, so aligned Darkstar fins stay aligned.
+
+Both checks use outlines only for fins on a body tube, with positions measured from that tube and a valid single-lobe outline from the fin's own points or dimensions. In those cases, sets whose outlines are apart keep their rotations. On other parents, with absolute positions measured from the rocket's nose, or with missing, default, invalid or multi-lobe outlines, they keep the previous overlap-along-the-body decision. That simpler check can rotate fins whose outlines are apart; check their Rotation fields and physical clearance before flying.
+
+If a RockSim import reaches its fin-outline work limit, the remaining pairs use the simpler overlap-along-the-body check described above. The import shows a Caution: sets whose outlines are apart may have been rotated. Check their Rotation fields and physical clearance before flying. Saved angles in files written by the app are still kept.
 
 For unusually large designs with more than 65 earlier fin sets on one tube, automatic placement uses the simpler half-pitch rule to keep editing and importing responsive. Sets can overlap; check and adjust their Rotation fields against the physical rocket.
 

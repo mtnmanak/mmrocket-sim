@@ -1,5 +1,6 @@
 import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import { MAX_DIMENSION_M, MAX_FIN_POINT_M } from './schema.js';
+import { enclosesArea } from './polygon.js';
 
 /**
  * Freeform fin outline validation — the browser-side copy of the kernel's
@@ -107,6 +108,37 @@ function linesIntersect(a: FinOutlinePoint, b: FinOutlinePoint,
        * relativeCcw(a[0], a[1], b[0], b[1], d[0], d[1]) <= 0
     && relativeCcw(c[0], c[1], d[0], d[1], a[0], a[1])
        * relativeCcw(c[0], c[1], d[0], d[1], b[0], b[1]) <= 0;
+}
+
+/**
+ * Closed planforms in one axial/radial frame. Contact counts: an edge or
+ * corner meeting another fin is material contact even without its thickness.
+ * Shared root edges also count. A zero-area outline cannot collide.
+ */
+export function finOutlinesMeet(a: readonly FinOutlinePoint[], b: readonly FinOutlinePoint[]): boolean {
+  if (!enclosesArea(a) || !enclosesArea(b)) return false;
+  for (let i = 0; i < a.length; i++) {
+    const p = a[i]!;
+    const q = a[(i + 1) % a.length]!;
+    for (let j = 0; j < b.length; j++) {
+      const r = b[j]!;
+      const s = b[(j + 1) % b.length]!;
+      if (Math.max(p[0], q[0]) < Math.min(r[0], s[0]) || Math.max(r[0], s[0]) < Math.min(p[0], q[0])
+        || Math.max(p[1], q[1]) < Math.min(r[1], s[1]) || Math.max(r[1], s[1]) < Math.min(p[1], q[1])) continue;
+      if (linesIntersect(p, q, r, s)) return true;
+    }
+  }
+  // No edges meet: one outline may still sit wholly inside the other.
+  const inside = ([x, y]: FinOutlinePoint, loop: readonly FinOutlinePoint[]): boolean => {
+    let result = false;
+    for (let i = 0; i < loop.length; i++) {
+      const p = loop[i]!;
+      const q = loop[(i + 1) % loop.length]!;
+      if ((p[1] > y) !== (q[1] > y) && x < p[0] + (q[0] - p[0]) * (y - p[1]) / (q[1] - p[1])) result = !result;
+    }
+    return result;
+  };
+  return inside(a[0]!, b) || inside(b[0]!, a);
 }
 
 /**
