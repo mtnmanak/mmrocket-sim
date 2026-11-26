@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { timeStepCostFactor } from './launchConditions.js';
-import { mixedComboCount } from './batchSweep.js';
+import { batchSolverFlights, mixedComboCount } from './batchSweep.js';
 import { MOTOR_DB } from './motorDb.js';
 import { batchDelayProbeText, gradeBatchRun, type Criteria } from './batchCriteria.js';
 import type { SimRun } from './simReport.js';
@@ -58,6 +58,22 @@ it('136 counts mixed-only halves, pairs and ordered rings, including the cap and
   expect(batchRefusal({ candidates: 3, withoutOOP: null, modes: [], solverFlights: 0, includeSingles: false })).toContain('Nothing to fly');
   expect(batchRefusal({ candidates: 1, withoutOOP: null, modes: [{ name: 'mixed 2+2', groups: 2 }], solverFlights: 0, includeSingles: false })).toContain('Nothing to fly');
   expect(batchButtonLabel({ candidates: 2, totalFlights: 2, confirming: false, includeSingles: false })).toBe('Simulate 2 flights');
+});
+
+it.each([
+  { name: 'mixed 2+2', groups: 2 }, { name: 'mixed 3+3', groups: 2 }, { name: 'mixed 4+2 / 2+2+2', groups: 3 },
+])('152 uses reduced $name counts for limits, button text and delay-search estimates', shape => {
+  const mode = { ...shape, ordered: true, skipMirrors: true };
+  const count = batchFlightCount(3, [mode]);
+  expect(count).toBe(mode.groups === 2 ? 6 : 10);
+  expect(batchButtonLabel({ candidates: 3, totalFlights: count, confirming: false })).toBe(`Simulate ${count} flights`);
+  const max = batchMaxCandidates([mode]);
+  expect(batchFlightCount(max, [mode])).toBeLessThanOrEqual(BATCH_MAX_FLIGHTS);
+  expect(batchFlightCount(max + 1, [mode])).toBeGreaterThan(BATCH_MAX_FLIGHTS);
+  expect(batchRefusal({ candidates: max, modes: [mode], withoutOOP: null, solverFlights: 0 })).toBeNull();
+  expect(batchRefusal({ candidates: max + 1, modes: [mode], withoutOOP: null, solverFlights: 0 })).toContain('more than one batch');
+  const candidates = MOTOR_DB.slice(0, 3);
+  expect(batchSolverFlights({ candidates, groups: [mode], autoDelay: true, deploysOnCharge: false, othersAuto: false })).toBe(count);
 });
 
 it('137 applies only offered impulse classes; a stored invisible class cannot filter candidates', () => {
