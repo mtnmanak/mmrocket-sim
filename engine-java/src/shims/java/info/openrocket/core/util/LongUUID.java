@@ -11,9 +11,12 @@ package info.openrocket.core.util;
  * semantics EXACTLY (JDK algorithms), so any id string that leaks into
  * output or .ork files is indistinguishable from the original.
  *
- * randomUUID() is DETERMINISTIC (counter-based) by design: the engine needs
- * reproducible runs for differential testing, and this class is compiled
- * into both the JVM and TeaVM sides, so behavior is identical everywhere.
+ * randomUUID() is counter-based, so the JVM and TeaVM sides of the
+ * differential harness, running the same sequence of builds, hand out the
+ * same configuration ids. It does NOT make a rebuild reproducible: the counter
+ * is process-wide (every build in one app session gets new ids) and component
+ * ids are java.util.UUID.randomUUID() (crypto.randomUUID under TeaVM). Nothing
+ * may iterate in an order these ids hash to (LEDGER.md, KD1).
  */
 public final class LongUUID implements Comparable<LongUUID> {
 

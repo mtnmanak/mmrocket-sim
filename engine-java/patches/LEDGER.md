@@ -98,8 +98,13 @@ git diff --no-index <openrocket-src>/<path> patches/<path>
 - **Change:** `java.util.UUID` → `info.openrocket.core.util.LongUUID` (shim), a faithful
   reimplementation of the JDK UUID surface used (identical toString/hashCode/equals/
   compareTo semantics). Pure type swap; no logic changed.
-- **Note:** `LongUUID.randomUUID()` is deterministic (counter-based) — intentional, for
-  reproducible differential runs. Identical on JVM and TeaVM sides by construction.
+- **Note:** `LongUUID.randomUUID()` is counter-based, so the JVM and TeaVM sides of the
+  differential harness, running the same sequence of builds, hand out the same configuration
+  ids. **Corrected 2026-11-25 (KD1):** this note used to say the counter was "for reproducible
+  differential runs", which read as "runs are reproducible". They were not across rebuilds: the
+  counter is process-wide (every build in one app session gets new configuration ids) and
+  component ids are `java.util.UUID.randomUUID()` (crypto.randomUUID under TeaVM), so anything
+  iterated in an order those ids hash to changed with every build. See Determinism fixes, KD1.
 
 ### rocketcomponent/FlightConfiguration.java
 - **Why:** TeaVM 0.15 has no `java.util.concurrent.ConcurrentLinkedQueue`.
@@ -255,6 +260,83 @@ git diff --no-index <openrocket-src>/<path> patches/<path>
   simulations by choice" rule (seeded wind, LongUUID).
 - **Upstreamable:** arguably — upstream simulations are nondeterministic at the
   ULP level run-to-run because of this.
+- **Correction (KD1, 2026-11-25):** the Why above says `RocketComponent` has no `hashCode()`
+  override. It has one, upstream too: `hashCode()` returns `id.hashCode()`, and the id is a
+  random UUID (SecureRandom on the JVM, crypto.randomUUID under TeaVM). The order still varied
+  from run to run, so the fix and its effect stand; but it varied with every BUILD, not only
+  with every JVM process, and that is how the same mechanism survived in two other containers
+  until KD1 (next entry).
+
+### rocketcomponent/FlightConfiguration.java + util/MonitorableSet.java (NEW patch) - motors and deployed recovery devices iterate in design order, not UUID-hash order (KD1, 2026-11-25)
+- **Why:** the same design, built afresh and flown again, did not always give the same
+  flight; reusing one built handle did. Probe-backed review 2026-11-25 (fix lane KD1;
+  probes `.claude/fix-2026-11-25d/probes/__probe_det_*`). Two containers iterated in an
+  order that changed with every build:
+  1. `FlightConfiguration.motors` was a `HashMap<MotorConfigurationId, MotorConfiguration>`.
+     `MotorConfigurationId`'s key is the mount's UUID `hashCode()` (random per build) shifted
+     into the high word, folded with the `FlightConfigurationId` (LongUUID's process-wide
+     counter, new for every build). `getAllMotors()` is that map's `values()`, so
+     `SimulationStatus.populateMotors` built the motor-state list in hash order;
+     `RK4SimulationStepper.calculateThrust` sums thrust over it (float addition is
+     order-dependent) and `BasicEventSimulationEngine.handleEvents` queues IGNITION per motor
+     in that order (same-time ties in the `EventQueue` then follow insertion history, so
+     BURNOUT and EJECTION_CHARGE follow too). With three or more mounts thrusting at once on
+     motors that are not all bit-identical the sum's last bit moved and adaptive stepping
+     amplified it: measured on synthetic rings (v0.217, rebuilt 8-24 times in one process)
+     up to **1.1 cm apogee and 0.025-0.044 s time to apogee** on a 6-tube ring with mixed
+     thrust, length and delay (recorded series 807-833 samples long), 1e-11 to 1e-6 m on
+     most others. With two or more mounts, same-time motor events changed order even when
+     every number held. Two mounts cannot move a number: a two-term sum is commutative.
+  2. `SimulationStatus.deployedRecoveryDevices` is a `MonitorableSet`, which extends
+     `HashSet`; `RecoveryDevice` hashes by its random UUID. `BasicLandingStepper.computeCD`
+     sums `count * CD * area / refArea` over it. With three or more devices out at once whose
+     CdA terms round differently by order, the descent moved: ten such three-chute sets each
+     gave 2-3 different descents in 8 rebuilds (the ground-hit time in its 14th significant
+     digit, or the summed altitude series).
+- **Change (one token each):** `motors = new HashMap<>()` → `new java.util.LinkedHashMap<>()`
+  (the map is final and built only there; `clone(Rocket)` and `copy()` build a new
+  configuration through the constructor; `updateMotors()` clears it and re-puts in
+  `getActiveComponents()` order, a breadth-first walk from the Integer-keyed active stages,
+  so iteration order is a function of the design alone). `MonitorableSet extends HashSet` →
+  `extends LinkedHashSet` (a new whole-file patch; its only user is the deployed-device set,
+  filled in deployment-event order and copied with `clear()` + `addAll()`; `clone()` has no
+  caller). Both are plain classlib, so the TeaVM constraint holds.
+- **Artifact:** the motors change alone produced a ONE-line artifact diff against v0.217's
+  committed kernel (`$this.$motors0 = ju_HashMap__init_()` → `ju_LinkedHashMap__init_()`),
+  so the rest of the rebuild is byte-identical to the shipped one. With MonitorableSet:
+  `iocu_MonitorableSet` now extends `ju_LinkedHashSet` (LinkedHashSet 0 → 9 occurrences;
+  the remaining diff is HashSet constructor renumbering and metadata batching from linking
+  one more class). md5 `36ec42bc...` (v0.217) → `6b2a4b82066b88842f5947cc61978347`.
+- **Evidence:** `goldenJvm` 464/464 lines and the TeaVM golden output 464/464 lines
+  identical before and after (no golden has three or more distinct motors thrusting at once
+  or three devices out at once); difftest clean (464 lines, 312 bit-identical, 152 within
+  tolerance, unchanged). App guard `packages/app/src/services/rebuildDeterminism.test.ts`:
+  a 6-tube ring of six distinct motors, a 4-tube mixed ring on a 5 degree rod in 4 m/s wind,
+  and one motor with three chutes deployed together, each rebuilt 5-6 times through
+  `simulateDesign`; apogee, time to apogee, max velocity, the event list and the time and
+  altitude series must be bit-identical. On the v0.217 kernel all three fail (twice
+  running); on a build with only the motors change the chute case fails; with both, all
+  pass. `batchSweep.test.ts` "Round 4 synchronous reversed loaded pairs" (its batch apogee
+  against an ordinary Launch, `toBeCloseTo(.., 6)` on a 4-tube ring): v0.217 differed in
+  5 of 10 runs by up to 1.5e-12 m, KD1 bit-identical 10 of 10.
+- **What moves for users:** only designs with two or more motor-carrying mounts, or three
+  or more recovery devices deployed together. Each such flight now gives ONE answer instead
+  of one of a spread; the answer is one of the summation orders upstream wanders across, so
+  it stays inside upstream's own run-to-run envelope. Tester corpus (every `User files` design,
+  app default aero, each case rebuilt 3 times on each kernel): 402 file/configuration cases, 74
+  with two or more motor-carrying mounts or three or more devices, 71 flown (the same 3 refused
+  on both: unresolved motors, no motor). KD1 rebuild-identical 71/71; apogee, time to apogee, max
+  velocity, flight time and the altitude series bit-identical to EVERY v0.217 rebuild 71/71;
+  warnings identical 71/71. Only one design ignites more than two separate mounts at once
+  (`8 in Goblin 4 x 75mm v2`, .ork and .rkt, 3 configurations each, four mounts whose motors are
+  identical or two identical pairs); re-flown 12 times per kernel, v0.217 gave 4-10 different
+  same-time event orders and never a different number, and KD1 matches its numbers exactly.
+  Every other case ignites its mounts one at a time (multi-stage) or two at once
+  (`complexj.ork`), and none deploys more than two devices at once, so no corpus number
+  moved: what users see change is the order of same-time events on designs like the Goblin.
+- **Upstreamable:** yes, both (same reasoning as InstanceMap). Not changed and recorded:
+  `MotorConfigurationId` keeps only the mount UUID's 32-bit hash, so two mounts whose hashes
+  collide would share a key and one motor would drop out (about n^2 / 2^33 per build).
 
 ## Feature patches (documented physics extension — RASAero gap features)
 
@@ -1752,6 +1834,8 @@ components (centering rings, bulkheads, tube couplers) — which is exactly the
   same-time IGNITION / BURNOUT / EJECTION_CHARGE events changes from run to run, because
   `FlightConfiguration.motors` is a HashMap keyed by MotorConfigurationId, whose hash
   comes from the mount's random UUID. Series and summary were identical in every case.
+  (Fixed 2026-11-25 by KD1, under Determinism fixes. With four bit-identical motors only
+  the event order can move; with motors that differ, the numbers can move too.)
   JUnit `DataBranchViewTest` (6 tests: live view, every write refused, missing type null
   on both accessors, clone independence both ways, view on an immuted branch and through
   getDataIndexOfTime, branch-copy independence). Mutations: `get` back to `list.clone()`

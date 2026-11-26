@@ -67,7 +67,14 @@ public class FlightConfiguration implements FlightConfigurableParameter<FlightCo
 	/* Cached data */
 	final protected Map<Integer, StageFlags> stages = new HashMap<>(); // Map of stage number to StageFlags of the
 																		// corresponding stage
-	final protected Map<MotorConfigurationId, MotorConfiguration> motors = new HashMap<>();
+	// DETERMINISM PATCH (KD1, 2026-11-25; see engine-java/patches/LEDGER.md):
+	// upstream's HashMap iterated in MotorConfigurationId hash order, and that
+	// hash comes from the mount's random UUID and a process-wide id counter, so
+	// getAllMotors() / activeMotors -- the order thrust is summed and IGNITION
+	// events are queued in -- changed every time the same design was rebuilt.
+	// Insertion order is updateMotors()'s getActiveComponents() walk: a
+	// function of the design alone.
+	final protected Map<MotorConfigurationId, MotorConfiguration> motors = new java.util.LinkedHashMap<>();
 	private Map<Integer, Boolean> preloadStageActiveness = null;
 	final private Collection<MotorConfiguration> activeMotors = new LinkedList<>();
 	final private InstanceMap activeInstances = new InstanceMap();
