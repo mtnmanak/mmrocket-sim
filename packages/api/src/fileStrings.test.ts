@@ -117,7 +117,7 @@ describe('file-derived names and notes are safe at the API edge', () => {
 });
 
 it.each(['Booster\u200b', 'A\u201cB', 'A\u200b\u201cB', '\u200d\u200bé', 'é\u200b\u200d', '\u200d\u201cA',
-  '\u00a0\u200dA', 'é\u3000\u200dA'])('non-regression guard for component-name carriers and display title for %j', async name => {
+  '\u00a0\u200dA', 'é\u3000\u200dA', '\u00a0\u034fA', 'é\u3000\u034fA', '\u00a0\ufe0fA', '\u00a0\u3164A'])('non-regression guard for component-name carriers and display title for %j', async name => {
   const out = await headless.simulateFile(bytesOf('reference.ork'), 'reference.ork', { reportSeries: 'summary' });
   const mount = out.flight.delayResolution.mounts[0]!;
   mount.mountName = name;
@@ -155,12 +155,26 @@ it.each(['Booster\u200b', 'A\u201cB', 'A\u200b\u201cB', '\u200d\u200bé', 'é\u2
 }, 60_000);
 
 it.each(['\u200d\u200bé', 'é\u200b\u200d', '\u200c\u201cA', 'A\u201d\u200c',
-  '\u200d\u200b'.repeat(150) + 'é', '👨‍🚀 می‌روم'])('A25:1-2 warning names are stable across repeated projections: %j', name => {
+  '\u200d\u200b'.repeat(150) + 'é', '👨‍🚀 می‌روم', '\u00a0\u034fA', 'é\u3000\u034fA', '\u00a0\ufe0fA', '\u00a0\u3164A'])('A25:1-2 warning names are stable across repeated projections: %j', name => {
   const shown = warningName(name);
   expect(warningName(shown)).toBe(shown);
   expect(points(shown)).toBeLessThanOrEqual(200);
   expect(warningEcho(`Part "${shown}"`)).toBe(`Part "${shown}"`);
+  expect(warningName(shown.trim().replace(/\s+/g, ' '))).toBe(shown);
 });
+
+it.each([
+  ['\u00a0\u034fA', '[U+034F]A'], ['é\u3000\u034fA', 'é [U+034F]A'],
+  ['\u00a0\ufe0fA', '[U+FE0F]A'], ['\u00a0\u3164A', '[U+3164]A'],
+])('K217 /describe keeps real imported mount and stage name carriers consistent for %j', async (name, expected) => {
+  const xml = reference().replace('<name>Inner Tube</name>', `<name>${name}</name>`)
+    .replace(/(<stage>\s*<name>)Sustainer/, `$1${name}`);
+  const response = await post('/describe', 'invisible-names.ork', ork(xml));
+  expect(response.status).toBe(200);
+  const result = await response.json() as { mounts: { name: string; stageName: string }[] };
+  expect(result.mounts[0]!.name).toBe(expected);
+  expect(result.mounts[0]!.stageName).toBe(expected);
+}, 60_000);
 
 it('A25:1-2 retains numbered suffixes after repeated bounded mount projections', () => {
   const raw = 'A\u200b'.repeat(150);
