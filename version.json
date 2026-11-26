@@ -1,5 +1,5 @@
 {
-  "version": "0.217",
-  "released": "2026-11-25",
-  "note": "An autosave the app cannot read is kept until you choose to replace it, and New or opening a design asks first; a failed “Keep this tab’s design” no longer overwrites the other tab later; several small corrections. No design that opened with its motors in v0.216 flies differently."
+  "version": "0.218",
+  "released": "2026-11-26",
+  "note": "RockSim fin sets keep the angle the file gives them; the same design now flies the same every time; a compact phone summary; Batch can skip mirrored layouts of identical tubes; the replace-autosave question is asked when you choose a design."
 }
