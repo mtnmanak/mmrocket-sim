@@ -266,7 +266,21 @@ describe('a write the app did not make as the design save, over the saved design
     const data = await writtenTo('Rocket.ork');
     expect((data as Blob).type).toBe('application/zip');
     await waitFor(() => status(host) === 'Unsaved changes', 'Unsaved changes');
-    expect(await guarded(host)).toBe(true);
+    // New still protects the overwritten design, after the bundle closes.
+    const bundle = host.querySelector('[aria-label="Export flight-data bundle"]')!;
+    const focused = document.activeElement;
+    await openTab(host, 'Design');
+    await act(async () => { button(host, '✕ New').click(); });
+    expect(host.querySelectorAll('[role="dialog"][aria-modal="true"]')).toHaveLength(1);
+    expect(host.querySelector('[aria-label="Start a new design"]')).toBeNull();
+    expect(document.activeElement).toBe(focused);
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(bundle.isConnected).toBe(false);
+    await waitFor(() => !!host.querySelector('[aria-label="Start a new design"]'), 'deferred New guard');
+    const question = host.querySelector('[aria-label="Start a new design"]')!;
+    expect(question.contains(document.activeElement)).toBe(true);
+    await act(async () => { button(question, 'Cancel').click(); });
+    expect(status(host)).toBe('Unsaved changes');
   }, 30000);
 
   it('Save image (PNG) over the saved .ork', async () => {

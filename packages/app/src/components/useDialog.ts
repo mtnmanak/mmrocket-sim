@@ -1,5 +1,5 @@
 import {
-  useEffect, useRef, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent,
+  useCallback, useEffect, useRef, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { FATAL_ERROR_BAR_CHANGE } from '../services/fatalErrorBar.js';
 
@@ -43,6 +43,20 @@ const FOCUSABLE = [
 /** Open dialogs, innermost last. Only the last one answers Escape. */
 const stack: symbol[] = [];
 const dialogs = new Map<symbol, HTMLElement>();
+const dialogListeners = new Set<() => void>();
+const subscribeDialogs = (listener: () => void) => {
+  dialogListeners.add(listener);
+  return () => { dialogListeners.delete(listener); };
+};
+const notifyDialogs = () => { for (const listener of dialogListeners) listener(); };
+
+/** Late design questions wait for every other dialog, retaining their own place. */
+export function useDialogQueue() {
+  const ref = useRef<HTMLDivElement>(null);
+  const otherDialogsOpen = useCallback(() => stack.some(id => !ref.current?.contains(dialogs.get(id) ?? null)), []);
+  const blocked = useSyncExternalStore(subscribeDialogs, otherDialogsOpen);
+  return { ref, blocked };
+}
 
 /**
  * How many MODAL dialogs are open right now.
@@ -123,6 +137,7 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>(
       const first = focusableWithin(node)[0];
       (first ?? node).focus?.();
     }
+    notifyDialogs();
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (suspended) return; // the fatal actions now own keyboard access
@@ -178,6 +193,7 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>(
           if (outer) (focusableWithin(outer)[0] ?? outer).focus();
         }
       }
+      notifyDialogs();
     };
   }, []);
 

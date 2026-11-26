@@ -996,8 +996,21 @@ it.each(['file', 'paused'] as const)('round13 %s link-origin design requires off
     const stored = session(); stored.designFile = { name: 'saved.ork', via: 'saved', format: 'ork' };
     localStorage.setItem('online-openrocket.session.v1', JSON.stringify(stored));
   } else held.paused = true;
+  const motorLoads = vi.mocked(loadMotorForMount).mock.calls.length;
   await open('&motor=' + motor.motorId);
+  if (kind === 'paused') {
+    const question = host.querySelector('[aria-label="Replace the autosaved design"]');
+    expect(question).not.toBeNull();
+    expect(question!.contains(document.activeElement)).toBe(true);
+    expect(host.textContent).not.toContain('Open design from this link?');
+    expect(vi.mocked(loadMotorForMount).mock.calls).toHaveLength(motorLoads);
+    expect(vi.mocked(applyImportPlan).mock.calls).toHaveLength(1);
+    // The restored design still needs its own offer after the preserved bytes
+    // have permission to be replaced; neither question applies the link yet.
+    await click('Continue');
+  }
   await waitFor(() => host.textContent!.includes('Open design from this link?'));
+  expect(host.querySelectorAll('[role="dialog"][aria-modal="true"]')).toHaveLength(1);
   expect(vi.mocked(applyImportPlan).mock.calls).toHaveLength(1);
 }, 20_000);
 

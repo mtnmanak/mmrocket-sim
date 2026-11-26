@@ -378,40 +378,41 @@ export function App() {
   const [restored] = useState(() => designStateFromSession(loadedSession, { legacyMaxMotorLengthM: legacyMaxMotorLength(), units: prefs.units }));
   const session = restored.refused ? null : loadedSession;
   const [autosavePaused, setAutosavePaused] = useState(restored.refused);
+  // Save-picker continuations can retain the render from before an open released the bytes.
+  const autosavePausedRef = useRef(autosavePaused);
+  autosavePausedRef.current = autosavePaused;
   const [confirmAutosaveReplacement, setConfirmAutosaveReplacement] = useState(false);
   const [autosaveReplacementAction, setAutosaveReplacementAction] = useState('starts a new design');
   const [autosaveDownloadError, setAutosaveDownloadError] = useState<string | null>(null);
   const autosaveReplacementAnswer = useRef<((continueOpening: boolean) => void) | null>(null);
-  const autosaveReplacementPending = useRef<Promise<boolean> | null>(null);
+  const autosaveReplacementSettled = useRef<Promise<number | null> | null>(null);
+  const autosaveConsent = useRef<number | null>(null);
   const autosaveReplacementUnmounted = useRef(false);
-  const askAutosaveReplacement = async (action: string, kind: 'new' | 'open'): Promise<boolean> => {
-    if (autosaveReplacementUnmounted.current) return false;
-    if (!autosavePaused) return true;
-    // Consent belongs only to the action named by its question. New cancels
-    // a pending open; a background open waits, then stops on Continue or asks
-    // its own question on Cancel. Neither outcome depends on microtask order.
-    if (kind === 'new' && autosaveReplacementPending.current) {
-      const answer = autosaveReplacementAnswer.current;
-      autosaveReplacementAnswer.current = null;
-      autosaveReplacementPending.current = null;
-      answer?.(false);
-    } else {
-      while (autosaveReplacementPending.current) {
-        if (await autosaveReplacementPending.current) return false;
-      }
-    }
-    if (autosaveReplacementUnmounted.current) return false;
+  const askAutosaveReplacement = (action: string, linkOpenId?: number): Promise<number | null> => {
+    if (autosaveReplacementUnmounted.current || autosaveReplacementAnswer.current) return Promise.resolve(null);
+    if (!autosavePausedRef.current) return Promise.resolve(linkOpenId ?? openSeq.begin());
     setAutosaveReplacementAction(action);
     setAutosaveDownloadError(null);
     setConfirmAutosaveReplacement(true);
-    const pending = new Promise<boolean>(resolve => { autosaveReplacementAnswer.current = resolve; });
-    autosaveReplacementPending.current = pending;
-    return pending;
+    const settled = new Promise<number | null>(resolve => {
+      autosaveReplacementAnswer.current = accepted => {
+        if (!accepted || (linkOpenId !== undefined && !openSeq.isCurrent(linkOpenId))) {
+          resolve(null);
+          return;
+        }
+        // Merely asking must retain an earlier accepted read and its consent.
+        // Startup links already have an id; every later door claims one here.
+        const openId = linkOpenId ?? openSeq.begin();
+        autosaveConsent.current = openId;
+        resolve(openId);
+      };
+    });
+    autosaveReplacementSettled.current = settled;
+    return settled;
   };
   const answerAutosaveReplacement = (continueOpening: boolean) => {
     const answer = autosaveReplacementAnswer.current;
     autosaveReplacementAnswer.current = null;
-    autosaveReplacementPending.current = null;
     setConfirmAutosaveReplacement(false);
     answer?.(continueOpening);
   };
@@ -419,10 +420,15 @@ export function App() {
     autosaveReplacementUnmounted.current = false;
     return () => {
       autosaveReplacementUnmounted.current = true;
-      const answer = autosaveReplacementAnswer.current;
-      autosaveReplacementAnswer.current = null;
-      autosaveReplacementPending.current = null;
-      answer?.(false);
+      // StrictMode replays effects without removing the door or its question.
+      // A real unmount still cancels before any async open may apply.
+      queueMicrotask(() => {
+        if (!autosaveReplacementUnmounted.current) return;
+        const answer = autosaveReplacementAnswer.current;
+        autosaveReplacementAnswer.current = null;
+        autosaveConsent.current = null;
+        answer?.(false);
+      });
     };
   }, []);
   const [importedDocument, setImportedDocument] = useState(() => session?.importedDocument);
@@ -884,6 +890,11 @@ export function App() {
   const setFileNote = useCallback((text: string | null, severity: NoticeSeverity = 'info', expand?: boolean, tier?: NoteTier) => {
     setFileNoteState(text === null ? null : { text, severity, ...(expand ? { expand: true } : {}), ...(tier ? { tier } : {}) });
   }, []);
+  // A cancelled door's warning must survive the winning design's import receipt.
+  const [cancelledDoorNote, setCancelledDoorNote] = useState<string | null>(null);
+  const reportCancelledDoor = (text: string) => {
+    setCancelledDoorNote(previous => previous ? `${previous}\n${text}` : text);
+  };
   /** An open's or a configuration switch's note: its text and its tiered lines (services/importApply.ts). */
   const setGroupNote = useCallback((text: string, severity: NoticeSeverity, expand?: boolean, group?: NoteGroup) => {
     setFileNoteState({ text, severity, ...(expand ? { expand: true } : {}), ...(group ? { group } : {}) });
@@ -928,6 +939,8 @@ export function App() {
   const [confirmNew, setConfirmNew] = useState(false);
   /** A decoded share-link design waiting for the user's OK to replace theirs. */
   const [shareOffer, setShareOffer] = useState<ImportedDesign | null>(null);
+  const shareOfferRef = useRef(shareOffer);
+  shareOfferRef.current = shareOffer;
   type PreparedFlight = { mountId: string; notes: LinkNote[] };
   const linkFileImports = useRef(new WeakMap<ImportedDesign, { imported: ImportedDesign; resolved: NonNullable<ImportedDesign['resolvedMotors']> }>());
   const preparedFlights = useRef(new WeakMap<ImportedDesign, PreparedFlight>());
@@ -936,8 +949,12 @@ export function App() {
   const [motorLinkNotes, setMotorLinkNotes] = useState<{ gen: number; physicsKey: string; motorFlightKey: string;
     activeConfigId: string | null; launch: LaunchConditions; runId: string; notes: LinkNote[] } | null>(null);
   const [motorLinkMark, setMotorLinkMark] = useState<string | null>(restored.session?.motorLinkMark ?? null);
-  const clearMotorLink = (clearOrigin = true) => {
+  const clearMotorLink = (clearOrigin = true, acceptedOffer?: ImportedDesign) => {
     if (clearOrigin) setMotorLinkMark(null);
+    if (shareOfferRef.current && shareOfferRef.current !== acceptedOffer) {
+      reportCancelledDoor('The link was not opened. To open it, open the link again.');
+    }
+    shareOfferRef.current = null;
     setShareOffer(null);
     pendingLinkFlight.current = null;
     setMotorLinkNotes(null);
@@ -1016,6 +1033,23 @@ export function App() {
 
   /** The file the user picked while there was unsaved work — held for the prompt. */
   const [pendingOpen, setPendingOpen] = useState<File | null>(null);
+  const doorQuestions = useRef({ pendingOpen, confirmNew });
+  doorQuestions.current = { pendingOpen, confirmNew };
+  const visibleDesignQuestion = useRef<string | null>(null);
+  const retireQueuedDoors = (reason: string, queued?: { pendingOpen: File | null; confirmNew: boolean }) => {
+    const held = doorQuestions.current;
+    // A visible Save-then-open question keeps its continuation; only queued doors expire.
+    if (held.pendingOpen && (visibleDesignQuestion.current !== 'open' || queued?.pendingOpen === held.pendingOpen)) {
+      reportCancelledDoor(`“${noteField(held.pendingOpen.name)}” was not opened because ${reason}.`);
+      held.pendingOpen = null;
+      setPendingOpen(null);
+    }
+    if (held.confirmNew && (visibleDesignQuestion.current !== 'new' || queued?.confirmNew)) {
+      reportCancelledDoor(`A new design was not started because ${reason}.`);
+      held.confirmNew = false;
+      setConfirmNew(false);
+    }
+  };
   const [showRecent, setShowRecent] = useState(false);
   const [showExamples, setShowExamples] = useState(false);
   const [recentNote, setRecentNote] = useState<string | null>(null);
@@ -1035,6 +1069,30 @@ export function App() {
    * touching state. See applyImported.
    */
   const openSeq = useRef(createSequencer()).current;
+  const deferredFiles = useRef(new WeakMap<File, () => Promise<File>>());
+  const linkOpenIds = useRef(new WeakMap<ImportedDesign, number>());
+  const designModalOpen = useRef(false);
+  designModalOpen.current = confirmNew || pendingOpen !== null || shareOffer !== null || showExamples || showRecent
+    || lossDialog !== null || openMotorQuestion !== null || shroudPrompt !== null;
+  const refuseDesignDoor = (action: string) => {
+    if (!autosavePausedRef.current && !autosaveReplacementAnswer.current) return false;
+    if (!autosaveReplacementAnswer.current && !designModalOpen.current) return false;
+    setFileNote(`${action} was not started. Answer or close the current design question, then try again.`, 'warn');
+    return true;
+  };
+  const chooseFile = (file: File) => {
+    if (refuseDesignDoor(`Opening “${noteField(file.name)}”`)) return;
+    if (dirty) setPendingOpen(file); else void onOpenOrk(file);
+  };
+  const chooseDeferredFile = (name: string, load: () => Promise<File>) => {
+    setShowExamples(false);
+    setShowRecent(false);
+    // The chooser hands off ownership before any asset or IndexedDB read.
+    designModalOpen.current = false;
+    const file = new File([], name);
+    deferredFiles.current.set(file, load);
+    chooseFile(file);
+  };
   // File writes may finish after Open/New or a newer save has taken ownership.
   const documentGeneration = useRef(0);
   const saveCounter = useRef(0);
@@ -1263,22 +1321,28 @@ export function App() {
     // Save/discard the on-screen design first; this second question protects
     // the different design still held in the autosave slot.
     setConfirmNew(false);
-    if (autosavePaused && !await askAutosaveReplacement('starts a new design', 'new')) return;
+    const openId = autosavePausedRef.current ? await askAutosaveReplacement('starts a new design') : undefined;
+    if (openId === null) return;
     let newDesign: ReturnType<typeof planNewDesign>;
     try {
-      newDesign = planNewDesign({ launch, measured: { massKg: null, cgM: null } }, openSeq);
+      if (openId !== undefined && (!openSeq.isCurrent(openId) || autosaveConsent.current !== openId)) return;
+      newDesign = planNewDesign({ launch, measured: { massKg: null, cgM: null } }, openId === undefined ? openSeq : undefined);
     } catch (e) {
+      autosaveConsent.current = null;
       setFileNote(`Could not start a new design: ${noteText(e instanceof Error ? e.message : String(e))}`, 'error');
       return;
     }
     setShowBatch(false);
     setBundleSource(null);
+    retireQueuedDoors('a new design started first');
+    setPendingOpen(null);
     clearMotorLink();
     documentGeneration.current++;
     appliedSaveDestination.current = null;
     appliedOrkSaveDestination.current = null;
     setHiddenPartIds(new Set());
     retireMotorChoice();
+    setOpenMotorQuestion(null);
     // ONE emptyTree(), for BOTH the state and the mark (importApply's
     // planNewDesign says why that matters). Pressing ✕ New twice used to raise
     // "Start a new design?" on an empty design, which is the always-fires
@@ -1339,7 +1403,9 @@ export function App() {
     // eslint-disable-next-line no-restricted-syntax -- ✕ New: an empty design is not work to lose
     markSaved(mark);
     // No await separates the setters from this release; effects see the applied design.
+    autosavePausedRef.current = false;
     setAutosavePaused(false);
+    autosaveConsent.current = null;
     allowSessionReplacement();
   };
 
@@ -2093,9 +2159,11 @@ export function App() {
     fileNote: () => setFileNote(null),
     runsCapped: () => setRunsCapped({ evicted: 0, unsaved: 0, undoEvicted: 0 }),
     legacyPositions: () => writeTree(dismissLegacyPositions(treeRef.current)),
-  }), ...(motorLoadoutRepair ? [motorLoadoutRepair] : []), ...(catalogueNotice ? [catalogueNotice] : [])],
+  }), ...(cancelledDoorNote ? [{ id: 'cancelled-design-action', text: cancelledDoorNote, severity: 'warn' as const,
+    onDismiss: () => setCancelledDoorNote(null) }] : []),
+  ...(motorLoadoutRepair ? [motorLoadoutRepair] : []), ...(catalogueNotice ? [catalogueNotice] : [])],
   // eslint-disable-next-line react-hooks/exhaustive-deps -- components and legacy check deliberately: a rename must not re-run this (row 513)
-  [buildError, buildFailed, motorFailures, fileNoteState, setFileNote, motorLoadoutRepair, catalogueNotice,
+  [buildError, buildFailed, motorFailures, fileNoteState, setFileNote, cancelledDoorNote, motorLoadoutRepair, catalogueNotice,
     restoredByOlderBuild, timeStepMigrated, timeStepMigratedFrom, padMassNote, runsCapped,
     tree.components, legacyPositionCheck, treeRef, writeTree, assigned, prefs.units.motorDimensions]);
 
@@ -3034,8 +3102,15 @@ export function App() {
    */
   const applyImported = async (imported: ImportedDesign, seq?: number, file: DesignFileRef | null = null) => {
     const finishImport = pageActivity.startImport();
+    const openId = seq ?? openSeq.begin();
+    const linkOfferPending = shareOffer === imported && designModalOpen.current;
+    // Accepting a link closes its offer before motor resolution. Remember doors
+    // queued behind it even if one becomes visible while those motors resolve.
+    const queuedDoors = {
+      pendingOpen: visibleDesignQuestion.current === 'open' ? null : doorQuestions.current.pendingOpen,
+      confirmNew: visibleDesignQuestion.current !== 'new' && doorQuestions.current.confirmNew,
+    };
     try {
-      clearMotorLink();
       // Which open this is. Every motor in the file can cost a live
       // thrustcurve.org fetch with no timeout, so two opens a second apart
       // finish in whatever order the network decides: at a launch site the
@@ -3043,24 +3118,31 @@ export function App() {
       // and its setter block overwrote it AND stamped its own fingerprint as
       // saved — leaving the user editing a rocket they had not asked for, with
       // `dirty` false so the next Open discarded the work silently.
-      const openId = seq ?? openSeq.begin();
       // The awaits of an open: every motor the file names, resolved.
       const resolved = imported.resolvedMotors ?? await resolveImportMotors(imported, ref => matchImportedMotor(ref, { units: prefs.units }));
+      // A newer unanswered door still protects the original recovery bytes.
+      // Continue claims its id before waking us; Cancel leaves this open live.
+      while (autosaveReplacementAnswer.current && autosaveReplacementSettled.current) {
+        await autosaveReplacementSettled.current;
+      }
       // EVERY await is behind us; from here on this function writes state. A
       // newer open started while those fetches were outstanding owns the screen
       // now, so this one stops here rather than overwriting it — and, crucially,
       // never reaches the markSaved at the end, which is what made the loser's
       // work look saved.
       if (!openSeq.isCurrent(openId)) return;
-      if (autosavePaused) {
-        const accepted = await askAutosaveReplacement(file ? `opens “${noteField(file.name)}”` : 'opens the design from the link', 'open');
-        if (!accepted || !openSeq.isCurrent(openId)) {
-          if (!accepted && !file && !autosaveReplacementUnmounted.current && openSeq.isCurrent(openId)) {
-            setFileNote('The link was not opened. To open it, download the autosaved design if you want it, then open the link again.', 'warn');
-          }
-          return !accepted && !autosaveReplacementUnmounted.current && openSeq.isCurrent(openId) ? 'cancelled' as const : undefined;
-        }
+      if (autosaveReplacementUnmounted.current) return;
+      // An accepted read may finish beneath an unrelated dialog. Its own link
+      // offer still needs the explicit Open handoff.
+      if (autosavePausedRef.current && (autosaveConsent.current !== openId || linkOfferPending)) {
+        setFileNote(file
+          ? `“${noteField(file.name)}” was not opened because its autosave replacement was not confirmed. Open the file again to retry.`
+          : 'The link was not opened because its autosave replacement or link offer was not confirmed. Open the link again to retry.', 'warn');
+        return;
       }
+      // Consume this action's consent even if planning or applying throws.
+      if (autosaveConsent.current === openId) autosaveConsent.current = null;
+      clearMotorLink(true, imported);
       documentGeneration.current++;
       setShowBatch(false);
       setBundleSource(null);
@@ -3163,10 +3245,16 @@ export function App() {
           plan.snapshot.detachedOverrides ?? {}, plan.snapshot.mountMotors).mountMotors[flight.mountId]!.ignition },
         motor: plan.snapshot.mountMotors[flight.mountId]!, motorDelay: plan.snapshot.mountMotors[flight.mountId]!.spec.ejectionDelay, previousTree: tree, previousMotor: mountMotors[flight.mountId], committed: false };
       // All apply work succeeded, in one synchronous block, before releasing recovery bytes.
+      retireQueuedDoors(file ? `“${noteField(file.name)}” opened first` : 'the design from the link opened first', queuedDoors);
+      autosavePausedRef.current = false;
       setAutosavePaused(false);
+      autosaveConsent.current = null;
       allowSessionReplacement();
       return plan.snapshot.tree;
-    } finally { finishImport(); }
+    } finally {
+      if (autosaveConsent.current === openId) autosaveConsent.current = null;
+      finishImport();
+    }
   };
 
   /**
@@ -3394,14 +3482,27 @@ export function App() {
   };
 
   const onOpenOrk = async (file: File) => {
+    if (autosaveReplacementAnswer.current) {
+      setFileNote(`“${noteField(file.name)}” was not opened. Answer the autosave replacement question, then open the file again.`, 'warn');
+      return;
+    }
     const finishImport = pageActivity.startImport();
-    clearMotorLink();
     sessionDebugLog.record('import-start');
-    // Claim the open BEFORE the first await — the parse and the motor fetches
-    // that follow can take seconds, and a second Open in the meantime has to
-    // win however the network orders them. See openSeq.
-    const openId = openSeq.begin();
+    // Claim before reading, but only after Continue in a paused session.
+    // Cancel leaves the older open and its consent untouched.
+    const openId = autosavePausedRef.current ? await askAutosaveReplacement(`opens “${noteField(file.name)}”`) : openSeq.begin();
     try {
+      if (openId === null) {
+        if (!autosaveReplacementUnmounted.current) {
+          sessionDebugLog.record('import-failed', new Error('Import cancelled by the user at the autosave replacement question.'));
+        }
+        return;
+      }
+      if (!openSeq.isCurrent(openId) || autosaveReplacementUnmounted.current) return;
+      clearMotorLink();
+      const load = deferredFiles.current.get(file);
+      if (load) file = await load();
+      if (!openSeq.isCurrent(openId) || autosaveReplacementUnmounted.current) return;
       // Cheap pre-check before the bytes are read, let alone inflated — the
       // file door (services/designFile.ts), which the headless open uses too.
       const tooBig = designFileTooLarge(file.size, file.name);
@@ -3434,10 +3535,7 @@ export function App() {
       // panel on Motors & Configuration switches between them (motors AND recovery
       // deployment, since applyConfig applies both now).
       const applied = await applyImported(imported, openId, openedDesignFileRef(file.name, imported.sourceFormat!, imported.fileRocketName));
-      if (!applied || applied === 'cancelled') {
-        if (applied === 'cancelled') sessionDebugLog.record('import-failed', new Error('Import cancelled by the user at the autosave replacement question.'));
-        return;
-      }
+      if (!applied) return;
       if (openSeq.isCurrent(openId)) {
         sessionDebugLog.record('import-complete');
         const recentId = recentSaveByName.current.get(file.name);
@@ -3447,7 +3545,7 @@ export function App() {
     } catch (e) {
       sessionDebugLog.record('import-failed', e);
       // A superseded open must not shout about a design nobody is waiting for.
-      if (!openSeq.isCurrent(openId)) return;
+      if (openId === null || !openSeq.isCurrent(openId)) return;
       // Named for the format the user actually picked (designFile.ts says why);
       // the headless open words a refused file with the same sentence.
       // 'error', not the default 'info'. The design on screen did not change,
@@ -3456,7 +3554,10 @@ export function App() {
       // "I clicked it and nothing happened". Every other export/import failure
       // in this file already passes an explicit severity.
       setFileNote(designFileOpenFailure(file.name, e), 'error');
-    } finally { finishImport(); }
+    } finally {
+      if (autosaveConsent.current === openId) autosaveConsent.current = null;
+      finishImport();
+    }
   };
 
   // No asynchronous resolution is allowed after applying the shared design.
@@ -3596,6 +3697,7 @@ export function App() {
     clearMotorLink(false);
     const hash = window.location.hash;
     const link = motorLinkParams(hash);
+    const declined = new Error('Autosave replacement declined');
     // window.history explicitly: the browser's, not the design's undo history.
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
     // Sequenced like every other open, claimed before its first await
@@ -3603,6 +3705,10 @@ export function App() {
     void openShareLink(hash, {
       openSeq,
       read: async (h, openId) => {
+        if (autosavePausedRef.current && !await askAutosaveReplacement('opens the design from the link', openId)) {
+          throw declined;
+        }
+        if (!openSeq.isCurrent(openId) || autosaveReplacementUnmounted.current) throw declined;
         // Cheap pre-decode cap: no real share link approaches 1 MB of
         // fragment, and a crafted one can inflate to hundreds of MB — refuse
         // it before base64/inflate ever run (same soft-fail path as a
@@ -3612,10 +3718,12 @@ export function App() {
         }
         const imported = importOrk(await decodeShareFragment(h), { units: prefs.units, presets: await loadPresets(), distanceUnit: prefs.units.altitude,
           horizontalDistanceUnit: prefs.units.distance });
+        linkOpenIds.current.set(imported, openId);
         return prepareMotorLink(imported, link, openId);
       },
       // Include non-tree edits and work done while the link was decoding.
-      shouldOffer: imported => shareShouldOffer.current && !(eligibleMotorLinks.current.has(imported) && linkMayReplace.current),
+      shouldOffer: imported => shareShouldOffer.current
+        && !(eligibleMotorLinks.current.has(imported) && linkMayReplace.current),
       onOffer: imported => { setShareOffer(imported); },
       apply: async (imported, openId) => { await latestApplyImported.current(imported, openId); },
       // 'warn', not the default 'info'. The message is 165 characters before the
@@ -3624,7 +3732,14 @@ export function App() {
       // bar that never opened itself — for a link that simply did not work.
       // The sentence names the browser when this one cannot unpack links at
       // all, rather than calling every link damaged (audit 2026-09-22).
-      onError: (e) => { sessionDebugLog.record('import-failed', e); setFileNote(shareLinkOpenFailure(e), 'warn'); },
+      onError: (e) => {
+        autosaveConsent.current = null;
+        if (autosaveReplacementUnmounted.current) return;
+        sessionDebugLog.record('import-failed', e);
+        setFileNote(e === declined
+          ? 'The link was not opened. To open it, download the autosaved design if you want it, then open the link again.'
+          : shareLinkOpenFailure(e), 'warn');
+      },
     }).finally(() => { finishImport(); setShareOpening(false); });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot startup decode
   }, []);
@@ -4089,12 +4204,12 @@ export function App() {
                 // handler below already relied on that, calling the async
                 // onOpenOrk and then clearing synchronously - so holding it
                 // for the prompt is safe.
-                if (f) { if (dirty) setPendingOpen(f); else void onOpenOrk(f); }
+                if (f) chooseFile(f);
                 e.target.value = '';
               }} />
           </label>
-          <button className="file-btn" onClick={() => setShowRecent(true)}>Recent…</button>
-          <button className="file-btn" onClick={() => setShowExamples(true)}>Examples…</button>
+          <button className="file-btn" onClick={() => { if (!refuseDesignDoor('Recent')) setShowRecent(true); }}>Recent…</button>
+          <button className="file-btn" onClick={() => { if (!refuseDesignDoor('Examples')) setShowExamples(true); }}>Examples…</button>
           </div>
           <div className="file-menu-wrap">
             {/* A DISCLOSURE button, not a menu button. It used to carry
@@ -4494,21 +4609,29 @@ export function App() {
         <ExampleDesignsDialog onClose={() => setShowExamples(false)} onOpen={file => {
           setShowExamples(false);
           if (dirty) setPendingOpen(file); else void onOpenOrk(file);
-        }} /></LazyDialog>}
+        }} onChoose={autosavePaused ? chooseDeferredFile : undefined} /></LazyDialog>}
       {showRecent && <RecentDesignsDialog onClose={() => setShowRecent(false)} onOpen={file => {
         setShowRecent(false);
         if (dirty) setPendingOpen(file); else void onOpenOrk(file);
-      }} />}
+      }} onChoose={autosavePaused ? chooseDeferredFile : undefined} />}
       <DesignConfirms tree={tree} lossDialog={lossDialog} setLossDialog={setLossDialog} saveLossy={saveLossy}
         preservedAutosave={confirmAutosaveReplacement ? {
           unreadable: sessionUnreadable(), action: autosaveReplacementAction, downloadError: autosaveDownloadError,
           onDownload: () => { void downloadAutosavedDesign(); },
           onContinue: () => answerAutosaveReplacement(true), onCancel: () => answerAutosaveReplacement(false),
         } : null}
+        visibleQuestion={visibleDesignQuestion}
         unprotected={dirty || flownSinceSave.current} confirmNew={confirmNew} setConfirmNew={setConfirmNew} replaceLoss={replaceLoss} startNewDesign={() => { void startNewDesign(); }}
         onSaveOrk={onSaveOrk} pendingOpen={pendingOpen} setPendingOpen={setPendingOpen} onOpenOrk={onOpenOrk}
         shareOffer={shareOffer} setShareOffer={setShareOffer}
-        applyImported={async imported => { await applyImported(imported); }}
+        cancelShareOffer={() => {
+          if (shareOffer && autosaveConsent.current === linkOpenIds.current.get(shareOffer)) autosaveConsent.current = null;
+          setShareOffer(null);
+        }}
+        applyImported={async imported => {
+          designModalOpen.current = false;
+          await applyImported(imported, autosavePausedRef.current ? linkOpenIds.current.get(imported) : undefined);
+        }}
         shroudPrompt={shroudPrompt} setShroudPrompt={setShroudPrompt} hasOpenMotorQuestion={openMotorQuestion !== null}
         onConvertShrouds={() => {
           if (!shroudPrompt) return;
@@ -4803,6 +4926,7 @@ export function App() {
                   // a confirmation that always fires is one people learn to
                   // click through - which is how the one that MATTERS gets
                   // dismissed.
+                  if (refuseDesignDoor('New')) return;
                   if (dirty) setConfirmNew(true);
                   else void startNewDesign();
                 }}

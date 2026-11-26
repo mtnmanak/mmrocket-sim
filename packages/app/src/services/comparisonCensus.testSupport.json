@@ -40,7 +40,7 @@
     "components/PreflightAudit.tsx": 6,
     "components/PresetPicker.tsx": 10,
     "components/PropertyPanel.tsx": 94,
-    "components/RecentDesignsDialog.tsx": 1,
+    "components/RecentDesignsDialog.tsx": 2,
     "components/recoveryContext.ts": 1,
     "components/RecoverySizingPanel.tsx": 18,
     "components/ringFit.ts": 14,

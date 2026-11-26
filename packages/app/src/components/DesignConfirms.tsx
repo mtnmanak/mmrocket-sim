@@ -8,8 +8,10 @@ import type { ShroudCandidate } from '../tree/shroudConvert.js';
 import { FormatLossDialog } from './FormatLossDialog.js';
 import { Icon } from './Icon.js';
 import { Modal } from './Modal.js';
+import { useDialogQueue } from './useDialog.js';
 
 interface DesignConfirmsProps {
+  visibleQuestion?: { current: string | null };
   tree: RocketTree;
   unprotected?: boolean;
   lossDialog: { report: FormatLossReport; confirm: boolean } | null;
@@ -25,6 +27,7 @@ interface DesignConfirmsProps {
   onOpenOrk: (file: File) => Promise<void>;
   shareOffer: ImportedDesign | null;
   setShareOffer: (value: null) => void;
+  cancelShareOffer?: () => void;
   applyImported: (design: ImportedDesign) => Promise<void>;
   shroudPrompt: ShroudCandidate[] | null;
   setShroudPrompt: (value: null) => void;
@@ -53,7 +56,7 @@ interface DesignConfirmsProps {
  */
 export function DesignConfirms({ tree, unprotected = false, lossDialog, setLossDialog, saveLossy, confirmNew, setConfirmNew,
   replaceLoss, startNewDesign, onSaveOrk, pendingOpen, setPendingOpen, onOpenOrk, shareOffer, setShareOffer,
-  applyImported, shroudPrompt, setShroudPrompt, hasOpenMotorQuestion, onConvertShrouds, preservedAutosave, children }: DesignConfirmsProps) {
+  applyImported, shroudPrompt, setShroudPrompt, hasOpenMotorQuestion, onConvertShrouds, preservedAutosave, cancelShareOffer, visibleQuestion, children }: DesignConfirmsProps) {
   const openPrompt = useRef(pendingOpen);
   useEffect(() => {
     openPrompt.current = pendingOpen;
@@ -63,8 +66,19 @@ export function DesignConfirms({ tree, unprotected = false, lossDialog, setLossD
     openPrompt.current = null;
     setPendingOpen(null);
   };
-  return <>
-      {preservedAutosave && (
+  // Keep the mounted question until it closes. Every late question uses the
+  // shared dialog stack, including dialogs outside this design-question queue.
+  const { ref: queueRef, blocked } = useDialogQueue();
+  const activeQuestion = useRef<string | null>(null);
+  const questions = [preservedAutosave && 'autosave', lossDialog && 'loss', confirmNew && 'new',
+    pendingOpen && 'open', shareOffer && 'link', hasOpenMotorQuestion && 'motor', shroudPrompt && 'shroud'].filter(Boolean);
+  const question = blocked ? null : questions.find(q => q === activeQuestion.current) ?? questions[0] ?? null;
+  useEffect(() => {
+    activeQuestion.current = question as string | null;
+    if (visibleQuestion) visibleQuestion.current = activeQuestion.current;
+  }, [question, visibleQuestion]);
+  return <div ref={queueRef} style={{ display: 'contents' }}>
+      {preservedAutosave && question === 'autosave' && (
         <Modal label="Replace the autosaved design" onClose={preservedAutosave.onCancel}>
           <h2>Replace the autosaved design?</h2>
           <Note tier="caution">
@@ -88,11 +102,11 @@ export function DesignConfirms({ tree, unprotected = false, lossDialog, setLossD
           </Note>}</div>
         </Modal>
       )}
-      {lossDialog && <FormatLossDialog report={lossDialog.report} confirm={lossDialog.confirm}
+      {lossDialog && question === 'loss' && <FormatLossDialog report={lossDialog.report} confirm={lossDialog.confirm}
         onClose={() => setLossDialog(null)}
         onSave={() => saveLossy(lossDialog.report.format, lossDialog.report)}
         onSaveOrk={() => { setLossDialog(null); void onSaveOrk(); }} />}
-      {confirmNew && (
+      {confirmNew && question === 'new' && (
         <Modal label="Start a new design" onClose={() => setConfirmNew(false)}>
           <h2>Start a new design?</h2>
           <Note tier={unprotected || replaceLoss ? 'danger' : 'information'}>
@@ -119,8 +133,8 @@ export function DesignConfirms({ tree, unprotected = false, lossDialog, setLossD
           </div>
         </Modal>
       )}
-      {children}
-      {pendingOpen && (
+      {question === 'motor' && children}
+      {pendingOpen && question === 'open' && (
         <Modal label="Unsaved changes" onClose={dismissOpen}>
           <h2>Save “{tree.name ?? 'the current rocket'}” first?</h2>
           <Note tier="danger">
@@ -167,8 +181,8 @@ export function DesignConfirms({ tree, unprotected = false, lossDialog, setLossD
           </div>
         </Modal>
       )}
-      {shareOffer && (
-        <Modal label="Open design from link" onClose={() => setShareOffer(null)}>
+      {shareOffer && question === 'link' && (
+        <Modal label="Open design from link" onClose={cancelShareOffer ?? (() => setShareOffer(null))}>
           <h2>Open design from this link?</h2>
           <Note tier={unprotected || replaceLoss ? 'danger' : 'information'}>
             <p className="note-para">
@@ -194,11 +208,11 @@ export function DesignConfirms({ tree, unprotected = false, lossDialog, setLossD
             >
               Open “{shareOffer.name}”
             </button>
-            <button className="file-btn" onClick={() => setShareOffer(null)}>Keep my design</button>
+            <button className="file-btn" onClick={cancelShareOffer ?? (() => setShareOffer(null))}>Keep my design</button>
           </div>
         </Modal>
       )}
-      {shroudPrompt && !hasOpenMotorQuestion && (
+      {shroudPrompt && question === 'shroud' && (
         <Modal label="Convert camera shrouds" onClose={() => setShroudPrompt(null)}>
           <h2>Camera shroud detected</h2>
           <p>
@@ -226,5 +240,5 @@ export function DesignConfirms({ tree, unprotected = false, lossDialog, setLossD
           </div>
         </Modal>
       )}
-  </>;
+  </div>;
 }
