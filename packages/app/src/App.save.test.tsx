@@ -548,7 +548,7 @@ describe('AS1 preserved autosave replacement', () => {
 
   it.each([false, true].flatMap(paused => ['New', 'file'].flatMap(newer => (paused ? ['Cancel', 'Continue'] : ['Continue'])
     .map(answer => ({ paused, newer, answer })))))(
-    'r2 $newer $answer settles a waiting link offer (paused: $paused)', async ({ paused, newer, answer }) => {
+    'AS3 r3 $newer $answer settles a waiting link offer (paused: $paused)', async ({ paused, newer, answer }) => {
       const { host, release, treeName } = await acceptedSlowOpen('share', paused);
       await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Edited starter');
       if (newer === 'New') await act(async () => { button(host, '✕ New').click(); });
@@ -569,7 +569,9 @@ describe('AS1 preserved autosave replacement', () => {
       await waitFor(() => shownName(host) === (answer === 'Cancel' ? treeName : newer === 'New' ? 'New Rocket' : 'Newer design'), 'winning action applies');
       expect(host.querySelector('[aria-label="Open design from link"]')).toBeNull();
       expect(question(host)).toBeNull();
-      expect(host.querySelector('.notice-bar')?.textContent ?? '').not.toContain('The link was not opened.');
+      const notice = host.querySelector('.notice-bar')?.textContent ?? '';
+      if (answer === 'Cancel') expect(notice).not.toContain('The link was not opened.');
+      else expect(notice).toContain('The link was not opened.');
       flush();
       expect(storedSession()!.tree.name).toBe(shownName(host));
     }, 30_000);
@@ -634,7 +636,7 @@ describe('AS1 preserved autosave replacement', () => {
       const notice = host.querySelector('.notice-bar')?.textContent;
       expect(notice).toContain(combination === 'New + link' ? 'A new design was not started because' : '“Second.ork” was not opened because');
       expect(notice).toContain(combination === 'file + New' ? 'a new design started first' : 'the design from the link opened first');
-      if (combination === 'file + New') expect(notice).not.toContain('The link was not opened.');
+      if (combination === 'file + New') expect(notice).toContain('The link was not opened.');
     }, 30_000);
 
   it.each(['share', 'motor link'].flatMap(door => ['Examples', 'Recent'].map(chooser => ({ door: door as 'share' | 'motor link', chooser }))))(
@@ -654,7 +656,7 @@ describe('AS1 preserved autosave replacement', () => {
       await act(async () => { button(host.querySelector('[aria-label="Unsaved changes"]')!, 'Open without saving').click(); });
       await waitFor(() => shownName(host) === 'Chosen design', 'chosen file applies');
       expect(host.querySelector('[aria-label="Open design from link"]')).toBeNull();
-      expect(host.querySelector('.notice-bar')?.textContent ?? '').not.toContain('The link was not opened.');
+      expect(host.querySelector('.notice-bar')?.textContent).toContain('The link was not opened.');
       expect(question(host)).toBeNull();
     }, 30_000);
 
@@ -794,27 +796,27 @@ describe('AS1 preserved autosave replacement', () => {
     expect(host.textContent).not.toContain('“Retry.ork” was not opened because');
   }, 30_000);
 
-  it.each(['picker', 'Recent', 'Examples', 'New'] as const)(
-    'AS3 r2 clears a declined startup link after successful %s replacement', async replacement => {
-      localStorage.setItem(SESSION_KEY, raw);
-      const enterLink = await prepareDoor('share');
-      const host = await mountApp();
-      await enterLink(host);
-      await waitFor(() => question(host) !== null, 'link consent');
-      await act(async () => { button(question(host)!, 'Cancel').click(); });
-      await waitFor(() => pageActivity.importsInProgress() === 0, 'declined link');
-      expect(host.querySelector('.notice-bar')?.textContent).toContain('The link was not opened.');
-      // A file-note mutation would disappear here, before any replacement.
-      await saveAs(host, 'Save .ork');
-      await waitFor(() => host.querySelector('.notice-bar')?.textContent?.includes('Saved') ?? false, 'save receipt replaces file note');
-      expect(host.querySelector('.notice-bar')?.textContent).toContain('The link was not opened.');
-      const enter = await prepareDoor(replacement);
-      await enter(host);
-      await waitFor(() => question(host) !== null, 'replacement consent');
-      await act(async () => { button(question(host)!, 'Continue').click(); });
-      await waitFor(() => shownName(host) === (replacement === 'New' ? 'New Rocket' : 'Replacement design'), 'replacement applies');
-      expect(host.querySelector('.notice-bar')?.textContent ?? '').not.toContain('The link was not opened.');
-    }, 30_000);
+  it('AS3 r3 reports a declined startup link through the warning file note', async () => {
+    const realNotices = noticeBar.NoticeBar;
+    let notices!: noticeBar.Notice[];
+    vi.spyOn(noticeBar, 'NoticeBar').mockImplementation(props => { notices = props.notices; return realNotices(props); });
+    localStorage.setItem(SESSION_KEY, raw);
+    const enterLink = await prepareDoor('share');
+    const host = await mountApp();
+    await enterLink(host);
+    await waitFor(() => question(host) !== null, 'link consent');
+    await act(async () => { button(question(host)!, 'Cancel').click(); });
+    await waitFor(() => pageActivity.importsInProgress() === 0, 'declined link');
+    expect(host.querySelector('.notice-bar')?.textContent).toContain('The link was not opened.');
+    expect(notices.find(n => n.id === 'file-note')).toMatchObject({
+      severity: 'warn',
+      text: 'The link was not opened. To open it, download the autosaved design if you want it, then open the link again.',
+    });
+    expect(notices.some(n => n.id.startsWith('cancelled-design-action-'))).toBe(false);
+    await saveAs(host, 'Save .ork');
+    await waitFor(() => host.querySelector('.notice-bar')?.textContent?.includes('Saved') ?? false, 'save receipt replaces file note');
+    expect(host.querySelector('.notice-bar')?.textContent ?? '').not.toContain('The link was not opened.');
+  }, 30_000);
 
   it('AS3 r2 keeps cancellation identities and individual dismissals stable', async () => {
     const realConfirms = designConfirms.DesignConfirms;
@@ -856,7 +858,7 @@ describe('AS1 preserved autosave replacement', () => {
     expect(notices.some(n => n.id === survivor.id)).toBe(false);
   }, 30_000);
 
-  it('AS3 r2 keeps an unconfirmed link apply in the cancellation channel until replacement', async () => {
+  it('AS3 r3 keeps an unconfirmed link apply in the cancellation channel until dismissed', async () => {
     const real = designConfirms.DesignConfirms;
     let doors!: Parameters<typeof real>[0];
     vi.spyOn(designConfirms, 'DesignConfirms').mockImplementation(props => { doors = props; return real(props); });
@@ -872,6 +874,9 @@ describe('AS1 preserved autosave replacement', () => {
     await act(async () => { button(host, '✕ New').click(); });
     await act(async () => { button(question(host)!, 'Continue').click(); });
     await waitFor(() => shownName(host) === 'New Rocket', 'New replaces starter');
+    expect(host.querySelector('.notice-bar')?.textContent).toContain('The link was not opened because');
+    const item = [...host.querySelectorAll('.notice-item')].find(n => n.textContent?.includes('The link was not opened because'))!;
+    await act(async () => { item.querySelector<HTMLButtonElement>('[aria-label^="Dismiss:"]')!.click(); });
     expect(host.querySelector('.notice-bar')?.textContent ?? '').not.toContain('The link was not opened because');
   }, 30_000);
 

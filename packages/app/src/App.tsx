@@ -1333,7 +1333,6 @@ export function App() {
     retireQueuedDoors('a new design started first');
     setPendingOpen(null);
     clearMotorLink();
-    setCancelledDoorNotes(previous => previous.filter(note => note.target !== null));
     documentGeneration.current++;
     appliedSaveDestination.current = null;
     appliedOrkSaveDestination.current = null;
@@ -3242,9 +3241,9 @@ export function App() {
         motor: plan.snapshot.mountMotors[flight.mountId]!, motorDelay: plan.snapshot.mountMotors[flight.mountId]!.spec.ejectionDelay, previousTree: tree, previousMotor: mountMotors[flight.mountId], committed: false };
       // All apply work succeeded, in one synchronous block, before releasing recovery bytes.
       retireQueuedDoors(file ? `“${noteField(file.name)}” opened first` : 'the design from the link opened first', queuedDoors);
-      // Startup links open once per mount. Any successful replacement clears
-      // link warnings; files keep the narrower same-filename rule.
-      setCancelledDoorNotes(previous => previous.filter(note => note.target !== null && (file === null || note.target !== file.name)));
+      // Only a successful open of the same filename retires its earlier warning.
+      // Link warnings stay until dismissed: startup links only open once per mount.
+      if (file) setCancelledDoorNotes(previous => previous.filter(note => note.target !== file.name));
       autosavePausedRef.current = false;
       setAutosavePaused(false);
       autosaveConsent.current = null;
@@ -3732,8 +3731,8 @@ export function App() {
         autosaveConsent.current = null;
         if (autosaveReplacementUnmounted.current) return;
         sessionDebugLog.record('import-failed', e);
-        if (e === declined) reportCancelledDoor(
-          'The link was not opened. To open it, download the autosaved design if you want it, then open the link again.', null);
+        if (e === declined) setFileNote(
+          'The link was not opened. To open it, download the autosaved design if you want it, then open the link again.', 'warn');
         else setFileNote(shareLinkOpenFailure(e), 'warn');
       },
     }).finally(() => { finishImport(); setShareOpening(false); });
