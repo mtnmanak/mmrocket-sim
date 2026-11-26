@@ -40,6 +40,27 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.220",
+    "date": "2026-11-26",
+    "title": "Batch can skip mirrored layouts for more rings of identical tubes; questions and notices about designs that did not open are tidied",
+    "summary": [
+      "Batch simulate: “Skip mirror arrangements” is now available for more rings of identical tubes, including tubes made with Duplicate, and a refusal now names the tube setting that differs.",
+      "With autosave paused, Examples and Recent again show a failed download or a missing Recent copy inside the chooser, before asking to replace the autosaved design.",
+      "A “… was not opened” notice for a file now clears when that file opens, and each such notice can be dismissed on its own.",
+      "A “Save … first?” question no longer stays behind for a design another open has already replaced, and “Choose motors for this file” applies even after a later open failed.",
+      "Nothing in this release changes what flies."
+    ],
+    "items": [
+      "BATCH: MIRROR SKIPPING FOR MORE RINGS OF IDENTICAL TUBES. v0.218’s “Skip mirror arrangements” was unavailable for some rings of four or six tubes that fly the same: tubes made with Duplicate; tubes that differ only in comment, material name or catalogue link; a setting left out on some tubes and written as its default on others (motor overhang, a single tube, cluster spacing and rotation, subcomponent overrides, density, position); different maximum motor lengths (a fit limit: every motor in the batch must fit every tube anyway); and a parachute or streamer whose file wrote its deploy event with capitals, such as “Apogee”, which the app flies as apogee. These now qualify. When the tubes differ in a setting no earlier check names, the reason now names that setting instead of saying the tubes need identical material, mass and motor retention settings.",
+      "DEPLOY EVENTS IN THE COMPONENT DATA EXPORTS. In the component-data CSV and XLSX exports, a parachute or streamer whose stored deploy event has capitals (such as “Altitude”), names an event the app does not fly, or has none, now shows the event the app flies (for example Motor ejection charge) instead of the stored text or a blank.",
+      "AN .ORK “LOWERSTAGESEPARATION” IN ANY CAPITALS. The Caution that a recovery device set to deploy at lower-stage separation flies at the motor ejection charge instead now also appears when an .ork from outside the app writes the event with capitals.",
+      "PAUSED AUTOSAVE: EXAMPLES AND RECENT CHECK THE COPY FIRST. When the stored autosave is kept and autosave is paused, choosing an example or a recent design now reads that copy before asking “Replace the autosaved design?”. A failed download shows inside the chooser so you can try again, and a Recent copy another tab removed says so there, as in v0.217; no replacement question is asked for a copy that cannot be read.",
+      "NOTICES ABOUT DESIGNS THAT WERE NOT OPENED. A successful open of a file, a Recent copy or an example now clears earlier “… was not opened” notices for that same file name. Each such notice, and each notice that a waiting link was not opened, is now its own entry in Notices and can be dismissed on its own; dismissing one leaves the others.",
+      "QUESTIONS LEFT BEHIND BY A REPLACED DESIGN. When another design opens, or New completes, while a “Save … first?” question about opening a file is on screen, that question now closes with a notice instead of staying and saying the new design has unsaved changes, and a pending “Save .ork, then open” no longer opens the later file; open the file again to retry. Apply in “Choose motors for this file” did nothing if another open had started after that file, even one that then failed or was refused; it now applies while its design is still the one on screen.",
+      "WHAT FLIES. Nothing in this release changes what flies. With “Skip mirror arrangements” ticked, Batch flies one layout of each mirrored set, as in v0.218; it now does so for more rings."
+    ]
+  },
+  {
     "version": "0.219",
     "date": "2026-11-26",
     "title": "A Dark / Light / Daylight switch in the header, and the first-run tour starts with it",

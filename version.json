@@ -1,5 +1,5 @@
 {
-  "version": "0.219",
+  "version": "0.220",
   "released": "2026-11-26",
-  "note": "A Dark / Light / Daylight switch in the header, and the first-run tour starts with it; a correction to v0.218’s notes."
+  "note": "Batch can skip mirrored layouts for more rings of identical tubes; questions and notices about designs that did not open are tidied."
 }
