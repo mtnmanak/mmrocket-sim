@@ -174,6 +174,11 @@ describe('row 127 thrust balance', () => {
     tail.spec.thrusts = [100, 100, 100, 1, 1];
     const warnings = asymmetricThrustWarnings(balanceTree(2), entries([tail, other]));
     expect(warnings.some(w => w.key === 'ASYMMETRIC_THRUST_LONE')).toBe(false);
+    tail.spec.thrusts = [100, 100, 100, 15, 15];
+    const positive = asymmetricThrustWarnings(balanceTree(2), entries([tail, other]))
+      .find(w => w.key === 'ASYMMETRIC_THRUST_LONE');
+    expect(positive?.message).toContain('burns alone off-axis for');
+    expect(positive?.message).toContain('(1–20 s after');
   });
   it('gives exact zero for identical symmetric motors and opposite pairs of different motors', () => {
     expect(thrustImbalance([site(1), site(-1)]).fraction).toBe(0);

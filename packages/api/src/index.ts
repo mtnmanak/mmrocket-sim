@@ -113,13 +113,15 @@ function summary(out: TimedSimulateFileResult) {
       ? [noticeNumber(floor.appStepS, 6) === noticeNumber(floor.flownStepS, 6)
         ? `This API flies at a time step of at least ${noticeNumber(floor.flownStepS, 6)} s; the app uses a slightly finer step for this design.`
         : `This API flies at a time step of at least ${noticeNumber(floor.flownStepS, 6)} s; in the app this design flies at ${noticeNumber(floor.appStepS, 6)} s.`] : [],
-      import: out.importNote, padMass: out.padMassNote, flight: commentsOf(out.run).map(entry => ({ ...entry, text: warningEcho(entry.text) })) }),
+      import: out.importNote, padMass: out.padMassNote, flight: commentsOf(out.run)
+        .map(entry => ({ ...entry, text: warningEcho(entry.text) })) }),
   };
 }
 
 /** The /describe v1 contract (S5): the service's result, with the fragment's full app link; stampedJson adds the stamp. */
 function described(out: DescribeFileResult) {
-  const notes = noteStrings({ ...out.notes, analysis: out.notes.analysis.map(warningEcho) });
+  const notes = noteStrings({ ...out.notes,
+    analysis: out.notes.analysis.map((text, i) => i < out.analysisWarningCount ? warningEcho(text) : text) });
   const { group: _group, ...importNote } = notes.import;
   return {
     api: '1',

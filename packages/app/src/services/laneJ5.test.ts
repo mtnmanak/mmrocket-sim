@@ -14,7 +14,7 @@ import { INITIAL_UNITS } from '../prefs/units.js';
 import { planNewDesign, planImport, resolveImportMotors } from './importApply.js';
 import { checkFormatLoss } from './formatLoss.js';
 import { MAX_DESIGN_PARTS } from '../tree/sanitize.js';
-import { catalogueDifferences, componentToPreset, csvToPresets, holdsCatalogueMass, loadCustomPresets, presetPatch, presetsToCsv, saveCustomPresets, type Preset } from './presets.js';
+import { catalogueDifferences, clusterCountPatch, componentToPreset, csvToPresets, holdsCatalogueMass, loadCustomPresets, presetPatch, presetsToCsv, saveCustomPresets, type Preset } from './presets.js';
 import { noteFlags } from './importNotes.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import { impulseNote } from './thrustcurve.js';
@@ -25,6 +25,41 @@ const ork = (parts: string, config = '') => `<openrocket version="1.10"><rocket>
 const rkt = (parts: string, extra = '', sims = '') => `<RockSimDocument><DesignInformation><RocketDesign><Name>Test</Name><StageCount>1</StageCount>${extra}<Stage3Parts>${parts}</Stage3Parts></RocketDesign></DesignInformation>${sims}</RockSimDocument>`;
 const flat = (ns: ComponentNode[]): ComponentNode[] => ns.flatMap(n => [n, ...flat(n.children ?? [])]);
 const cdx = (extra: string, recovery = '') => `<RASAeroDocument><RocketDesign><BodyTube><Length>20</Length><Diameter>3</Diameter>${extra}</BodyTube></RocketDesign>${recovery}</RASAeroDocument>`;
+
+const clusterTube: Preset = { kind: 'BodyTube', manufacturer: 'Test', partNo: 'Tube', description: '', mass: 0.01 };
+it.each([
+  ['single to four', 'single', '4-ring', 0.01, {}, clusterTube, 0.04],
+  ['four to single', '4-ring', 'single', 0.04, {}, clusterTube, 0.01],
+  ['four to six', '4-ring', '6-ring', 0.04, {}, clusterTube, 0.06],
+  ['weighed total', '4-ring', 'single', 0.013, {}, clusterTube, undefined],
+  ['legacy one-tube total', '4-ring', 'single', 0.01, {}, clusterTube, undefined],
+  ['legacy My part', '4-ring', 'single', 0.04, {}, { ...clusterTube, savedComponent: true }, undefined],
+  ['legacy My part pick', '4-ring', 'single', 0.04, {}, { ...clusterTube, savedComponent: true, mass: 0.04 }, undefined],
+  ['version-two My part', '4-ring', 'single', 0.04, {}, { ...clusterTube, savedComponent: true, savedComponentVersion: 2 }, 0.01],
+  ['detached name', '4-ring', 'single', 0.04, { presetPartNo: undefined, name: 'Test Tube' }, clusterTube, 0.01],
+  ['renamed detached', '4-ring', 'single', 0.04, { presetPartNo: undefined, name: 'My tube' }, clusterTube, undefined],
+  ['assembly weight', '4-ring', 'single', 0.04, { overrideSubcomponentsMass: true }, clusterTube, undefined],
+  ['other type', '4-ring', 'single', 0.04, { type: 'bodytube' }, clusterTube, undefined],
+  ['same count', '4-ring', '4-row', 0.04, {}, clusterTube, undefined],
+  ['nonfinite mass', '4-ring', 'single', NaN, {}, clusterTube, undefined],
+] as const)('J5-M cluster edit: %s', (_label, from, to, mass, extra, row, expected) => {
+  const node: ComponentNode = { type: 'innertube', cluster: from, overrideMass: mass,
+    presetManufacturer: 'Test', presetPartNo: 'Tube', ...extra };
+  const patch = clusterCountPatch(node, to, [row]);
+  expect(patch.cluster).toBe(to);
+  if (expected === undefined) expect(patch).toEqual({ cluster: to });
+  else expect(patch.overrideMass).toBeCloseTo(expected, 12);
+});
+it('J5-M keeps retired per-tube figures and accepts alternate part numbers', () => {
+  const [key, masses] = Object.entries(retiredPresetMasses).find(([key]) => key.startsWith('BodyTube|'))!;
+  const [, manufacturer, partNo] = key.split('|');
+  const row: Preset = { kind: 'BodyTube', manufacturer: manufacturer!, partNo: 'Replacement',
+    altPartNos: [partNo!], description: '', mass: masses[0]! * 2 };
+  const node: ComponentNode = { type: 'innertube', cluster: '4-ring', overrideMass: masses[0]! * 4,
+    presetManufacturer: manufacturer, presetPartNo: partNo };
+  expect(clusterCountPatch(node, 'single', [row]).overrideMass).toBeCloseTo(masses[0]!, 12);
+  expect(clusterCountPatch(node, 'single', null)).toEqual({ cluster: 'single' });
+});
 
 it.each(['centeringring', 'bulkhead', 'tubecoupler', 'engineblock'])('S1a-1 keeps explicit zero %s radius', type => {
   const loaded = importOrk(ork(`<bodytube><radius>0.03</radius><subcomponents><${type}><outerradius>0</outerradius></${type}></subcomponents></bodytube>`));

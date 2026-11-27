@@ -50,7 +50,10 @@ export function refreshFileMotorIds(tree: RocketTree, motorSets: readonly Record
         return id && !fitsMount(mountBore(mount) * 1000, { diameter: motor!.spec.diameter * 1000 }) ? [id] : [];
       }),
     ])];
-    if (ids.length || Array.isArray(previous)) tree = updateNode(tree, mount.id!, { fileMotorIds: ids });
+    // An unchanged answer must not create a tree edit and cancel a held link flight.
+    if ((ids.length || Array.isArray(previous)) && JSON.stringify(previous) !== JSON.stringify(ids)) {
+      tree = updateNode(tree, mount.id!, { fileMotorIds: ids });
+    }
   }
   return tree;
 }

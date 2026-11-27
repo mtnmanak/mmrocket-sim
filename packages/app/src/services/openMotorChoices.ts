@@ -31,6 +31,23 @@ export type OpenMotorState = Pick<DesignSnapshot, 'mountMotors' | 'savedConfigs'
   unmatchedRefs: Record<string, OrkMotorRef>;
 };
 
+/** Answers establish file origin only at the locations named by the file question. */
+export function refreshOpenMotorFileIds(tree: DesignSnapshot['tree'], state: OpenMotorState,
+  activeConfigId: string | null, groups: OpenMotorIdentity[]): DesignSnapshot['tree'] {
+  const changedMounts = new Set(groups.flatMap(g => g.locations.map(l => l.mountId)));
+  const sets = [{ configId: activeConfigId, motors: state.mountMotors },
+    ...state.savedConfigs.map(c => ({ configId: c.id, motors: c.motors }))];
+  const fileSets = sets.map(({ configId, motors }) => Object.fromEntries(Object.entries(motors).filter(([mountId, motor]) => {
+    if (!changedMounts.has(mountId)) return false;
+    const previous = findNode(tree, mountId)?.['fileMotorIds'];
+    // Keep other known file choices on this mount, but do not promote an
+    // unrelated working/link motor just because it shares the answered mount.
+    return (Array.isArray(previous) && previous.includes(motor.meta.motorId ?? motor.meta.exMotorId))
+      || groups.some(g => g.locations.some(l => l.configId === configId && l.mountId === mountId));
+  })));
+  return refreshFileMotorIds(tree, fileSets, false, changedMounts);
+}
+
 const identityKey = (ref: OrkMotorRef) => JSON.stringify([
   ref.manufacturer.trim().toLowerCase(), ref.designation.trim().toLowerCase(),
 ]);
@@ -178,8 +195,7 @@ export async function applyOpenMotorChoices(
       }
     }
   }
-  const changedMounts = new Set(groups.flatMap(g => g.locations.map(l => l.mountId)));
-  const tree = refreshFileMotorIds(state.tree, [mountMotors, ...savedConfigs.map(c => c.motors)], false, changedMounts);
+  const tree = refreshOpenMotorFileIds(state.tree, { mountMotors, savedConfigs, unmatchedRefs }, activeConfigId, groups);
   const fitNotes: ImportNote[] = motorFitWarnings(tree, Object.entries(mountMotors), units)
     .map(w => ({ kind: 'I12.motor-fit', tier: 'caution', text: w.message }));
   return { mountMotors, savedConfigs, unmatchedRefs, tree, fitNotes };

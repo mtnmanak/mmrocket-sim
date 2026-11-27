@@ -72,7 +72,7 @@ import { elasticCordNote } from '../services/elasticCordNote.js';
 import { PresetPicker } from './PresetPicker.js';
 import { SaveMyPartDialog } from './SaveMyPartDialog.js';
 import {
-  catalogueDifferences, detachPatch, KIND_FOR_TYPE, linkedPreset, loadPresets, presetPatch,
+  catalogueDifferences, clusterCountPatch, detachPatch, KIND_FOR_TYPE, linkedPreset, loadPresets, presetPatch,
   type CatalogueDifference, type Preset,
 } from '../services/presets.js';
 import { limitPatch, POSITION_LIMIT } from '../tree/sanitize.js';
@@ -800,8 +800,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
    */
   const [pickerCloses, setPickerCloses] = useState(0);
   const [read, setRead] = useState<{ after: number; presets: readonly Preset[] } | null>(null);
+  const needsCatalogue = linked || (node.type === 'innertube' && numOpt(node, 'overrideMass') !== undefined);
   useEffect(() => {
-    if (!linked || read?.after === pickerCloses) return;
+    if (!needsCatalogue || read?.after === pickerCloses) return;
     // The `live` flag of every lazy catalogue load (PresetPicker, the recovery
     // panel): this panel is keyed by the part, and a selection can move on
     // before the bundle arrives.
@@ -810,7 +811,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
     // nothing here claims the part matches.
     loadPresets().then((p) => { if (live) setRead({ after: pickerCloses, presets: p }); }, () => {});
     return () => { live = false; };
-  }, [linked, pickerCloses, read]);
+  }, [needsCatalogue, pickerCloses, read]);
   // The last read stands until the next arrives, so the markers do not blink;
   // but only a read made since the picker last closed may say a row is missing.
   const catalogue = read?.presets ?? null;
@@ -1758,7 +1759,10 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
                   value={String(RESOLVE_SELECT[f.key]?.(node) ?? node[f.key] ?? f.dflt ?? f.options[0]![0])}
                   onChange={(e) => onPatch(f.key === 'shape'
                     ? { shape: e.target.value, shapeParameter: undefined }
-                    : { [f.key]: e.target.value })}
+                    // Before the lazy catalogue arrives (or if it fails), keep the existing total.
+                    : f.key === 'cluster' && node.type === 'innertube'
+                      ? limitPatch(node, clusterCountPatch(node, e.target.value, catalogue))
+                      : { [f.key]: e.target.value })}
                 >
                   {f.key === 'radiusMethod' && restoredRadial && (
                     <option value={String(node['radiusMethod'])} disabled>

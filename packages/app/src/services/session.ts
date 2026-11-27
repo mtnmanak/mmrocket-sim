@@ -64,6 +64,8 @@ export interface SessionState {
    * restores, so a design first opened before v0.160 would keep its old stamp.
    */
   emptyConfigVersion?: 1;
+  /** Current autosaves preserve file-motor provenance; missing mount ids are not legacy file choices. */
+  fileMotorProvenanceVersion?: 1;
   /** One-shot time-step migration, independent of the parsing build stamp. */
   timeStepMigrationVersion?: 1;
   /** Which preset the working motor set came from; null/absent = custom/none. */
@@ -1004,7 +1006,7 @@ function writeNow(): boolean {
     // silently turn that into null, so round-trip it as a string.
     const { stamp: _stale, over: _staleOver, ...state } = pending;
     const content = JSON.stringify(
-      { appVersion: APP_VERSION, ...state, nozzleModeVersion: 1, emptyConfigVersion: 1, timeStepMigrationVersion: 1 }, (key, v) =>
+      { appVersion: APP_VERSION, ...state, nozzleModeVersion: 1, emptyConfigVersion: 1, fileMotorProvenanceVersion: 1, timeStepMigrationVersion: 1 }, (key, v) =>
       key === 'simWarnings' ? restoredWarnings(v)
         : typeof v === 'number' && v === Infinity ? 'Infinity' : v);
     // The stamp covers everything but the timestamp (and a takeover's `over`),

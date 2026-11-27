@@ -193,9 +193,10 @@ export function designStateFromSession(
   const labelledConfigs = savedConfigs.map(c => restoreConfigLabels(c));
   // Older autosaves predate the browser's file-motor exceptions. Seed hidden
   // oversized choices once; fitting motors need no exception or identity edit.
-  // later restores must retain the original choices after a replacement.
+  // Later restores retain original choices; current autosaves never infer file
+  // provenance from a motor picked in the app or injected by a motor link.
   for (const mount of motorMounts(tree)) {
-    if (Array.isArray(mount['fileMotorIds'])) continue;
+    if (session?.fileMotorProvenanceVersion === 1 || Array.isArray(mount['fileMotorIds'])) continue;
     const ids = [...new Set([labelledMotors, ...labelledConfigs.map(c => c.motors)].flatMap(motors => {
       const motor = Object.hasOwn(motors, mount.id!) ? motors[mount.id!] : undefined;
       if (!motor?.spec || fitsMount(mountBore(mount) * 1000, { diameter: motor.spec.diameter * 1000 })) return [];

@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import type { MountMotor } from '../model/design.js';
 import { withAuto, withDelay, withPlugged } from '../services/mountDelayEdits.js';
-import { MOTOR_DB, MOTOR_DB_DATE, setCatalogueOverlay, displayDesignation, sortMotors } from '../services/motorDb.js';
+import { MOTOR_DB, MOTOR_DB_DATE, setCatalogueOverlay, displayDesignation, sortMotors, type MotorDbEntry } from '../services/motorDb.js';
 import { exportOrk, importOrk } from '../services/orkFile.js';
 import { resetThrustcurveBackoffForTests } from '../services/thrustcurveTraffic.js';
 import { loadExMotors, parseEng } from '../services/exMotors.js';
@@ -243,6 +243,14 @@ const settle = async (ms = 0) => { await act(async () => {
 const loadButton = (h: Harness) => Array.from(h.host.querySelectorAll('button'))
   .find((b) => /Load motor|Loading/.test(b.textContent ?? ''));
 
+/** A bundled/EX load must never fall through to the live curve service. */
+const forbidNetwork = () => {
+  const fetch = vi.fn(() => Promise.reject(new Error('network in unit test')));
+  vi.stubGlobal('fetch', fetch);
+  onTestFinished(() => { vi.unstubAllGlobals(); });
+  return fetch;
+};
+
 it('J4 S3a-g2 refuses Load while the custom delay draft is invalid', async () => {
   const h = openBrowser({ mountDiameterMm: 24 });
   onTestFinished(() => closeBrowser(h));
@@ -306,10 +314,13 @@ it('J1 saves an unlaunched plugged-only Auto motor as plugged, never a burnout c
 });
 
 it('J23 offers the opened file motor again even though it is wider than this mount', async () => {
-  let motor = MOTOR_DB.find(m => m.diameter > 38)!;
+  const fetch = forbidNetwork();
+  let motor: MotorDbEntry | undefined;
   for (const candidate of MOTOR_DB.filter(m => m.diameter > 38)) {
     if (await thrustcurve.bundleHasCurve(candidate.motorId)) { motor = candidate; break; }
   }
+  expect(motor, 'a bundled curve for a >38 mm motor').toBeDefined();
+  if (!motor) throw new Error('No bundled curve for a >38 mm motor');
   const h = openBrowser({ mountDiameterMm: 18, fileMotorIds: [motor.motorId] });
   onTestFinished(() => closeBrowser(h));
   const row = bodyRows(h).find(r => r.textContent?.includes('file motor'));
@@ -320,6 +331,7 @@ it('J23 offers the opened file motor again even though it is wider than this mou
   expect(loadButton(h)).toBeDefined();
   click(loadButton(h)!);
   await settle();
+  expect(fetch).not.toHaveBeenCalled();
   expect(h.specs[0]?.diameter).toBeCloseTo(motor.diameter / 1000, 9);
 });
 
@@ -621,6 +633,9 @@ describe('MotorBrowser — a motor refused on its catalogue weight but not its f
   afterEach(() => closeBrowser(h));
 
   it('Estes 1/2A6 — no catalogue weight, good bundled file — is pickable and loads', async () => {
+    const fetch = forbidNetwork();
+    const motor = MOTOR_DB.find(m => m.manufacturerAbbrev === 'Estes' && m.designation === '1/2A6')!;
+    expect(await thrustcurve.bundleHasCurve(motor.motorId)).toBe(true);
     h = openBrowser({ mountDiameterMm: 18 });
     search(h, '1/2A6');
     // The bundle chunk behind fileMassed is 840 kB of JSON; wait for it.
@@ -631,6 +646,7 @@ describe('MotorBrowser — a motor refused on its catalogue weight but not its f
     click(loadButton(h)!);
     for (let i = 0; i < 20 && h.selected.length === 0; i++) await settle(10);
     expect(h.selected.map((s) => s.label)).toEqual(['1/2A6-2']);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('S3a-g9 explains visibly why a motor with no weight anywhere stays locked', async () => {
@@ -1547,6 +1563,9 @@ describe('the "only motors that fit" tooltip', () => {
 
 describe('MotorBrowser designation labels', () => {
   it.each(['F67C', 'F67W'])('loads %s with its propellant letter and selected delay', async (designation) => {
+    const fetch = forbidNetwork();
+    const motor = MOTOR_DB.find(m => m.manufacturerAbbrev === 'AeroTech' && m.designation === designation)!;
+    expect(await thrustcurve.bundleHasCurve(motor.motorId)).toBe(true);
     const h = openBrowser({ mountDiameterMm: 29 });
     onTestFinished(() => closeBrowser(h));
     search(h, designation);
@@ -1560,6 +1579,7 @@ describe('MotorBrowser designation labels', () => {
     for (let i = 0; i < 30 && !h.selected.length; i++) await settle(10);
     expect(h.selected).toEqual([{ label: designation + '-9', ejectionDelay: 9 }]);
     expect(h.specs[0]!.designation).toBe(designation);
+    expect(fetch).not.toHaveBeenCalled();
     const edited = withDelay(h.motors[0]!, 8);
     const auto = withAuto(edited, true);
     const plugged = withPlugged(auto, true);
