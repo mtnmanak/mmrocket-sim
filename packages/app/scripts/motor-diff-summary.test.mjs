@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   BODY_BUDGET,
   CATALOGUE_FIELDS,
@@ -89,6 +89,23 @@ const side = (motors, curves = {}, generated) => ({
 });
 
 const iso = (ms) => new Date(ms).toISOString().slice(0, 10);
+
+it('keeps catalogue and revised-curve report ordering fixed on a Danish host', () => {
+  const compare = String.prototype.localeCompare;
+  const host = vi.spyOn(String.prototype, 'localeCompare').mockImplementation(function (other, locale, options) {
+    return compare.call(this, other, locale ?? 'da', options);
+  });
+  try {
+    const motors = ['AA', 'AC'].map(id => motor(id, { manufacturerAbbrev: 'Test', designation: `BNC-55${id}` }));
+    expect(diffCatalogue([], motors).added.map(m => m.motorId)).toEqual(['AA', 'AC']);
+    // Equal names exercise the motor-ID tie breaker as well.
+    expect(diffCatalogue([], motors.map(m => ({ ...m, designation: 'Same' }))).added.map(m => m.motorId)).toEqual(['AA', 'AC']);
+    const before = side(motors, Object.fromEntries(motors.map(m => [m.motorId, [curve('one', [[0, 0], [1, 1]])]])));
+    const after = side(motors, Object.fromEntries(motors.map(m => [m.motorId, [curve('one', [[0, 0], [1, 2]])]])));
+    const text = renderMarkdown(summarise({ before, after }));
+    expect(text.indexOf('BNC-55AA')).toBeLessThan(text.indexOf('BNC-55AC'));
+  } finally { host.mockRestore(); }
+});
 
 it('renders prototype-key motor names and orphan curve IDs as text', () => {
   const samples = [[0, 0], [1, 10], [2, 0]];

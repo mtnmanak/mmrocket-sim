@@ -39,6 +39,7 @@ const workflow = 'run: npm install --no-save --no-package-lock wrangler@4.136.3\
 const lock = { packages: {
   'packages/app': { dependencies: { react: '*', '@scope/shared': '*', linked: '*' }, devDependencies: { esbuild: '*' } },
   'packages/engine': { dependencies: { engineDep: '*' } },
+  'packages/api': {},
   'packages/lib': { dependencies: { react: '*' } },
   'node_modules/linked': { link: true, resolved: 'packages/lib' },
   'node_modules/react': { dependencies: { cycle: '*' } },
@@ -171,9 +172,19 @@ it.each(['<!--', '<script>', '<style>', '<p '])('refuses unclosed Open-Meteo HTM
 });
 
 describe('lockfile runtime reachability', () => {
-  it('walks only app/engine production edges, including workspaces, peers, optionals and cycles', () => {
+  it('classifies API-only production parsers and their dependencies as runtime', () => {
+    const api = structuredClone(lock);
+    api.packages['packages/api'] = { dependencies: { saxes: '1' } };
+    api.packages['node_modules/saxes'] = { dependencies: { xmlchars: '1' } };
+    api.packages['node_modules/xmlchars'] = {};
+    const report = structuredClone(audit);
+    report.vulnerabilities.esbuild.nodes = ['node_modules/xmlchars'];
+    expect(runtimeNodes(api).has('node_modules/saxes')).toBe(true);
+    expect(npmAdvisories(report, api)[0]).toContain('(RUNTIME)');
+  });
+  it('walks app/engine/api production edges, including workspaces, peers, optionals and cycles', () => {
     expect([...runtimeNodes(lock)].sort()).toEqual([
-      'packages/app', 'packages/engine', 'packages/lib', 'node_modules/linked',
+      'packages/app', 'packages/engine', 'packages/api', 'packages/lib', 'node_modules/linked',
       'node_modules/react', 'node_modules/cycle', 'node_modules/@scope/shared',
       'node_modules/optional', 'node_modules/peer', 'node_modules/engineDep',
     ].sort());
@@ -187,11 +198,60 @@ describe('lockfile runtime reachability', () => {
     expect(nodes.has('node_modules/@scope/shared/node_modules/peer')).toBe(true);
     expect(nodes.has('node_modules/peer')).toBe(false);
   });
-  it.each(['packages/app', 'packages/engine'])('refuses missing workspace %s', (workspace) => {
+  it.each(['packages/app', 'packages/engine', 'packages/api'])('refuses missing workspace %s', (workspace) => {
     const broken = structuredClone(lock);
     delete broken.packages[workspace];
     expect(() => runtimeNodes(broken)).toThrow('workspace');
   });
+});
+
+it('includes a closing summary note when a watched upstream material disappears', async () => {
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  try {
+    const correction = { key: 'Parachute|synthetic|one', upstreamMaterial: {
+      file: 'synthetic.orc', name: 'Missing cloth', bad: '1', units: 'g/m2',
+    } };
+    expect(await main([() => checkCorrections(async () => '<OpenRocketComponent><Materials/></OpenRocketComponent>', [correction])], () => {})).toBe(1);
+    const output = log.mock.calls.flat().join('\n');
+    expect(output).toContain('MOVED:');
+    expect(output.slice(output.lastIndexOf('MOVED:'))).toContain('\n  - material gone: synthetic.orc Missing cloth');
+  } finally { log.mockRestore(); }
+});
+
+it.each([
+  ['date', 'motor catalogue date unreadable'],
+  ['curves', 'curve bundle missing or unreadable'],
+  ['metadata', 'motor metadata shape changed'],
+  ['manufacturers', 'motor metadata has no manufacturers'],
+])('includes the closing summary for an unreadable or empty %s', async (kind, note) => {
+  const generated = kind === 'date' ? 'unreadable' : new Date().toISOString().slice(0, 10);
+  const readData = path => {
+    if (path.endsWith('motors.json')) return JSON.stringify({ generated, motors: [] });
+    if (kind === 'curves') throw new Error('missing curve bundle');
+    return JSON.stringify({ catalogueGenerated: generated, motors: 0, files: 0 });
+  };
+  const getJson = async url => url.includes('search.json') ? { matches: 0 }
+    : kind === 'metadata' ? {} : { manufacturers: [] };
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  expect(await main([() => checkThrustCurve(getJson, noPublishedCatalogue, readData)], () => {})).toBe(1);
+  const output = log.mock.calls.flat().join('\n');
+  expect(output.slice(output.lastIndexOf('MOVED:'))).toContain(`\n  - ${note}`);
+  expect(unexpectedFetch).not.toHaveBeenCalled();
+});
+
+it.each([
+  ['descriptor', () => checkCorrections(async () => '', [{ key: 'synthetic' }]), 'missing upstream descriptor: synthetic'],
+  ['correction row', () => checkCorrections(async () => '<Components/>', [{ key: 'synthetic', upstream: {
+    file: 'synthetic.orc', element: 'BodyTube', partNo: 'missing', fields: {},
+  } }]), 'row gone: synthetic.orc missing'],
+  ['watch row', () => checkWatch(async () => '<Components/>', [{
+    file: 'synthetic.orc', element: 'BodyTube', partNos: ['missing'], field: 'Length', expect: '1',
+  }]), 'watched row gone: synthetic.orc missing'],
+])('includes the closing summary for a missing %s', async (_kind, check, note) => {
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  expect(await main([check], () => {})).toBe(1);
+  const output = log.mock.calls.flat().join('\n');
+  expect(output.slice(output.lastIndexOf('MOVED:'))).toContain(`\n  - ${note}`);
 });
 
 describe('npm audit records', () => {

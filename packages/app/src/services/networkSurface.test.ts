@@ -107,6 +107,11 @@ describe('the guide’s network paragraph', () => {
     expect(paragraph).not.toBe('');
   });
 
+  it('states the successful-check wait and failed-check retry', () => {
+    expect(paragraph).toContain('waiting six hours after a successful check');
+    expect(paragraph).toContain('retrying a failed check on the next load');
+  });
+
   it('names every host the app reaches out to', () => {
     for (const h of NETWORK_HOSTS) {
       const host = new URL(h).host.replace(/^www\./, '');

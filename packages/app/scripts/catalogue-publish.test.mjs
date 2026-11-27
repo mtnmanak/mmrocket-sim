@@ -6,6 +6,8 @@ import { join, resolve } from 'node:path';
 import { contentHash, freezeInputs, main, planPublication, publicationSummary, readPublication, stagePublication,
   uploadPublication, validateCheckUpdate, validateInputs, validatePreviousManifest, verifyPublication } from './catalogue-publish.mjs';
 import { FULL_FIELDS } from './fetch-motor-db.mjs';
+import { MOTORS_MAX_BYTES, CURVES_MAX_BYTES } from '../src/services/catalogueClient.ts';
+
 const bundledDate = JSON.parse(readFileSync(new URL('../src/data/motors.json', import.meta.url))).generated;
 const checkedDay = days => new Date(Date.parse(bundledDate) + days * 86_400_000).toISOString().slice(0, 10);
 
@@ -408,6 +410,33 @@ describe('planPublication and contentHash', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it.each([['motorsBytes', MOTORS_MAX_BYTES], ['curvesBytes', CURVES_MAX_BYTES]])(
+    'enforces the browser byte boundary for %s during planning and staged validation', (kind, limit) => {
+      const args = inputs();
+      const padded = Buffer.concat([args[kind], Buffer.alloc(limit - args[kind].length, 32)]);
+      expect(() => planPublication({ ...args, [kind]: padded })).not.toThrow();
+      const oversized = Buffer.concat([padded, Buffer.from(' ')]);
+      expect(() => planPublication({ ...args, [kind]: oversized })).toThrow(/size limit/);
+      const plan = first();
+      const index = kind === 'motorsBytes' ? 0 : 1;
+      plan.uploads[index].bytes = oversized;
+      plan.entry[index === 0 ? 'motors' : 'curves'].bytes = oversized.length;
+      plan.entry[index === 0 ? 'motors' : 'curves'].sha256 = sha(oversized);
+      expect(() => readPublication(staged(plan))).toThrow(/size limit/);
+      const unchanged = { ...first(), changed: false, uploads: [] };
+      unchanged.entry[index === 0 ? 'motors' : 'curves'].bytes = oversized.length;
+      expect(() => readPublication(staged(unchanged))).toThrow(/size limit/);
+    });
+  it('forwards verify retry count and delay through the CLI', async () => {
+    const { dir } = await uploaded();
+    const fetchImpl = vi.fn(async () => response('', 503));
+    const sleep = vi.fn();
+    expect(await main(['verify', '--plan', dir, '--base', 'https://example.test'], {
+      fetchImpl, sleep, attempts: 2, delayMs: 17, stderr: () => {},
+    })).toBe(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(sleep.mock.calls).toEqual([[17]]);
+  });
   it.each(['constructor', 'toString', '__proto__'])('diffs own curve keys safely: %s', id => {
     const args = inputs();
     const one = bytes({ curves: { [id]: [{ simfileId: 'f', samples: [[0, 0], [1, 1]] }] } });

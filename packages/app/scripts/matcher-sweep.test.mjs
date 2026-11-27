@@ -3,7 +3,31 @@ import { audit, classify, parseResults } from './matcher-sweep.classify.mjs';
 import { matcherBoosterEnabled, simulationNumbers } from './matcher-inventory.mjs';
 import { Window } from 'happy-dom';
 import { mutations, replaceMutationAnchor, runMutations } from './matcher-sweep.mutate.mjs';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { readVerifiedInput } from './matcher-sweep.input.mjs';
+
+it('refuses corpus bytes changed after manifest creation or between baseline and current reads', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'matcher-input-'));
+  try {
+    const path = join(dir, 'sample.ork');
+    const original = Buffer.from('<rocket><name>before</name></rocket>');
+    writeFileSync(path, original);
+    const file = { path, sha256: createHash('sha256').update(original).digest('hex') };
+    expect(readVerifiedInput(file)).toEqual(original);
+    writeFileSync(path, '<rocket><name>after</name></rocket>');
+    expect(() => readVerifiedInput(file)).toThrow('Corpus input changed');
+    const worker = readFileSync(new URL('./matcher-sweep.worker.mjs', import.meta.url), 'utf8');
+    expect(worker).toContain('const data = readVerifiedInput(file);');
+    expect(worker).not.toContain('readFileSync(file.path)');
+    const census = readFileSync(new URL('../src/services/motorDigest.census.test.ts', import.meta.url), 'utf8');
+    expect(census).toContain('const bytes = new Uint8Array(readVerifiedInput(file));');
+    expect(census.indexOf('readVerifiedInput(file)')).toBeLessThan(census.indexOf('seen.has(file.sha256)'));
+    expect(census).not.toContain('readFileSync(file.path)');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
 
 it('handles stray boosters outside a simulation without an inventory error', async () => {
   const win = new Window();

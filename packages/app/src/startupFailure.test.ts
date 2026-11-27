@@ -18,7 +18,7 @@ import { Window } from 'happy-dom';
  * own module script, which each case then fails in the way it is testing.
  */
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-const APP_SCRIPT = /<script type="module" src="\/src\/main\.tsx"><\/script>/;
+const APP_SCRIPT = /<script type="module" src="\/src\/bootstrap\.ts"><\/script>/;
 
 const open: Window[] = [];
 afterEach(async () => {

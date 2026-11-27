@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
-import { lazyModulesInEntry } from './scripts/lazy-chunks.mjs';
+import { lazyModulesInEntry, startupPreloadLinks } from './scripts/lazy-chunks.mjs';
 import { checkDist, duplicatePrecacheUrls } from './scripts/precache-coverage.mjs';
 import { checkDistHtml } from './scripts/served-headers.mjs';
 import { RELEASES_NAVIGATION, releaseNotesPlugin } from './scripts/release-notes.mjs';
@@ -99,7 +99,7 @@ function precacheCoversBuild(): Plugin {
 }
 
 /**
- * Fails `vite build` when the entry chunk carries the user guide, the changelog
+ * Fails `vite build` when the startup graph carries the user guide, the changelog
  * or either dialog that reads them (audit 2026-09-22, row 510). App.tsx
  * lazy-loads the two dialogs so their ~730 KB of text is not loaded and parsed
  * before the app draws, and one import from anything on the startup path —
@@ -114,10 +114,16 @@ function lazyTextsStayLazy(): Plugin {
     configResolved(config) {
       root = config.root;
     },
+    transformIndexHtml: {
+      order: 'post',
+      handler(_html, context) {
+        return context.bundle ? startupPreloadLinks(context.bundle, root) : [];
+      },
+    },
     generateBundle(_options, bundle) {
       const folded = lazyModulesInEntry(bundle, root);
       if (folded.length > 0) {
-        this.error(`the entry chunk carries ${folded.length} module(s) that must load only when `
+        this.error(`the startup graph carries ${folded.length} module(s) that must load only when `
           + `their dialog opens: ${folded.join(', ')}. Something the page loads at startup imports `
           + 'one of them. Remove that import, or make it a dynamic import(); '
           + 'App.lazyDialogs.test.tsx names the module when the importer is under AppRoot.');
@@ -240,16 +246,11 @@ export default defineConfig({
     plugins: () => [brandTokensModule()],
   },
   base: './',
-  // The browsers the build is written for: vite 5's 'modules' default, stated
-  // (AUDIT row 528, vite 5 -> 8). Vite 7 and 8 raised the default (now Chrome
-  // 111, Firefox 114, Safari 16.4), so the same source built with the ES2021
-  // and ES2022 syntax these targets lower — `||=`, which Firefox 78 cannot
-  // parse, and class fields — and Lightning CSS dropped the -webkit- and -moz-
-  // prefixes they keep. With this list every chunk parses as ES2020 again, as
-  // it did. A tester's older iPad or ESR Firefox is not something to drop as a
-  // side effect of a toolchain upgrade; raising it is its own decision.
+  // Runtime floor: Object.hasOwn, Array.at, structuredClone and crypto.randomUUID. The entry
+  // checks those APIs before importing the app and explains an older browser.
+  // Vite lowers syntax; it does not supply these runtime APIs.
   build: {
-    target: ['es2020', 'edge88', 'firefox78', 'chrome87', 'safari14'],
+    target: ['es2020', 'edge98', 'firefox95', 'chrome98', 'safari15.4'],
   },
   // The engine is a linked workspace package (entry imports the ESM artifact
   // vendor/orkengine.mjs). Prebundle it so dev mode resolves it like prod.

@@ -1,4 +1,5 @@
 import { pageActivity } from './pageActivity.js';
+import { throwIfAborted } from './abortSignal.js';
 import { noteField, noteText } from './noteField.js';
 import { INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
 import type { NoteTier } from '../components/Note.js';
@@ -43,7 +44,7 @@ export async function importMotorFiles(files: File[], units: UnitSelection = INI
     if (skippedFiles) said.push(`Skipped ${skippedFiles} motor files beyond the first ${MAX_EX_IMPORT_FILES} files in path order.`);
 
     for (const f of motorFiles) {
-      signal?.throwIfAborted();
+      throwIfAborted(signal);
       try {
         if (f.size > MAX_EX_IMPORT_BYTES) throw new Error(EX_IMPORT_BYTES_NOTE);
         const notes: string[] = [];
@@ -79,7 +80,7 @@ export async function importMotorFiles(files: File[], units: UnitSelection = INI
       }
     }
     // No await occurs between this cancellation check and the library write.
-    signal?.throwIfAborted();
+    throwIfAborted(signal);
     // Screened BEFORE the write: addExMotors refuses the whole batch on its
     // first invalid motor, so one contrived motor used to drop every good one
     // in the selection (closure audit of v0.194, row A). Its throw stays as

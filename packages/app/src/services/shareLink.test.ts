@@ -130,6 +130,19 @@ describe('share-link codec', () => {
   });
 });
 
+describe('a browser that cannot create a share link', () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+  it.each(['missing', 'unsupported format'])('offers a file instead when compression is %s', async kind => {
+    vi.stubGlobal('CompressionStream', kind === 'missing' ? undefined : class {
+      constructor() { throw new TypeError('Unsupported format'); }
+    });
+    await expect(encodeShareFragment(XML)).rejects.toMatchObject({
+      name: 'ShareLinkUnsupportedError',
+      message: expect.stringMatching(/this browser can't create share links.*Chrome or Edge 103.*Firefox 113.*Safari 16\.4.*send the \.ork file/i),
+    });
+  });
+});
+
 describe('a browser that cannot unpack a share link (audit 2026-09-22)', () => {
   // An older iPad (Safari before 16.4) has no DecompressionStream at all, and
   // a Chromium before 103 has one without 'deflate-raw'. Every link then

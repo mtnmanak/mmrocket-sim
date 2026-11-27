@@ -29,6 +29,7 @@ import { matchImportedMotor } from './motorMatch.js';
 import { bundledOnlyFetchSpec, bundledSimFiles, fileImpulseNs, flownCurve, headerMasses, pickSampleFile, type TcMotor } from './thrustcurve.js';
 import { digestMotorFile } from './motorDigest.js';
 import { gunzipCapped, unzipMember } from './zipMember.js';
+import { readVerifiedInput } from '../../scripts/matcher-sweep.input.mjs';
 
 const MANIFEST = process.env['DIGEST_CENSUS'];
 
@@ -66,12 +67,12 @@ describe.skipIf(!MANIFEST)('digest census', () => {
     const rows: Record<string, unknown>[] = [];
     const designs: Record<string, unknown>[] = [];
     for (const file of manifest.files) {
+      const bytes = new Uint8Array(readVerifiedInput(file));
       // Byte-identical copies count once. A renamed or re-saved copy of one
       // design (LEM-IV.ork and its "(1)", "(2)") is another file and counts
       // again, so every "designs" count below is a count of FILES.
       if (seen.has(file.sha256)) continue;
       seen.add(file.sha256);
-      const bytes = new Uint8Array(readFileSync(file.path));
       let xml: string;
       let result: ReturnType<typeof importOrk>;
       try {

@@ -147,8 +147,8 @@ export async function fetchCatalogue({ fetchImpl = thrustcurveFetch, log = (s) =
 
   return [...byId.values()]
     .map((m) => project(m, fields))
-    .sort((a, b) => String(a.manufacturerAbbrev).localeCompare(String(b.manufacturerAbbrev))
-      || String(a.designation).localeCompare(String(b.designation)));
+    .sort((a, b) => String(a.manufacturerAbbrev).localeCompare(String(b.manufacturerAbbrev), 'en')
+      || String(a.designation).localeCompare(String(b.designation), 'en'));
 }
 
 /** motors.json itself; `today` is an ISO date. */

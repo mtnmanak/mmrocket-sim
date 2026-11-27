@@ -171,8 +171,8 @@ describe('main', () => {
         const correction = MOTOR_CORRECTIONS.find((c) => c.motorId === m.motorId);
         const corrected = { ...m, ...Object.fromEntries(Object.entries(correction?.fields ?? {}).map(([f, c]) => [f, c.good])) };
         return Object.fromEntries(FIELDS.map((f) => [f, corrected[f]]));
-      }).sort((a, b) => String(a.manufacturerAbbrev).localeCompare(String(b.manufacturerAbbrev))
-        || String(a.designation).localeCompare(String(b.designation)));
+      }).sort((a, b) => String(a.manufacturerAbbrev).localeCompare(String(b.manufacturerAbbrev), 'en')
+        || String(a.designation).localeCompare(String(b.designation), 'en'));
       expect(baseline).toBe(JSON.stringify({ generated: '2026-10-22', source: 'thrustcurve.org API v1', count: motors.length, motors: expectedRows }));
     } finally {
       vi.useRealTimers();

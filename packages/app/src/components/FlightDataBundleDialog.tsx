@@ -91,7 +91,7 @@ export function FlightDataBundleDialog({ source, onClose }: { source: FlightData
     } catch (e) { setError(`Could not save the ZIP: ${e instanceof Error ? e.message : String(e)}`); }
     finally { saving.current = false; setBusy(false); }
   };
-  return <Modal label="Export flight-data bundle" onClose={onClose}>
+  return <Modal label="Export flight-data bundle" className="flight-bundle-dialog" onClose={onClose}>
     <div className="flight-bundle">
       <h2>Export flight-data bundle</h2>
       <p>Selected run: <strong>{formatRunLabel(source.run)}</strong>. Nothing is sent anywhere.

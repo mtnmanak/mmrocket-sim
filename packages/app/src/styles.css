@@ -573,6 +573,10 @@ html {
 @media screen and (min-height: 700px) and (max-width: 767px) {
   .viz-root:has(.workspace-bar-compact:not(.workspace-bar-expanded)) .results-full-launch-help { display: none; }
   .viz-root:has(.workspace-bar-compact:not(.workspace-bar-expanded)) .results-compact-launch-help { display: inline; }
+  @supports not selector(:has(*)) {
+    .workspace-bar-compact:not(.workspace-bar-expanded) ~ .results-column .results-full-launch-help { display: none; }
+    .workspace-bar-compact:not(.workspace-bar-expanded) ~ .results-column .results-compact-launch-help { display: inline; }
+  }
   /* .viz-root lifts this above the Daylight focus rule (same specificity, later in the file). */
   .viz-root .workspace-bar-compact:not(.workspace-bar-expanded) :focus-visible {
     outline-offset: -3px;
@@ -656,6 +660,13 @@ html {
     flex: 1 1 auto;
   }
   /* Full controls stay in Details; the collapsed model sign cannot take focus. */
+  @supports not selector(:has(*)) {
+    .workspace-bar-compact:not(.workspace-bar-expanded) .vitals-item-aero {
+      display: block;
+      flex: 0 0 auto;
+      padding: 4px 2px;
+    }
+  }
   .workspace-bar-compact:not(.workspace-bar-expanded) .vitals-item-aero:has(.vitals-aero-compact) {
     display: block;
     flex: 0 0 auto;
@@ -1925,6 +1936,7 @@ html {
    attention. The red edge and halo say "invalid"; the ring says "here". */
 .numfield input.num-invalid {
   border-color: var(--status-serious);
+  box-shadow: 0 0 0 1px var(--status-serious);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--status-serious) 40%, transparent);
 }
 
@@ -2149,6 +2161,7 @@ html {
    between drags by zeroing its width and height, and a border on a 0x0 box
    still paints — a permanent 2px accent square in the corner of every plot. */
 .chart-panel .u-select {
+  background: var(--selected);
   background: color-mix(in srgb, var(--accent-graphic) 12%, transparent);
   box-shadow: inset 0 0 0 1px var(--accent-graphic);
 }
@@ -2471,6 +2484,7 @@ html {
   /* Brand navy at 92 %: at 85 % over the white Daylight stage the 1.0.2
      danger-dark measured only 4.28:1 (brand v1 table D); 1.0.3's #FF9EA5 is
      6.17:1 at 92 % (4.93 at 85 %). */
+  background: var(--mmr-c-navy);
   background: color-mix(in srgb, var(--mmr-c-navy) 92%, transparent);
   border: 1px solid var(--mmr-c-line-dark);
   border-radius: 8px;
@@ -2626,6 +2640,7 @@ html {
   right: 12px;
   margin: 0;
   padding: 4px 10px;
+  background: var(--mmr-c-navy);
   background: color-mix(in srgb, var(--mmr-c-navy) 92%, transparent);
   border: 1px solid var(--mmr-c-line-dark);
   border-radius: 12px;
@@ -3015,6 +3030,9 @@ html {
    but focusable — display:none removed it from the Tab order entirely, so
    the control was unreachable by keyboard. The label anchors it (relative)
    and shows the focus ring on its behalf via :focus-within. */
+label.file-btn {
+  position: relative;
+}
 .file-btn:has(> .file-btn-input) {
   position: relative;
 }
@@ -3033,6 +3051,10 @@ html {
 
 /* Scoped with :has so plain .file-btn buttons keep the browser's own
    :focus-visible behavior (no ring on mouse clicks). */
+label.file-btn:focus-within {
+  outline: 3px solid var(--focus);
+  outline-offset: 1px;
+}
 .file-btn:has(> .file-btn-input):focus-within {
   outline: 3px solid var(--focus);
   outline-offset: 1px;
@@ -3869,6 +3891,9 @@ html {
 
 /* Flight-data collection: exact-file previews scroll inside the existing modal. */
 .modal-card:has(.flight-bundle) { max-width: 760px; width: min(760px, 100%); }
+@supports not selector(:has(*)) {
+  .modal-card.flight-bundle-dialog { max-width: 760px; width: min(760px, 100%); }
+}
 .flight-bundle { max-height: calc(100vh - 76px); max-height: calc(100dvh - 76px); overflow-y: auto; overflow-x: hidden; }
 .flight-bundle fieldset { min-width: 0; border: 1px solid var(--border); }
 .flight-bundle label { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; color: var(--text-secondary); font-size: 13px; }
@@ -4122,6 +4147,12 @@ html {
 
 .guide-letters [aria-disabled] { color: var(--text-muted); }
 .guide-letters a:hover { background: var(--surface-1); }
+/* Custom properties accept unknown functions at parse time: a preceding
+   --mark-bg declaration alone would still be replaced by an unusable mix.
+   Override the inherited token where it is consumed on older browsers. */
+@supports not (background: color-mix(in srgb, black, white)) {
+  .guide-content mark { --mark-bg: var(--selected); background: var(--mark-bg); text-decoration: underline; }
+}
 .guide-content mark {
   background: var(--mark-bg);
   color: var(--text-primary);
@@ -4994,6 +5025,7 @@ select.unit-chip:hover {
   line-height: 1.45;
   color: var(--text-primary);
   background: var(--tint-warn);
+  border: 1px solid var(--status-warn);
   border: 1px solid color-mix(in srgb, var(--status-warn) 30%, var(--border));
   border-radius: 6px;
 }
@@ -5212,8 +5244,23 @@ select.unit-chip:hover {
   line-height: 1.4;
   color: var(--text-secondary);
   background: var(--tint-warn);
+  border: 1px solid var(--status-warn);
   border: 1px solid color-mix(in srgb, var(--status-warn) 30%, var(--border));
   border-radius: 6px;
+}
+
+/* A mix containing var() may be rejected only at computed-value time, so a
+   preceding declaration alone is not a reliable fallback. These rules keep
+   essential cues visible on browsers within our supported floor. */
+@supports not (background: color-mix(in srgb, black, white)) {
+  /* Match the light/Daylight and dark accent fills at twelve percent opacity. */
+  .viz-root .chart-panel .u-select { background: rgba(173, 60, 0, 0.12); }
+  .viz-root[data-theme='dark'] .chart-panel .u-select { background: rgba(255, 101, 9, 0.12); }
+  .viz-root .stats-chip { background: var(--mmr-c-navy); }
+  .viz-root .hero-mounts { background: var(--mmr-c-navy); }
+  .viz-root .numfield input.num-invalid { box-shadow: 0 0 0 1px var(--status-serious); }
+  .viz-root .override-inert { border: 1px solid var(--status-warn); }
+  .viz-root .fly-stale { border: 1px solid var(--status-warn); }
 }
 
 /* Microcopy convergence (v0.076): six visually interchangeable ~11px classes
@@ -5551,6 +5598,7 @@ select.unit-chip:hover {
 .note-para + .note-para { margin-top: 6px; }
 /* The block's own padding replaced .file-note's 28px right edge, so the
    absolutely placed × sat over the end of the first line. */
+.message-tier.message-tier.file-note { padding-right: 28px; }
 .message-tier.message-tier.file-note:has(> .file-note-dismiss) { padding-right: 28px; }
 .message-tier.message-tier .notice-count { background: transparent; border-color: currentColor; }
 .message-tier.message-tier .file-note { background: transparent; color: inherit; border: 0; padding: 0; }

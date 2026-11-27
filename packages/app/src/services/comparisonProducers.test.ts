@@ -1,3 +1,7 @@
+// J9b r2 inventory review: shareLink 2 -> 3 adds a browser-capability message
+// offering the .ork file "instead". Scope exemption: no measured comparison,
+// flight threshold or tolerance changes. shareLink.test exercises missing
+// CompressionStream and an existing constructor that rejects deflate-raw.
 // THM inventory review: App loses its two "maximum contrast" tooltip literals;
 // ScreenModeSwitch owns one shared copy instead. Scope exemption: display
 // contrast advice, with no flight-number comparison or changed threshold.
@@ -904,6 +908,7 @@ it('requires inventory review and a boundary case or scope exemption for new pro
     'components/ScreenModeSwitch.tsx': 1,
     'components/BatchSimulate.tsx': reviewedCensus.app['components/BatchSimulate.tsx'] + 1,
     'services/batchSweep.ts': reviewedCensus.app['services/batchSweep.ts'] + 2,
+    'services/shareLink.ts': reviewedCensus.app['services/shareLink.ts'] + 1,
   } });
 }, 30_000);
 // AS3 inventory review: RecentDesignsDialog 2 -> 1 removes the duplicate deferred

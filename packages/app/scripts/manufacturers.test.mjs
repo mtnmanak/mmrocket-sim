@@ -1,8 +1,27 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ALIASES, DISPLAY, mfrDisplay, mfrKey, partKey, spellingConflicts } from './manufacturers.mjs';
+import { ALIASES, DISPLAY, mfrDisplay, mfrKey, partKey, spellingConflicts, presetOrder } from './manufacturers.mjs';
+
+it('serializes preset rows with fixed English collation on a Danish host too', () => {
+  const parts = ['BNC-55AC, 70274', 'BNC-55AA, 70272'];
+  const rows = parts.map(partNo => ({ kind: 'NoseCone', manufacturer: 'Estes', partNo }));
+  const original = String.prototype.localeCompare;
+  const compare = vi.spyOn(String.prototype, 'localeCompare').mockImplementation(function (other, locales, options) {
+    return original.call(this, other, locales ?? 'da', options);
+  });
+  try {
+    expect([...rows].sort(presetOrder).map(p => p.partNo)).toEqual([...parts].sort(new Intl.Collator('en').compare));
+  } finally { compare.mockRestore(); }
+  const source = readFileSync(new URL('./manufacturers.mjs', import.meta.url), 'utf8');
+  expect(source.match(/localeCompare\([^\n]+, 'en'\)/g)).toHaveLength(3);
+  for (const name of ['fetch-component-presets', 'canonicalize-manufacturers', 'curate-presets']) {
+    const writer = readFileSync(new URL(`./${name}.mjs`, import.meta.url), 'utf8');
+    expect(writer).toContain('.sort(presetOrder)');
+    expect(writer).not.toContain('.localeCompare(');
+  }
+});
 
 const here = dirname(fileURLToPath(import.meta.url));
 const db = JSON.parse(readFileSync(join(here, '../src/data/presets.json'), 'utf8'));

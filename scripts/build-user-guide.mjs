@@ -320,7 +320,7 @@ function guideTokens(data, corrections) {
   // makers": every maker with five or more, largest first, the rest lumped.
   const byMaker = new Map();
   for (const x of missing) byMaker.set(x.manufacturerAbbrev, (byMaker.get(x.manufacturerAbbrev) ?? 0) + 1);
-  const ranked = [...byMaker].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const ranked = [...byMaker].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'en'));
   const named = ranked.filter(([, c]) => c >= 5);
   const rest = ranked.filter(([, c]) => c < 5);
   const parts = named.map(([mfr, c]) => `${n(c)} ${mfr}`);

@@ -137,6 +137,15 @@ function canInflateDeflateRaw(): boolean {
   }
 }
 
+function canDeflateRaw(): boolean {
+  try {
+    new CompressionStream('deflate-raw');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The file-note sentence for a link that would not open: which browser to use
  * when this one cannot unpack links at all, the part limit's own sentence for
@@ -166,6 +175,12 @@ export async function encodeShareFragment(xml: string): Promise<string> {
   };
   const bytes = new TextEncoder().encode(xml);
   if (bytes.length > MAX_INFLATED_BYTES) throw tooLarge();
+  if (!canDeflateRaw()) {
+    const err = new Error('this browser can\'t create share links. Use Chrome or Edge 103,'
+      + ' Firefox 113 or Safari 16.4 (iPhone and iPad: iOS 16.4) or later — or send the .ork file instead.');
+    err.name = UNSUPPORTED_ERROR_NAME;
+    throw err;
+  }
   const deflated = await deflate(bytes);
   const fragment = `${SHARE_PREFIX}${VERSION}.${toBase64Url(deflated)}`;
   if (fragment.length > MAX_FRAGMENT_CHARS) throw tooLarge();

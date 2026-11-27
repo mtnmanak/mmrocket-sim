@@ -10,7 +10,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { LAZY_ONLY, lazyModulesInEntry } from './lazy-chunks.mjs';
+import { LAZY_ONLY, lazyModulesInEntry, startupPreloadLinks } from './lazy-chunks.mjs';
 
 const ROOT = 'E:/git/online_open_rocket/packages/app';
 
@@ -42,6 +42,62 @@ function cleanBundle() {
 describe('lazy chunks — the guide and the changelog stay out of the entry chunk', () => {
   it('passes a build that keeps them in chunks of their own', () => {
     expect(lazyModulesInEntry(cleanBundle(), ROOT)).toEqual([]);
+  });
+
+  it.each(['renamed main', 'mismatched root'])('refuses missing startup main: %s', scenario => {
+    const bundle = cleanBundle();
+    bundle['assets/main.js'] = { ...bundle['assets/index-CeoafHzG.js'], fileName: 'assets/main.js', isEntry: false };
+    bundle['assets/index-CeoafHzG.js'] = {
+      ...chunk('assets/index-CeoafHzG.js', true, { 'src/bootstrap.ts': 100 }), dynamicImports: ['assets/main.js'],
+    };
+    if (scenario === 'renamed main') {
+      delete bundle['assets/main.js'].modules[`${ROOT}/src/main.tsx`];
+      bundle['assets/main.js'].modules[`${ROOT}/src/renamed.tsx`] = { renderedLength: 2100 };
+      bundle['assets/main.js'].modules[`${ROOT}/${LAZY_ONLY[0]}`] = { renderedLength: 100 };
+    }
+    const root = scenario === 'mismatched root' ? 'C:/elsewhere/app' : ROOT;
+    expect(() => startupPreloadLinks(bundle, root)).toThrow(/no chunk of the build renders src\/main\.tsx/);
+    expect(() => lazyModulesInEntry(bundle, root)).toThrow(/no chunk of the build renders src\/main\.tsx/);
+  });
+
+  it.each(LAZY_ONLY)('rejects %s in the bootstrap-loaded app or its static dependencies', name => {
+    const bundle = cleanBundle();
+    bundle['assets/main.js'] = bundle['assets/index-CeoafHzG.js'];
+    bundle['assets/main.js'].fileName = 'assets/main.js';
+    bundle['assets/main.js'].isEntry = false;
+    bundle['assets/index-CeoafHzG.js'] = {
+      ...chunk('assets/index-CeoafHzG.js', true, { 'src/bootstrap.ts': 100 }),
+      dynamicImports: ['assets/main.js'],
+    };
+    bundle['assets/main.js'].modules[`${ROOT}/${name}`] = { renderedLength: 100 };
+    expect(lazyModulesInEntry(bundle, ROOT)).toEqual([`assets/main.js: ${name}`]);
+    delete bundle['assets/main.js'].modules[`${ROOT}/${name}`];
+    bundle['assets/main.js'].imports = ['assets/shared.js'];
+    bundle['assets/shared.js'] = chunk('assets/shared.js', false, { [name]: 100 });
+    expect(lazyModulesInEntry(bundle, ROOT)).toEqual([`assets/shared.js: ${name}`]);
+  });
+
+  it('preloads the app and static vendors and links CSS, leaving dialog assets lazy', () => {
+    const bundle = cleanBundle();
+    bundle['assets/main.js'] = { ...bundle['assets/index-CeoafHzG.js'],
+      fileName: 'assets/main.js', isEntry: false, imports: ['assets/vendor.js'],
+      dynamicImports: ['assets/GuideDialog-DraQJ6Fg.js'],
+      viteMetadata: { importedCss: new Set(['assets/main.css']) } };
+    bundle['assets/index-CeoafHzG.js'] = {
+      ...chunk('assets/index-CeoafHzG.js', true, { 'src/bootstrap.ts': 100 }),
+      dynamicImports: ['assets/main.js'],
+    };
+    bundle['assets/vendor.js'] = { ...chunk('assets/vendor.js', false, {}),
+      imports: ['assets/main.js'], viteMetadata: { importedCss: new Set(['assets/main.css', 'assets/vendor.css']) } };
+    bundle['assets/GuideDialog-DraQJ6Fg.js'].viteMetadata = { importedCss: new Set(['assets/guide.css']) };
+    const links = startupPreloadLinks(bundle, ROOT);
+    expect(links.map(link => link.attrs)).toEqual([
+      { rel: 'modulepreload', crossorigin: '', href: './assets/main.js' },
+      { rel: 'stylesheet', crossorigin: '', href: './assets/main.css' },
+      { rel: 'modulepreload', crossorigin: '', href: './assets/vendor.js' },
+      { rel: 'stylesheet', crossorigin: '', href: './assets/vendor.css' },
+    ]);
+    expect(links.every(link => link.tag === 'link' && link.injectTo === 'head')).toBe(true);
   });
 
   it('follows transitive static imports and cycles, but not dynamic imports', () => {

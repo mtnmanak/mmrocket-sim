@@ -42,7 +42,7 @@ import { fileURLToPath } from 'node:url';
 import { openrocketSrcRoot } from '../../../scripts/openrocket-src.mjs';
 import { markupAttributes, markupTagEnd } from '../../../scripts/markup-scan.mjs';
 import { dirname, join } from 'node:path';
-import { mfrDisplay, presetKey, spellingConflicts } from './manufacturers.mjs';
+import { mfrDisplay, presetKey, spellingConflicts, presetOrder } from './manufacturers.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT_PATH = join(__dirname, '..', 'src', 'data', 'presets.json');
@@ -431,7 +431,12 @@ export function parseOrc(xml, fileName, globalMaterials) {
   const componentsBlock = extractBlock(xml, 'Components');
   if (componentsBlock === null) {
     warnings.push(`${fileName}: no <Components> section found`);
-    return { presets, skippedComponents, warnings, skippedFiles: extractBlock(xml, 'Materials') === null ? 1 : 0 };
+    return { presets, skippedComponents, warnings, skippedFiles: materials.size === 0 ? 1 : 0 };
+  }
+
+  if (elementBlocks(componentsBlock).next().done) {
+    warnings.push(`${fileName}: empty <Components> section`);
+    return { presets, skippedComponents, warnings, skippedFiles: 1 };
   }
 
   // Top-level children of <Components> are the presets themselves.
@@ -580,6 +585,10 @@ export async function main({
   }
   const orcFiles = listing.filter((f) => f.type === 'file' && /\.orc$/i.test(f.name));
   console.log(`Found ${orcFiles.length} .orc files.`);
+  if (!orcFiles.length) {
+    console.error('No .orc sources found; nothing was written.');
+    return 2;
+  }
 
   const allPresets = [];
   const allWarnings = [];
@@ -661,18 +670,18 @@ export async function main({
     console.log(`  ${name}: ${presets.length - dupes} presets added (${dupes} duplicates of github${sk ? `, ${sk} skipped` : ''})`);
   }
 
+  if (!allPresets.length) {
+    console.error('No component presets found; nothing was written.');
+    return 2;
+  }
+
   // Canonicalise the DISPLAY name BEFORE the sort, so rows land in the order
   // the file will actually be read in. Doing it after would sort "SEMROC
   // Astronautics" into the S-A slot and then relabel it "SEMROC", leaving the
   // file's own ordering contradicting its contents.
   for (const p of allPresets) p.manufacturer = mfrDisplay(p.manufacturer);
 
-  allPresets.sort(
-    (a, b) =>
-      a.kind.localeCompare(b.kind) ||
-      a.manufacturer.localeCompare(b.manufacturer) ||
-      a.partNo.localeCompare(b.partNo),
-  );
+  allPresets.sort(presetOrder);
 
   // Fail loudly rather than shipping two spellings of one company again. This
   // is the guard for the defect the owner reported on 2026-09-01a; without it

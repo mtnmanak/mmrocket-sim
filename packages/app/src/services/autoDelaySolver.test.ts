@@ -5,6 +5,24 @@ import { probeFlight, testMotor } from './autoDelay.testSupport.js';
 const mounts = () => delayMountsOf([['a', testMotor()], ['b', testMotor()]], { a: 'Core', b: 'Booster MMT' });
 const solve = (probe = () => probeFlight()) => solveAutoDelays({ mounts: mounts(), probe, budget: { probes: 0 }, yieldToUi: async () => {} });
 
+it('solves and cancels with a floor-browser signal lacking throwIfAborted', async () => {
+  const reason = new Error('Stopped during yield');
+  const legacy = { aborted: false, reason: undefined as unknown };
+  let probes = 0;
+  const input = { mounts: mounts(), budget: { probes: 0 }, signal: legacy as AbortSignal,
+    probe: () => { probes++; return probeFlight(); }, yieldToUi: async () => {},
+  };
+  expect((await solveAutoDelays(input)).mounts.every(m => m.status === 'resolved')).toBe(true);
+  probes = 0;
+  await expect(solveAutoDelays({ ...input, budget: { probes: 0 }, yieldToUi: async () => {
+    legacy.aborted = true; legacy.reason = reason;
+  } })).rejects.toBe(reason);
+  expect(probes).toBe(1);
+  probes = 0;
+  await expect(solveAutoDelays({ ...input, budget: { probes: 0 } })).rejects.toBe(reason);
+  expect(probes).toBe(0);
+});
+
 it('J6 treats a malformed truthy Auto policy as manual', () => {
   const motor = testMotor(false, 5);
   motor.meta.autoDelay = 'false' as unknown as boolean;

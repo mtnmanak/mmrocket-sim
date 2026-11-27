@@ -415,6 +415,7 @@ describe('closure lane persisted records', () => {
     expect(loaded.savedConfigs![0]!.motors).toEqual({});
     expect(loaded.treeRestoreNotes?.join(' ')).toContain('motor records were removed');
   });
+
   it.each([
     { type: 'freeformfinset', points: [[0, 0], [0.05, '0.02'], [0.1, 0]] },
     { type: 7 },
@@ -944,6 +945,20 @@ describe('storage hardening: session tree', () => {
     expect(findNode(restored.state.tree, 'level-0')).toBeNull();
     expect(findNode(restored.state.tree, 'level-1')).not.toBeNull();
     expect(localStorage.getItem('online-openrocket.session.v1')).toBe(raw);
+  });
+
+  it('preserves deeply nested raw JSON recovery bytes without recursive traversal failure', () => {
+    const prefix = JSON.stringify(state()).slice(0, -1);
+    const raw = prefix + ',"tree":{"name":"Deep","components":[' + '{"type":"stage","children":['.repeat(20000)
+      + '{"type":"bodytube"}' + ']}'.repeat(20000) + ']}}';
+    localStorage.setItem('online-openrocket.session.v1', raw);
+    expect(() => restore()).not.toThrow();
+    expect(localStorage.getItem('online-openrocket.session.v1')).toBe(raw);
+    const recovered = autosavedDesignFile()!;
+    expect(recovered.ork).toBe(false);
+    expect(recovered.data).toBe(raw);
+    expect(restore().state.tree.name).toBe('Deep');
+    expect(restore().restoreNotes.join(' ')).toContain('children nested beyond 128 levels were removed');
   });
 
   it('preserves valid rounded and airfoil freeform outlines, including unfinished edits', () => {

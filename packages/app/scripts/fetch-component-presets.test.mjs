@@ -221,11 +221,40 @@ describe('byNtfsName', () => {
 });
 
 describe('main', () => {
+  it('preserves output when legitimate materials-only sources yield no component population', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'presets-materials-only-'));
+    const outPath = join(dir, 'presets.json');
+    const held = '{"presets":["previous"]}\n';
+    writeFileSync(outPath, held);
+    try {
+      const code = await main({ outPath, desktopDir: '', fetchImpl: async url => url.includes('api.github.com')
+        ? { ok: true, json: async () => [{ type: 'file', name: 'materials.orc', download_url: 'https://raw/materials.orc' }] }
+        : { ok: true, text: async () => '<OpenRocketComponent><Materials><Material><Name>paper</Name><Type>BULK</Type><Density>950</Density></Material></Materials></OpenRocketComponent>' } });
+      expect(code).toBe(2);
+      expect(readFileSync(outPath, 'utf8')).toBe(held);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+  it.each([[], [{ type: 'file', name: 'a.orc', download_url: 'https://raw/a.orc' }]].map(listing => [listing]))(
+    'preserves the previous output for an empty source population %j', async listing => {
+      const dir = mkdtempSync(join(tmpdir(), 'presets-empty-'));
+      const outPath = join(dir, 'presets.json');
+      const held = '{"presets":["previous"]}\n';
+      writeFileSync(outPath, held);
+      try {
+        const code = await main({ outPath, desktopDir: '', sleep: async () => {}, fetchImpl: async url =>
+          url.includes('api.github.com') ? { ok: true, json: async () => listing }
+            : { ok: true, text: async () => '<OpenRocketComponent><Components/></OpenRocketComponent>' } });
+        expect(code).toBe(2);
+        expect(readFileSync(outPath, 'utf8')).toBe(held);
+      } finally { rmSync(dir, { recursive: true, force: true }); }
+    });
   it('accepts materials-only files without treating them as missing components', () => {
     const result = parseOrc('<OpenRocketComponent><Materials><Material><Name>paper</Name><Type>BULK</Type><Density>950</Density></Material></Materials></OpenRocketComponent>', 'materials.orc', new Map());
     expect(result.skippedFiles ?? 0).toBe(0);
   });
-  it.each(['', '<html>error</html>', '<OpenRocketComponent><Materials></Materials>'])('refuses a successful non-ORC response: %j', async xml => {
+  it.each(['', '<html>error</html>', '<OpenRocketComponent><Materials></Materials>',
+    '<OpenRocketComponent><Materials/></OpenRocketComponent>',
+    '<OpenRocketComponent><Materials></Materials></OpenRocketComponent>'])('refuses a successful non-ORC response: %j', async xml => {
     const dir = mkdtempSync(join(tmpdir(), 'presets-invalid-'));
     const outPath = join(dir, 'presets.json');
     const held = '{"presets": ["previous"]}\n';

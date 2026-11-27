@@ -162,7 +162,7 @@ export function sameValue(field, a, b) {
 /** How a motor is named everywhere in this file: "AeroTech F52T". */
 const nameOf = (m) => `${m?.manufacturerAbbrev ?? '?'} ${m?.designation ?? m?.motorId ?? '?'}`.trim();
 
-const byName = (a, b) => String(a.name).localeCompare(String(b.name)) || String(a.motorId).localeCompare(String(b.motorId));
+const byName = (a, b) => String(a.name).localeCompare(String(b.name), 'en') || String(a.motorId).localeCompare(String(b.motorId), 'en');
 
 /**
  * Added / removed / changed, by motorId, over CATALOGUE_FIELDS only.
@@ -533,7 +533,7 @@ export function renderMarkdown(summary, { maxRows = MAX_ROWS, budget = BODY_BUDG
         curveLines.push('**Files changed** (a re-uploaded curve at the same simfileId moves apogee):');
         curveLines.push('');
         curveLines.push(...capped(
-          [...cv.revised].sort((a, b) => name(a.motorId).localeCompare(name(b.motorId))),
+          [...cv.revised].sort((a, b) => name(a.motorId).localeCompare(name(b.motorId), 'en')),
           maxRows,
           (r) => `- ${cell(name(r.motorId))} — `
             + `+${r.addedFiles} / -${r.removedFiles} / ${r.changedFiles} re-uploaded`,

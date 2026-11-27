@@ -1,5 +1,6 @@
 import type { FlightResult } from '@online-openrocket/engine';
 import { noteField } from './noteField.js';
+import { throwIfAborted } from './abortSignal.js';
 import type { MountMotor } from '../model/design.js';
 import { motorIdentity } from './hardwareMass.js';
 
@@ -179,7 +180,7 @@ export async function solveAutoDelays(input: {
   if (!autos.length) return { policy: DELAY_POLICY, mounts: fixed(), probes: input.budget.probes, elapsedMs: 0 };
   const seen = new Set<string>();
   while (input.budget.probes < 8) {
-    input.signal?.throwIfAborted();
+    throwIfAborted(input.signal);
     const key = JSON.stringify([...vector].map(([id, d]) => [id, storeDelay(d)]));
     if (seen.has(key)) return refuse(autos, 'the delay vector repeats without settling');
     seen.add(key);
@@ -193,7 +194,7 @@ export async function solveAutoDelays(input: {
       Object.assign(records.find((r) => r.mountId === m.mountId)!, target, { flownDelay: target.recommendedDelay });
     }
     await (input.yieldToUi ?? (() => new Promise<void>((resolve) => setTimeout(resolve, 0))))();
-    input.signal?.throwIfAborted();
+    throwIfAborted(input.signal);
     if (autos.every((m) => next.get(m.mountId) === vector.get(m.mountId))) {
       return { policy: DELAY_POLICY, mounts: records, probes: input.budget.probes, elapsedMs: performance.now() - start };
     }

@@ -46,7 +46,7 @@ import { atomicWriteFileSync } from './atomic-write.mjs';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { presetKey } from './manufacturers.mjs';
+import { presetKey, presetOrder } from './manufacturers.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = join(here, '../src/data/presets.json');
@@ -391,9 +391,7 @@ function main() {
   }
   const doomed = new Set(todo.filter((x) => x.c.action === 'drop').map((x) => x.index));
   db.presets = db.presets.filter((_, i) => !doomed.has(i));
-  db.presets.sort((a, b) => a.kind.localeCompare(b.kind)
-    || a.manufacturer.localeCompare(b.manufacturer)
-    || String(a.partNo).localeCompare(String(b.partNo)));
+  db.presets.sort(presetOrder);
   db.count = db.presets.length;
   atomicWriteFileSync(DB_PATH, JSON.stringify(db, null, 1) + '\n');
   console.log(`\ndatabase updated — ${db.presets.length} rows remain.`);
