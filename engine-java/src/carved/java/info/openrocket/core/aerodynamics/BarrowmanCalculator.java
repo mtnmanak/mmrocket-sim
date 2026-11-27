@@ -1673,8 +1673,9 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 				// call, and do not add a third caller that skips them.
 				//
 				// NaN is the default and the whole guard: every `.ork` <overridecd>, every
-				// user-typed Cd override and every plate-class protuberance takes the
-				// `else` and stays bit-identical to upstream and to desktop 24.12.
+				// user-typed Cd override takes the `else` and stays bit-identical to
+				// upstream and desktop 24.12. Generated scalars also take that branch,
+				// then receive their reference-area correction below.
 				double cd;
 				final double ratio = c.getOverrideCDBodyRatio();
 				if (!Double.isNaN(ratio)) {
@@ -1683,6 +1684,21 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 					cd = instanceCount * ratio * ref;
 				} else {
 					cd = instanceCount * c.getOverrideCD();
+				}
+				// PATCH (MMRocket Sim, J7-K1): generated carriers were normalized on
+				// the full design. Preserve their area after stage/pod separation,
+				// for BOTH scalar and body-ratio overrides. Desktop overrides have NaN.
+				final double r0 = c.getOverrideCDReferenceRadius();
+				if (!Double.isNaN(r0)) {
+					double L0 = r0 * 2;
+					// ReferenceType.MAXIMUM's fallback (Rocket.DEFAULT_REFERENCE_LENGTH).
+					if (L0 < 0.001) L0 = 0.01;
+					final double rDesign = L0 / 2;
+					final double rLive = conditions.getRefLength() / 2;
+					// Skip equal radii exactly: TeaVM can reassociate cd * A0 / Ar.
+					if (rDesign != rLive) {
+						cd *= MathUtil.pow2(rDesign / rLive);
+					}
 				}
 				Map<RocketComponent, AerodynamicForces> forceMap = (c instanceof ComponentAssembly) ? assemblyMap
 						: eachMap;

@@ -336,6 +336,7 @@ describe('engineTree — camera shroud (fairing) lowering', () => {
     expect(strake['finCount']).toBe(1);
     expect(strake['thickness']).toBeCloseTo(0.025, 9);
     expect(strake['overrideMass']).toBeCloseTo(0.045, 9);
+    expect(strake['overrideCDReferenceRadius']).toBe(0.05);
     // Hoerner half-round 0.55 on the area the shroud really blocks, over the
     // rocket reference area π·0.05². The area is W·H PLUS the crescent between
     // the shroud's tangent underside and the R = 0.05 arc it sits on:
@@ -924,6 +925,16 @@ describe('engineTree — protuberance lowering', () => {
   });
   const aRef = Math.PI * 0.1 * 0.1;
 
+  it('carries the whole design reference radius on every generated bump class', () => {
+    for (const params of [
+      { dragClass: 'plate' }, { cdFrontal: 0.7 },
+      { dragClass: 'streamlined' }, { dragClass: 'streamlinedbase' },
+    ]) {
+      const tree = protTree(params);
+      expect(findNode(engineTree(tree), 'x1')!['overrideCDReferenceRadius']).toBe(0.1);
+    }
+  }, 60_000);
+
   it('marks every K9 protuberance carrier as a non-guide and leaves real guides unmarked', () => {
     const source = protTree({});
     const body = findNode(source, 'b1')!;
@@ -947,6 +958,7 @@ describe('engineTree — protuberance lowering', () => {
     }
     for (const id of ['real-button', 'real-lug']) {
       expect(findNode(out, id)!).not.toHaveProperty('launchGuide');
+      expect(findNode(out, id)!).not.toHaveProperty('overrideCDReferenceRadius');
     }
   }, 60000);
 
