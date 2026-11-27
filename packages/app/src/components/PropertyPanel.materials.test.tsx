@@ -414,7 +414,9 @@ it('shows the Quest 10100 case-variant material at its actual density, without o
   const node = { ...makeNode('tubecoupler'), ...presetPatch('tubecoupler', quest) };
   await act(async () => { show(node); });
   expect(select().value).toBe('Kraft Phenolic');
-  expect(select().selectedOptions[0]!.textContent).toBe('Kraft Phenolic (958.70503449 kg/m³) — from the parts database');
+  // The density comes from the shipped catalogue row, never a literal: a regeneration can change it (v0.221: Quest's own
+  // "Kraft phenolic" 943.48749426 replaced another file's 958.70503449).
+  expect(select().selectedOptions[0]!.textContent).toBe(`Kraft Phenolic (${quest.material!.density} kg/m³) — from the parts database`);
   expect(button('Save to My materials: Material')).toBeUndefined();
   expect(patches).toEqual([]);
 });
