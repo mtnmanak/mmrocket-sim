@@ -34,7 +34,10 @@ it('round trips BodyTube, Transition, BoatTail in station order', () => {
   expect(saved.indexOf('</Transition>')).toBeLessThan(saved.indexOf('<BoatTail>'));
   const reopened = importCdx1(saved);
   const geometry = (d: typeof r) => JSON.parse(JSON.stringify(d.tree.components, (key, value: unknown) => key === 'id' ? undefined : value));
-  expect(geometry(reopened)).toEqual(geometry(r));
+  expect(r.tree.components.every(stage => stage.nozzleExitDiameter === undefined)).toBe(true);
+  // The motor-free export states 0; r3 preserves that explicit OFF on reimport.
+  const expected = { ...r, tree: { ...r.tree, components: r.tree.components.map(stage => ({ ...stage, nozzleExitDiameter: 0 })) } };
+  expect(geometry(reopened)).toEqual(geometry(expected));
 });
 it('treats pre-rename preset links as app-owned', () => {
   const preset: Preset = { kind: 'Parachute', manufacturer: 'Test', partNo: 'P', description: 'Test chute', cd: 1.5, mass: 0.1 };

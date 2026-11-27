@@ -7,6 +7,7 @@ import { useTreeHistory } from '../hooks/useTreeHistory.js';
 import { useNozzleFollow } from '../hooks/useNozzleFollow.js';
 import { nozzleForMotorId } from './nozzleDb.js';
 import { stageMotors, type StageMotors } from './nozzleFollow.js';
+import { withFlownNozzles } from './flownNozzles.js';
 import { designFingerprint, type DesignSnapshot } from './dirtyState.js';
 import { IMPERIAL_UNITS } from '../prefs/units.js';
 import { MOTOR_DB, MOTOR_DB_DATE, findDbMotor, setCatalogueOverlay } from './motorDb.js';
@@ -201,9 +202,9 @@ describe('ask at open choices', () => {
     expect(next.savedConfigs.map(c => c.nozzles)).toEqual([{}, {}, {}]);
   });
   it.each([
-    { nozzles: undefined, initialExit: undefined, label: 'absent map fills the published exit' },
+    { nozzles: undefined, initialExit: undefined, label: 'absent map keeps automatic exit blank' },
     { nozzles: undefined, initialExit: 0, label: 'absent map preserves whole-rocket OFF' },
-    { nozzles: { other: 0.02 }, initialExit: undefined, label: 'absent stage key fills the published exit' },
+    { nozzles: { other: 0.02 }, initialExit: undefined, label: 'absent stage key keeps automatic exit blank' },
     { nozzles: { other: 0.02 }, initialExit: 0, label: 'absent stage key preserves whole-rocket OFF' },
   ])('C1 round 2: $label after choosing and switching', async ({ nozzles, initialExit }) => {
     const { state, groups } = await fixture();
@@ -240,7 +241,10 @@ describe('ask at open choices', () => {
         treeRef.current = switched.tree;
         root.render(<Probe loadout={stageMotors(switched.tree, Object.entries(switched.mountMotors))} />);
       });
-      expect(treeRef.current.components[0]!.nozzleExitDiameter).toBe(initialExit === 0 ? 0 : published!.exitDiameterM);
+      expect(treeRef.current.components[0]!.nozzleExitDiameter).toBe(initialExit);
+      const flown = withFlownNozzles(treeRef.current, stageMotors(treeRef.current, Object.entries(switched.mountMotors)),
+        id => id === row.motorId ? published!.exitDiameterM : null).tree;
+      expect(flown.components[0]!.nozzleExitDiameter).toBe(initialExit === 0 ? 0 : published!.exitDiameterM);
       expect(next.savedConfigs[1]!.nozzles).toEqual(nozzles);
       expect(switched.nozzleStated.some(s => s.stageId === 's')).toBe(false);
       expect(treeRef.current.components[1]!.nozzleExitDiameter).toBe(0.02);

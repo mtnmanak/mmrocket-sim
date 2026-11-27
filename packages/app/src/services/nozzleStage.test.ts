@@ -126,6 +126,6 @@ describe('nozzle file contract', () => {
     exportRkt({ name: t.name!, tree: t, notes });
     expect(notes.join(' ')).toContain('explicit nozzle OFF');
     expect(notes.join(' ')).toContain('Strap-ons');
-    expect(nozzleExportNotes(applyStageNozzles(t, { core: 0 }), '.CDX1')).toHaveLength(3);
+    expect(nozzleExportNotes(applyStageNozzles(t, { core: 0 }), '.CDX1')).toHaveLength(2);
   });
 });

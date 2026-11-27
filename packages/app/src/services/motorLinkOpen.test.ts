@@ -6,24 +6,43 @@ import { chooseLinkDelay, planMotorLink, motorLinkLoadFailure } from './motorLin
 import type { MotorLinkParams } from './motorLink.js';
 import { IMPERIAL_UNITS, INITIAL_UNITS, noticeQuantity } from '../prefs/units.js';
 
+import { motorFitWarnings } from './motorFitWarnings.js';
+import { testMotor } from './autoDelay.testSupport.js';
+import { buildDesign, KERNEL_HANDLES } from './buildDesign.js';
+import { defaultTree, motorMounts, updateNode } from '../tree/treeModel.js';
+
 const catalogue = getCatalogue();
+const fit = (check: Parameters<typeof planMotorLink>[0]) => {
+  const plan = planMotorLink(check);
+  expect(plan.notes.filter(n => n.tier === 'caution')).toEqual([]);
+  if (plan.kind !== 'fly') throw new Error('Expected a loaded motor');
+  const record = testMotor(true, plan.delay);
+  return motorFitWarnings(check.tree, [[plan.mountId, { ...record,
+    label: plan.motor.designation,
+    spec: { ...record.spec, diameter: plan.motor.diameter / 1000, length: plan.motor.length / 1000 },
+  }]], check.units);
+};
 it.each([INITIAL_UNITS, IMPERIAL_UNITS])('distinguishes a motor just above its rounded length limit (%s)', units => {
   const check = input();
   const sample = { ...motor, length: 200 };
   const limit = 0.1999999;
   check.tree = { components: [{ type: 'stage', id: 's', children: [tube('m', 0.029, limit)] }] };
   const plan = planMotorLink({ ...check, catalogue: [sample], units });
-  expect(plan.notes).toHaveLength(1);
+  expect(plan.notes).toEqual([]);
+  const warnings = fit({ ...check, catalogue: [sample], units });
+  expect(warnings.map(w => w.key)).toEqual(['MOTOR_TOO_LONG']);
   const bound = noticeQuantity('motorDimensions', limit, units);
-  expect(plan.notes[0]!.text).toContain(`is just above ${bound} long, longer than this mount's ${bound} limit`);
+  expect(warnings[0]!.message).toContain(`Motor length just above ${bound}`);
 });
 it('formats both fit warnings in preferred motor units without conversion noise', () => {
   const check = input();
   check.tree = { components: [{ type: 'stage', id: 's', children: [tube('m', 0.0127, 0.0254)] }] };
   const plan = planMotorLink({ ...check, units: { ...IMPERIAL_UNITS, motorDimensions: 'in' } });
-  expect(plan.notes).toHaveLength(2);
-  expect(plan.notes[0]!.text).toContain('0.5 in');
-  expect(plan.notes[1]!.text).toContain('1 in');
+  expect(plan.notes).toEqual([]);
+  const warnings = fit({ ...check, units: { ...IMPERIAL_UNITS, motorDimensions: 'in' } });
+  expect(warnings.map(w => w.key).sort()).toEqual(['MOTOR_TOO_LONG', 'MOTOR_TOO_WIDE']);
+  expect(warnings.map(w => w.message).join(' ')).toContain('0.5 in');
+  expect(warnings.map(w => w.message).join(' ')).toContain('1 in');
 });
 it('uses the motor browser length tolerance at the mount limit', () => {
   const check = input();
@@ -45,11 +64,11 @@ it('r5 motor links warn on estimated room without an explicit limit', () => {
   delete mount['maxMotorLength'];
   const plan = planMotorLink({ ...input(), tree: { components: [{ type: 'stage', id: 's', children: [mount] }] },
     catalogue: [{ ...motor, length: 124 }] });
-  expect(plan.notes).toContainEqual(expect.objectContaining({ tier: 'caution', text: expect.stringContaining('estimate') }));
-  // r7 (Gemini P4): an unset limit is never called the mount's limit.
-  const length = plan.notes.find(n => n.tier === 'caution')!.text;
-  expect(length).toContain('longer than the estimated motor room of');
-  expect(length).not.toContain("this mount's");
+  expect(plan.notes).toEqual([]);
+  const warnings = fit({ ...input(), tree: { components: [{ type: 'stage', id: 's', children: [mount] }] },
+    catalogue: [{ ...motor, length: 124 }] });
+  expect(warnings.filter(w => w.key === 'MOTOR_TOO_LONG')).toHaveLength(1);
+  expect(warnings[0]!.message).toContain('estimated room');
 });
 
 describe('motor link plan', () => {
@@ -58,10 +77,10 @@ describe('motor link plan', () => {
     check.tree = { components: [{ type: 'stage', id: 's', children: [{ ...tube('m', 0.0127), boreAssumed: true }] }] };
     expect(planMotorLink(check)).toMatchObject({ kind: 'fly', notes: [] });
     check.tree.components[0]!.children![0]!['filled'] = true;
-    expect(planMotorLink(check).notes[0]?.text).toContain('real rocket could not be built this way');
+    expect(fit(check).filter(w => w.key === 'MOTOR_TOO_WIDE')).toHaveLength(1);
     delete check.tree.components[0]!.children![0]!['filled'];
     delete check.tree.components[0]!.children![0]!['boreAssumed'];
-    expect(planMotorLink(check).notes[0]?.text).toContain('real rocket could not be built this way');
+    expect(fit(check).filter(w => w.key === 'MOTOR_TOO_WIDE')).toHaveLength(1);
   });
   it('carries Auto for a shipped motor with no prescribed delays', () => {
     const m = catalogue.find(m => delayOptions(m).length === 0)!;
@@ -71,7 +90,7 @@ describe('motor link plan', () => {
   it('names Auto in mismatch and load-failure notes', () => {
     const m = catalogue.find(m => delayOptions(m).length === 0 && m.diameter > 29)!;
     const plan = planMotorLink({ ...input(), params: { motorId: m.motorId, delayHint: null, problems: [] } });
-    expect(plan.notes.some(n => n.text.includes('(auto delay)'))).toBe(true);
+    expect(plan.notes).toEqual([]);
     expect(motorLinkLoadFailure(m, 0, true)).toContain('(auto delay)');
   });
   it('carries a non-default offered hint and a mixed plugged choice', () => {
@@ -114,21 +133,18 @@ describe('motor link plan', () => {
     check.tree = { components: [{ type: 'stage', id: 's', children: [
       { ...tube('m'), thickness: 0.002 },
     ] }] };
-    expect(planMotorLink(check)).toMatchObject({ kind: 'fly', notes: [
-      { tier: 'caution', text: expect.stringContaining('real rocket could not be built this way') },
-    ] });
+    expect(planMotorLink(check)).toMatchObject({ kind: 'fly', notes: [] });
+    expect(fit(check).filter(w => w.key === 'MOTOR_TOO_WIDE')).toHaveLength(1);
   });
   it('loads too-wide and too-long motors with consequence warnings', () => {
     const wide = catalogue.find(m => m.diameter > 29)!;
     const wideInput = input(); wideInput.params.motorId = wide.motorId;
-    expect(planMotorLink(wideInput)).toMatchObject({ kind: 'fly', notes: [
-      { tier: 'caution', text: expect.stringContaining('real rocket could not be built this way') },
-    ] });
+    expect(planMotorLink(wideInput)).toMatchObject({ kind: 'fly', notes: [] });
+    expect(fit(wideInput).filter(w => w.key === 'MOTOR_TOO_WIDE')).toHaveLength(1);
     const longInput = input();
     longInput.tree = { components: [{ type: 'stage', id: 's', children: [tube('m', 0.029, motor.length / 2000)] }] };
-    expect(planMotorLink(longInput)).toMatchObject({ kind: 'fly', notes: [
-      { tier: 'caution', text: expect.stringContaining('may hit parts inside the rocket') },
-    ] });
+    expect(planMotorLink(longInput)).toMatchObject({ kind: 'fly', notes: [] });
+    expect(fit(longInput).filter(w => w.key === 'MOTOR_TOO_LONG')).toHaveLength(1);
   });
   it('opens without flight for unknown IDs and absent mounts', () => {
     const unknown = input(); unknown.params.motorId = '000000000000000000000000';
@@ -149,4 +165,16 @@ describe('motor link plan', () => {
     const problem = input(); problem.params.problems = ['Ignored motor value.'];
     expect(planMotorLink(problem)).toMatchObject({ notes: [{ text: 'Ignored motor value.' }] });
   });
+});
+
+it('J23-L7 the real build keeps exactly one strip warning per motor-fit fact', () => {
+  const record = testMotor(true, 4);
+  const original = defaultTree();
+  const mount = motorMounts(original)[0]!.id!;
+  const tree = updateNode(original, mount, { maxMotorLength: record.spec.length / 2 });
+  const built = buildDesign({ tree, assigned: [[mount, record]], kbf: true, supersonic: false,
+    measuredDryMassKg: null, primaryMountId: mount, currentSetKey: '' }, KERNEL_HANDLES);
+  expect(built).not.toHaveProperty('error');
+  if ('error' in built) throw new Error(built.error);
+  expect(built.info.warningTexts.filter(w => w.includes('[Warning.MOTOR_TOO_LONG]'))).toHaveLength(1);
 });

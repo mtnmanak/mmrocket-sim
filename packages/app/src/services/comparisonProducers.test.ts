@@ -51,6 +51,10 @@
 // v0.213 integration (J6 merged onto J1/J4/J5/J7): BatchSimulate 23, units 26, orkFile 552, rocksimFile 302 and
 // sanitize 41 are the sums of each lane's reviewed producers; the merge adds no new producer.
 // @vitest-environment happy-dom
+// J23N r5: rasaeroFile 277 -> 276 shares one readable/nonnegative nozzle
+// parser across Design and simulation fields instead of two presence guards.
+// Empty, unreadable and negative fields are absent, not explicit OFF; both
+// sources are tested. No physical threshold or numerical tolerance changes.
 // J6 r5: BatchSimulate 19 -> 24 and DragPanel 43 -> 44 convert editor
 // bounds using MAX_VALUE/4 display ceilings (altitude and rod-exit speed). Batch criteria and
 // drag preferences also repair persisted overflow; both UI tests cover typed
@@ -893,17 +897,37 @@ it('does not hide a nonfinite impulse integral as threshold roundoff', () => {
   expect(impulseNote({designation:'Overflow',totImpulseNs:1},
     [{time:0,thrust:Number.MAX_VALUE},{time:2,thrust:Number.MAX_VALUE}])).not.toBeNull();
 });
+// J23-N/L7: automatic exits add no comparison-bearing copy. Motor links drop
+// the two duplicate fit sentences and their dimension formatter (3 producers).
+// motorFitWarnings remains the shared source; its boundary and real-build
+// regressions in motorLinkOpen.test preserve the warnings. No threshold changes.
+// The retained strip warnings keep their existing thresholds and tolerances.
+// J23-N r2: simReport 52 -> 51 removes the positional word "under" when
+// replacing "Clear the nozzle" with explicit zero/OFF versus blank/automatic
+// guidance. This is static control advice, not a measured comparison. The
+// pressure-thrust report test covers both instructions and no invented total.
+// J23N r3: rasaeroFile 276 -> 278 adds the two flight/Design XML-presence
+// selectors needed to distinguish stated zero (OFF) from an absent automatic
+// field. Scope exemption: format syntax, no changed numerical threshold.
+// Synthetic import cases cover absent/zero/positive and fallback precedence.
+// J23N r4: rasaeroFile 278 -> 277 removes "under" from the stale clear-to-OFF
+// instruction. Scope exemption: static control advice; MESOS import-note test
+// now checks explicit 0 and blank/automatic guidance. No threshold changed.
 it('requires inventory review and a boundary case or scope exemption for new producers', () => {
+  const appCensus: Record<string, number> = { ...reviewedCensus.app };
+  delete appCensus['services/motorLinkOpen.ts'];
   expect(comparisonProducerIds).toEqual(Array.from({length:48},(_,i)=>'C'+String(i+1).padStart(2,'0')));
   expect({
     app: comparisonCensus(fileURLToPath(new NodeURL('../', import.meta.url))),
     api: comparisonCensus(fileURLToPath(new NodeURL('../../../api/src/', import.meta.url))),
-  }).toEqual({ ...reviewedCensus, app: { ...reviewedCensus.app,
+  }).toEqual({ ...reviewedCensus, app: { ...appCensus,
     'App.tsx': reviewedCensus.app['App.tsx'] - 2,
     'components/RecentDesignsDialog.tsx': reviewedCensus.app['components/RecentDesignsDialog.tsx'] - 1,
     'components/ScreenModeSwitch.tsx': 1,
     'components/BatchSimulate.tsx': reviewedCensus.app['components/BatchSimulate.tsx'] + 1,
     'services/batchSweep.ts': reviewedCensus.app['services/batchSweep.ts'] + 2,
+    'services/simReport.ts': reviewedCensus.app['services/simReport.ts'] - 1,
+    'services/rasaeroFile.ts': reviewedCensus.app['services/rasaeroFile.ts'],
   } });
 }, 30_000);
 // AS3 inventory review: RecentDesignsDialog 2 -> 1 removes the duplicate deferred

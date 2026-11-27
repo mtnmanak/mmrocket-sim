@@ -13,12 +13,13 @@ import { diffCatalogue } from './catalogueOverlay.js';
 import { findDbMotor, MOTOR_DB, MOTOR_DB_DATE, setCatalogueOverlay } from './motorDb.js';
 import { matchImportedMotor } from './motorMatch.js';
 import { G80_EQUIVALENT, MOTOR_MATCH_POLICY } from './motorMatchPolicy.js';
-import { importOrk, type OrkMotorRef } from './orkFile.js';
+import { exportOrk, importOrk, type OrkMotorRef } from './orkFile.js';
 import { loadBundledPresets, loadPresets, type Preset } from './presets.js';
 import { comparable, idFree } from './simulate.testSupport.js';
-import { SimulateDesignError } from './simulateDesign.js';
+import { simulateDesign, SimulateDesignError } from './simulateDesign.js';
 import { simulateFile, simulateImported } from './simulateFile.js';
-import { addExMotors, parseEng } from './exMotors.js';
+import { addExMotors, deleteExMotor, exToMotorSpec, parseEng } from './exMotors.js';
+import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import { resetThrustcurveBackoffForTests } from './thrustcurveTraffic.js';
 import { bundledOnlyFetchSpec, bundleHasCurve } from './thrustcurve.js';
 import { InflatedFileTooLargeError, MAX_ZIP_MEMBER_BYTES } from './zipMember.js';
@@ -503,3 +504,66 @@ it('uses the units-only preference for longitude evidence through the bytes door
   expect((error as SimulateDesignError).importNote?.text)
     .toContain('8,500 mi (13,679 km) away. With the sign flipped it is 100 mi (161 km) from them.');
 });
+
+it('J23-N headless flies published exits for blank stages without persisting them', async () => {
+  const data = new Uint8Array(readFileSync(join(repoRoot(), 'packages/app/src/data/examples/dual-deploy.ork')));
+  const out = await simulateFile(data, 'dual-deploy.ork');
+  expect(out.run.nozzleStages).toHaveLength(1);
+  expect(out.state.tree.components.every(s => s['nozzleExitDiameter'] === undefined)).toBe(true);
+  expect(out.plan.snapshot.tree.components.every(s => s['nozzleExitDiameter'] === undefined)).toBe(true);
+}, 30000);
+
+it.each([0.008, 10])('J23N r4 headless validates embedded EX exit %s without the browser library', async exitDiameterM => {
+  const ex = { ...parseEng('G100 18 70 5 0.01 0.025 Home\n0 0\n0.1 100\n1 0\n')[0]!,
+    exitDiameterM };
+  const tree = defaultTree();
+  const mount = motorMounts(tree)[0]!.id!;
+  const out = await simulateImported({ name: 'Embedded exit', tree, notes: [],
+    embeddedExMotors: [ex], motors: { [mount]: { designation: ex.designation,
+      manufacturer: 'EX', exMotorId: ex.motorId, exDefinition: ex, diameter: ex.diameter / 1000,
+      length: ex.length / 1000, delay: 5 } } });
+  expect(localStorage.getItem('online-openrocket.ex-motors.v1')).toBeNull();
+  expect(out.run.nozzleStages ?? []).toEqual(exitDiameterM === 0.008 ? [tree.components[0]!.name] : []);
+  expect(out.state.tree.components[0]!['nozzleExitDiameter']).toBeUndefined();
+}, 30000);
+
+it('J23N r3 network allow reads a browser EX exit while forbid stays library-free', async () => {
+  const ex = { ...parseEng('G100 18 70 5 0.01 0.025 Home\n0 0\n0.1 100\n1 0\n')[0]!, exitDiameterM: 0.008 };
+  addExMotors([ex]);
+  const tree = defaultTree();
+  const mount = motorMounts(tree)[0]!.id!;
+  const imported: ImportedDesign = { name: 'Browser exit', tree, notes: [], motors: { [mount]: {
+    designation: ex.designation, manufacturer: ex.realManufacturer,
+    diameter: ex.diameter / 1000, length: ex.length / 1000, delay: 5,
+  } } };
+  const allowed = await simulateImported(imported, { network: 'allow' });
+  expect(allowed.run.nozzleStages).toEqual([tree.components[0]!.name]);
+  expect(allowed.state.tree.components[0]!.nozzleExitDiameter).toBeUndefined();
+  const forbidden = await simulateImported(imported).catch((error: unknown) => error);
+  expect(forbidden).toBeInstanceOf(SimulateDesignError);
+}, 30000);
+
+it('J23N r5 replacement uses live exit while Save and headless retain the archived definition', async () => {
+  const ex = { ...parseEng('G100 18 70 5 0.01 0.025 Home\n0 0\n0.1 100\n1 0\n')[0]!, exitDiameterM: 0.008 };
+  const tree = defaultTree();
+  const mount = motorMounts(tree)[0]!.id!;
+  const motor = { spec: exToMotorSpec(ex, 5), label: 'EX', meta: { label: 'EX', exMotorId: ex.motorId }, ignition: { event: 'launch' as const, delay: 0 } };
+  addExMotors([{ ...ex, exitDiameterM: 0.009 }]);
+  const xml = exportOrk({ name: 'Captured EX', tree, motors: { [mount]: {
+    designation: ex.designation, manufacturer: ex.realManufacturer, diameter: motor.spec.diameter,
+    length: motor.spec.length, delay: 5, exMotorId: ex.motorId, exMotorSpec: motor.spec,
+  } } });
+  const reopened = importOrk(xml);
+  expect(reopened.embeddedExMotors?.[0]?.exitDiameterM).toBe(ex.exitDiameterM);
+  const state = { tree, mountMotors: { [mount]: motor }, savedConfigs: [], activeConfigId: null,
+    launch: DEFAULT_CONDITIONS, measured: { massKg: null, cgM: null } };
+  const app = await simulateDesign(state);
+  deleteExMotor(ex.motorId);
+  const retained = await simulateDesign(state);
+  const headless = await simulateFile(new TextEncoder().encode(xml), 'captured.ork');
+  expect(app.run.nozzleStages).toEqual([tree.components[0]!.name]);
+  expect(retained.run.nozzleStages).toEqual(app.run.nozzleStages);
+  expect(retained.result.summary).not.toEqual(app.result.summary);
+  expect(headless.result.summary).toEqual(retained.result.summary);
+  expect(headless.plan.snapshot.tree.components[0]!.nozzleExitDiameter).toBeUndefined();
+}, 30000);

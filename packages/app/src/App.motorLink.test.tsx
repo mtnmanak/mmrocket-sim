@@ -31,7 +31,8 @@ import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
 import { APP_VERSION } from './version.js';
 import { encodeShareFragment } from './services/shareLink.js';
 import { exportOrk } from './services/orkFile.js';
-import { nozzleForMotorId } from './services/nozzleDb.js';
+import { nozzleForMotorId, loadNozzleDb, publishedExitSync, resetNozzleDbCache } from './services/nozzleDb.js';
+import { nozzleData } from './services/nozzleData.js';
 import { stages, motorMounts } from './tree/treeModel.js';
 import { setCatalogueOverlay } from './services/motorDb.js';
 import type { ComponentProps } from 'react';
@@ -114,7 +115,8 @@ vi.mock('./services/importApply.js', async original => {
 });
 vi.mock('./services/nozzleDb.js', async original => {
   const real = await original<typeof import('./services/nozzleDb.js')>();
-  return { ...real, nozzleForMotorId: vi.fn(real.nozzleForMotorId) };
+  return { ...real, nozzleForMotorId: vi.fn(real.nozzleForMotorId), loadNozzleDb: vi.fn(real.loadNozzleDb),
+    nozzleDbFailed: vi.fn(real.nozzleDbFailed), publishedExitSync: vi.fn(real.publishedExitSync) };
 });
 import { addExMotors } from './services/exMotors.js';
 import { delayOptions, bundleHasCurve } from './services/thrustcurve.js';
@@ -283,12 +285,18 @@ it('round8 unknown motor preserves motors already in the link', async () => {
 it('round8 nozzle chunk failure cautions and still flies', async () => {
   const m = (await Promise.all(getCatalogue().filter(m => m.diameter <= 29)
     .map(async m => await nozzleForMotorId(m.motorId) && await bundleHasCurve(m.motorId) ? m : null))).find(m => m !== null)!;
-  vi.mocked(nozzleForMotorId).mockRejectedValue(new Error('chunk failed'));
+  resetNozzleDbCache();
+  const loader = vi.spyOn(nozzleData, 'load').mockRejectedValue(new Error('offline nozzle chunk'));
   try {
     await open(`&motor=${m.motorId}`);
     await waitFor(() => runs().length === 1);
     expect(host.textContent).toContain('published nozzle exit could not be loaded');
-  } finally { vi.mocked(nozzleForMotorId).mockImplementation((await vi.importActual<typeof import('./services/nozzleDb.js')>('./services/nozzleDb.js')).nozzleForMotorId); }
+    expect(stages(vi.mocked(flyBuiltDesign).mock.calls[0]![0].tree)[0]!.nozzleExitDiameter).toBeUndefined();
+  } finally {
+    loader.mockRestore();
+    resetNozzleDbCache();
+    await loadNozzleDb();
+  }
 });
 it('round8 notes de-duplicate repeated text even from separate producers', async () => {
   vi.mocked(motorLinkParams).mockReturnValueOnce({ motorId: null, delayHint: null, problems: ['Repeated caution', 'Repeated caution'] });
@@ -301,7 +309,8 @@ it.each(['launch', 'inspect'])('round8 hides run banner after %s', async action 
   const wide = (await Promise.all(getCatalogue().filter(m => m.diameter > 18 && m.diameter <= 29)
     .map(async m => await bundleHasCurve(m.motorId) ? m : null))).find(m => m !== null)!;
   await open(`&motor=${wide.motorId}`); await waitFor(() => runs().length === 2);
-  expect(host.querySelector('.results-column')?.textContent).toContain('the real rocket could not be built this way');
+  expect(host.querySelector('.results-column')?.textContent).toMatch(/real rocket could not be built this way/i);
+  expect(host.querySelector('.results-column')?.textContent?.match(/real rocket could not be built this way/gi)).toHaveLength(1);
   if (action === 'launch') {
     const [, sinks] = vi.mocked(applyImportPlan).mock.calls.at(-1)!;
     held.notes = [];
@@ -447,7 +456,7 @@ it.each(['ABC', 'ex:bad'])('keeps a malformed %s motor caution without loading',
   expect(loadMotorForMount).not.toHaveBeenCalled();
   expect(flyBuiltDesign).not.toHaveBeenCalled();
 });
-it.each(['design', 'motors'])('fills the published nozzle on %s before exactly one flight', async tab => {
+it.each(['design', 'motors'])('flies the published nozzle on %s without storing it', async tab => {
   const m = (await Promise.all(getCatalogue().filter(m => m.diameter <= 29)
     .map(async m => await nozzleForMotorId(m.motorId) && await bundleHasCurve(m.motorId) ? m : null))).find(m => m !== null)!;
   const entry = (await nozzleForMotorId(m.motorId))!;
@@ -460,7 +469,8 @@ it.each(['design', 'motors'])('fills the published nozzle on %s before exactly o
   const flown = vi.mocked(flyBuiltDesign).mock.calls[0]![0].tree;
   expect(stages(flown).some(s => s.nozzleExitDiameter === entry.exitDiameterM)).toBe(true);
   await click('Motors & Configuration'); await settle();
-  await waitFor(() => (session().tree && stages(session().tree).some(s => s.nozzleExitDiameter === entry.exitDiameterM)));
+  window.dispatchEvent(new Event('pagehide'));
+  expect(stages(session().tree).every(s => s.nozzleExitDiameter === undefined)).toBe(true);
   expect(flyBuiltDesign).toHaveBeenCalledOnce();
   await click('Results');
   expect(host.querySelector('.results-column')).not.toBeNull();
@@ -480,11 +490,11 @@ it('hides the mismatch banner after removing the motor', async () => {
   const wide = (await Promise.all(getCatalogue().filter(m => m.diameter > 18 && m.diameter <= 29)
     .map(async m => await bundleHasCurve(m.motorId) ? m : null))).find(m => m !== null)!;
   await open(`&motor=${wide.motorId}`); await waitFor(() => runs().length === 1);
-  expect(host.textContent).toContain('the real rocket could not be built this way');
+  expect(host.textContent).toMatch(/the real rocket could not be built this way/i);
   await click('Motors & Configuration');
   await act(async () => host.querySelector<HTMLButtonElement>('[title="Remove this motor"]')!.click());
   await click('Results');
-  expect(host.querySelector('.results-column')?.textContent ?? '').not.toContain('the real rocket could not be built this way');
+  expect(host.querySelector('.results-column')?.textContent ?? '').not.toMatch(/the real rocket could not be built this way/i);
 });
 it('keeps the design unapplied while the catalogue stalls, then proceeds at the 10 s bound', async () => {
   const gate = deferred();
@@ -516,9 +526,9 @@ it('loads a motor that does not fit and keeps the consequence beside its results
     .map(async m => await bundleHasCurve(m.motorId) ? m : null))).find(m => m !== null)!;
   await open(`&motor=${wide.motorId}`);
   await waitFor(() => runs().length === 1);
-  expect(host.querySelector('.results-column')?.textContent).toContain('the real rocket could not be built this way');
+  expect(host.querySelector('.results-column')?.textContent).toMatch(/the real rocket could not be built this way/i);
   await newDesign();
-  expect(host.querySelector('.results-column')?.textContent ?? '').not.toContain('the real rocket could not be built this way');
+  expect(host.querySelector('.results-column')?.textContent ?? '').not.toMatch(/the real rocket could not be built this way/i);
 });
 
 it.each(['catalogue', 'curve', 'nozzle'])('round9 resolves %s before applying anything', async kind => {
@@ -729,14 +739,17 @@ it.each(['tree', 'record', 'previous-tree', 'previous-record'] as const)('round1
   expect(flyBuiltDesign).not.toHaveBeenCalled();
 });
 it('round11 cluster mount uses N published nozzle exits', async () => {
-  held.build = true;
   const tree = defaultTree(); motorMounts(tree)[0]!.cluster = '3-row';
-  vi.mocked(nozzleForMotorId).mockResolvedValue({ exitDiameterM: 0.006 } as Awaited<ReturnType<typeof nozzleForMotorId>>);
+  vi.mocked(publishedExitSync).mockReturnValue(0.006);
+  try {
   await open('&motor=' + motor.motorId, await encodeShareFragment(exportOrk({ name: 'Cluster', tree, launch: DEFAULT_CONDITIONS, configs: [{ id: 'c1', name: 'Cluster config', isDefault: true, motors: {} }], activeConfigId: 'c1' })));
   await waitFor(() => vi.mocked(applyImportPlan).mock.calls.length === 1);
   const p = vi.mocked(applyImportPlan).mock.calls[0]![0];
-  expect(stages(p.snapshot.tree)[0]!.nozzleExitDiameter).toBeCloseTo(Math.sqrt(3) * 0.006, 10);
+  expect(stages(p.snapshot.tree)[0]!.nozzleExitDiameter).toBeUndefined();
   expect(p.snapshot.savedConfigs[0]!.nozzles).toBeUndefined();
+  await waitFor(() => runs().length === 1);
+  expect(stages(vi.mocked(flyBuiltDesign).mock.calls[0]![0].tree)[0]!.nozzleExitDiameter).toBeCloseTo(Math.sqrt(3) * 0.006, 10);
+  } finally { vi.mocked(publishedExitSync).mockImplementation((await vi.importActual<typeof import('./services/nozzleDb.js')>('./services/nozzleDb.js')).publishedExitSync); }
 });
 
 it.each(['tree', 'motor'] as const)('round11 unexpected precommit %s cancels', async kind => {
@@ -1164,3 +1177,15 @@ it.each(['event', 'delay'] as const)('round16 resetting the effective ignition %
   expect(flyBuiltDesign).not.toHaveBeenCalled();
   expect(runs()).toHaveLength(0);
 }, 20_000);
+
+it('J23-N a motor link keeps the stored stage blank and flies its published exit', async () => {
+  const row = (await Promise.all(getCatalogue().filter(m => m.diameter <= 29)
+    .map(async m => await nozzleForMotorId(m.motorId) && await bundleHasCurve(m.motorId) ? m : null))).find(m => m !== null)!;
+  await open('&motor=' + row.motorId);
+  await waitFor(() => runs().length === 1);
+  const flown = vi.mocked(flyBuiltDesign).mock.calls[0]![0];
+  expect(flown.tree.components[0]!['nozzleExitDiameter']).toBeCloseTo((await nozzleForMotorId(row.motorId))!.exitDiameterM, 12);
+  window.dispatchEvent(new Event('pagehide'));
+  expect(session().tree.components[0]['nozzleExitDiameter']).toBeUndefined();
+  expect((runs()[0] as { nozzleStages: string[] }).nozzleStages).toHaveLength(1);
+});

@@ -28,6 +28,8 @@ export interface FormatLossReport {
 }
 export interface FormatLossInput {
   tree: RocketTree;
+  /** Stored intent when the CDX1 writer receives a resolved flight tree. */
+  storedNozzleTree?: RocketTree;
   /** The same computed component snapshot passed to the real RockSim save. */
   compInfo?: Record<string, RktPartInfo>;
   /** Active/detached layered tuples, supplied with the component-default tree. */
@@ -162,7 +164,7 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
   const ext = formatExtension(format);
   losses.push(...windProfileSaveNotes(input.launch, ext), ...motorLengthLossNotes(input.tree, ext));
   if (format === 'cdx1') {
-    losses.push(...nozzleExportNotes(input.tree, ext));
+    losses.push(...nozzleExportNotes(input.storedNozzleTree ?? input.tree, ext));
     for (const note of [cdx1RodAimNote(input.launch), cdx1RecoveryDelayNote(input.tree)]) if (note) losses.push(note);
   }
   const nodes = nodesOf(input.tree);

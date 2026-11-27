@@ -130,6 +130,17 @@ describe('bare-figure check', () => {
   });
 });
 
+it('J23N r4 explains CDX1 automatic-mode loss and the drag curve sentence', () => {
+  const md = readFileSync(SRC, 'utf8');
+  expect(md).toContain('preserves typed serial-stage exits and explicit 0 (OFF)');
+  expect(md).toContain('automatic motor-following is lost on reopen');
+  expect(md).toContain('or 0 (OFF) when none is flown');
+  expect(md).not.toContain('reopening may independently fill');
+  expect(md).not.toContain(') and a dashed **power-on** curve appears:');
+  expect(md).toContain('If you re-import an EX motor with a different nozzle while it stays mounted, its automatic exit can change after save and reopen or in a headless flight.');
+  expect(md).toContain('Re-importing a library entry does not change a typed stage exit.');
+});
+
 describe('the committed userGuide.ts is current', () => {
   it('matches a fresh compile of user-guide.md and the shipped motor data, byte for byte', () => {
     const { ts } = compileGuide();

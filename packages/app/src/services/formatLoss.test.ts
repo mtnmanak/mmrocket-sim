@@ -399,8 +399,18 @@ describe('design-specific format losses', () => {
     else exportCdx1({ name: 'Test', tree: d.tree, notes: existing, launch: d.launch });
     const report = checkFormatLoss(format, d);
     for (const text of existing) expect(report.losses).toContain(text);
-    for (const text of ['Winds aloft', 'Maximum motor length', 'explicit nozzle OFF']) expect(report.losses.join('\n')).toContain(text);
+    for (const text of ['Winds aloft', 'Maximum motor length']) expect(report.losses.join('\n')).toContain(text);
+    expect(report.losses.join('\n').includes('explicit nozzle OFF')).toBe(format === 'rkt');
     if (format === 'cdx1') expect(report.losses.join('\n')).toContain('Rod aim (20°)');
+  });
+  it('J23N r4 discloses automatic CDX1 exits becoming fixed, including no flown exit', () => {
+    const d = input();
+    expect(line('cdx1', d, 'automatic motor-following')).toBe(true);
+    // The writer receives the flown tree, while losses describe stored intent.
+    const storedNozzleTree = d.tree;
+    const tree = { ...d.tree, components: d.tree.components.map(s => ({ ...s, nozzleExitDiameter: 0.01 })) };
+    expect(line('cdx1', { ...d, tree, storedNozzleTree }, 'automatic motor-following')).toBe(true);
+    expect(line('cdx1', { ...d, tree }, 'automatic motor-following')).toBe(false);
   });
   it('names a delayed supported chute through the existing note and stays silent for zero delay', () => {
     const d = input({ type: 'parachute', deployEvent: 'apogee', deployDelay: 2 });

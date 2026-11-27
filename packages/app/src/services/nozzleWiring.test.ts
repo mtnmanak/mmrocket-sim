@@ -10,10 +10,13 @@ import type { MountMotor, SavedConfig } from '../model/design.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import { useNozzleFollow, type NozzleCleared, type NozzleLookup } from '../hooks/useNozzleFollow.js';
 import { useTreeHistory, type TreeHistory } from '../hooks/useTreeHistory.js';
-import { motorMounts } from '../tree/treeModel.js';
+import { applyStageNozzles, motorMounts } from '../tree/treeModel.js';
 import { applyConfigSwitchPlan, planConfigSwitch, planImport } from './importApply.js';
 import { stageMotors, type StageMotors } from './nozzleFollow.js';
 import { importCdx1 } from './rasaeroFile.js';
+import { planHeadlessImport } from './simulateFile.js';
+import { withFlownNozzles } from './flownNozzles.js';
+import { loadNozzleDb, publishedExitSync } from './nozzleDb.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -133,5 +136,32 @@ describe('a configuration switch keeps the nozzle the configuration states', () 
     // The booster's 63.5 mm, just written by the switch, goes too - "was for N2501".
     expect(exit(t, 1)).toBeUndefined();
     expect(m.cleared[idOf(t, 1)]?.previousLabel).toBe('N2501-WH-P');
+  });
+
+  it('J23-N a different-motor null snapshot clears an old value and flies its own exit', async () => {
+    await loadNozzleDb();
+    // Genuine absence exercises automatic/null snapshots; fixture zeros now mean OFF.
+    const imported = importCdx1(readFileSync(join(here, '__fixtures__/Complex.Two-Stage.CDX1'), 'utf8')
+      .replace(/<(Sustainer|Booster[12])Nozzle(?:Diameter)?>0<\/\1Nozzle(?:Diameter)?>/g, ''));
+    const { snapshot } = await planHeadlessImport(imported);
+    const stage = snapshot.tree.components[0]!.id!;
+    const oldTree = applyStageNozzles(snapshot.tree, { [stage]: 0.012345 });
+    const mini = mount(oldTree, snapshot.mountMotors);
+    await act(async () => { await Promise.resolve(); });
+    const incoming = snapshot.savedConfigs.find(c => c.id !== snapshot.activeConfigId)!;
+    expect(incoming.nozzles?.[stage]).toBeNull();
+    const switchPlan = planConfigSwitch({ savedConfigs: snapshot.savedConfigs,
+      activeConfigId: snapshot.activeConfigId, mountMotors: snapshot.mountMotors,
+      unmatchedRefs: {}, tree: oldTree }, incoming, TEXT);
+    await act(async () => applyConfigSwitchPlan(switchPlan, snapshot.savedConfigs, {
+      seedNozzleFollow: mini.current.seed, history: mini.current.h, setMountMotors: mini.current.setMotors,
+      setSavedConfigs: vi.fn(), setUnmatchedRefs: vi.fn(), setActiveConfigId: vi.fn(), setNote: vi.fn(),
+    }));
+    expect(exit(mini.current.h.treeRef.current, 0)).toBeUndefined();
+    const loads = stageMotors(mini.current.h.treeRef.current, Object.entries(incoming.motors));
+    const flown = withFlownNozzles(mini.current.h.treeRef.current, loads, publishedExitSync).tree;
+    const motorId = loads.find(s => s.stageId === stage)!.motors[0]!.motorId;
+    expect(exit(flown, 0)).toBeCloseTo(publishedExitSync(motorId)!, 12);
+    expect(mini.current.cleared).toEqual({});
   });
 });

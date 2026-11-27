@@ -32,7 +32,7 @@ import type { DeploymentTuple, FlightOverrides, FlightTree, IgnitionTuple, Separ
 import { matchingRecoveryEvents } from './services/recoveryFlight.js';
 import { editProfileSurface } from './services/windProfile.js';
 import { FlightLoadStats } from './components/FlightLoadStats.js';
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type {
   ComponentNode,
   ComponentType,
@@ -128,7 +128,7 @@ import { buildDesign, KERNEL_HANDLES, type DesignBuild } from './services/buildD
 import { preflightAudit, readAuditMasses } from './services/preflightAudit.js';
 import { loadExMotorIdentities, subscribeExMotors } from './services/exMotors.js';
 import { asymmetricThrustWarnings } from './services/asymmetricThrust.js';
-import { exportOrk, importOrk, type MeasuredFigures, type OrkExportFlightData, type OrkMotorRef } from './services/orkFile.js';
+import { exportOrk, importOrk, type MeasuredFigures, type OrkMotorRef } from './services/orkFile.js';
 import {
   decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS, shareLinkOpenFailure,
 } from './services/shareLink.js';
@@ -201,8 +201,9 @@ import {
   assignedMotorsOf, currentSetKeyOf, designBuildInputOf, effectiveSupersonicOf, filePrimaryOf, hardwareDeltaKgOf,
   launchPrimaryOf, legacyPadMassStepOf, mountNamesOf, physicsKeyOf, provenanceKeyOf, refusedMountIdsOf,
 } from './services/designDerivation.js';
-import { equivalentExitDiameterM, stageMotors } from './services/nozzleFollow.js';
-import { nozzleForMotorId } from './services/nozzleDb.js';
+import { stageMotors } from './services/nozzleFollow.js';
+import { loadNozzleDb, nozzleDbFailed, nozzleDbRevision, publishedExitSync, subscribeNozzleDb, nozzleLoadFailure, nozzleForMotorId, nozzleForMountedEx } from './services/nozzleDb.js';
+import { nozzleLoadAffectsFlight, withFlownNozzles } from './services/flownNozzles.js';
 import { stableJson, designFingerprint, type DesignSnapshot } from './services/dirtyState.js';
 import { autoDelayHardwareKey, autosavedDesignFile } from './services/autosaveBackup.js';
 import { designStateFromSession, type RankedPadMass } from './services/sessionRestore.js';
@@ -1307,6 +1308,8 @@ export function App() {
 
   /** The design as it would be saved, as of this render — what a save marks. */
   const snapshotNow = (): DesignSnapshot => designSnapshot;
+  const latestDesignSnapshot = useRef(designSnapshot);
+  useLayoutEffect(() => { latestDesignSnapshot.current = designSnapshot; }, [designSnapshot]);
   /**
    * Clear the design and start over. ONE definition, because the New button
    * now reaches it directly when there is nothing to lose and through the
@@ -1615,6 +1618,21 @@ export function App() {
     [tree.components, (tree as FlightTree).ignitionDefaults, activeOverrides, mountMotors]);
   const flightTree = useMemo(() => ({ ...tree, components: flightState.tree.components }), [tree, flightState.tree.components]);
   const assigned = useMemo(() => assignedMotorsOf(flightState.mountMotors, mounts), [flightState.mountMotors, mounts]);
+  const nozzleRevision = useSyncExternalStore(subscribeNozzleDb, nozzleDbRevision);
+  const publishedExit = useCallback((id: string) => id.startsWith('ex:')
+    ? nozzleForMountedEx(id, Object.values(mountMotors))?.exitDiameterM ?? null : publishedExitSync(id),
+  // Revisions invalidate external library/database data used by the build.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- external store revisions
+  [mountMotors, exLibraryRevision, nozzleRevision]);
+  const fieldNozzleFor = useCallback((id: string | undefined) => id?.startsWith('ex:')
+    ? Promise.resolve(nozzleForMountedEx(id, Object.values(mountMotors))) : nozzleForMotorId(id),
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- external library revision
+  [mountMotors, exLibraryRevision]);
+  useEffect(() => {
+    if (assigned.length || savedConfigs.some(c => Object.keys(c.motors).length)) void loadNozzleDb();
+  }, [assigned, savedConfigs]);
+  const exportNozzlePending = [...Object.values(mountMotors), ...savedConfigs.flatMap(c => Object.values(c.motors))]
+    .some(m => m.meta.motorId && !m.meta.motorId.startsWith('ex:') && publishedExitSync(m.meta.motorId) === undefined);
 
   // THE NOZZLE EXIT DIAMETER FOLLOWS THE MOTOR (Eric, 2026-09-13) — the rule,
   // and why it is decided here rather than in NozzleField, are in
@@ -1680,8 +1698,9 @@ export function App() {
   // tests on a recording handle and on the kernel (audit 2026-09-22, row 494).
   // It never throws: the error is part of the memo's value, because setState
   // during render breaks under StrictMode's double-invoke.
-  const buildResult = useMemo((): DesignBuild => buildDesign(designBuildInputOf({
-    tree: flightTree,
+  const flightBuild = useMemo(() => {
+    const build = (resolvedTree: RocketTree): DesignBuild => buildDesign(designBuildInputOf({
+    tree: resolvedTree,
     assigned,
     effectiveKbf,
     effectiveSupersonic,
@@ -1697,7 +1716,18 @@ export function App() {
     reset: () => {
       if (!flightHoldsHandle.current && fullSeriesHolds.current === 0) KERNEL_HANDLES.reset();
     },
-  }),
+  });
+    let projection = withFlownNozzles(flightTree, stageMotors(flightTree, assigned), publishedExit);
+    let result = build(projection.tree);
+    if (!('error' in result) && result.motorFailures.length) {
+      // Refused motors must not contribute exit area to a surviving motor.
+      const accepted = withFlownNozzles(flightTree,
+        stageMotors(flightTree, assigned, refusedMountIdsOf(result.motorFailures)), publishedExit);
+      if (physicsKeyOf(accepted.tree.components) !== physicsKeyOf(projection.tree.components)) result = build(accepted.tree);
+      projection = accepted;
+    }
+    return { ...projection, result };
+  },
     // `tree.components`, not `tree` — see the note on `mounts` above. Renaming
     // the rocket is not a design change: `engineTree` passes `tree.name`
     // through structurally and nothing the app reads comes back OUT of the
@@ -1712,8 +1742,10 @@ export function App() {
     // `primaryMountId` derives from `assigned` and `tree`, so it only ever
     // changes when they do.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
-  [flightTree.components, assigned, effectiveKbf, effectiveSupersonic, effectiveHybrid, measured.massKg, primaryMountId, currentSetKey,
+  [flightTree.components, assigned, publishedExit, effectiveKbf, effectiveSupersonic, effectiveHybrid, measured.massKg, primaryMountId, currentSetKey,
     prefs.units]);
+  const { result: buildResult, tree: nozzleTree, unresolved: nozzleDbPending } = flightBuild;
+  const flownTree = useMemo(() => ({ ...flightTree, components: nozzleTree.components }), [flightTree, nozzleTree.components]);
   const built = 'error' in buildResult ? null : buildResult;
   const warningTexts = built?.info.warningTexts;
   const warningComponents = tree.components;
@@ -1757,10 +1789,13 @@ export function App() {
   const refusedMountIds = useMemo(() => refusedMountIdsOf(motorFailures), [motorFailures]);
   const installedAssigned = useMemo(() => installedMounts(assigned, refusedMountIds), [assigned, refusedMountIds]);
   const flyThrustWarnings = useMemo(() => asymmetricThrustWarnings(flightTree, installedAssigned), [flightTree, installedAssigned]);
-  const stageMotorLoadout = useMemo(() => stageMotors(flightTree, installedAssigned, refusedMountIds), [flightTree, installedAssigned, refusedMountIds]);
+  const stageMotorLoadout = useMemo(() => stageMotors(flightTree, installedAssigned, refusedMountIds),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- names and notes do not change the motor loadout
+    [flightTree.components, (flightTree as FlightTree).ignitionDefaults, installedAssigned, refusedMountIds]);
   const {
-    cleared: nozzleCleared, pending: nozzlePending, seed: seedNozzleFollow, restoring: restoreNozzleFollow,
-  } = useNozzleFollow({ loadout: stageMotorLoadout, treeRef, writeTree });
+    cleared: nozzleCleared, pending: nozzleFollowPending, seed: seedNozzleFollow, restoring: restoreNozzleFollow,
+  } = useNozzleFollow({ loadout: stageMotorLoadout, treeRef, writeTree, lookup: fieldNozzleFor });
+  const nozzlePending = nozzleFollowPending || nozzleDbPending;
   const configurationLoading = motorChoicePending || nozzlePending;
   /**
    * The same mounts in a stored delay vector's terms: what the Auto-delay card
@@ -1897,7 +1932,7 @@ export function App() {
   // `tree.components` for the same reason as `mounts`/`buildResult` above: a
   // rename gives `tree` a fresh identity and this whole recursive strip +
   // JSON.stringify re-ran per keystroke to produce the identical string.
-  const physicsKey = useMemo(() => physicsKeyOf(flightTree.components), [flightTree.components]);
+  const physicsKey = useMemo(() => physicsKeyOf(flownTree.components), [flownTree.components]);
   // Catalogue relabeling changes only display text. Keep every other motor
   // field (including Auto, ignition and weighing) in the flight-reset key.
   const motorFlightKey = useMemo(() => stableJson(Object.fromEntries(
@@ -2384,7 +2419,9 @@ export function App() {
           units: prefs.units,
           advisoryLimits: prefs.flightAdvisories,
           built,
-          tree: flightTree,
+          tree: flownTree,
+          ...(nozzleDbFailed() && nozzleLoadAffectsFlight(flightTree, stageMotorLoadout, publishedExit, { aeroMode, effectiveKbf })
+            ? { nozzleCaution: nozzleLoadFailure } : {}),
           flightOverrides: launchOverrideSummary?.records ?? [],
           derived: { mounts, stageList, assigned, effectiveSupersonic, primaryMountId },
           launch,
@@ -2464,9 +2501,9 @@ export function App() {
   // against every saved run, and `changedSince`.
   const provenanceKey = useMemo<DesignMatchKey>(() => provenanceKeyOf({
     refusedMountIds,
-    physicsKey, tree: flightTree, assigned, hardwareDeltaKg, launch, aero: { aeroMode, effectiveKbf, autoSupersonic },
+    physicsKey, tree: flownTree, assigned, hardwareDeltaKg, launch, aero: { aeroMode, effectiveKbf, autoSupersonic },
   // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
-  }), [physicsKey, assigned, refusedMountIds, hardwareDeltaKg, launch, aeroMode, effectiveKbf, autoSupersonic, flightTree.components]);
+  }), [physicsKey, assigned, refusedMountIds, hardwareDeltaKg, launch, aeroMode, effectiveKbf, autoSupersonic, flownTree.components]);
   const recoveryEvents = useMemo(() => matchingRecoveryEvents(runs, provenanceKey,
     (id) => result?.runId === id ? result.value : reflightCache.get(id)),
   // eslint-disable-next-line react-hooks/exhaustive-deps -- Show charts fills the ref-backed cache before clearing reflying
@@ -2666,18 +2703,24 @@ export function App() {
     components: exportComponents, ignitionDefaults: exportIgnitionDefaults,
   }), [exportComponents, exportIgnitionDefaults]);
   const exportHardwareCache = useRef<Parameters<typeof assembleFlightExportInput>[1]>(new Map());
-  const flightExportInput = useMemo(() => assembleFlightExportInput({
-    runs, importedDocument, savedConfigs, activeConfigId, assigned, refusedMountIds, mounts, provenanceKey,
+  const makeFlightExportInput = () => {
+    const resolved = withFlownNozzles(flightTree, stageMotorLoadout, publishedExit).tree;
+    const key = provenanceKeyOf({ tree: resolved, physicsKey: physicsKeyOf(resolved.components),
+      assigned, refusedMountIds, hardwareDeltaKg, launch, aero: { aeroMode, effectiveKbf, autoSupersonic } });
+    return assembleFlightExportInput({
+    runs, importedDocument, savedConfigs, activeConfigId, assigned, refusedMountIds, mounts, provenanceKey: key,
     aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, tree: exportFlightTree, detachedOverrides, mountMotors, launch,
-    measuredDryMassKg: measured.massKg,
-  }, exportHardwareCache.current), [runs, importedDocument, savedConfigs, activeConfigId, assigned, refusedMountIds, mounts, provenanceKey,
-    aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, exportFlightTree, detachedOverrides, mountMotors, launch, measured.massKg]);
+    measuredDryMassKg: measured.massKg, publishedExit,
+    }, exportHardwareCache.current);
+  };
+  const flightExportInput = useMemo(() => makeFlightExportInput(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the factory's data inputs, not its per-render identity
+    [runs, importedDocument, savedConfigs, activeConfigId, assigned, refusedMountIds, mounts,
+    aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, exportFlightTree, detachedOverrides, mountMotors, launch, measured.massKg, publishedExit, flightTree.components, stageMotorLoadout]);
   // Share one Auto-delay pass and the per-configuration cache across save,
   // loss previews and autosave. Name and notes edits keep the same inputs.
   const flownForAutosave = useMemo(() => flownAutoDelays(flightExportInput), [flightExportInput]);
   const flightDataNow = useMemo(() => flightDataForExportPure(flightExportInput, flownForAutosave), [flightExportInput, flownForAutosave]);
-  const flightDataForExport = (): Record<string, OrkExportFlightData> => flightDataNow;
-  const flownAutoDelaysNow = (): Record<string, Record<string, number>> => flownForAutosave;
 
   // Autosave the working state so a closed tab or crash never loses work.
   useEffect(() => {
@@ -2686,7 +2729,7 @@ export function App() {
 
   // Declared here, below the export input, for `flownForAutosave`.
   useEffect(() => {
-    if (autosavePaused) return;
+    if (autosavePaused || exportNozzlePending) return;
     saveSessionDebounced({
       ...designSnapshot,
       configLayers: 1,
@@ -2725,7 +2768,7 @@ export function App() {
   // them costs no runs — and dirtyTick is how they announce a change. `weather`
   // (weather build, step 3) and `flownForAutosave` ride in the same payload,
   // outside the design snapshot, so they are dependencies too.
-  }, [motorLinkMark, autosavePaused, designSnapshot, importedDocument, dirtyTick, unmatchedRefs, savedMark, flownSinceSave, weather, flownForAutosave, fileMachAlt, designFile, lossySaved, currentMark, lossyFlights]);
+  }, [motorLinkMark, autosavePaused, exportNozzlePending, designSnapshot, importedDocument, dirtyTick, unmatchedRefs, savedMark, flownSinceSave, weather, flownForAutosave, fileMachAlt, designFile, lossySaved, currentMark, lossyFlights]);
 
   const documentNote = (generation: number, text: string, severity: NoticeSeverity = 'info', expand?: boolean, tier?: NoteTier) => {
     if (generation === documentGeneration.current) setFileNote(text, severity, expand, tier);
@@ -2766,10 +2809,15 @@ export function App() {
    * prepares configurations, live motors and delay notes together; only
    * Save applies the returned mark and synchronized configuration state.
    */
-  const prepareCurrentOrk = (context?: 'share') => prepareOrkExport({
-    snapshot: snapshotNow(), assigned, unmatchedRefs, exLibrary: loadExMotorIdentities,
-    flown: flownAutoDelaysNow(), flightData: flightDataForExport(), context,
-  });
+  const prepareCurrentOrk = async (context?: 'share') => {
+    const snapshot = snapshotNow();
+    // Recompute after readiness even if this closure predates the DB render.
+    await loadNozzleDb();
+    const exportInput = makeFlightExportInput();
+    const flown = flownAutoDelays(exportInput);
+    return { ...prepareOrkExport({ snapshot, assigned, unmatchedRefs, exLibrary: loadExMotorIdentities,
+      flown, flightData: flightDataForExportPure(exportInput, flown), context }), snapshot };
+  };
 
   /**
    * Save a design/export file. On Chrome and Edge this opens a REAL Save-As
@@ -2891,9 +2939,10 @@ export function App() {
       // Everything live — motors, references and what the tree holds for the
       // active configuration — is written back into it FIRST and the mark taken
       // over the synced set (importApply.planOrkSave says why).
-      const { savedConfigs: synced, mark, design } = prepareCurrentOrk();
       const flightsAtSnapshot = flightCount.current;
-      if (synced !== savedConfigs) setSavedConfigs(synced);
+      const { savedConfigs: synced, mark, design, snapshot } = await prepareCurrentOrk();
+      if (generation === documentGeneration.current && stableJson(latestDesignSnapshot.current) === stableJson(snapshot)
+          && synced !== savedConfigs) setSavedConfigs(synced);
       const losses = design.notes!;
       let omittedMotor = losses.length > 0;
       const out = await download(exportOrk({ ...design, onOmittedMotor: () => { omittedMotor = true; } }),
@@ -2939,12 +2988,18 @@ export function App() {
   // everything, so only .ork marks.
   // flownForAutosave and flightDataNow are this render's flownAutoDelaysNow()
   // and flightDataForExport(), memoized: the check runs after every edit.
-  const lossInput = (format: LossyFormat): FormatLossInput => ({
-    tree, overrides: activeOverrides, launch, measured, configs: savedConfigs, activeConfigId,
-    motors: exportMotorsMap(flownForAutosave), flightData: flightDataNow,
-    distanceUnit: prefs.units.altitude,
-    compInfo: format === 'rkt' && built ? rktComponentInfo(tree, id => built.rocket.componentInfo(id)) : {},
-  });
+  const lossInput = (format: LossyFormat, refresh = false): FormatLossInput => {
+    const exportInput = refresh ? makeFlightExportInput() : null;
+    const flown = exportInput ? flownAutoDelays(exportInput) : flownForAutosave;
+    return {
+      tree: format === 'cdx1' ? withFlownNozzles(tree, stageMotorLoadout, publishedExit).tree : tree,
+      storedNozzleTree: tree,
+      overrides: activeOverrides, launch, measured, configs: savedConfigs, activeConfigId,
+      motors: exportMotorsMap(flown), flightData: exportInput ? flightDataForExportPure(exportInput, flown) : flightDataNow,
+      distanceUnit: prefs.units.altitude,
+      compInfo: format === 'rkt' && built ? rktComponentInfo(tree, id => built.rocket.componentInfo(id)) : {},
+    };
+  };
   const lossyExportFailed = (format: LossyFormat, e: unknown, generation = documentGeneration.current) =>
     documentNote(generation, `${format === 'rkt' ? 'RockSim' : 'RASAero'} export failed: ${noteText(e instanceof Error ? e.message : String(e))}`, 'error', undefined, 'danger');
   // Use the latest render at the idle edge, without restarting the timer for
@@ -2981,11 +3036,18 @@ export function App() {
   }, [replacing, designFile, designSnapshot, unmatchedRefs, flownForAutosave, flightDataNow, prefs.units.altitude, built, catalogue, exLibraryRevision]);
   const replaceLoss = replacementLossNote(designFile, replaceReport);
 
-  const saveLossy = (format: LossyFormat, accepted?: FormatLossReport) => {
+  const saveLossy = async (format: LossyFormat, accepted?: FormatLossReport) => {
+    const generation = documentGeneration.current;
+    const saveId = ++saveCounter.current;
+    const mark = currentMark;
+    const flights = lossyFlights;
+    const refresh = exportNozzlePending || (format === 'cdx1' && withFlownNozzles(flightTree, stageMotorLoadout, publishedExit).unresolved);
+    if (refresh) await loadNozzleDb();
+    if (generation !== documentGeneration.current) return;
     let data: FormatLossInput;
     let report: CheckedFormatLossReport;
     try {
-      data = lossInput(format);
+      data = lossInput(format, refresh);
       report = checkFormatLossSafely(format, data);
     } catch (e) {
       // The input is the writer's own (the motor set): what cannot be
@@ -2996,20 +3058,17 @@ export function App() {
     // If the design changed behind a dialog, show the new losses before
     // writing. There is no await before download reaches the file picker.
     const write = async () => {
-      const generation = documentGeneration.current;
-      const saveId = ++saveCounter.current;
-      const mark = currentMark;
-      const flights = lossyFlights;
       setLossDialog(null);
       try {
+        const cdxTree = data.tree;
         if (format === 'cdx1' && stageList.length > 1 && !built) throw new Error('The app could not calculate the stage weights and CGs. Fix the design before saving .CDX1.');
         const xml = format === 'rkt'
           ? exportRkt({ name: tree.name ?? 'My Rocket', tree, overrides: activeOverrides, motors: data.motors, measured,
             compInfo: data.compInfo ?? {},
             ...(data.distanceUnit !== undefined ? { distanceUnit: data.distanceUnit } : {}) })
-          : exportCdx1({ name: tree.name ?? 'My Rocket', tree, overrides: activeOverrides, motors: data.motors, launch,
+          : exportCdx1({ name: tree.name ?? 'My Rocket', tree: cdxTree, overrides: activeOverrides, motors: data.motors, launch,
             launchMassKg: built?.info.mass, launchCgM: built?.info.cg,
-            ...(built ? { launchStages: cdx1StageFigures(flightTree,
+            ...(built ? { launchStages: cdx1StageFigures(cdxTree,
               Object.fromEntries(assigned.filter(([id]) => !refusedMountIds.includes(id))
                 .map(([id, mm]) => [id, flownSpec(id, mm.spec, built.hardware)])), built.info) } : {}),
             ...(fileMachAlt ? { machAlt: fileMachAlt } : {}) });
@@ -3031,8 +3090,8 @@ export function App() {
     if (accepted && !report.refused && stableJson(report) === stableJson(accepted)) void write();
     else gateLossySave(report, () => { void write(); }, next => setLossDialog({ report: next, confirm: true }));
   };
-  const onSaveRkt = () => saveLossy('rkt');
-  const onSaveCdx1 = () => saveLossy('cdx1');
+  const onSaveRkt = () => { void saveLossy('rkt'); };
+  const onSaveCdx1 = () => { void saveLossy('cdx1'); };
 
   // NOTE for the three handlers below: they `await import(...)` before saving,
   // which spends the click's transient user activation — so on Chrome the
@@ -3597,6 +3656,10 @@ export function App() {
     catch { addNotes([...problems, { tier: 'caution', text: motorLinkLoadFailure(plan.motor, plan.delay, plan.autoDelay) }]); return imported; }
     if (!openSeq.isCurrent(openId)) return imported;
     const flightNotes = plan.notes.filter(n => !link.problems.includes(n.text));
+    // Settle the link's nozzle lookup before applying the design, without
+    // writing its published figure into the stored tree.
+    try { await nozzleForMotorId(plan.motor.motorId); } catch { /* the shared flight caution reports unavailable data */ }
+    if (!openSeq.isCurrent(openId)) return imported;
     const notes = plan.notes.map(n => link.problems.includes(n.text) ? { ...n, tier: 'caution' as const } : n);
     linkFileImports.current.set(imported, { imported: { ...imported, motors: { ...imported.motors },
       configs: imported.configs?.map(c => ({ ...c, motors: { ...c.motors } })) },
@@ -3611,16 +3674,6 @@ export function App() {
     resolved.working[plan.mountId] = { motor: mounted, note: '' };
     const cfg = imported.configs?.find(c => c.id === imported.chosenConfigId);
     if (cfg) cfg.motors[plan.mountId] = imported.motors[plan.mountId]!;
-    const stage = stageMotors(snapshot.tree, Object.entries({ ...snapshot.mountMotors, [plan.mountId]: mounted })).find(s => s.motors.some(m => m.mountId === plan.mountId));
-    if (stage && numOrNull(findNode(snapshot.tree, stage.stageId)!, 'nozzleExitDiameter') === null) {
-      try {
-        const entries = await Promise.all(stage.motors.map(m => nozzleForMotorId(m.motorId)));
-        const diameter = equivalentExitDiameterM(stage.motors.map((m, i) => ({ count: m.count, exitDiameterM: entries[i]?.exitDiameterM ?? null })));
-        if (diameter !== null) {
-          imported.tree = applyStageNozzles(imported.tree, { [stage.stageId]: diameter });
-        }
-      } catch { notes.push({ tier: 'caution', text: 'The published nozzle exit could not be loaded, so the flight used none — check Motors & Configuration.' }); }
-    }
     addNotes(notes);
     preparedFlights.current.set(imported, { mountId: plan.mountId, notes: flightNotes });
     return imported;
@@ -3747,7 +3800,7 @@ export function App() {
   const onCopyShareLink = async () => {
     const generation = documentGeneration.current;
     try {
-      const { design } = prepareCurrentOrk('share');
+      const { design } = await prepareCurrentOrk('share');
       const saveNotes = design.notes!;
       let omittedMotor = saveNotes.length > 0;
       const xml = exportOrk({ ...design, onOmittedMotor: () => { omittedMotor = true; } });
@@ -4600,7 +4653,7 @@ export function App() {
         designModalOpen.current = false;
         if (dirty) setPendingOpen(file); else void onOpenOrk(file);
       }} />}
-      <DesignConfirms tree={tree} lossDialog={lossDialog} setLossDialog={setLossDialog} saveLossy={saveLossy}
+      <DesignConfirms tree={tree} lossDialog={lossDialog} setLossDialog={setLossDialog} saveLossy={(format, accepted) => { void saveLossy(format, accepted); }}
         preservedAutosave={confirmAutosaveReplacement ? {
           unreadable: sessionUnreadable(), action: autosaveReplacementAction, downloadError: autosaveDownloadError,
           onDownload: () => { void downloadAutosavedDesign(); },
@@ -4991,7 +5044,8 @@ export function App() {
                 // handles go at the memo's next build.
                 const measure = (t: RocketTree) => {
                   const b = buildDesign(designBuildInputOf({
-                    tree: resolveFlightState(t, [], null, activeOverrides, mountMotors).tree, assigned, effectiveKbf, effectiveSupersonic, hybrid: effectiveHybrid,
+                    tree: withFlownNozzles(resolveFlightState(t, [], null, activeOverrides, mountMotors).tree,
+                      stageMotors(t, assigned, refusedMountIds), publishedExit).tree, assigned, effectiveKbf, effectiveSupersonic, hybrid: effectiveHybrid,
                     measuredDryMassKg: measured.massKg, primaryMountId, currentSetKey,
                   }), { reset: () => {}, build: KERNEL_HANDLES.build });
                   if ('error' in b) return null;
@@ -5347,8 +5401,8 @@ export function App() {
                         (Eric, 2026-09-08b: he went looking for it here and it
                         was on the stage in the Property Panel). Still the SAME
                         stage field — this is a second view of it, not a second
-                        value — and it fills itself in from AeroTech's published
-                        drawings with the provenance shown. */}
+                        value. Blank stays automatic, with the flown published
+                        exit and its provenance shown below. */}
                     {stNozzles.map((nozzleStage) => {
                       const loadout = stageMotorLoadout.find((s) => s.stageId === nozzleStage.id)?.motors ?? [];
                       const nozzleStageName = nameOr(nozzleStage, nozzleStage.type === 'parallelstage' ? 'Strap-on' : stName);
@@ -5364,10 +5418,10 @@ export function App() {
                           parallel={nozzleStage.type === 'parallelstage'}
                           exitDiameterM={numOrNull(nozzleStage, 'nozzleExitDiameter')}
                           motors={loadout}
+                          nozzleFor={fieldNozzleFor}
                           motorLabel={loadout[0]?.label ?? null}
                           clearedFor={overrideFor(nozzleCleared, nozzleStage.id!) ?? null}
                           onCommit={(m) => setTree(applyStageNozzles(treeRef.current, { [nozzleStage.id!]: m }))}
-                          onAutoFill={(m) => writeTree(applyStageNozzles(treeRef.current, { [nozzleStage.id!]: m }))}
                         />
                       </div>;
                     })}
@@ -5726,16 +5780,20 @@ export function App() {
           </PanelBoundary>
           {reportRun && <div className="panel">
             <button className="file-btn" onClick={() => {
-              try {
-                const { design } = prepareCurrentOrk();
-                setBundleSource({
-                  design,
-                  run: reportRun, changedSince: inspectedSummary ? null : changedSince,
-                  ...(!inspectedSummary && shownResult ? { result: shownResult } : {}),
-                });
-              } catch (e) {
-                setFileNote(`Flight-data bundle could not be prepared: ${noteText(e instanceof Error ? e.message : String(e))}`, 'error', undefined, 'information');
-              }
+              const generation = documentGeneration.current;
+              void (async () => {
+                try {
+                  const { design } = await prepareCurrentOrk();
+                  if (generation !== documentGeneration.current) return;
+                  setBundleSource({
+                    design,
+                    run: reportRun, changedSince: inspectedSummary ? null : changedSince,
+                    ...(!inspectedSummary && shownResult ? { result: shownResult } : {}),
+                  });
+                } catch (e) {
+                  documentNote(generation, `Flight-data bundle could not be prepared: ${noteText(e instanceof Error ? e.message : String(e))}`, 'error', undefined, 'information');
+                }
+              })();
             }}>Export flight-data bundle</button>
             <p className="download-caption">Selected run, current design and your measurements in one ZIP for sharing with the app owner.</p>
           </div>}

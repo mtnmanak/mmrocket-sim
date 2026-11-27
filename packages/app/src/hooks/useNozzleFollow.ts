@@ -1,7 +1,7 @@
 import { lookupTable } from '../services/xmlUtil.js';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type MutableRefObject } from 'react';
 import type { RocketTree } from '@online-openrocket/engine';
-import { nozzleForMotorId, type NozzleEntry } from '../services/nozzleDb.js';
+import { exNozzleEntry, nozzleForMotorId, type NozzleEntry } from '../services/nozzleDb.js';
 import {
   equivalentExitDiameterM, followNozzle, motorNozzleKey, stageMotorKey, type StageMotors,
 } from '../services/nozzleFollow.js';
@@ -12,6 +12,8 @@ import { noteField } from '../services/noteField.js';
 
 /**
  * THE NOZZLE EXIT DIAMETER FOLLOWS THE MOTOR (Eric, 2026-09-13).
+ * B-9 (2026-11-19): clear a previous motor's typed value to automatic. The
+ * flight resolver uses published exits without writing them into the design.
  *
  * Two reports, one cause: the field was treated as a property of the ROCKET
  * when it is a property of the MOTOR. Unloading a motor left its exit
@@ -43,7 +45,7 @@ import { noteField } from '../services/noteField.js';
 export interface NozzleCleared { previousLabel: string; previousM: number }
 
 /** One stage's loadout as the follow bookkeeping records it. */
-interface Seen { key: string; label: string }
+interface Seen { key: string; label: string; motors: string }
 
 const loadoutLabel = (s: StageMotors): string => s.motors
   .map(m => m.count > 1 ? `${m.count} × ${noteField(m.label)}` : noteField(m.label)).filter(Boolean).join(' + ');
@@ -136,6 +138,7 @@ export function useNozzleFollow(opts: {
         seen.current.set(s.stageId, {
           key: keys.get(s.stageId)!,
           label: loadoutLabel(s),
+          motors: stageMotorKey(s, new Map(s.motors.map(m => [m.motorId, m.motorId]))),
         });
       }
       // Stages the tree no longer has: drop them, or a deleted-then-recreated
@@ -152,7 +155,7 @@ export function useNozzleFollow(opts: {
         const ex = getExMotor(m.motorId);
         if (ex) nozzleValues.current.set(m.motorId, {
           key: motorKeys.get(m.motorId)!,
-          entry: ex.exitDiameterM === undefined ? null : { exitDiameterM: ex.exitDiameterM },
+          entry: exNozzleEntry(ex),
         });
       }
       const forgottenNotes = [...gone, ...loadout.filter(s => {
@@ -183,13 +186,13 @@ export function useNozzleFollow(opts: {
       // previous motor's exit, unannounced, until the motors changed once more.
       // Unknown is what the rule clears, with the note saying whose the number
       // was; NozzleField says the data could not be loaded and offers a reload,
-      // and a look-up after it fills the blank from the published figure. In
+      // and a look-up after it resolves the flight's published exit. In
       // Chrome nothing short of that reload does: the browser keeps a failed
       // chunk for the life of the page (nozzleDb.ts).
       const looked: { s: StageMotors; entries: (Pick<NozzleEntry, 'exitDiameterM'> | null)[] }[] = [];
       for (const s of acted) {
         looked.push({ s, entries: await Promise.all(s.motors.map((m) => {
-          if (m.motorId.startsWith('ex:') && !getExMotor(m.motorId)) {
+          if (lookup === nozzleForMotorId && m.motorId.startsWith('ex:') && !getExMotor(m.motorId)) {
             const cached = nozzleValues.current.get(m.motorId);
             return Promise.resolve(cached && cached.key === motorKeys.get(m.motorId) ? cached.entry : null);
           }
@@ -230,6 +233,9 @@ export function useNozzleFollow(opts: {
         const was = decided.current.get(s.stageId);
         if (was?.key === current.key) continue;
         nowDecided.set(s.stageId, current);
+        // A library-only correction changes automatic lookup data, not the
+        // mounted loadout for which the user typed this stage's exit.
+        if (was?.motors === current.motors) continue;
         // The stage as it stands NOW, not when the lookup started.
         const node = findNode(treeRef.current, s.stageId);
         const act = followNozzle({
@@ -241,7 +247,7 @@ export function useNozzleFollow(opts: {
             exitDiameterM: entries[i]?.exitDiameterM ?? null,
           }))),
         });
-        if (act.kind === 'set') { updates[s.stageId] = act.exitDiameterM; forgotten.push(s.stageId); }
+        if (act.kind === 'automatic') { updates[s.stageId] = null; forgotten.push(s.stageId); }
         else if (act.kind === 'clear') {
           updates[s.stageId] = null; // unknown: automatic, not explicit OFF
           clearedNow[s.stageId] = { previousLabel: act.previousLabel, previousM: act.previousM };
@@ -290,7 +296,7 @@ export function useNozzleFollow(opts: {
         // without writing the configuration's nozzle (audit 2026-10-11, S3c-2 follow-up 3).
         if (ex) nozzleValues.current.set(m.motorId, {
           key,
-          entry: ex.exitDiameterM === undefined ? null : { exitDiameterM: ex.exitDiameterM },
+          entry: exNozzleEntry(ex),
         });
       }
       // The new build may refuse a motor. Seed from its first effective
@@ -319,8 +325,8 @@ export function useNozzleFollow(opts: {
    * So a restored tree brings back the record of what ITS nozzles were decided
    * for, from its stamp. Where that is not what is loaded now, the effect sees
    * a motor change from it — the same one the user made — and makes the same
-   * decision on the restored state: the loaded motor's published exit, or a
-   * clear with the note saying whose it was. Where it IS what is loaded now
+   * decision on the restored state: clear to automatic, with a note when the
+   * new exit is unknown. Where it IS what is loaded now
    * (undoing a nozzle typed for this motor, or a deleted mount coming back
    * with its motor), nothing changes and the restored value stands. A tree
    * with no stamp — written and pushed in one tick, never rendered — is left

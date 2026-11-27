@@ -6,10 +6,14 @@ import { nameOr, nozzleStages } from '../tree/treeModel.js';
 export function nozzleExportNotes(tree: RocketTree, format: '.rkt' | '.CDX1'): string[] {
   return nozzleStages(tree).flatMap((s) => {
     const d = s['nozzleExitDiameter'];
+    const name = noteField(nameOr(s, s.type === 'parallelstage' ? 'Strap-on' : 'Stage'));
+    if (d == null && format === '.CDX1' && s.type !== 'parallelstage') {
+      return [`${name}: .CDX1 writes the flown automatic exit, or 0 (OFF) when none is flown; automatic motor-following is lost on reopen. Keep an .ork copy.`];
+    }
     if (typeof d !== 'number' || !Number.isFinite(d) || d < 0) return [];
-    if (format === '.CDX1' && s.type !== 'parallelstage' && d > 0) return [];
-    return [`${noteField(nameOr(s, s.type === 'parallelstage' ? 'Strap-on' : 'Stage'))}: ${format} cannot preserve `
+    if (format === '.CDX1' && s.type !== 'parallelstage') return [];
+    return [`${name}: ${format} cannot preserve `
       + `${d === 0 ? 'the explicit nozzle OFF setting' : 'this nozzle exit diameter'}. `
-      + 'Keep an .ork copy. Reopening may automatically fill a published exit for the loaded motor.'];
+      + 'Keep an .ork copy. Reopening flies the published exit for the loaded motor when the field is blank.'];
   });
 }

@@ -13,7 +13,7 @@ import { MOTOR_DB } from '../services/motorDb.js';
 // D13-10W: nozzle 01000-1, exit 0.188 in = 4.775 mm. A real row from the
 // shipped database, so the test moves if the data does.
 const D13 = '5f4294d20002310000000021';
-const D13_EXIT_M = 0.004775;
+let D13_EXIT_M: number;
 // I115W-M — one of the nine motors AeroTech publish two nozzles for.
 const I115 = '5f4294d200023100000001e7';
 
@@ -42,7 +42,7 @@ describe('strap-on field and explicit OFF', () => {
       root.render(
         <PrefsProvider>
           <NozzleField inputId="cfg-nozzle-strap" stageName="Strap" parallel exitDiameterM={0}
-            motors={[{ motorId: D13, count: 1 }]} motorLabel="D13-10" onCommit={() => {}} onAutoFill={() => {}} />
+            motors={[{ motorId: D13, count: 1 }]} motorLabel="D13-10" onCommit={() => {}} />
         </PrefsProvider>,
       );
     });
@@ -60,7 +60,7 @@ describe('strap-on field and explicit OFF', () => {
     expect(host.querySelector('[data-nozzle="off"]')).not.toBeNull();
     expect(host.querySelector('[data-nozzle="disagrees"]')).toBeNull();
     await render({ exitDiameterM: null, parallel: true });
-    expect(committed).toEqual([D13_EXIT_M]);
+    expect(committed).toEqual([]);
   });
 
   it('credits each source separately when the equivalent combines different motors', async () => {
@@ -97,7 +97,7 @@ let committed: (number | null)[];
  * The cache is deliberately NOT reset between tests: it holds the parsed
  * shipped database, which is exactly what production shares too.
  */
-beforeAll(async () => { await nozzleForMotorId(D13); });
+beforeAll(async () => { D13_EXIT_M = (await nozzleForMotorId(D13))!.exitDiameterM; });
 
 beforeEach(() => {
   committed = [];
@@ -158,7 +158,6 @@ const render = async (over: {
           motorLabel={over.motorLabel ?? 'D13-10'}
           clearedFor={over.clearedFor ?? null}
           onCommit={(m) => { committed.push(m); }}
-          onAutoFill={(m) => { committed.push(m); }}
         />
       </PrefsProvider>,
     );
@@ -168,10 +167,12 @@ const render = async (over: {
 
 const text = () => host.textContent ?? '';
 
-describe('NozzleField — rule 1: an empty field fills itself in', () => {
-  it('commits the published figure when the field is empty', async () => {
+describe('NozzleField — a blank field flies automatically without a stored fill', () => {
+  it('commits nothing and shows automatic provenance when the field is empty', async () => {
     await render({ exitDiameterM: null });
-    expect(committed).toEqual([D13_EXIT_M]);
+    expect(committed).toEqual([]);
+    expect(host.querySelector('input')!.value).toBe('');
+    expect(host.querySelector('[data-nozzle="published"]')?.textContent).toContain('Automatic:');
   });
 
   it('says where the number came from once it is there', async () => {
@@ -217,13 +218,13 @@ describe('NozzleField — rule 2: a value that disagrees is NOT overwritten', ()
     expect(text()).toMatch(/Yours is kept/);
   });
 
-  it('offers a one-click accept that commits the published figure', async () => {
+  it('offers a one-click accept that clears to automatic', async () => {
     await render({ exitDiameterM: WRONG });
     const btn = [...host.querySelectorAll('button')]
       .find((b) => /Use AeroTech/.test(b.textContent ?? ''));
     expect(btn, 'the accept button').toBeTruthy();
     act(() => { btn!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
-    expect(committed).toEqual([D13_EXIT_M]);
+    expect(committed).toEqual([null]);
   });
 
   it('treats a display round-trip as agreement, not disagreement', async () => {
@@ -285,10 +286,10 @@ describe('NozzleField — a cluster is ONE EQUIVALENT nozzle, areas summed', () 
   // diameter in whatever the cluster count, so a four-motor cluster flew a
   // quarter of the exit area it really has, and therefore a quarter of the
   // pressure-thrust term. Four D13s is 2x the diameter of one, not 1x.
-  it('fills four identical motors with twice one motor’s diameter', async () => {
+  it('shows the equivalent exit of four motors without storing it', async () => {
     await render({ exitDiameterM: null, motors: [{ motorId: D13, count: 4 }] });
-    expect(committed).toHaveLength(1);
-    expect(committed[0]).toBeCloseTo(D13_EXIT_M * 2, 9);
+    expect(committed).toEqual([]);
+    expect(Number(host.querySelector('input')!.placeholder)).toBeCloseTo(D13_EXIT_M * 2000, 2);
   });
 
   it('sums across two mounts as well as within one', async () => {
@@ -296,7 +297,8 @@ describe('NozzleField — a cluster is ONE EQUIVALENT nozzle, areas summed', () 
       exitDiameterM: null,
       motors: [{ motorId: D13, count: 1 }, { motorId: D13, count: 1 }],
     });
-    expect(committed[0]).toBeCloseTo(D13_EXIT_M * Math.SQRT2, 9);
+    expect(committed).toEqual([]);
+    expect(Number(host.querySelector('input')!.placeholder)).toBeCloseTo(D13_EXIT_M * Math.SQRT2 * 1000, 2);
   });
 
   it('says out loud that the number covers more than one motor', async () => {
@@ -457,11 +459,11 @@ describe('NozzleField — a figure that came from an imported motor file', () =>
     }]);
   });
 
-  it('fills an empty field from the file — the number the app used to throw away', async () => {
-    // Rule 1. The component commits; it does not re-render itself, so the
-    // provenance line is asserted in the next test, where the value is in.
+  it('shows the imported exit automatically without storing it', async () => {
     await render({ exitDiameterM: null, motorIds: [EX_ID], motorLabel: 'B2' });
-    expect(committed[committed.length - 1]).toBeCloseTo(EX_EXIT_M, 9);
+    expect(committed).toEqual([]);
+    expect(host.querySelector('[data-nozzle="published"]')?.textContent).toContain('Automatic:');
+    expect(Number(host.querySelector('input')!.placeholder)).toBeCloseTo(EX_EXIT_M * 1000, 2);
   });
 
   it('S3c-2 refreshes the file figure after a same-id re-import without a parent render', async () => {
@@ -471,7 +473,7 @@ describe('NozzleField — a figure that came from an imported motor file', () =>
     expect(host.querySelector('[data-nozzle="disagrees"]')).not.toBeNull();
     const button = [...host.querySelectorAll('button')].find(b => /^Use the file/.test(b.textContent ?? ''))!;
     act(() => button.click());
-    expect(committed.at(-1)).toBeCloseTo(0.006, 9);
+    expect(committed.at(-1)).toBeNull();
   });
 
   it('says the file is where it came from, and does NOT credit the manufacturer', async () => {
@@ -487,7 +489,7 @@ describe('NozzleField — a figure that came from an imported motor file', () =>
     expect(text()).not.toMatch(/Klima publish/);
   });
 
-  it('labels the accept button with the file too, and it still commits the file’s figure', async () => {
+  it('labels the accept button with the file and returns to automatic', async () => {
     // Audit 2026-09-22: the sentence beside it said "the motor file you
     // imported says …" while the button read "Use Klima’s 5 mm" — crediting a
     // manufacturer for a number that came from the user's own .rse.
@@ -497,7 +499,7 @@ describe('NozzleField — a figure that came from an imported motor file', () =>
     expect(btn!.textContent).not.toMatch(/Klima/);
     expect(btn!.textContent).toMatch(/^Use the file’s /);
     act(() => { btn!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
-    expect(committed[committed.length - 1]).toBeCloseTo(EX_EXIT_M, 9);
+    expect(committed.at(-1)).toBeNull();
   });
 
   it('says nothing for an EX motor whose file carried no exit', async () => {

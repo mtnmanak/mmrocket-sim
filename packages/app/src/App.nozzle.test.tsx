@@ -10,18 +10,23 @@ import { App } from './App.js';
 import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
 import type { MountMotor } from './model/design.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
+import { fmtSi } from './prefs/units.js';
 import { loadCatalogueMotor } from './services/motorMatch.js';
 import { exportOrk } from './services/orkFile.js';
+import { exportCdx1 } from './services/rasaeroFile.js';
 import type { SaveOutcome } from './services/saveFile.js';
 import type { SessionState } from './services/session.js';
 import { PHYSICS_REVISION, type SimRun } from './services/simReport.js';
-import { nozzleForMotorId } from './services/nozzleDb.js';
+import { loadNozzleDb, nozzleForMotorId, publishedExitSync, resetNozzleDbCache } from './services/nozzleDb.js';
+import { buildDesign } from './services/buildDesign.js';
 import { reflyRun } from './services/flightRunner.js';
 import type { MotorPicker } from './components/MotorPicker.js';
 import type { FlightCharts } from './components/FlightCharts.js';
 import type { SimHistory } from './components/SimResults.js';
+import type { BatchSimulate } from './components/BatchSimulate.js';
 import { addChild, addStage, defaultTree, findNode, motorMounts } from './tree/treeModel.js';
 import { APP_VERSION } from './version.js';
+import { addExMotors, deleteExMotor, exToMotorSpec, parseEng } from './services/exMotors.js';
 
 /**
  * WHAT App HANDS THE NOZZLE RULES (audit 2026-09-22, row 477). Each rule is a
@@ -51,10 +56,22 @@ vi.mock('./services/orkFile.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./services/orkFile.js')>();
   return { ...real, exportOrk: vi.fn(real.exportOrk) };
 });
+vi.mock('./services/rasaeroFile.js', async importOriginal => {
+  const real = await importOriginal<typeof import('./services/rasaeroFile.js')>();
+  return { ...real, exportCdx1: vi.fn(real.exportCdx1) };
+});
 
 // Capture the real component callbacks to test their own refusal boundaries,
 // including a stale caller that bypasses the disabled/absent button.
 let pickerProps: ComponentProps<typeof MotorPicker>;
+let batchProps: ComponentProps<typeof BatchSimulate>;
+vi.mock('./components/BatchSimulate.js', async importOriginal => {
+  const real = await importOriginal<typeof import('./components/BatchSimulate.js')>();
+  return { ...real, BatchSimulate: (props: ComponentProps<typeof BatchSimulate>) => {
+    batchProps = props;
+    return createElement(real.BatchSimulate, props);
+  } };
+});
 vi.mock('./components/MotorPicker.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./components/MotorPicker.js')>();
   return { ...real, MotorPicker: (props: ComponentProps<typeof MotorPicker>) => {
@@ -78,6 +95,10 @@ vi.mock('./components/SimResults.js', async (importOriginal) => {
     return createElement(real.SimHistory, props);
   } };
 });
+vi.mock('./services/buildDesign.js', async importOriginal => {
+  const real = await importOriginal<typeof import('./services/buildDesign.js')>();
+  return { ...real, buildDesign: vi.fn(real.buildDesign) };
+});
 vi.mock('./services/flightRunner.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./services/flightRunner.js')>();
   return { ...real, reflyRun: vi.fn(real.reflyRun) };
@@ -85,7 +106,8 @@ vi.mock('./services/flightRunner.js', async (importOriginal) => {
 
 vi.mock('./services/nozzleDb.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./services/nozzleDb.js')>();
-  return { ...real, nozzleForMotorId: vi.fn(real.nozzleForMotorId) };
+  return { ...real, nozzleForMotorId: vi.fn(real.nozzleForMotorId), loadNozzleDb: vi.fn(real.loadNozzleDb),
+    publishedExitSync: vi.fn(real.publishedExitSync) };
 });
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -175,6 +197,63 @@ const shownName = (host: HTMLElement) => host.querySelector('.vitals-item-name .
 const storedSession = (): SessionState => JSON.parse(localStorage.getItem(SESSION_KEY)!) as SessionState;
 const storedRuns = () => JSON.parse(localStorage.getItem(RUNS_KEY) ?? '[]') as SimRun[];
 
+it.each([0.008, undefined])('J23N r5 same-id EX reimport preserves typed 12 mm from %s', async exitDiameterM => {
+  const ex = { ...parseEng('G100 18 70 5 0.01 0.025 Home\n0 0\n0.1 100\n1 0\n')[0]!, exitDiameterM };
+  addExMotors([ex]);
+  const tree = withNozzle(defaultTree(), 0.012);
+  const mount = motorMounts(tree)[0]!.id!;
+  const motor: MountMotor = { spec: exToMotorSpec(ex, 5), label: 'G100', meta: { label: 'G100', exMotorId: ex.motorId },
+    ignition: { event: 'automatic', delay: 0 } };
+  seedSession(tree, { [mount]: motor });
+  const host = await mountApp();
+  await openTab(host, 'Motors & Configuration');
+  await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.009 }]); });
+  await settle(20);
+  expect(input(host, 'Nozzle exit diameter for Sustainer').value).toBe('12');
+  expect(host.textContent).not.toContain('Cleared —');
+  await launch(host);
+  expect(vi.mocked(buildDesign).mock.calls.at(-1)![0].tree.components[0]!.nozzleExitDiameter).toBe(0.012);
+  window.dispatchEvent(new Event('pagehide'));
+  expect(storedSession().tree.components[0]!.nozzleExitDiameter).toBe(0.012);
+}, 30000);
+
+it('J23N r5 automatic EX uses the library until deletion then retains its mounted exit', async () => {
+  const ex = { ...parseEng('G100 18 70 5 0.01 0.025 Home\n0 0\n0.1 100\n1 0\n')[0]!, exitDiameterM: 0.008 };
+  addExMotors([ex]);
+  const tree = defaultTree();
+  const mount = motorMounts(tree)[0]!.id!;
+  seedSession(tree, { [mount]: { spec: exToMotorSpec(ex, 5), label: 'G100', meta: { label: 'G100', exMotorId: ex.motorId }, ignition: { event: 'automatic', delay: 0 } } });
+  const host = await mountApp();
+  await openTab(host, 'Motors & Configuration');
+  await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.009 }]); });
+  await settle(20);
+  expect(host.querySelector('[data-nozzle="published"]')?.textContent).toContain('9 mm');
+  await act(async () => { deleteExMotor(ex.motorId); });
+  await settle(20);
+  expect(host.querySelector('[data-nozzle="published"]')?.textContent).toContain('8 mm');
+  await act(async () => button(host, 'Batch simulate motors').click());
+  await waitFor(() => !!host.querySelector('[aria-label="Batch simulate motors"]'), 'Batch');
+  expect(batchProps.tree.components[0]!.nozzleExitDiameter).toBeUndefined();
+  expect(batchProps).not.toHaveProperty('nozzleFor');
+}, 30000);
+
+it('J23N r3 CDX1 loss preview names an automatic booster nozzle whose EX engine cannot export', async () => {
+  const ex = { ...parseEng('G100 18 70 5 0.01 0.025 Home\n0 0\n0.1 100\n1 0\n')[0]!, exitDiameterM: 0.008 };
+  addExMotors([ex]);
+  const tree = defaultTree();
+  tree.components.push({ type: 'stage', id: 'booster', name: 'EX Booster', children: [
+    { type: 'bodytube', id: 'booster-mount', length: 0.4, outerRadius: 0.02, thickness: 0.001, motorMount: true },
+  ] });
+  const motor: MountMotor = { spec: exToMotorSpec(ex, 5), label: 'G100', meta: { label: 'G100', exMotorId: ex.motorId },
+    ignition: { event: 'automatic', delay: 0 } };
+  seedSession(tree, { 'booster-mount': motor });
+  const host = await mountApp();
+  await act(async () => button(host, 'Save As / Export').click());
+  await act(async () => button(host.querySelector('.file-menu')!, 'Save .CDX1').click());
+  await waitFor(() => host.textContent!.includes('Save .CDX1 anyway'), 'CDX1 loss preview');
+  expect(host.textContent).toContain('Booster nozzle “EX Booster” is not kept because this stage has no exported engine.');
+});
+
 /** Launch pressed, and the flight it records saved. */
 async function launch(host: HTMLElement): Promise<void> {
   const before = storedRuns().length;
@@ -206,6 +285,7 @@ beforeEach(() => {
   localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true }));
   vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline (test)'); }));
   vi.mocked(exportOrk).mockClear();
+  vi.mocked(exportCdx1).mockClear();
   vi.mocked(reflyRun).mockClear();
 });
 
@@ -215,7 +295,7 @@ afterEach(async () => {
 });
 
 describe('strap-on nozzle controls in App', () => {
-  it('fills one clustered strap-on, keeps core separate, and restores explicit OFF', async () => {
+  it('shows an automatic clustered strap-on, keeps the design blank, and restores OFF', async () => {
     const t = defaultTree();
     const mount = motorMounts(t)[0]!;
     const body = t.components[0]!.children!.find((n) => n.type === 'bodytube')!;
@@ -232,11 +312,14 @@ describe('strap-on nozzle controls in App', () => {
     seedSession(t, { [mount.id!]: await c6(), 'nozzle-mount': d13 });
     const host = await mountApp();
     await openTab(host, 'Motors & Configuration');
-    await waitFor(() => Number(input(host, 'Nozzle exit diameter for Nozzle boosters').value) > 0, 'strap-on autofill');
-    expect(Number(input(host, 'Nozzle exit diameter for Nozzle boosters').value)).toBeCloseTo(2 * 4.775, 2);
+    await waitFor(() => !!host.querySelector('[data-nozzle="published"]'), 'strap-on automatic provenance');
+    const published = (await nozzleForMotorId(d13.meta.motorId))!.exitDiameterM;
+    expect(input(host, 'Nozzle exit diameter for Nozzle boosters').value).toBe('');
+    expect(Number(input(host, 'Nozzle exit diameter for Nozzle boosters').placeholder)).toBeCloseTo(2 * published * 1000, 2);
     expect(host.textContent).toContain('Exit areas summed over the 4 motors in one strap-on.');
     window.dispatchEvent(new Event('pagehide'));
     expect(storedSession().tree.components[0]!['nozzleExitDiameter']).toBeUndefined();
+    expect(findNode(storedSession().tree, 'nozzle-boost')!['nozzleExitDiameter']).toBeUndefined();
     await type(input(host, 'Nozzle exit diameter for Nozzle boosters'), '0');
     await settle(50);
     window.dispatchEvent(new Event('pagehide'));
@@ -348,7 +431,8 @@ describe('Undo after a motor is unloaded', () => {
     await openTab(host, 'Motors & Configuration');
     const d13 = (await loadCatalogueMotor('AeroTech', 'D13', 10))!;
     await act(async () => { pickerProps.onSelect(d13.label, d13.spec, d13.meta); });
-    await waitFor(() => Number(input(host, 'Nozzle exit diameter for Sustainer').value) > 0, 'published nozzle fill');
+    await waitFor(() => !!host.querySelector('[data-nozzle="published"]'), 'automatic nozzle provenance');
+    expect(input(host, 'Nozzle exit diameter for Sustainer').value).toBe('');
     await act(async () => { button(host, '↩ Undo').click(); });
     await settle(50);
     expect(shownName(host)).toBe('My Rocket');
@@ -633,4 +717,135 @@ it('blocks Launch while a motor swap is waiting for its nozzle lookup', async ()
     await waitFor(() => !host.querySelector<HTMLButtonElement>('.vitals-launch')!.disabled, 'the nozzle decision');
     expect(input(host, 'Nozzle exit diameter for Sustainer').value).toBe('');
   } finally { vi.mocked(nozzleForMotorId).mockRestore(); }
+}, 30000);
+
+it('J23-N changing a typed exit to a published motor leaves automatic blank and flies it', async () => {
+  const tree = withNozzle(defaultTree(), 0.005);
+  const mount = motorMounts(tree)[0]!.id!;
+  seedSession(tree, { [mount]: await c6() });
+  const host = await mountApp();
+  await openTab(host, 'Motors & Configuration');
+  const motor = (await loadCatalogueMotor('AeroTech', 'D13', 10))!;
+  await act(async () => { pickerProps.onSelect(motor.label, motor.spec, motor.meta); });
+  await waitFor(() => input(host, 'Nozzle exit diameter for Sustainer').value === ''
+    && !host.querySelector<HTMLButtonElement>('.vitals-launch')!.disabled, 'automatic nozzle after motor change');
+  await act(async () => host.querySelector<HTMLButtonElement>('.vitals-launch')!.click());
+  await waitFor(() => storedRuns().length === 1, 'flight');
+  expect(storedRuns()[0]!.nozzleStages).toEqual([tree.components[0]!.name]);
+  const published = (await nozzleForMotorId(motor.meta.motorId))!.exitDiameterM;
+  expect(vi.mocked(buildDesign).mock.calls.at(-1)![0].tree.components[0]!.nozzleExitDiameter).toBe(published);
+  window.dispatchEvent(new Event('pagehide'));
+  expect(storedSession().tree.components[0]!['nozzleExitDiameter']).toBeUndefined();
+}, 30000);
+
+it('J23-N blank different-motor CDX1 configurations each fly their own published exit', async () => {
+  const host = await mountApp();
+  await waitFor(() => Object.keys(storedSession()?.mountMotors ?? {}).length > 0, 'starter');
+  const picker = input(host, 'Open a design file');
+  Object.defineProperty(picker, 'files', { configurable: true, value: [new File([
+    // This regression needs genuinely absent fields; the fixture's stated zeros
+    // now mean OFF under Eric's r3 ruling.
+    readFileSync(join(here, 'services/__fixtures__/Complex.Two-Stage.CDX1'), 'utf8')
+      .replace(/<(Sustainer|Booster[12])Nozzle(?:Diameter)?>0<\/\1Nozzle(?:Diameter)?>/g, ''),
+  ], 'Complex.Two-Stage.CDX1')] });
+  await act(async () => { picker.dispatchEvent(new Event('change', { bubbles: true })); });
+  await waitFor(() => shownName(host) === 'Complex.Two-Stage', 'CDX1 open');
+  await openTab(host, 'Motors & Configuration');
+  window.dispatchEvent(new Event('pagehide'));
+  const configs = storedSession().savedConfigs!;
+  expect(configs).toHaveLength(2);
+  const exits: number[] = [];
+  for (const cfg of configs) {
+    await openTab(host, 'Motors & Configuration');
+    window.dispatchEvent(new Event('pagehide'));
+    if (storedSession().activeConfigId !== cfg.id) {
+      // A previous typed exit must be deleted by the incoming null snapshot.
+      await type(input(host, 'Nozzle exit diameter for Sustainer'), '7');
+      const label = Object.values(cfg.motors)[0]!.label;
+      const apply = [...host.querySelectorAll<HTMLButtonElement>('button[aria-label^="Apply "]')]
+        .find(b => b.getAttribute('aria-label')!.includes(label))!;
+      await act(async () => apply.click());
+    }
+    await waitFor(() => !host.querySelector<HTMLButtonElement>('.vitals-launch')!.disabled, 'configuration ready');
+    expect(input(host, 'Nozzle exit diameter for Sustainer').value).toBe('');
+    const mm = Object.values(cfg.motors)[0]!;
+    const published = (await nozzleForMotorId(mm.meta.motorId))!.exitDiameterM;
+    exits.push(published);
+    expect(input(host, 'Nozzle exit diameter for Sustainer').placeholder).toBe(fmtSi('motorDimensions', 'mm', published));
+    const before = storedRuns().length;
+    await act(async () => host.querySelector<HTMLButtonElement>('.vitals-launch')!.click());
+    await waitFor(() => storedRuns().length === before + 1, 'configuration flight');
+    expect(storedRuns().at(-1)!.nozzleStages).toContain('Sustainer');
+    expect(vi.mocked(buildDesign).mock.calls.at(-1)![0].tree.components[0]!.nozzleExitDiameter).toBe(published);
+    window.dispatchEvent(new Event('pagehide'));
+    expect(storedSession().tree.components[0]!['nozzleExitDiameter']).toBeUndefined();
+  }
+  expect(exits[0]).not.toBe(exits[1]);
+}, 60000);
+
+it('J23-N Launch waits for the nozzle database on a first blank motor load', async () => {
+  resetNozzleDbCache();
+  const real = await vi.importActual<typeof import('./services/nozzleDb.js')>('./services/nozzleDb.js');
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  vi.mocked(loadNozzleDb).mockImplementation(async () => { await gate; return real.loadNozzleDb(); });
+  const tree = defaultTree();
+  const motor = (await loadCatalogueMotor('AeroTech', 'D13', 10))!;
+  seedSession(tree, { [motorMounts(tree)[0]!.id!]: motor });
+  const host = await mountApp();
+  try {
+    expect(publishedExitSync(motor.meta.motorId!)).toBeUndefined();
+    expect(host.querySelector<HTMLButtonElement>('.vitals-launch')!.disabled).toBe(true);
+    await act(async () => host.querySelector<HTMLButtonElement>('.vitals-launch')!.click());
+    expect(storedRuns()).toHaveLength(0);
+    await act(async () => { release(); await gate; });
+    await waitFor(() => !host.querySelector<HTMLButtonElement>('.vitals-launch')!.disabled, 'nozzle database ready');
+  } finally { release(); vi.mocked(loadNozzleDb).mockImplementation(real.loadNozzleDb); }
+}, 30000);
+
+it('J23-N visiting Motors keeps Batch mirror skipping available for automatic exits', async () => {
+  const tree = defaultTree();
+  const original = motorMounts(tree)[0]!;
+  const body = tree.components[0]!.children!.find(n => n.type === 'bodytube')!;
+  body.outerRadius = 0.05;
+  body.children!.find(n => n.type === 'trapezoidfinset')!.finCount = 4;
+  body.children!.find(n => n.type === 'parachute')!.deployEvent = 'apogee';
+  body.children = [...body.children!.filter(n => n.id !== original.id), ...Array.from({ length: 4 }, (_, i) => ({
+    ...original, id: `ring-${i}`, name: `Ring ${i + 1}`, cluster: 'single',
+    radialPosition: 0.025, radialDirection: i * Math.PI / 2,
+  }))];
+  const motor = (await loadCatalogueMotor('AeroTech', 'D13', 10))!;
+  seedSession(tree, Object.fromEntries(motorMounts(tree).map(m => [m.id!, motor])));
+  const host = await mountApp();
+  await openTab(host, 'Motors & Configuration');
+  await waitFor(() => !!host.querySelector('[data-nozzle="published"]'), 'automatic exit');
+  expect(input(host, 'Nozzle exit diameter for Sustainer').value).toBe('');
+  await act(async () => button(host, 'Batch simulate motors').click());
+  await waitFor(() => !!host.querySelector('[aria-label="Batch simulate motors"]'), 'Batch');
+  expect(batchProps.tree.components[0]!['nozzleExitDiameter']).toBeUndefined();
+  const check = (text: string) => [...host.querySelectorAll('label')]
+    .find(l => l.textContent?.includes(text))!.querySelector<HTMLInputElement>('input')!;
+  if (!check('Use all 4 matching mounts').checked) {
+    await act(async () => check('Use all 4 matching mounts').click());
+  }
+  await act(async () => check('mixed 2+2').click());
+  expect(check('Skip mirror arrangements').disabled).toBe(false);
+}, 30000);
+
+it('J23-N CDX1 writes the flown automatic exit while the design stays blank', async () => {
+  const tree = defaultTree();
+  const motor = (await loadCatalogueMotor('AeroTech', 'D13', 10))!;
+  seedSession(tree, { [motorMounts(tree)[0]!.id!]: motor });
+  const host = await mountApp();
+  await waitFor(() => !host.querySelector<HTMLButtonElement>('.vitals-launch')!.disabled, 'nozzle ready');
+  await act(async () => button(host, 'Save As / Export').click());
+  await act(async () => button(host, 'Save .CDX1').click());
+  await settle(50);
+  const confirm = [...host.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Save .CDX1 anyway');
+  if (confirm) await act(async () => confirm.click());
+  await waitFor(() => vi.mocked(exportCdx1).mock.calls.some(([arg]) => !arg.dryRun), 'CDX1 writer');
+  const args = vi.mocked(exportCdx1).mock.calls.find(([arg]) => !arg.dryRun)![0];
+  expect(args.tree.components[0]!['nozzleExitDiameter']).toBeCloseTo((await nozzleForMotorId(motor.meta.motorId))!.exitDiameterM, 12);
+  window.dispatchEvent(new Event('pagehide'));
+  expect(storedSession().tree.components[0]!['nozzleExitDiameter']).toBeUndefined();
 }, 30000);

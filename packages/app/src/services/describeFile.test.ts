@@ -440,7 +440,8 @@ describe('describeFile: the motor-independent fragment', () => {
     expect(source.savedConfigs).toHaveLength(4);
     expect(source.activeConfigId).toBe('rasaero-sim-2');
     expect(source.savedConfigs.map(c => c.nozzles![booster!.id!]))
-      .toEqual([null, booster!['nozzleExitDiameter'], sustainer!['nozzleExitDiameter'], booster!['nozzleExitDiameter']]);
+      // RASAero's stated 0 now means explicit OFF, not an automatic null.
+      .toEqual([0, booster!['nozzleExitDiameter'], sustainer!['nozzleExitDiameter'], booster!['nozzleExitDiameter']]);
     const out = await describeFile(bytes(file), file);
     const note = out.notes.export.find(n => /Nozzle exit diameters differ/.test(n));
     expect(note).toMatch(/1 stage in 2 saved configurations/);
