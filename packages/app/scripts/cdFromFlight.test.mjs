@@ -60,6 +60,7 @@ import {
   analyse,
   atmosphere,
   binByMach,
+  cdSeries,
   columnIndex,
   detectAccelUnit,
   detectBurnout,
@@ -362,6 +363,50 @@ describe('audit input and disclosure regressions', () => {
     const t = Number(line.split(',')[0]);
     return i === 0 || !(t > from && t < from + 1);
   }).join('\n');
+
+  it.each([-1.2, 0, Infinity, NaN])('refuses invalid direct Cd reference length %s', lengthM => {
+    expect(() => cdSeries([], { massKg: 0.5, diameterM: 0.05, lengthM })).toThrow(/^R9:.*length/);
+  });
+
+  it.each(['massKg', 'diameterM'])('refuses infinite direct Cd %s', field => {
+    expect(() => cdSeries([], { massKg: 0.5, diameterM: 0.05, [field]: Infinity })).toThrow(/^R9:/);
+  });
+
+  it.each([NaN, Infinity, -1])('refuses invalid direct Cd Mach floor %s', machFloor => {
+    expect(() => cdSeries([], { massKg: 0.5, diameterM: 0.05, machFloor })).toThrow(/^R9:.*machFloor/);
+  });
+
+  it.each([[0, NaN], [0, Infinity], [0.5, 0.25], [0.25, 0.25], [-1, 0], [0]].map(edges => ({ edges })))(
+    'refuses invalid direct Mach bin edges $edges', ({ edges }) => {
+      expect(() => binByMach([], edges)).toThrow(/^R9:.*bin edges/);
+    });
+
+  it('computes finite Reynolds numbers only with a valid reference length', () => {
+    const samples = [{ t: 6, aAxG: -1, velocityMs: 150, atm: atmosphere({ altitudeM: 100, siteElevationM: 0 }) }];
+    const geometry = { massKg: 0.5, diameterM: 0.05 };
+    expect(cdSeries(samples, { ...geometry, lengthM: null })[0].reynolds).toBeNull();
+    const re = cdSeries(samples, { ...geometry, lengthM: 0.5 })[0].reynolds;
+    expect(Number.isFinite(re)).toBe(true);
+    expect(re).toBeGreaterThan(0);
+  });
+
+  it.each([NaN, Infinity, -Infinity, 0, -1])('refuses invalid integration scale %s', scale => {
+    expect(() => integrateVelocity([0, 1], [1, 2], { scale })).toThrow(/^R9:.*scale/);
+  });
+
+  it.each([
+    { altitudeM: NaN }, { altitudeM: Infinity }, { siteElevationM: Infinity, pressurePa: null },
+    { padTempK: Infinity }, { padTempK: 0 }, { padTempK: -1 },
+  ])('refuses invalid direct atmosphere input %j', bad => {
+    expect(() => atmosphere({ altitudeM: 100, siteElevationM: 0, padTempK: 288.15,
+      pressurePa: 100000, ...bad })).toThrow(/^R5:/);
+  });
+
+  it.each([NaN, Infinity, -Infinity])('uses measured pressure with unknown non-finite site elevation %s', siteElevationM => {
+    const sample = { altitudeM: 100, padTempK: 288.15, pressurePa: 100000 };
+    expect(atmosphere({ ...sample, siteElevationM })).toEqual(atmosphere(sample));
+    expect(() => atmosphere({ ...sample, siteElevationM, pressurePa: null })).toThrow(/^R5:.*no density source/s);
+  });
 
   it.each(['accelText', 'baroText'])('refuses interior gaps in %s', field => {
     const fx = synthFlight();

@@ -1,7 +1,7 @@
 {
- "generated": "2026-07-03",
+ "generated": "2026-11-27",
  "source": "github.com/openrocket/openrocket-database + OpenRocket 24.12 datafiles/components/internal",
- "count": 4729,
+ "count": 4736,
  "presets": [
   {
    "kind": "BodyTube",
@@ -950,6 +950,21 @@
    "insideDiameter": 0.0109728,
    "outsideDiameter": 0.0113792,
    "length": 0.8636
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "BalsaMachining",
+   "partNo": "T4+34",
+   "description": ".478x.452x.013x34 slips over T4",
+   "material": {
+    "name": "Paper",
+    "type": "BULK",
+    "density": 1121.292438
+   },
+   "insideDiameter": 0.0114808,
+   "outsideDiameter": 0.0121412,
+   "length": 0.8636,
+   "source": "desktop-24.12"
   },
   {
    "kind": "BodyTube",
@@ -12682,6 +12697,22 @@
    "insideDiameter": 0.0331216,
    "outsideDiameter": 0.0341884,
    "length": 0.762
+  },
+  {
+   "kind": "BodyTube",
+   "manufacturer": "SEMROC",
+   "partNo": "BT-58",
+   "description": "Classic Body Tube BT-58",
+   "material": {
+    "name": "Spiral/Glassine",
+    "type": "BULK",
+    "density": 848.9785602
+   },
+   "mass": 0.017860199553,
+   "insideDiameter": 0.0380492,
+   "outsideDiameter": 0.039116,
+   "length": 0.32385,
+   "source": "desktop-24.12"
   },
   {
    "kind": "BodyTube",
@@ -34600,7 +34631,7 @@
    "outsideDiameter": 0.0137998,
    "shoulderLength": 0.0095301,
    "shoulderDiameter": 0.0126009,
-   "shape": "PARABOLIC",
+   "shape": "ELLIPSOID",
    "thickness": 0.0010008,
    "source": "rocksim"
   },
@@ -34637,7 +34668,7 @@
    "outsideDiameter": 0.0186995,
    "shoulderLength": 0.0102006,
    "shoulderDiameter": 0.0175006,
-   "shape": "PARABOLIC",
+   "shape": "ELLIPSOID",
    "thickness": 0.000762,
    "source": "rocksim"
   },
@@ -34781,7 +34812,7 @@
    "outsideDiameter": 0.0248006,
    "shoulderLength": 0.0191008,
    "shoulderDiameter": 0.0235991,
-   "shape": "PARABOLIC",
+   "shape": "ELLIPSOID",
    "thickness": 0.0007874,
    "source": "rocksim"
   },
@@ -34831,7 +34862,7 @@
    "outsideDiameter": 0.039878,
    "shoulderLength": 0.022352,
    "shoulderDiameter": 0.039624,
-   "shape": "PARABOLIC",
+   "shape": "ELLIPSOID",
    "thickness": 0.0001067,
    "source": "rocksim"
   },
@@ -38280,6 +38311,24 @@
   {
    "kind": "NoseCone",
    "manufacturer": "Estes",
+   "partNo": "PNC-60 Long B",
+   "description": "PNC-60 Long Pack NC B",
+   "material": {
+    "name": "Polystyrene",
+    "type": "BULK",
+    "density": 1050
+   },
+   "length": 0.2159,
+   "outsideDiameter": 0.041656,
+   "shoulderLength": 0.03175,
+   "shoulderDiameter": 0.028575,
+   "shape": "OGIVE",
+   "thickness": 0.0009931,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Estes",
    "partNo": "PNC-60 Long C",
    "description": "PNC-60 Long Pack NC C",
    "material": {
@@ -39637,6 +39686,19 @@
   {
    "kind": "NoseCone",
    "manufacturer": "LOC Precision",
+   "partNo": "PNC-1.52 THIN",
+   "description": "LOC PNC-1.52 THIN",
+   "length": 0.2032,
+   "outsideDiameter": 0.041402,
+   "shoulderLength": 0.0508,
+   "shoulderDiameter": 0.037592,
+   "shape": "OGIVE",
+   "thickness": 0.0017399,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "LOC Precision",
    "partNo": "PNC-2.14",
    "description": "Nose cone, polypropylene, PNC-2.14, ogive, 9.5\"",
    "material": {
@@ -39756,6 +39818,25 @@
   {
    "kind": "NoseCone",
    "manufacturer": "Madcow",
+   "partNo": "2.6\" Fiberglass 3:1 Ogive Nose Cone",
+   "description": "2.6\" Fiberglass 3:1 Ogive Nose Cone",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "mass": 0.0769,
+   "length": 0.206502,
+   "outsideDiameter": 0.068072,
+   "shoulderLength": 0.0635,
+   "shoulderDiameter": 0.065532,
+   "shape": "OGIVE",
+   "filled": true,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Madcow",
    "partNo": "2.6\" Fiberglass 5:1 Ogive Nose Cone",
    "description": "2.6\" Fiberglass 5:1 Ogive Nose Cone",
    "material": {
@@ -39789,14 +39870,48 @@
   {
    "kind": "NoseCone",
    "manufacturer": "Madcow",
+   "partNo": "20147",
+   "description": "PNC-4.00\" (98mm) x 9.5",
+   "mass": 0.1835,
+   "length": 0.2413,
+   "outsideDiameter": 0.1016,
+   "shoulderLength": 0.0762,
+   "shoulderDiameter": 0.0979932,
+   "shape": "ELLIPSOID",
+   "filled": true,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Madcow",
    "partNo": "20148",
-   "description": "PNC-4.00 (98mm) x 16.5in",
+   "description": "PNC-4.00\" (98mm) x 16.5",
+   "mass": 0.2981,
    "length": 0.4191,
    "outsideDiameter": 0.1016,
    "shoulderLength": 0.08255,
    "shoulderDiameter": 0.0979932,
-   "shape": "PARABOLIC",
-   "thickness": 0.0026822,
+   "shape": "ELLIPSOID",
+   "filled": true,
+   "source": "rocksim"
+  },
+  {
+   "kind": "NoseCone",
+   "manufacturer": "Madcow",
+   "partNo": "5.5\" Fiberglass 5:1 Conical Nose Cone",
+   "description": "5.5\" Fiberglass 5:1 Conical Nose Cone",
+   "material": {
+    "name": "Fiberglass",
+    "type": "BULK",
+    "density": 1850
+   },
+   "mass": 0.4943,
+   "length": 0.762,
+   "outsideDiameter": 0.1397,
+   "shoulderLength": 0.14605,
+   "shoulderDiameter": 0.134112,
+   "shape": "CONICAL",
+   "filled": true,
    "source": "rocksim"
   },
   {
@@ -76514,7 +76629,7 @@
    "material": {
     "name": "Kraft Phenolic",
     "type": "BULK",
-    "density": 958.70503449
+    "density": 943.48749426
    },
    "insideDiameter": 0.0234188,
    "outsideDiameter": 0.0249936,
@@ -76529,7 +76644,7 @@
    "material": {
     "name": "Kraft Phenolic",
     "type": "BULK",
-    "density": 958.70503449
+    "density": 943.48749426
    },
    "insideDiameter": 0.03302,
    "outsideDiameter": 0.034036,

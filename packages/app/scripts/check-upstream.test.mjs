@@ -64,6 +64,21 @@ function runSection(npm = result(audit, 1), gh = result(github), read = reader) 
 
 afterEach(() => vi.restoreAllMocks());
 
+it('r4 names the machine profile when the material reference checkout is unconfigured', async () => {
+  vi.doMock('../../../scripts/openrocket-src.mjs', () => ({ openrocketSrcRoot: () => null }));
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  try {
+    const check = DEFAULT_CHECKS.find(fn => fn.name === 'checkMaterials');
+    await check();
+    const output = log.mock.calls.flat().join('\n');
+    expect(output).toContain('openrocketSource in ~/.machine/machine.json');
+    expect(output).toContain('OPENROCKET_SRC');
+    expect(output).toContain('not a verdict');
+  } finally {
+    vi.doUnmock('../../../scripts/openrocket-src.mjs');
+  }
+});
+
 it.each([
   ['NB20-2', 'mm', '0.422', 0, 'still the known-bad value'],
   ['NB20-2', 'in', '0.710', 1, 'UPSTREAM HAS FIXED THIS'],

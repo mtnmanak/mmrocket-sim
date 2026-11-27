@@ -504,6 +504,7 @@ export function refuseNonAccelFile(header, label = 'this file') {
  * accelerates upward on the pad.
  */
 export function integrateVelocity(t, aAxG, { scale = 1, tBurnout = null } = {}) {
+  if (!(Number.isFinite(scale) && scale > 0)) fail('R9', 'acceleration scale must be a positive finite number.');
   const n = t.length;
   let i0 = -1;
   for (let i = 0; i < n; i++) {
@@ -670,6 +671,10 @@ export function detectApogee(t, v, { tBurnout = 0, altitude = null } = {}) {
  * default would be the single worst bug this tool could ship, so it throws (R5).
  */
 export function atmosphere({ altitudeM, pressurePa = null, padTempK = null, siteElevationM = null }) {
+  if (!Number.isFinite(altitudeM)
+    || (padTempK !== null && !(Number.isFinite(padTempK) && padTempK > 0))) {
+    fail('R5', 'altitude must be finite, and pad temperature must be positive and finite; Cd cannot be inferred from invalid atmosphere inputs.');
+  }
   let tempK;
   let pPa;
   if (pressurePa != null && (!Number.isFinite(pressurePa) || pressurePa <= 0)) {
@@ -724,6 +729,9 @@ export function atmosphere({ altitudeM, pressurePa = null, padTempK = null, site
     tempK = ISA_T0 - LAPSE * (altitudeM + siteElevationM);
     pPa = ISA_P0 * Math.pow(tempK / ISA_T0, G0 / (LAPSE * R_AIR));
   }
+  if (!(Number.isFinite(tempK) && tempK > 0)) {
+    fail('R5', 'the atmosphere temperature must be positive and finite; Cd cannot be inferred from invalid atmosphere inputs.');
+  }
   return {
     pressurePa: pPa,
     temperatureK: tempK,
@@ -736,6 +744,21 @@ export function atmosphere({ altitudeM, pressurePa = null, padTempK = null, site
 // ─────────────────────────────────────────────────────────────────────────────
 // The inversion
 // ─────────────────────────────────────────────────────────────────────────────
+
+function checkGeometry({ massKg, diameterM, lengthM }) {
+  if (!(Number.isFinite(massKg) && massKg > 0)) {
+    fail('R9', '--mass-kg is required and must be a positive number. It is the BURNOUT mass '
+      + '(liftoff mass minus propellant), because Cd is extracted during coast where the '
+      + 'coasting mass is what drag acts on. There is no default.');
+  }
+  if (!(Number.isFinite(diameterM) && diameterM > 0)) {
+    fail('R9', '--diameter-m (or --diameter-in) is required and must be a positive number. '
+      + 'Cd scales as 1/d^2, so a 2.5 % diameter error is a 5 % Cd error. There is no default.');
+  }
+  if (lengthM !== null && !(Number.isFinite(lengthM) && lengthM > 0)) {
+    fail('R9', '--length-m must be a positive finite number for Reynolds numbers.');
+  }
+}
 
 /**
  * Cd per sample. `samples` are coast samples already carrying their local air
@@ -750,8 +773,8 @@ export function atmosphere({ altitudeM, pressurePa = null, padTempK = null, site
  * that belongs here is the mass that is coasting.
  */
 export function cdSeries(samples, { massKg, diameterM, lengthM = null, machFloor = MACH_FLOOR }) {
-  if (!(massKg > 0)) fail('R9', 'massKg must be a positive number of kilograms (BURNOUT mass).');
-  if (!(diameterM > 0)) fail('R9', 'diameterM must be a positive number of metres.');
+  checkGeometry({ massKg, diameterM, lengthM });
+  if (!(Number.isFinite(machFloor) && machFloor >= 0)) fail('R9', 'machFloor must be a non-negative finite number.');
   const area = Math.PI * diameterM * diameterM / 4;
   const out = [];
   for (const s of samples) {
@@ -781,6 +804,10 @@ export function cdSeries(samples, { massKg, diameterM, lengthM = null, machFloor
 
 /** Group a Cd series into Mach bins [edges[i], edges[i+1]). Empty bins are dropped. */
 export function binByMach(series, edges = DEFAULT_BIN_EDGES) {
+  if (!Array.isArray(edges) || edges.length < 2
+    || !edges.every((edge, i) => Number.isFinite(edge) && edge >= 0 && (i === 0 || edge > edges[i - 1]))) {
+    fail('R9', 'Mach bin edges must be finite, non-negative and strictly increasing.');
+  }
   const bins = [];
   for (let i = 0; i + 1 < edges.length; i++) {
     const lo = edges[i];
@@ -1071,22 +1098,11 @@ export function solve(prepared, options) {
     machBand = REPORT_BAND, binEdges = DEFAULT_BIN_EDGES,
   } = options;
 
-  if (!(Number.isFinite(massKg) && massKg > 0)) {
-    fail('R9', '--mass-kg is required and must be a positive number. It is the BURNOUT mass '
-      + '(liftoff mass minus propellant), because Cd is extracted during coast where the '
-      + 'coasting mass is what drag acts on. There is no default.');
-  }
-  if (!(Number.isFinite(diameterM) && diameterM > 0)) {
-    fail('R9', '--diameter-m (or --diameter-in) is required and must be a positive number. '
-      + 'Cd scales as 1/d^2, so a 2.5 % diameter error is a 5 % Cd error. There is no default.');
-  }
+  checkGeometry({ massKg, diameterM, lengthM });
 
   if (!Array.isArray(machBand) || machBand.length !== 2 || !machBand.every(Number.isFinite)
     || machBand[0] < 0 || machBand[0] >= machBand[1]) {
     fail('R9', '--mach-band requires 0 <= lo < hi, with two finite numbers.');
-  }
-  if (lengthM !== null && !(Number.isFinite(lengthM) && lengthM > 0)) {
-    fail('R9', '--length-m must be a positive finite number for Reynolds numbers.');
   }
   if (!(Number.isFinite(settleS) && settleS >= 0)) {
     fail('R9', '--settle-s must be a non-negative finite number.');

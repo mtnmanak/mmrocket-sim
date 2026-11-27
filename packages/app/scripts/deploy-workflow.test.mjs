@@ -23,6 +23,7 @@
  * no YAML parser is installed, and these files keep one key per line.
  */
 import { describe, expect, it } from 'vitest';
+import ts from 'typescript';
 import { existsSync, readFileSync } from 'node:fs';
 import { FREEZE_STEP, INPUT_ARTIFACT, REFRESH_JOB, SEAL_STEP, UPLOAD_STEP, SOURCE_REPO, SOURCE_WORKFLOW_FILE, SOURCE_WORKFLOW_NAME } from './catalogue-source.mjs';
 
@@ -497,13 +498,60 @@ function assertPinnedActions(text, expectedCount) {
 // Dynamic imports and CommonJS entry points must not bypass the pre-install
 // dependency boundary. Ban computed imports and createRequire outright here.
 function importsOf(source) {
-  expect(source).not.toMatch(/\bcreateRequire\b/);
-  const staticImports = [...source.matchAll(/\b(?:import|export)\s+(?:[^;]*?\s+from\s+)?['"]([^'"]+)['"]/g)].map((m) => m[1]);
-  const calls = [...source.matchAll(/\b(?:import|require)\s*\(([^)]*)\)/g)].map((m) => {
-    expect(m[1].trim()).toMatch(/^['"][^'"]+['"]$/);
-    return m[1].trim().slice(1, -1);
-  });
-  const imports = [...staticImports, ...calls];
+  const file = ts.createSourceFile('dependency.js', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const imports = [];
+  function literal(node) {
+    expect(node && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node))).toBe(true);
+    imports.push(node.text);
+  }
+  function unwrapped(node) {
+    while (ts.isParenthesizedExpression(node)) node = node.expression;
+    return node;
+  }
+  function staticName(node) {
+    node = unwrapped(node);
+    return ts.isIdentifier(node) || ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) ? node.text : null;
+  }
+  function loaderReference(node) {
+    let ref = node;
+    while ((ts.isParenthesizedExpression(ref.parent) || ts.isComputedPropertyName(ref.parent))
+      && ref.parent.expression === ref) ref = ref.parent;
+    const parent = ref.parent;
+    if ((ts.isPropertyAccessExpression(parent) && parent.name === ref)
+      || (ts.isElementAccessExpression(parent) && parent.argumentExpression === ref)) return parent;
+    if (ts.isIdentifier(node)
+      || (ts.isBindingElement(parent) && parent.propertyName === ref)
+      || (ts.isPropertyAssignment(parent) && parent.name === ref)
+      || ts.isImportSpecifier(parent) || ts.isExportSpecifier(parent)) return ref;
+    return null;
+  }
+  function loaderName(node) {
+    node = unwrapped(node);
+    if (ts.isIdentifier(node)) return node.text;
+    if (ts.isPropertyAccessExpression(node)) return node.name.text;
+    if (ts.isElementAccessExpression(node)) return staticName(node.argumentExpression);
+    return null;
+  }
+  function visit(node) {
+    // A loader may only be called in place: capturing/renaming it hides later
+    // calls from this dependency walk. Plain string values are inert.
+    const name = staticName(node);
+    const ref = (name === 'require' || name === 'createRequire') ? loaderReference(node) : null;
+    if (ref && name === 'createRequire') throw new Error('createRequire bypasses the pre-install dependency boundary');
+    if (ref && name === 'require') {
+      let callee = ref;
+      while (ts.isParenthesizedExpression(callee.parent)) callee = callee.parent;
+      expect(ts.isCallExpression(callee.parent) && callee.parent.expression === callee).toBe(true);
+    }
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) literal(node.moduleSpecifier);
+    if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword
+      || loaderName(node.expression) === 'require')) {
+      expect(node.arguments.length).toBe(1);
+      literal(node.arguments[0]);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(file);
   for (const spec of imports) expect(spec.startsWith('node:') || spec.startsWith('.')).toBe(true);
   return imports;
 }
@@ -685,6 +733,52 @@ describe('catalogue workflow isolation and approval boundary', () => {
       expect(() => importsOf(bad)).toThrow();
     }
     expect(importsOf("await import('node:fs'); require('./local.mjs')")).toEqual(['node:fs', './local.mjs']);
+  });
+
+  it.each(["import{x}from'marked'", "import /*c*/ ('marked')", 'import(`marked`)',
+    'import(`./${variable}.mjs`)', "export{x}from'marked'",
+    "module.require('marked')", "globalThis.require('marked')", "module['require']('marked')",
+    "const load = require; load('marked')", "const { require: load } = module; load('marked')",
+    'import { "createRequire" as cr } from "node:module"; cr(import.meta.url)("marked")',
+    'import * as m from "node:module"; m["createRequire"](import.meta.url)("marked")'])(
+    'R8: refuses a dependency bypass in %s', source => {
+      expect(() => importsOf(source)).toThrow();
+    });
+
+  it.each([
+    'module[`require`]("marked")', 'module[("require")]("marked")',
+    'const load = module[`require`]; load("marked")',
+    'import * as m from "node:module"; m[`createRequire`](import.meta.url)("marked")',
+    'import * as m from "node:module"; m[("createRequire")](import.meta.url)("marked")',
+    'const { "createRequire": cr } = await import("node:module"); cr(import.meta.url)("marked")',
+    'const { [(`createRequire`)]: cr } = await import("node:module"); cr(import.meta.url)("marked")',
+    'const { "require": load } = module; load("marked")',
+  ])('r4 refuses loader property bypass %s', source => {
+    expect(() => importsOf(source)).toThrow();
+  });
+
+  it.each([
+    { source: "const mode = 'require'; const other = 'createRequire';", imports: [] },
+    { source: 'const mode = `require`; const other = `createRequire`;', imports: [] },
+    { source: 'module[`require`]("node:fs"); module[("require")]("./local.mjs")', imports: ['node:fs', './local.mjs'] },
+    { source: 'module[(`require`)]("./local.mjs")', imports: ['./local.mjs'] },
+    { source: 'const { "readFile": read } = await import("node:fs"); const key = ("require");', imports: ['node:fs'] },
+  ])('r4 accepts inert text and direct builtin/relative loaders in $source', ({ source, imports }) => {
+    expect(importsOf(source)).toEqual(imports);
+  });
+
+  it.each([
+    { source: "// import('marked')", imports: [] },
+    { source: 'const s = "require(\'marked\')";', imports: [] },
+    { source: '/* createRequire import(foo) */', imports: [] },
+    { source: 'import(`./local.mjs`)', imports: ['./local.mjs'] },
+    { source: "module.require('node:fs'); globalThis.require('./local.mjs'); module['require']('./other.mjs')",
+      imports: ['node:fs', './local.mjs', './other.mjs'] },
+    { source: 'import { "readFile" as read } from "node:fs"', imports: ['node:fs'] },
+    { source: "import{x}from'./local.mjs'; export{x}from'./other.mjs'; import /*c*/ ('node:fs')",
+      imports: ['./local.mjs', './other.mjs', 'node:fs'] },
+  ])('R8: reads syntax without false dependencies in $source', ({ source, imports }) => {
+    expect(importsOf(source)).toEqual(imports);
   });
 
   it('R8: confines ALL secret references and the environment to upload; pins commands and every action', () => {

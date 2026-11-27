@@ -58,7 +58,7 @@ const API_URL = 'https://api.github.com/repos/openrocket/openrocket-database/con
  */
 /** The reference checkout lives outside this repo and sits somewhere different
  *  on every machine, so its location is configured rather than hard-coded:
- *  OPENROCKET_SRC, or a gitignored .openrocket-src at the repo root. Null when
+ *  OPENROCKET_SRC, or openrocketSource in ~/.machine/machine.json. Null when
  *  none is set — the github orc/ set alone still produces a usable bundle, so
  *  this script degrades rather than failing.
  *
@@ -415,16 +415,22 @@ export function parseOrc(xml, fileName, globalMaterials) {
     // rows shipped with no density until the 2026-09-05 audit's density screen
     // caught it. Peel one wrapper at a time and retry; case-fold on the last
     // try, since that file also disagrees with itself on "polystyrene".
+    // The file's OWN declaration wins over another file's at every peel level, case-folded
+    // included: once the shared database declared a "polystyrene PS" of its own (1049), the
+    // peel reached that before the case-folded match to LOC's own "[material:Polystyrene PS]"
+    // (1049.2093527), and the density correction's guard refused the run (2026-11-27).
+    const foldedGet = (map, key) => {
+      const k = [...map.keys()].find((x) => x.toLowerCase() === key.toLowerCase() && map.get(x)?.[type] !== undefined);
+      return k === undefined ? undefined : map.get(k)?.[type];
+    };
     for (let tries = 0; tries < 3; tries++) {
-      const hit = materials.get(n)?.[type] ?? globalMaterials.get(n)?.[type];
+      const hit = materials.get(n)?.[type] ?? foldedGet(materials, n) ?? globalMaterials.get(n)?.[type];
       if (hit !== undefined) return hit;
       const m = /^\[material:(.*)\]$/.exec(n);
       if (!m) break;
       n = m[1];
     }
-    const folded = (map) => [...map.keys()].find((k) => k.toLowerCase() === n.toLowerCase());
-    const k = folded(materials) ?? folded(globalMaterials);
-    return k === undefined ? undefined : (materials.get(k)?.[type] ?? globalMaterials.get(k)?.[type]);
+    return foldedGet(globalMaterials, n);
   };
 
   // --- Components section ---
@@ -627,7 +633,7 @@ export async function main({
     // scrubbed when path resolution moved to scripts/openrocket-src.mjs, and
     // the leftover identifier turned this documented degrade path into a
     // ReferenceError crash (2026-08-29 audit).
-    console.warn(`WARNING: desktop components dir not found (${desktopDir || '<no reference source configured>'}) — desktop-only presets (Fruity Chutes etc.) will be missing. Set OPENROCKET_SRC or a .openrocket-src file at the repo root (see .openrocket-src.example).`);
+    console.warn(`WARNING: desktop components dir not found (${desktopDir || '<no reference source configured>'}) — desktop-only presets (Fruity Chutes etc.) will be missing. Set OPENROCKET_SRC or openrocketSource in ~/.machine/machine.json.`);
   }
 
   // Pass 2: parse components. Github first (canonical), then desktop-internal

@@ -347,7 +347,7 @@ async function checkMaterials() {
     src = openrocketSrcRoot();
     if (!src) throw new Error('unset');
   } catch {
-    say('  skip  no reference checkout configured on this machine (.openrocket-src) — not a verdict');
+    say('  skip  no reference checkout configured on this machine (openrocketSource in ~/.machine/machine.json or OPENROCKET_SRC) — not a verdict');
     return;
   }
   const file = `${src}/core/src/main/java/info/openrocket/core/database/Databases.java`;

@@ -1,5 +1,5 @@
 /**
- * Per-row curations of the preset database: rows to DROP, part numbers to FIX.
+ * Per-row curations of the preset database: rows to DROP, part numbers and descriptions to FIX.
  *
  * WHY THIS EXISTS. `presets.json` is regenerated wholesale by
  * fetch-component-presets.mjs, so a hand edit is silently wiped on the next
@@ -52,6 +52,32 @@ const here = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = join(here, '../src/data/presets.json');
 
 export const CURATIONS = [
+  {
+    action: 'describe', key: 'NoseCone|madcow|20148',
+    match: { source: 'rocksim', filled: true, mass: 0.2981 },
+    descriptionFrom: 'PNC-4.00" (98mm) x 9.5', descriptionTo: 'PNC-4.00" (98mm) x 16.5',
+    why: 'The solid 20148 catalogue row is 16.5 inches long; its description copied 20147\'s 9.5-inch length.',
+  },
+  // J8-D: keep the desktop catalogue rows; these RockSim listings add no part.
+  ...['PNC25', 'PNC35'].map(description => ({
+    action: 'drop', dropsGroup: true, key: 'NoseCone|quest|quest',
+    match: { source: 'rocksim', description },
+    why: `${description} is already in the desktop catalogue; "Quest" is a misplaced manufacturer, not a part number.`,
+  })),
+  ...[
+    ['estes', 'reliantvikingbt20', 'PNC-20 re-listed with its Reliant/Viking description in the part-number column.'],
+    ['estes', 'solarracer', 'PNC-20 re-listed with its Solar racer description in the part-number column.'],
+    ['balsamachining', '20140', 'PNC300K re-listed with only a conflicting wall thickness; keep the desktop row.'],
+    ['publicmissiles', 'fnc114hrpn', 'FNC-11.4-HAR re-listed with only a conflicting wall thickness; keep the desktop row.'],
+  ].map(([maker, part, why]) => ({
+    action: 'drop', dropsGroup: true, key: `NoseCone|${maker}|${part}`,
+    match: { source: 'rocksim' }, why,
+  })),
+  ...['20147', '20148'].map(part => ({
+    action: 'drop', key: `NoseCone|madcow|${part}`,
+    match: { source: 'rocksim', filled: undefined, mass: undefined },
+    why: 'The hollow massless duplicate loses to the solid row with catalogue mass, ruled 2026-11-26; keep its existing part number.',
+  })),
   // ---- the same part filed twice: a row goes -----------------------------
   {
     action: 'drop', key: 'BodyTube|balsamachining|t5plus34',
@@ -276,11 +302,10 @@ const matches = (p, c) => {
 export function planCurations(rows, curations = CURATIONS) {
   const plan = [];
   for (const c of curations) {
-    // DROP and RENAME are the only actions. A `set` action existed with no
-    // entry ever using it and was deleted (audit 2026-09-22, Dead code row
-    // 580); anything else is an error rather than a row silently left as is.
-    if (c.action !== 'drop' && c.action !== 'rename') {
-      plan.push({ c, status: 'error', detail: `unknown action "${c.action}" (drop or rename)` });
+    // Numerical corrections stay in apply-preset-corrections. `describe`
+    // addresses a label inside a duplicate group without touching its numbers.
+    if (!['drop', 'rename', 'describe'].includes(c.action)) {
+      plan.push({ c, status: 'error', detail: `unknown action "${c.action}" (drop, rename or describe)` });
       continue;
     }
     const group = rows
@@ -309,10 +334,10 @@ export function planCurations(rows, curations = CURATIONS) {
         plan.push({ c, status: 'already' });
         continue;
       }
-    } else if (hits.length === 0 && group.length > 0) {
+    } else if (c.action === 'drop' && hits.length === 0 && group.length > 0) {
       plan.push({ c, status: 'already' });
       continue;
-    } else if (hits.length === 0 && group.length === 0 && c.dropsGroup) {
+    } else if (c.action === 'drop' && hits.length === 0 && group.length === 0 && c.dropsGroup) {
       // A drop that removes the LAST row under its key leaves no group behind,
       // so the rule above cannot see that it already ran. Only entries that say
       // `dropsGroup` get this reading: everywhere else an empty group still
@@ -333,6 +358,17 @@ export function planCurations(rows, curations = CURATIONS) {
       plan.push({ c, status: 'error', detail: `${hits.length} rows matched (expected 1)` });
       continue;
     }
+    if (c.action === 'describe') {
+      const description = hits[0].p.description;
+      if (description === c.descriptionTo) {
+        plan.push({ c, status: 'already' });
+        continue;
+      }
+      if (description !== c.descriptionFrom) {
+        plan.push({ c, status: 'error', detail: `unexpected description ${JSON.stringify(description)}` });
+        continue;
+      }
+    }
     if (c.action === 'rename') {
       // A rename must land on a FREE number. 'Quest' → PNC35N landed on the
       // desktop PNC35N and left two different nose cones under one key (audit
@@ -352,6 +388,26 @@ export function planCurations(rows, curations = CURATIONS) {
     plan.push({ c, status: 'todo', index: hits[0].i });
   }
   return plan;
+}
+
+export function applyCurationPlan(rows, plan) {
+  if (plan.some(p => p.status === 'error')) throw new Error('Cannot apply a curation plan with errors.');
+  const edits = new Map();
+  for (const p of plan.filter(p => p.status === 'todo')) {
+    if (!edits.has(p.index)) edits.set(p.index, []);
+    edits.get(p.index).push(p.c);
+  }
+  return rows.flatMap((row, i) => {
+    const changes = edits.get(i);
+    if (!changes) return [row];
+    if (changes.some(c => c.action === 'drop')) return [];
+    const updated = { ...row };
+    for (const c of changes) {
+      if (c.action === 'rename') updated.partNo = c.to;
+      else updated.description = c.descriptionTo;
+    }
+    return [updated];
+  });
 }
 
 function main() {
@@ -376,21 +432,18 @@ function main() {
   const todo = plan.filter((x) => x.status === 'todo');
   for (const t of todo) {
     if (t.c.action === 'drop') console.log(`  drop    ${t.c.key}`);
-    else console.log(`  rename  ${t.c.key} -> ${t.c.to}`);
+    else if (t.c.action === 'rename') console.log(`  rename  ${t.c.key} -> ${t.c.to}`);
+    else console.log(`  describe ${t.c.key} -> ${t.c.descriptionTo}`);
   }
   console.log(`\n${todo.filter((t) => t.c.action === 'drop').length} drop(s), `
     + `${todo.filter((t) => t.c.action === 'rename').length} rename(s); `
+    + `${todo.filter((t) => t.c.action === 'describe').length} description(s); `
     + `${plan.length - todo.length} already in place.`);
 
   if (!process.argv.includes('--write')) { console.log('\n(report only — pass --write to apply)'); return; }
   if (!todo.length) { console.log('\ndatabase unchanged.'); return; }
 
-  // In-place edits first, then drops, so no index shifts under us.
-  for (const t of todo.filter((x) => x.c.action === 'rename')) {
-    db.presets[t.index].partNo = t.c.to;
-  }
-  const doomed = new Set(todo.filter((x) => x.c.action === 'drop').map((x) => x.index));
-  db.presets = db.presets.filter((_, i) => !doomed.has(i));
+  db.presets = applyCurationPlan(db.presets, plan);
   db.presets.sort((a, b) => a.kind.localeCompare(b.kind)
     || a.manufacturer.localeCompare(b.manufacturer)
     || String(a.partNo).localeCompare(String(b.partNo)));
