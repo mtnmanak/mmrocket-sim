@@ -91,6 +91,44 @@ describe('manufacturer names in the shipped preset database', () => {
 });
 
 describe('the duplicate-row cleanup', () => {
+  it('ships the ruled RockSim nose shapes after full regeneration', () => {
+    // Current CSVs have no code-5 profile. A future legitimate code-5 row
+    // should be listed by name here; upstream OpenRocket PARABOLIC rows stay.
+    const wrong = db.presets.filter(p => p.source === 'rocksim'
+      && (p.kind === 'NoseCone' || p.kind === 'Transition') && p.shape === 'PARABOLIC');
+    expect(wrong.map(p => `${p.manufacturer} ${p.partNo}`)).toEqual([]);
+  });
+
+  it('ships none of the re-listed RockSim noses and one mass-bearing Madcow per number', () => {
+    const dropped = [
+      ['quest', 'Quest', 'PNC25'], ['quest', 'Quest', 'PNC35'],
+      ['estes', 'Reliant/Viking BT-20'], ['estes', 'Solar racer'],
+      ['balsamachining', '20140'], ['publicmissiles', 'FNC-11.4HRPN'],
+    ];
+    for (const [maker, part, description] of dropped) {
+      expect(db.presets.filter(p => p.kind === 'NoseCone' && p.source === 'rocksim'
+        && mfrKey(p.manufacturer) === maker && partKey(p.partNo) === partKey(part)
+        && (description === undefined || p.description === description)), `${maker} ${part} ${description ?? ''}`)
+        .toEqual([]);
+    }
+    for (const partNo of ['20147', '20148']) {
+      const rows = db.presets.filter(p => p.kind === 'NoseCone' && mfrKey(p.manufacturer) === 'madcow' && p.partNo === partNo);
+      expect(rows, `Madcow ${partNo}`).toHaveLength(1);
+      expect(rows[0].filled).toBe(true);
+      expect(rows[0].mass).toBeGreaterThan(0);
+      expect(rows[0].shape).toBe('ELLIPSOID');
+      if (partNo === '20148') expect(rows[0].description).toContain('16.5');
+    }
+  });
+
+  it('r3 preserves the existing description-keyed Madcow fiberglass noses', () => {
+    for (const partNo of ['2.6" Fiberglass 5:1 Ogive Nose Cone', '5.5" Fiberglass 5:1 Conical Nose Cone']) {
+      const rows = db.presets.filter(p => p.kind === 'NoseCone' && mfrKey(p.manufacturer) === 'madcow' && p.partNo === partNo);
+      expect(rows, partNo).toHaveLength(1);
+      expect(rows[0].source).toBe('rocksim');
+    }
+  });
+
   it('leaves no row that carries nothing a sibling already has', async () => {
     // The rule from dedupe-presets.mjs, asserted against the shipped data: a
     // row is only droppable when some other row in its kind|manufacturer|partNo
@@ -226,7 +264,7 @@ describe('curation renames never collide', () => {
     const [entry] = planCurations(rows, [{ action: 'set', key: 'NoseCone|semroc|bnc50sf1', field: 'mass', value: 1 }]);
     expect(entry.status).toBe('error');
     expect(entry.detail).toMatch(/unknown action "set"/);
-    expect(new Set(CURATIONS.map((c) => c.action))).toEqual(new Set(['drop', 'rename']));
+    expect(new Set(CURATIONS.map((c) => c.action))).toEqual(new Set(['drop', 'rename', 'describe']));
   });
 
   it('still plans the same rename onto a free number', async () => {

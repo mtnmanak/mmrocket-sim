@@ -25,7 +25,7 @@ const engineRoot = resolve(here, '..');
 
 // The reference checkout lives outside this repo and sits somewhere different
 // on every machine, so its location is configured rather than hard-coded —
-// --source, OPENROCKET_SRC, or a gitignored .openrocket-src at the repo root.
+// --source, OPENROCKET_SRC, or openrocketSource in ~/.machine/machine.json.
 const argIdx = process.argv.indexOf('--source');
 for (let i = 2; i < process.argv.length; i++) {
   if (process.argv[i] === '--source'
@@ -43,11 +43,11 @@ const targetRoot = join(engineRoot, 'src', 'carved', 'java');
 
 if (!existsSync(sourceRoot)) {
   // Nothing probes per-machine paths anymore — resolution is --source /
-  // OPENROCKET_SRC / .openrocket-src via scripts/openrocket-src.mjs. The old
+  // OPENROCKET_SRC / openrocketSource in ~/.machine/machine.json via scripts/openrocket-src.mjs. The old
   // probe-list printout survived the scrub as an undefined-variable crash
   // that hid this message exactly when it was needed (2026-08-29 audit).
   console.error(`OpenRocket source not found at: ${sourceRoot}`);
-  console.error('Download openrocket release-24.12 source, then set OPENROCKET_SRC to its root or pass --source <core/src/main/java>.');
+  console.error('Download openrocket release-24.12 source, then set openrocketSource in ~/.machine/machine.json (or OPENROCKET_SRC) to its root, or pass --source <core/src/main/java>.');
   process.exit(1);
 }
 

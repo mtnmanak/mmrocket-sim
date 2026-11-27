@@ -336,3 +336,32 @@ describe('main', () => {
     expect(written.presets.map((p) => p.partNo)).toEqual(['BT-5']);
   });
 });
+
+it.each(['local', 'global'])('r4 finds the first folded material with the requested type (%s)', scope => {
+  const declarations = '<Materials><Material UnitsOfMeasure="kg/m3"><Name>Paper</Name>'
+    + '<Density>680</Density><Type>BULK</Type></Material>'
+    + '<Material UnitsOfMeasure="kg/m2"><Name>paper</Name><Density>0.08</Density><Type>SURFACE</Type></Material></Materials>';
+  const xml = '<OpenRocketComponent>' + (scope === 'local' ? declarations : '')
+    + '<Components><Parachute><Manufacturer>Test</Manufacturer><PartNumber>P</PartNumber>'
+    + '<Material Type="SURFACE">PAPER</Material></Parachute></Components></OpenRocketComponent>';
+  const global = scope === 'global' ? new Map([['Paper', { BULK: 680 }], ['paper', { SURFACE: 0.08 }]]) : new Map();
+  const result = parseOrc(xml, 'paper.orc', global);
+  expect(result.presets[0].material.density).toBe(0.08);
+  expect(result.presets[0].material.type).toBe('SURFACE');
+});
+
+it("prefers the file's own case-folded material over another file's exact one for a doubly wrapped reference", () => {
+  // LocPrecision-legacy.orc (desktop 24.12) declares "[material:Polystyrene PS]" at 1049.2093527 kg/m³ and names it from
+  // its parts as "[material:[material:polystyrene PS]]". Once the shared database declared a "polystyrene PS" of its own,
+  // the peeled name matched that before LOC's own entry (2026-11-27 regeneration).
+  const xml = '<OpenRocketComponent><Materials><Material UnitsOfMeasure="kg/m3"><Name>[material:Polystyrene PS]</Name>'
+    + '<Density>1049.2093527</Density><Type>BULK</Type></Material></Materials><Components><NoseCone>'
+    + '<Manufacturer>LOC Precision</Manufacturer><PartNumber>PNC-T</PartNumber>'
+    + '<Material Type="BULK">[material:[material:polystyrene PS]]</Material></NoseCone></Components></OpenRocketComponent>';
+  const global = new Map([['polystyrene PS', { BULK: 1049 }]]);
+  const result = parseOrc(xml, 'LocPrecision-legacy.orc', global);
+  expect(result.presets[0].material.density).toBe(1049.2093527);
+  // With nothing of its own to match, the shared database still answers.
+  const bare = xml.replace(/<Materials>.*<\/Materials>/, '');
+  expect(parseOrc(bare, 'other.orc', global).presets[0].material.density).toBe(1049);
+});

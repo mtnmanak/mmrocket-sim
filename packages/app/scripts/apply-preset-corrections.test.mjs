@@ -19,6 +19,11 @@ const here = dirname(fileURLToPath(import.meta.url));
 // scans (repository-policy.test.mjs walks this folder) and outlives a crashed run.
 const scratch = tmpdir();
 const shipped = JSON.parse(readFileSync(join(here, '../src/data/presets.json'), 'utf8'));
+// r3 leaves catalogue regeneration to Claude. Existing CLI fixtures start from
+// the corrected baseline; the recovery cases below independently reinsert all
+// five bad LOC densities, then require their exact removal and repeat safety.
+const locLineKeys = ['36', '50', '58', '78', '86'].map(p => `Parachute|locprecision|lp${p}`);
+for (const key of locLineKeys) delete shipped.presets.find(p => presetKey(p) === key).lineMaterial.density;
 const retiredMasses = {
   'BodyTube|apogee|10064': [0.0081],
   'TubeCoupler|quest|10100': [0.0283495231],
@@ -61,7 +66,23 @@ const recoveryCorrections = [
   ['Streamer|publicmissiles|pmltbd123', undefined, 0.046952679179544],
   ...['14', '18', '24', '30', '36'].map(p => [`Parachute|semroc|pn${p}`, undefined, 0.06685]),
   ...['036', '048', '060', '072', '084', '096', '120'].map(p => [`Parachute|fruitychutes|ifc${p}n`, undefined, 0.003718285, 'lineMaterial']),
+  ...locLineKeys.map(key => [key, 0.186020865374, undefined, 'lineMaterial']),
 ];
+
+it.each(locLineKeys)('r3 durably removes the impossible LOC LINE density on %s', key => {
+  const c = CORRECTIONS.find(c => c.key === key && c.fields['lineMaterial.density']);
+  expect(c?.fields).toEqual({ 'lineMaterial.density': { bad: 0.186020865374, good: undefined } });
+  expect(c?.why).toBeTruthy();
+  expect(c?.unwatched).toBeTruthy();
+});
+
+it('r3 setAt removes a nested LINE density without losing its material identity', () => {
+  const row = { lineMaterial: { name: 'nylon', type: 'LINE', density: 0.186020865374 } };
+  setAt(row, 'lineMaterial.density', undefined);
+  expect(Object.hasOwn(row.lineMaterial, 'density')).toBe(false);
+  expect(row.lineMaterial).toEqual({ name: 'nylon', type: 'LINE' });
+  expect(() => setAt({}, 'lineMaterial.density', undefined)).toThrow('MISSING PARENT');
+});
 
 it('J4 V211-5 setAt refuses a missing dotted parent with its path', () => {
   expect(() => setAt({}, 'material.density', 0.0235)).toThrow('material.density');
@@ -95,7 +116,7 @@ describe('recovery material density corrections CLI', () => {
     writeFileSync(path, serialize(db));
     const first = run();
     expect(first.status, first.stdout + first.stderr).toBe(0);
-    expect(first.stdout).toContain('35 field(s) applied');
+    expect(first.stdout).toContain('40 field(s) applied');
     for (const [key, , good, field = 'material'] of recoveryCorrections) db.presets.find(p => presetKey(p) === key)[field].density = good;
     expect(readFileSync(path, 'utf8')).toBe(serialize(db));
     const second = run();
@@ -123,6 +144,18 @@ describe('recovery material density corrections CLI', () => {
     const result = run();
     expect(result.status, result.stdout + result.stderr).not.toBe(0);
     expect(result.stderr).toContain('Parachute|semroc|cp12 material.density');
+    expect(readFileSync(path, 'utf8')).toBe(raw);
+  });
+
+  it.each(['missing', 'name', 'type'])('r3 refuses a %s LOC LINE material before removing density', surprise => {
+    const row = db.presets.find(p => presetKey(p) === locLineKeys[0]);
+    if (surprise === 'missing') delete row.lineMaterial;
+    else row.lineMaterial[surprise] = 'unexpected';
+    const raw = serialize(db);
+    writeFileSync(path, raw);
+    const result = run();
+    expect(result.status, result.stdout + result.stderr).not.toBe(0);
+    expect(result.stderr).toContain(`UNEXPECTED MATERIAL at ${locLineKeys[0]} lineMaterial.density`);
     expect(readFileSync(path, 'utf8')).toBe(raw);
   });
 

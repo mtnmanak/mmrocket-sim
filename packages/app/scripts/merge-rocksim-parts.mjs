@@ -5,8 +5,9 @@
  *
  * Policy (project owner, 2026-07-03): OpenRocket data wins. RockSim rows that
  * duplicate an existing preset (same kind + manufacturer + part number, or same
- * kind + manufacturer + all primary dimensions within 2%) are dropped. Rows with
- * the same part number but dimensions differing by >2% are CONFLICTS: the
+ * kind + manufacturer + all primary dimensions within 2% and a compatible
+ * shape, shape parameter and construction) are dropped. Rows with
+ * the same part number but conflicting dimensions or profile are CONFLICTS: the
  * OpenRocket version is kept and the conflict is logged. Everything else is
  * appended with `"source": "rocksim"`.
  *

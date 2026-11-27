@@ -463,6 +463,63 @@ print(json.dumps(m.join_averages({rel: {4: 4.34}}, {('AeroTech', 'G25W'): [row]}
 // Each case spawns Python twice (build the PDFs, then extract); under a full-suite
 // load that has run past Vitest's 5 s default (extract-aerotech-certified.test.mjs).
 describe.skipIf(!hasPyMuPDF)('extract-aerotech-delays.py reads each motor\'s delay by position', { timeout: 30_000 }, () => {
+  it.each([
+    { name: 'unspaced nominal', rows: [[[195, '8s'], [324, '7.239, 6.558, 7.341 s']]] },
+    { name: 'suffixed nominal', rows: [[[195, '8 sec'], [324, '7.239, 6.558, 7.341 s']]] },
+    { name: 'split nominal', rows: [[[360, '8'], [390, 's'], [440, '7.239, 6.558, 7.341 s']]] },
+    { name: 'wrapped measurements', rows: [[[360, '7.239, 6.558,']], [[360, '7.341 s']]] },
+    { name: 'wrapped nominal', rows: [[[360, '8']], [[360, 's'], [440, '7.239, 6.558, 7.341 s']]] },
+  ].flatMap(test => [false, true].map(later => ({ ...test, later }))))(
+    'r4 refuses $name with later row=$later', ({ rows, later }) => {
+      const result = run({ 'TRA/Test Single-Use/E99W.pdf': [
+        [[72, 'Number of Motors Tested'], [288, '3']],
+        [[72, 'Delay Time Data'], [216, '5 s'], [324, '4.946, 4.507, 5.158 s']],
+        ...rows,
+        ...(later ? [[[216, '11 s'], [324, '10.912, 11.044, 10.881 s']]] : []),
+        [[72, 'Casing Temp.'], [360, 'Passed']],
+      ] });
+      expect(result.status).not.toBe(0);
+      expect(result.stdout + result.stderr).toContain('malformed delay continuation');
+      expect(result.json).toBeNull();
+    });
+
+  it.each([false, true])('r3 refuses split off-column delay readings with later row=%s', later => {
+    const result = run({ 'TRA/Test Single-Use/E99W.pdf': [
+      [[72, 'Number of Motors Tested'], [288, '3']],
+      [[72, 'Delay Time Data'], [216, '5 s'], [324, '4.946, 4.507, 5.158 s']],
+      [[360, '7.239,'], [440, '6.558, 7.341 s']],
+      ...(later ? [[[216, '11 s'], [324, '10.912, 11.044, 10.881 s']]] : []),
+      [[72, 'Casing Temp.'], [360, 'Passed']],
+    ] });
+    expect(result.status).not.toBe(0);
+    expect(result.stdout + result.stderr).toContain('malformed delay continuation');
+    expect(result.json).toBeNull();
+  });
+
+  it('r3 accepts an off-column no-delay continuation without dropping later delays', () => {
+    const result = run({ 'TRA/Test Single-Use/E99W.pdf': [
+      [[72, 'Number of Motors Tested'], [288, '6']],
+      [[72, 'Delay Time Data'], [216, '5 s'], [324, '4.946, 4.507, 5.158 s']],
+      [[240, 'n.a.']],
+      [[216, '11 s'], [324, '10.912, 11.044, 10.881 s']],
+      [[72, 'Casing Temp.'], [360, 'Passed']],
+    ] });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.motors['id-e99w'].delays.map(d => d.nominalS)).toEqual([5, 11]);
+  });
+  it.each([false, true])('refuses an off-column measured-only TMT continuation with later row=%s', later => {
+    const result = run({ 'TRA/Test Single-Use/E99W.pdf': [
+      [[72, 'Number of Motors Tested'], [288, '9']],
+      [[72, 'Delay Time Data'], [216, '5 s'], [324, '4.946, 4.507, 5.158 s']],
+      [[360, '7.239, 6.558, 7.341 s']],
+      ...(later ? [[[216, '11 s'], [324, '10.912, 11.044, 10.881 s']]] : []),
+      [[72, 'Casing Temp.'], [360, 'Passed']],
+    ] });
+    expect(result.status).not.toBe(0);
+    expect(result.stdout + result.stderr).toContain('malformed delay continuation');
+    expect(result.json).toBeNull();
+  });
+
   it.each([false, true])('refuses a measured-only TMT continuation with later valid row=%s', later => {
     const result = run({ 'TRA/Test Single-Use/E99W.pdf': [
       [[72, 'Number of Motors Tested'], [288, '9']],

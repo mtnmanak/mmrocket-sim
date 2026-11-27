@@ -359,11 +359,14 @@ def tmt_delays(rows, where):
         lines = [(c[1:], True)] + [(cells(r), bool(r) and any(
                   abs(r[0][0] - x) <= CELL_GAP_PT for x in column_xs)) for r in rows[i + 1:]]
         for line, in_column in lines:
-            if in_column and line and all(cell == 'n.a.' for cell in line):
+            if line and all(cell == 'n.a.' for cell in line):
                 continue
             nominal_match = NOMINAL_CELL.fullmatch(line[0]) if line else None
             if not nominal_match:
-                if in_column:
+                # A number-led row is still delay data when its nominal or
+                # readings wrap across cells/lines, or seconds are suffixed.
+                # Refuse it rather than silently terminating the table.
+                if in_column or re.match(r'^(?:\d*\.\d+|\d+)(?=\s|,|s|$)', ' '.join(line)):
                     raise SystemExit(f'{where}: malformed delay continuation {line!r}')
                 break
             if len(line) != 2:

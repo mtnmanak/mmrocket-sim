@@ -342,6 +342,12 @@ export const PARTS_RECOVERY_CORRECTIONS = [
 ];
 
 export const MATERIAL_CORRECTIONS = [
+  ...['36', '50', '58', '78', '86'].map(part => ({
+    key: `Parachute|locprecision|lp${part}`,
+    why: 'LOC legacy tubular nylon is declared as 2 oz/ft (0.186020865374 kg/m); the shroud lines alone exceed the listed whole parachute mass. Omit this invalid density pending a verified replacement, as shipped before the material lookup fix.',
+    fields: { 'lineMaterial.density': { bad: 0.186020865374, good: undefined } },
+    unwatched: 'value comes from desktop 24.12 internal LocPrecision-legacy.orc, a released artifact that will not change',
+  })),
   ...PARTS_RECOVERY_CORRECTIONS,
   // --- Recovery sheets: kg/m2 label on a g/m2 value, or the reverse.
   ...[
@@ -421,12 +427,9 @@ export const MATERIAL_CORRECTIONS = [
     fields: { 'material.density': { bad: undefined, good: 1049.2093527 } },
     unwatched: 'value comes from a desktop 24.12 internal .orc, a released artifact that will not change',
   },
-  ...['10100', '10104'].map((k) => ({
-    key: `TubeCoupler|quest|${k}`,
-    why: 'desktop 24.12 quest .orc names "Kraft Phenolic" with no matching <Material> block, so the row shipped with no density. 958.70503449 is what the same catalogue gives "[material:Kraft phenolic]" on two other rows.',
-    fields: { 'material.density': { bad: undefined, good: 958.70503449 } },
-    unwatched: 'value comes from a desktop 24.12 internal .orc, a released artifact that will not change',
-  })),
+  // Retired 2026-11-27: TubeCoupler|quest|10100 and 10104 ("Kraft Phenolic", no exact <Material> block). The fetch's
+  // case-folded lookup now finds Quest-legacy.orc's OWN "Kraft phenolic" (943.48749426) and gives every Quest kraft-phenolic
+  // reference that one figure; the old 958.70503449 came from another file's pool entry.
 
   // --- Rocketarium launch lugs: three sizes of the same glassine kraft, three
   // densities. 616.44 (the 1/4 in lug) is the only one a paper can have.
@@ -459,6 +462,7 @@ function getAt(obj, path) {
   return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
 }
 function expectedMaterial(key, parent) {
+  if (parent === 'lineMaterial' && key.startsWith('Parachute|locprecision|lp')) return { name: '[material:3/8 in. tubular nylon]', type: 'LINE' };
   if (parent === 'lineMaterial' && key.startsWith('Parachute|fruitychutes|')) return { name: 'Nylon IIIa Paraline [flat 6.4 mm, 1/4 in]', type: 'LINE' };
   if (key.startsWith('Parachute|semroc|pn')) return { name: 'Rip Stop Nylon', type: 'SURFACE' };
   if (key.startsWith('NoseCone|locprecision|')) return { name: '[material:[material:polystyrene PS]]', type: 'BULK' };
@@ -476,7 +480,8 @@ export function setAt(obj, path, value) {
     }
     return o[k];
   }, obj);
-  target[last] = value;
+  if (value === undefined) delete target[last];
+  else target[last] = value;
 }
 
 function main() {
@@ -509,7 +514,7 @@ function main() {
       process.exit(1);
     }
     for (const [field, { bad, good }] of Object.entries(c.fields)) {
-      if (field.includes('.') && bad === undefined) {
+      if (field.includes('.') && (bad === undefined || good === undefined)) {
         const parent = field.split('.')[0];
         const material = row[parent];
         const expected = expectedMaterial(c.key, parent);
