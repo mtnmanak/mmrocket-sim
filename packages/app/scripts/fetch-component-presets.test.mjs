@@ -248,6 +248,10 @@ describe('main', () => {
         expect(readFileSync(outPath, 'utf8')).toBe(held);
       } finally { rmSync(dir, { recursive: true, force: true }); }
     });
+  it('accepts a materials-only file whose <Components> section is empty (generic_materials.orc)', () => {
+    const result = parseOrc('<OpenRocketComponent><Materials><Material><Name>paper</Name><Type>BULK</Type><Density>950</Density></Material></Materials><Components/></OpenRocketComponent>', 'generic_materials.orc', new Map());
+    expect(result.skippedFiles ?? 0).toBe(0);
+  });
   it('accepts materials-only files without treating them as missing components', () => {
     const result = parseOrc('<OpenRocketComponent><Materials><Material><Name>paper</Name><Type>BULK</Type><Density>950</Density></Material></Materials></OpenRocketComponent>', 'materials.orc', new Map());
     expect(result.skippedFiles ?? 0).toBe(0);

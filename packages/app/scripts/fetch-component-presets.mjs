@@ -442,7 +442,8 @@ export function parseOrc(xml, fileName, globalMaterials) {
 
   if (elementBlocks(componentsBlock).next().done) {
     warnings.push(`${fileName}: empty <Components> section`);
-    return { presets, skippedComponents, warnings, skippedFiles: 1 };
+    // A materials-only file (generic_materials.orc ships an empty <Components>) is a source, not a failure.
+    return { presets, skippedComponents, warnings, skippedFiles: materials.size === 0 ? 1 : 0 };
   }
 
   // Top-level children of <Components> are the presets themselves.
