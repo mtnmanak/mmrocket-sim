@@ -1,5 +1,5 @@
 # Independent of the app PR: only a successful, main-branch refresh job can feed
-# this workflow. No npm/dependency code executes here. Approval gates R2 writes.
+# this workflow. Publisher validation holds no write secrets. Approval gates R2 writes.
 # First-run assumptions (UNVERIFIED offline): ubuntu-24.04 has AWS CLI;
 # R2 honors S3 If-Match/If-None-Match; gh --paginate --slurp returns REST pages
 # with run_attempt, job steps, artifact created_at, expired and sha256 digest.
@@ -27,9 +27,32 @@ permissions:
   contents: read
 
 jobs:
+  validate:
+    if: github.repository == 'mtnmanak/mmrocket-sim' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      publisher_sha: ${{ steps.publisher.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - id: publisher
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint -- --max-warnings 0
+
   plan:
+    needs: validate
     if: >-
-      !cancelled() && github.repository == 'mtnmanak/mmrocket-sim' &&
+      !cancelled() && needs.validate.result == 'success' && github.repository == 'mtnmanak/mmrocket-sim' &&
       github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     # Two previous snapshot reads each have a six-minute retry budget plus
@@ -41,10 +64,11 @@ jobs:
     outputs:
       changed: ${{ steps.catalogue.outputs.changed }}
       update: ${{ steps.catalogue.outputs.update }}
+      publisher_sha: ${{ needs.validate.outputs.publisher_sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
+          ref: ${{ needs.validate.outputs.publisher_sha }}
           persist-credentials: false
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -158,7 +182,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
+          ref: ${{ needs.plan.outputs.publisher_sha }}
           persist-credentials: false
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0

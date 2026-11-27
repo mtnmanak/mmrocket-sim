@@ -1,23 +1,34 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Worker } from 'node:worker_threads';
-import { expect, it } from 'vitest';
+import { afterAll, beforeAll, expect, it } from 'vitest';
 import { defaultTree, motorMounts } from '../tree/treeModel.js';
 import { OrkRocket } from '@online-openrocket/engine';
 import { buildDesign, KERNEL_HANDLES } from './buildDesign.js';
 import { prepareStabilityCases, type StabilityRange, type StabilityRangeInput } from './configStabilityRange.js';
+import { buildStabilityWorkerArtifact } from '../../scripts/stability-worker-artifact.mjs';
 
-const assets = resolve(import.meta.dirname, '../../dist/assets');
-const file = existsSync(assets) ? readdirSync(assets).find(f => /^configStabilityRange\.worker-.*\.js$/.test(f)) : undefined;
+const runArtifactTest = process.env['REQUIRE_STABILITY_WORKER'] === '1';
+let artifact: ReturnType<typeof buildStabilityWorkerArtifact>;
 
-/** Artifact check after vite build; a clean npm test checkout has no app dist. */
-it.skipIf(!file)('keeps the active flight unchanged during 256 configuration calculations and cancels stale work', async () => {
-  expect(file, 'Run npx vite build before this artifact integration test').toBeTruthy();
+beforeAll(() => {
+  artifact = buildStabilityWorkerArtifact();
+}, 120_000);
+
+afterAll(() => artifact?.cleanup());
+
+/** CI explicitly requires a fresh, isolated production artifact. */
+it.skipIf(!runArtifactTest)('keeps the active flight unchanged during 256 configuration calculations and cancels stale work', async () => {
+  expect(artifact, 'Set REQUIRE_STABILITY_WORKER=1 to build the artifact').toBeTruthy();
+  const assets = resolve(artifact!.outDir, 'assets');
+  const mainChunks = readdirSync(assets).filter(name => /^main-.*\.js$/.test(name));
+  expect(mainChunks.length).toBeGreaterThan(0);
+  for (const name of mainChunks) expect(readFileSync(resolve(assets, name), 'utf8')).not.toContain('jsxDEV');
   const worker = new Worker(`
     const { parentPort } = require('node:worker_threads');
     globalThis.self = { postMessage: value => parentPort.postMessage(value) };
-    import(${JSON.stringify(pathToFileURL(resolve(assets, file!)).href)}).then(() => {
+    import(${JSON.stringify(pathToFileURL(artifact!.file).href)}).then(() => {
       parentPort.on('message', data => self.onmessage({ data }));
       parentPort.postMessage({ ready: true });
     });

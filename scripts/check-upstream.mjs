@@ -235,7 +235,7 @@ export async function checkCorrections(getOrc = orc, corrections = CORRECTIONS) 
       const um = c.upstreamMaterial;
       checked++;
       const cur = materialIn(await getOrc(um.file), um.name);
-      if (cur === null) { flag(`${um.file}: material "${um.name}" is GONE from upstream. Our correction keys off it — re-check before the next regeneration.`); continue; }
+      if (cur === null) { flag(`${um.file}: material "${um.name}" is GONE from upstream. Our correction keys off it — re-check before the next regeneration.`); notes.push(`material gone: ${um.file} ${um.name}`); continue; }
       const watched = [['density', cur.density, um.bad]];
       if (um.units !== undefined) {
         checked++;
@@ -252,10 +252,10 @@ export async function checkCorrections(getOrc = orc, corrections = CORRECTIONS) 
       continue;
     }
     const u = c.upstream;
-    if (!u) { flag(`${c.key}: correction carries no \`upstream\` descriptor — it cannot be watched. Add one.`); continue; }
+    if (!u) { flag(`${c.key}: correction carries no \`upstream\` descriptor — it cannot be watched. Add one.`); notes.push(`missing upstream descriptor: ${c.key}`); continue; }
     const rows = rowsByPart(await getOrc(u.file), u.element);
     const row = rows.get(u.partNo);
-    if (!row) { flag(`${u.file} ${u.partNo}: row is GONE from upstream. Our correction keys off it — re-check before the next regeneration.`); continue; }
+    if (!row) { flag(`${u.file} ${u.partNo}: row is GONE from upstream. Our correction keys off it — re-check before the next regeneration.`); notes.push(`row gone: ${u.file} ${u.partNo}`); continue; }
     for (const [tag, { bad, good }] of Object.entries(u.fields)) {
       checked++;
       const cur = row(tag);
@@ -295,7 +295,7 @@ export async function checkWatch(getOrc = orc, watches = UPSTREAM_WATCH) {
     for (const pn of w.partNos) {
       checked++;
       const row = rows.get(pn);
-      if (!row) { flag(`${w.file} ${pn}: row is GONE from upstream.`); continue; }
+      if (!row) { flag(`${w.file} ${pn}: row is GONE from upstream.`); notes.push(`watched row gone: ${w.file} ${pn}`); continue; }
       const cur = row(w.field);
       const unit = row(w.field, 'Unit');
       const units = w.unit === undefined ? '' : ` Unit=${unit ?? '(absent)'}`;
@@ -418,11 +418,11 @@ export function cataloguePopulationNote(bundled, upstream) {
 const readPublishedCatalogueBytes = url => request(url,
   async res => Buffer.from(await res.arrayBuffer()), AbortSignal.timeout(30_000));
 
-export async function checkThrustCurve(getJson = json, getPublishedBytes = readPublishedCatalogueBytes) {
+export async function checkThrustCurve(getJson = json, getPublishedBytes = readPublishedCatalogueBytes, readData = readFileSync) {
   say('');
   say('4. ThrustCurve API and the bundled motor catalogue');
   const dataDir = join(here, '..', 'packages', 'app', 'src', 'data');
-  const snapshot = JSON.parse(readFileSync(join(dataDir, 'motors.json'), 'utf8'));
+  const snapshot = JSON.parse(readData(join(dataDir, 'motors.json'), 'utf8'));
   const bundled = Array.isArray(snapshot) ? snapshot.length : (snapshot.motors?.length ?? 0);
 
   // AGE. motors.json was generated 2026-07-04 and not touched again until the
@@ -435,12 +435,13 @@ export async function checkThrustCurve(getJson = json, getPublishedBytes = readP
   let publishedCheck = null;
   if (ageDays > CATALOGUE_MAX_AGE_DAYS) {
     try {
-      const curves = JSON.parse(readFileSync(join(dataDir, 'motorCurves.json'), 'utf8'));
+      const curves = JSON.parse(readData(join(dataDir, 'motorCurves.json'), 'utf8'));
       publishedCheck = await publishedCatalogueCheck(snapshot, curves, getPublishedBytes);
     } catch { /* Local curve failure is reported below; age alarm stays. */ }
   }
   if (!Number.isFinite(ageDays)) {
     flag('motors.json carries no readable `generated` date — cannot judge its age. Run `npm run motors:refresh`.');
+    notes.push('motor catalogue date unreadable');
   } else if (publishedCheck) {
     say(`  ok   motors.json checked ${publishedCheck}, unchanged; data generated ${generated}; ${bundled} motors`);
   } else if (ageDays > CATALOGUE_MAX_AGE_DAYS) {
@@ -483,9 +484,10 @@ export async function checkThrustCurve(getJson = json, getPublishedBytes = readP
   // new motors with no curve and stale ids nobody can look up.
   checked++;
   let curves = null;
-  try { curves = JSON.parse(readFileSync(join(dataDir, 'motorCurves.json'), 'utf8')); } catch { /* reported below */ }
+  try { curves = JSON.parse(readData(join(dataDir, 'motorCurves.json'), 'utf8')); } catch { /* reported below */ }
   if (!curves) {
     flag('motorCurves.json is missing or unreadable — every catalogued motor would need the network to fly. Run `npm run motors:refresh`.');
+    notes.push('curve bundle missing or unreadable');
   } else if (curves.catalogueGenerated !== generated) {
     flag(`motorCurves.json was built from the catalogue generated ${curves.catalogueGenerated}, but motors.json is generated ${generated} — a half refresh. Run \`npm run motors:refresh\` (both scripts) to realign them.`);
     notes.push('curve bundle out of step with the catalogue');
@@ -502,8 +504,8 @@ export async function checkThrustCurve(getJson = json, getPublishedBytes = readP
   checked++;
   let mfrs;
   try { mfrs = manufacturerAbbreviations(meta).length; }
-  catch (error) { flag(`metadata.json: API shape may have changed (${error.message}). The in-app motor browser reads this shape.`); return; }
-  if (!mfrs) flag('metadata.json returned no manufacturers — the API shape may have changed. The in-app motor browser reads this shape.');
+  catch (error) { flag(`metadata.json: API shape may have changed (${error.message}). The in-app motor browser reads this shape.`); notes.push('motor metadata shape changed'); return; }
+  if (!mfrs) { flag('metadata.json returned no manufacturers — the API shape may have changed. The in-app motor browser reads this shape.'); notes.push('motor metadata has no manufacturers'); }
   else say(`  ok   metadata.json: ${mfrs} manufacturers live`);
 }
 

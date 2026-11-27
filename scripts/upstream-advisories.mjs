@@ -6,8 +6,8 @@ import { posix, join } from 'node:path';
 // (Tier 0 row 43, approved 2026-09-30): report exposure, never gate a deploy.
 export function runtimeNodes(lock) {
   const packages = lock.packages;
-  if (!packages?.['packages/app'] || !packages['packages/engine']) {
-    throw new Error('lockfile has no app/engine workspace entries');
+  if (!packages?.['packages/app'] || !packages['packages/engine'] || !packages['packages/api']) {
+    throw new Error('lockfile has no app/engine/api workspace entries');
   }
   const seen = new Set();
   const visit = (path) => {
@@ -28,6 +28,7 @@ export function runtimeNodes(lock) {
   };
   visit('packages/app');
   visit('packages/engine');
+  visit('packages/api');
   return seen;
 }
 

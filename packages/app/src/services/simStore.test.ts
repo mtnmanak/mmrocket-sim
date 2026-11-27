@@ -860,6 +860,15 @@ describe('a corrupt history costs ONE row, not the store (net-storage-6)', () =>
 });
 
 describe('one corrupt timestamp must not kill BOTH exports (net-storage-4)', () => {
+  it('keeps an object-timestamp history row exportable after JSON restore', () => {
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([
+      { ...mkRun('object-date'), when: { toString: 0, valueOf: 0 } }, mkRun('good-date'),
+    ]));
+    const restored = loadRuns();
+    expect(restored.map(r => r.id)).toEqual(['object-date', 'good-date']);
+    expect(() => runsToCsv(restored)).not.toThrow();
+    expect(() => runsToTable(restored)).not.toThrow();
+  });
   const dateCell = (r: SimRun): string | number => {
     const { headers, rows } = runsToTable([r]);
     return rows[0]![headers.indexOf('Date')]!;
@@ -878,6 +887,8 @@ describe('one corrupt timestamp must not kill BOTH exports (net-storage-4)', () 
     ['finite but past the Date range', 1e16], // Number.isFinite alone lets this through
     ['NaN', NaN],
     ['null', null],
+    ['an object', {}],
+    ['an object with non-callable coercion methods', { toString: 0, valueOf: 0 }],
   ];
   for (const [label, when] of bad) {
     it(`degrades to an empty cell, and still exports, when \`when\` is ${label}`, () => {
@@ -885,6 +896,11 @@ describe('one corrupt timestamp must not kill BOTH exports (net-storage-4)', () 
       expect(dateCell(r)).toBe('');
       expect(() => runsToCsv([r])).not.toThrow();
       expect(() => runsToTable([r])).not.toThrow();
+      localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ ...r, when }]));
+      const loaded = loadRuns();
+      expect(loaded).toHaveLength(1);
+      expect(() => runsToCsv(loaded)).not.toThrow();
+      expect(() => runsToTable(loaded)).not.toThrow();
     });
   }
 

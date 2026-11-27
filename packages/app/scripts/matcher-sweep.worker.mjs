@@ -8,6 +8,7 @@ import { contentFormatBytes } from '../src/services/designFile.ts';
 import { gunzipCapped, unzipMember } from '../src/services/zipMember.ts';
 import { matcherBoosterEnabled, simulationNumbers } from './matcher-inventory.mjs';
 import { matcherEngineName } from './matcher-engine-name.mjs';
+import { readVerifiedInput } from './matcher-sweep.input.mjs';
 const root = process.cwd().replaceAll('\\', '/');
 const emit = row => appendFileSync(process.env.MATCHER_OUT, JSON.stringify(row) + '\n');
 writeFileSync(`${process.env.MATCHER_OUT}.pid`, String(process.pid));
@@ -30,7 +31,7 @@ for (const file of JSON.parse(readFileSync(process.env.MATCHER_LIST, 'utf8'))) {
     Object.assign(globalThis, { DOMParser: win.DOMParser, XMLSerializer: win.XMLSerializer, localStorage: win.localStorage });
     globalThis.fetch = () => Promise.reject(new Error('Offline matcher sweep'));
     const lib = libraries[side];
-    const data = readFileSync(file.path);
+    const data = readVerifiedInput(file);
     let kind = /\.rkt$/i.test(file.path) ? 'rkt' : /\.cdx1$/i.test(file.path) ? 'cdx1' : 'ork';
     try {
       const bytes = data[0] === 0x50 && data[1] === 0x4b ? unzipMember(data, [`.${kind}`, '.ork', '.rkt', '.cdx1'], kind)

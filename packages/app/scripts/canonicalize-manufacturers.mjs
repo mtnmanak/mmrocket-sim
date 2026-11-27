@@ -23,7 +23,7 @@ import { atomicWriteFileSync } from './atomic-write.mjs';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mfrDisplay, spellingConflicts } from './manufacturers.mjs';
+import { mfrDisplay, spellingConflicts, presetOrder } from './manufacturers.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = join(here, '../src/data/presets.json');
@@ -54,9 +54,7 @@ function main() {
 
   // Re-sort: the file is ordered kind, manufacturer, partNo, and a rename that
   // leaves rows in their old slots makes the ordering contradict the contents.
-  db.presets.sort((a, b) => a.kind.localeCompare(b.kind)
-    || a.manufacturer.localeCompare(b.manufacturer)
-    || String(a.partNo).localeCompare(String(b.partNo)));
+  db.presets.sort(presetOrder);
 
   const conflicts = spellingConflicts(db.presets);
   if (conflicts.length) {

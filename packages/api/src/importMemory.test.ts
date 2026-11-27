@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyRun, smallestOldSpace, PROBE, type MemoryRun } from '../scripts/import-memory.mjs';
+import { classifyRun, smallestOldSpace, PROBE, measureOptions, generationOptions, summarizeRuns, type MemoryRun } from '../scripts/import-memory.mjs';
 import { build } from 'esbuild';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,6 +8,26 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 describe('import-memory CLI value options', () => {
+  it.each([[], ['Infinity'], ['-1'], ['1.5'], ['1', '0'], ['1', 'Infinity'], ['1', '52', 'out', 'typo']])(
+    'rejects invalid generation domains before creating scratch files: %j', (...args) => {
+      expect(() => generationOptions(args)).toThrow('gen');
+    });
+  it('keeps zero-point generated baselines available', () => {
+    expect(generationOptions(['0'])).toEqual({ points: 0, columns: 52, shape: 'samples' });
+  });
+  it.each([
+    ['mode', 'impor'], ['shape', 'invalid'], ['reps', '0'], ['reps', '1.5'],
+    ['reps', 'Infinity'], ['columns', '-1'], ['columns', 'NaN'], ['points', '1,,2'],
+    ['points', '1,no'], ['points', '1.5'], ['points', 'Infinity'],
+  ])('rejects supplied invalid --%s %s', (name, value) => {
+    expect(() => measureOptions(['--baseline', '.', `--${name}`, value])).toThrow(`--${name}`);
+  });
+  it('reports the failing repetition after a success', () => {
+    expect(summarizeRuns([
+      { ok: true, kind: 'ok', status: 200 },
+      { ok: false, kind: 'failed', status: 'crashed', error: 'timed out after 600 s' },
+    ])).toMatchObject({ outcome: 'crashed', refusal: 'timed out after 600 s', kind: 'failed', maxRssMiB: null });
+  });
   for (const name of ['baseline', 'changed', 'points', 'columns', 'reps', 'mode', 'shape']) {
     it.each(['', '--other'])(`rejects --${name} without a value before doing any work (%j)`, next => {
       // Block writes and external work rather than creating scratch files or probes.

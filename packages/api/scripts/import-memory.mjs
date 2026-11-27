@@ -177,7 +177,7 @@ export async function smallestOldSpace(run, probe, mode, file, reps) {
   return { mib: high, failedAt: high - 1 >= low ? low : null };
 }
 
-function measureOptions(argv) {
+export function measureOptions(argv) {
   const opt = (name, fallback) => {
     const i = argv.indexOf(`--${name}`);
     if (i < 0 && fallback !== undefined) return fallback;
@@ -192,7 +192,32 @@ function measureOptions(argv) {
   const reps = Number(opt('reps', '3'));
   const mode = opt('mode', 'import');
   const shape = opt('shape', 'samples');
+  if (!['import', 'fly'].includes(mode)) throw new Error('--mode must be import or fly');
+  if (!['samples', 'extension', 'rows', 'attributes', 'text'].includes(shape)) throw new Error('--shape is invalid');
+  const validInteger = value => Number.isSafeInteger(value) && value > 0;
+  if (!validInteger(reps)) throw new Error('--reps must be a positive integer');
+  if (!validInteger(columns)) throw new Error('--columns must be a positive integer');
+  if (!points.length || !points.every(validInteger)) throw new Error('--points must be a list of positive integers');
   return { trees, points, columns, reps, mode, shape };
+}
+
+export function generationOptions(rest) {
+  const points = Number(rest[0]), columns = Number(rest[1] ?? 52), shape = rest[3] ?? 'samples';
+  if (!Number.isSafeInteger(points) || points < 0 || !rest[0]?.trim()) throw new Error('gen points must be a nonnegative integer');
+  if (!Number.isSafeInteger(columns) || columns <= 0) throw new Error('gen columns must be a positive integer');
+  if (!['samples', 'extension', 'rows', 'attributes', 'text'].includes(shape)) throw new Error('gen shape is invalid');
+  return { points, columns, shape };
+}
+
+/** Keep the diagnostic of the repetition that invalidated the measurement. */
+export function summarizeRuns(uncapped) {
+  const failed = uncapped.find(r => !r.ok);
+  if (failed) return { outcome: failed.status, kind: failed.kind, refusal: failed.error,
+    maxRssMiB: null, peakHeapBeforeGcMB: null, afterMiB: null };
+  return { outcome: 'ok',
+    maxRssMiB: uncapped.map(r => +(r.maxRssKiB / 1024).toFixed(1)),
+    peakHeapBeforeGcMB: uncapped.map(r => r.peakHeapBeforeGcMB),
+    afterMiB: Object.fromEntries(Object.entries(uncapped[0].after).map(([k, v]) => [k, +(v / 2 ** 20).toFixed(1)])) };
 }
 
 async function measure({ trees, points, columns, reps, mode, shape }) {
@@ -207,11 +232,8 @@ async function measure({ trees, points, columns, reps, mode, shape }) {
       const uncapped = Array.from({ length: reps }, () => run(probes[which], mode, file));
       const ok = uncapped.every(r => r.ok);
       const cap = ok ? await smallestOldSpace(run, probes[which], mode, file, reps) : null;
-      rows.push({ shape, points: n, ...stats, tree: which, sha: git(trees[which]), mode, outcome: ok ? 'ok' : uncapped[0].status,
-        refusal: ok ? undefined : uncapped[0].error, minOldSpaceMiB: cap?.mib ?? null, bisection: cap?.stopped,
-        maxRssMiB: ok ? uncapped.map(r => +(r.maxRssKiB / 1024).toFixed(1)) : null,
-        peakHeapBeforeGcMB: ok ? uncapped.map(r => r.peakHeapBeforeGcMB) : null,
-        afterMiB: ok ? Object.fromEntries(Object.entries(uncapped[0].after).map(([k, v]) => [k, +(v / 2 ** 20).toFixed(1)])) : null });
+      rows.push({ shape, points: n, ...stats, tree: which, sha: git(trees[which]), mode, ...summarizeRuns(uncapped),
+        minOldSpaceMiB: cap?.mib ?? null, bisection: cap?.stopped });
       console.error(JSON.stringify(rows.at(-1)));
     }
   }
@@ -222,10 +244,11 @@ async function main() {
   const [command, ...rest] = process.argv.slice(2);
   // Validate every measurement option before creating scratch files or probes.
   const options = command === 'measure' ? measureOptions(rest) : undefined;
+  const generation = command === 'gen' ? generationOptions(rest) : undefined;
   work = mkdtempSync(join(tmpdir(), 'import-memory-'));
   try {
     if (command === 'gen') {
-      const { zip, stats } = await generate(Number(rest[0]), Number(rest[1] ?? 52), rest[3] ?? 'samples');
+      const { zip, stats } = await generate(generation.points, generation.columns, generation.shape);
       if (rest[2]) writeFileSync(rest[2], zip);
       console.log(JSON.stringify(stats));
     } else if (command === 'measure') await measure(options);

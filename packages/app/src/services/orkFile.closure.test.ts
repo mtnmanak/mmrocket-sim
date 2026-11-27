@@ -57,6 +57,26 @@ it.each(['auto junk'])('reports a malformed automatic radius: %s', radius => {
   expect(r.notes.join('\n')).toContain('invalid <radius>');
 });
 
+it.each(['auto junk 0.02', '0.03 0.04 0.02'])('diagnoses a three-token radius alongside automatic dependents: %s', radius => {
+  const document = (value: string) => fixture(`<nosecone><aftradius>auto</aftradius></nosecone><bodytube><radius>${value}</radius>`
+    + '<subcomponents><parachute><packedradius>auto</packedradius></parachute></subcomponents></bodytube>');
+  const actual = importOrk(document(radius));
+  expect(actual.notes.join('\n')).toContain('invalid <radius>');
+  const [nose, tube] = actual.tree.components[0]!.children!;
+  // Invalid neighbour tokens cannot become a nose base or a parachute bore.
+  expect.soft(nose!['aftRadius']).toBeCloseTo(0.025, 12);
+  expect.soft(tube!.children![0]!['packedRadius']).toBeCloseTo(0.023, 12);
+});
+
+it.each(['centeringring', 'bulkhead', 'tubecoupler', 'engineblock'])('keeps explicit zero outer radius distinct from absent %s radius', type => {
+  const zero = importOrk(fixture(`<${type}><outerradius>0</outerradius></${type}>`));
+  const absent = importOrk(fixture(`<${type}/>`));
+  const output = exportOrk({ name: 'Zero', tree: zero.tree });
+  expect(output).toContain('<outerradius>0</outerradius>');
+  expect(exportOrk({ name: 'Absent', tree: absent.tree })).toContain('<outerradius>auto</outerradius>');
+  expect(partsOf(output)[0]!['outerRadius']).toBe(0);
+});
+
 it.each(['auto 0.02', 'AUTO'])('uses desktop tube-fin radius grammar: %s', radius => {
   const r = importOrk(fixture(`<tubefinset><radius>${radius}</radius></tubefinset>`));
   expect(r.tree.components[0]!.children![0]!['outerRadius']).toBeUndefined();

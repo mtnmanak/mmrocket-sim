@@ -574,7 +574,7 @@ describe('the nozzle part table', () => {
   });
 
   it('is sorted by part number, so a regeneration diffs cleanly', () => {
-    const sorted = [...parts].map((p) => p.partNo).sort((a, b) => a.localeCompare(b));
+    const sorted = [...parts].map((p) => p.partNo).sort((a, b) => a.localeCompare(b, 'en'));
     expect(parts.map((p) => p.partNo)).toEqual(sorted);
   });
 

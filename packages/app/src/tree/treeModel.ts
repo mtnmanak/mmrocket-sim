@@ -51,7 +51,12 @@ let counter = 1;
 const MAX_RESTORED_ID = 2 ** 50;
 
 export function freshId(): string {
-  if (counter >= MAX_RESTORED_ID) return crypto.randomUUID();
+  if (counter >= MAX_RESTORED_ID) {
+    if (crypto.randomUUID) return crypto.randomUUID();
+    // Defence for non-app callers; the browser entry requires randomUUID.
+    return `r${Array.from(crypto.getRandomValues(new Uint32Array(4)),
+      value => value.toString(16).padStart(8, '0')).join('')}`;
+  }
   return `c${counter++}`;
 }
 

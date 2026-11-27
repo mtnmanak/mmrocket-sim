@@ -1,15 +1,20 @@
 import { createHash } from 'node:crypto';
-import { checkedTimestamp, contentHash, unorderedCurveContentHash, validatePreviousManifest } from '../packages/app/scripts/catalogue-publish.mjs';
+import { checkedTimestamp, contentHash, SNAPSHOT_MAX_BYTES, unorderedCurveContentHash, validatePreviousManifest } from '../packages/app/scripts/catalogue-publish.mjs';
 import { FIELDS } from '../packages/app/scripts/fetch-motor-db.mjs';
 
 const BASE = 'https://catalogue.mountainmanrockets.com/';
+// catalogueClient uses net.ts's DEFAULT_MAX_JSON_BYTES for its manifest.
+const MANIFEST_MAX_BYTES = 256 * 1024;
 
 /** Read-only proof: a recent refresh checked the exact rows/curves we bundle. */
 export async function publishedCatalogueCheck(snapshot, curves, getBytes, now = Date.now(), maxAgeDays = 8) {
   try {
-    const manifest = JSON.parse(await getBytes(`${BASE}manifest.json`));
+    const manifestBytes = Buffer.from(await getBytes(`${BASE}manifest.json`));
+    if (manifestBytes.length > MANIFEST_MAX_BYTES) return null;
+    const manifest = JSON.parse(manifestBytes);
     validatePreviousManifest(manifest);
     const entry = manifest.snapshots.find(s => s.id === manifest.current);
+    if (['motors', 'curves'].some(kind => entry[kind].bytes > SNAPSHOT_MAX_BYTES[kind])) return null;
     const at = manifest.checkedAt;
     if (!checkedTimestamp(at)
       || typeof manifest.checkedRunId !== 'string' || !/^[1-9]\d*$/.test(manifest.checkedRunId)

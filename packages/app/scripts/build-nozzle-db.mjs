@@ -1127,14 +1127,14 @@ export function oneRowPerMotor(rows, assemblies) {
       if (ea !== eb) return ea - eb;
       const ra = revDate(a.provenance.assemblyDrawing);
       const rb = revDate(b.provenance.assemblyDrawing);
-      if (ra !== rb) return rb.localeCompare(ra); // newest dated nozzle revision first
+      if (ra !== rb) return rb.localeCompare(ra, 'en'); // newest dated nozzle revision first
       const la = label(a.provenance.assemblyDrawing);
       const lb = label(b.provenance.assemblyDrawing);
       if (la !== lb) return la - lb;
       const na = group.filter((g) => g.exitDiameterM === a.exitDiameterM).length;
       const nb = group.filter((g) => g.exitDiameterM === b.exitDiameterM).length;
       if (na !== nb) return nb - na;
-      return a.provenance.assemblyDrawing.localeCompare(b.provenance.assemblyDrawing);
+      return a.provenance.assemblyDrawing.localeCompare(b.provenance.assemblyDrawing, 'en');
     })[0];
 
     const { assemblyDrawing, ...prov } = pick.provenance;
@@ -1227,7 +1227,7 @@ export function oneRowPerMotor(rows, assemblies) {
     }
     motorRows.push(out);
   }
-  motorRows.sort((a, b) => a.designation.localeCompare(b.designation) || a.caseFamily.localeCompare(b.caseFamily));
+  motorRows.sort((a, b) => a.designation.localeCompare(b.designation, 'en') || a.caseFamily.localeCompare(b.caseFamily, 'en'));
   return motorRows;
 }
 
@@ -1765,7 +1765,7 @@ export function lokiMotorRows(loki, sheets = LOKI_SHEETS) {
       };
     })
     .filter((x) => x !== null)
-    .sort((a, b) => a.commonName.localeCompare(b.commonName));
+    .sort((a, b) => a.commonName.localeCompare(b.commonName, 'en'));
 
   const lokiRows = [];
   for (const m of loki) {
@@ -1940,9 +1940,9 @@ export function buildNozzleDb({
     ]);
   }
   motorRows.push(...measuredRows);
-  motorRows.sort((a, b) => a.manufacturer.localeCompare(b.manufacturer)
-    || a.designation.localeCompare(b.designation)
-    || a.caseFamily.localeCompare(b.caseFamily));
+  motorRows.sort((a, b) => a.manufacturer.localeCompare(b.manufacturer, 'en')
+    || a.designation.localeCompare(b.designation, 'en')
+    || a.caseFamily.localeCompare(b.caseFamily, 'en'));
 
   const observationProblems = [];
   for (const ob of observations) {
@@ -2028,7 +2028,7 @@ export function buildNozzleDb({
           : {}),
       };
     })
-    .sort((a, b) => a.partNo.localeCompare(b.partNo));
+    .sort((a, b) => a.partNo.localeCompare(b.partNo, 'en'));
 
   /**
    * AN INDEPENDENT CHECK, and what it does and does not settle.
@@ -2083,7 +2083,7 @@ export function buildNozzleDb({
       exitAgrees: row?.exitDiameterIn !== undefined
         ? Math.abs(row.exitDiameterIn - c.exitIn) <= 0.006 : undefined,
     };
-  }).sort((a, b) => a.designation.localeCompare(b.designation));
+  }).sort((a, b) => a.designation.localeCompare(b.designation, 'en'));
 
   /**
    * The newest mtime among the source documents this build actually read, as a
@@ -2336,7 +2336,7 @@ export function buildNozzleDb({
         by.get(key).push(m.designation);
       }
       return Object.fromEntries([...by.entries()]
-        .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
+        .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], 'en'))
         .map(([k, v]) => [k, v.sort()]));
     })(),
     measured,
@@ -2493,7 +2493,7 @@ AeroTech DMS single-use: ${c.dmsDrawings} sheets read`);
     uncoveredByMaker.set(maker, (uncoveredByMaker.get(maker) ?? 0) + v.length);
   }
   const uncoveredBreakdown = [...uncoveredByMaker.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'en'))
     .map(([maker, n]) => `${maker} ${n}`).join(', ');
   console.log(`
 Motors with no nozzle row  ${uncoveredTotal} (${uncoveredBreakdown})`);

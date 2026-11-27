@@ -254,6 +254,8 @@ it.each(["'", '"'])('checks equivalent %s-quoted workflow keys', quote => {
 /** Read the active block for each job, excluding comments and normalizing line endings. */
 function productionGuards(workflow: string): boolean {
   const source = normalizeKeys(workflow);
+  const triggers = source.split(/^on:\s*$/m)[1]?.split(/^\S/m)[0] ?? '';
+  if ([...triggers.matchAll(/^ {2}([\w_]+):/gm)].map(m => m[1]).join(',') !== 'workflow_dispatch') return false;
   return ['build', 'test', 'deploy', 'delete'].every(job => {
     const block = source.split(`\n  ${job}:`)[1]?.split(/\n {2}[a-z][\w-]*:/)[0] ?? '';
     const gate = job === 'delete' ? 'delete' : 'deploy';
@@ -264,8 +266,14 @@ function productionGuards(workflow: string): boolean {
     const checkouts = block.split(/- uses: actions\/checkout@/).slice(1);
     return condition === `inputs.action == '${gate}' && github.ref == 'refs/heads/main'`
       && (job === 'build' || /^ {4}environment: api-production$/m.test(block))
-      && checkouts.length > 0 && checkouts.every(checkout =>
-        /^ {10}persist-credentials: false$/m.test(checkout.split(/\n {6}- /)[0]!));
+      && checkouts.length > 0 && checkouts.every(checkout => {
+        const settings = checkout.split(/\n {6}- /)[0]!;
+        if (!/^ {10}persist-credentials: false$/m.test(settings)) return false;
+        if (job === 'build') return true;
+        return /^ {10}sparse-checkout-cone-mode: false$/m.test(settings)
+          && settings.match(/^ {10}sparse-checkout: \|\n((?: {12}[^\n]*\n)*)/m)?.[1]
+            ?.trim().split(/\n */).join('\n') === '/.gitignore\n/packages/api/wrangler.toml';
+      });
   });
 }
 
@@ -287,6 +295,25 @@ it('pins main-only build/test/deploy/delete, the production environment and cred
     while (start >= 0) {
       expect(productionGuards(workflow.slice(0, start) + workflow.slice(start + token.length)), token).toBe(false);
       start = workflow.indexOf(token, start + token.length);
+    }
+  }
+});
+
+it('refuses missing, widened or cone-mode production checkouts', () => {
+  const workflow = readFileSync(new URL('../../../.github/workflows/api-deploy.yml', import.meta.url), 'utf8');
+  for (const trigger of ['push', 'pull_request_target']) {
+    expect(productionGuards(workflow.replace('on:\n', `on:\n  ${trigger}:\n`))).toBe(false);
+  }
+  for (const job of ['deploy', 'delete']) {
+    const at = workflow.indexOf(`\n  ${job}:`);
+    const head = workflow.slice(0, at), tail = workflow.slice(at);
+    for (const [from, to] of [
+      ['          sparse-checkout-cone-mode: false', '          sparse-checkout-cone-mode: true'],
+      ['          sparse-checkout: |\n            /.gitignore\n            /packages/api/wrangler.toml\n', ''],
+      ['            /packages/api/wrangler.toml', '            /packages/api/wrangler.toml\n            /package.json'],
+    ]) {
+      expect(tail).toContain(from);
+      expect(productionGuards(head + tail.replace(from!, to!)), `${job}: ${to}`).toBe(false);
     }
   }
 });

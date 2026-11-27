@@ -151,6 +151,17 @@ const staged = (autoDelay: boolean): LaunchInput => ({
   onSupersonicUpgrade: () => {},
 });
 
+it('flies and cancels with a floor-browser signal lacking throwIfAborted', async () => {
+  const { handle, calls } = recordingHandle();
+  const legacy = { aborted: false, reason: new Error('Stopped before flight') };
+  await expect(flyLaunch(handle, { ...staged(false), signal: legacy as AbortSignal })).resolves.toBeDefined();
+  expect(calls.filter(call => call[0] === 'simulate')).toHaveLength(1);
+  calls.length = 0;
+  legacy.aborted = true;
+  await expect(flyLaunch(handle, { ...staged(false), signal: legacy as AbortSignal })).rejects.toBe(legacy.reason);
+  expect(calls.filter(call => call[0] === 'simulate')).toHaveLength(0);
+});
+
 it('J1 names the build refusal when the assigned fixed primary was left off', async () => {
   const { handle } = recordingHandle();
   await expect(flyLaunch(handle, { ...staged(false), refusedMountIds: ['sustainer'] }))

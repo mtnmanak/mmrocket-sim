@@ -1,4 +1,5 @@
 import { noteField } from './noteField.js';
+import { throwIfAborted } from './abortSignal.js';
 import { motorWithinRepresentabilityLimits } from './exMotors.js';
 import { ownEntry } from './ownEntry.js';
 import type {
@@ -294,7 +295,7 @@ async function flyFromCleanHandle(
     });
     solverMs += delayResolution.elapsedMs;
     for (const m of delayResolution.mounts) writeMountDelay(rocket, input, m.mountId, readDelay(m.flownDelay));
-    input.signal?.throwIfAborted();
+    throwIfAborted(input.signal);
     const t0 = now();
     // App's load metrics need full density/sound-speed series; headless callers
     // may choose summary when those metrics are not returned. flyBuiltDesign

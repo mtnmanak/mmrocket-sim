@@ -11,4 +11,5 @@ export const mfrKey: (s: unknown) => string;
 export const mfrDisplay: (s: unknown) => string;
 export const partKey: (partNo: unknown) => string;
 export const presetKey: (p: { kind: string; manufacturer: unknown; partNo: unknown }) => string;
+export const presetOrder: (a: { kind: string; manufacturer: string; partNo: unknown }, b: { kind: string; manufacturer: string; partNo: unknown }) => number;
 export function spellingConflicts(rows: ReadonlyArray<{ manufacturer?: unknown }>): unknown[];

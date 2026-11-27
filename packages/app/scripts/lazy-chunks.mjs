@@ -1,5 +1,5 @@
 /**
- * Does the entry chunk carry a module that must load only when its dialog opens?
+ * Does the startup graph carry a module that must load only when its dialog opens?
  *
  * WHY. The user guide's text (src/data/userGuide.ts) and the changelog
  * (src/changelog.ts) were ~730 KB of source at v0.140, and both grow every
@@ -19,7 +19,7 @@
  */
 
 /**
- * The modules, relative to the app package, that no entry chunk may carry: the
+ * The modules, relative to the app package, that no startup chunk may carry: the
  * two dialogs and the two texts only they import.
  */
 export const LAZY_ONLY = [
@@ -29,36 +29,54 @@ export const LAZY_ONLY = [
   'src/data/userGuide.ts',
 ];
 
-/**
- * The LAZY_ONLY modules rendered into an entry chunk of a Rollup output
- * `bundle`, as `<chunk file>: <module>`; `root` is the app package's directory,
- * which module ids are resolved against. A module counts only when some of its
- * code was rendered (renderedLength > 0): an import whose bindings go unused is
- * tree-shaken and costs startup nothing.
- *
- * Throws when a LAZY_ONLY module is rendered into no chunk at all — renamed,
- * deleted, or its ids no longer resolved against `root` — because a list that
- * names only modules the build does not have passes every build.
- */
-export function lazyModulesInEntry(bundle, root) {
+function relativeModule(id, root) {
   const base = `${root.replace(/\\/g, '/').replace(/\/+$/, '')}/`;
-  const relative = (id) => {
-    const path = id.replace(/\\/g, '/');
-    return path.toLowerCase().startsWith(base.toLowerCase()) ? path.slice(base.length) : path;
-  };
-  const rendered = new Set();
-  const inEntry = [];
-  const eager = new Set();
+  const path = id.replace(/\\/g, '/');
+  return path.toLowerCase().startsWith(base.toLowerCase()) ? path.slice(base.length) : path;
+}
+
+/** Bootstrap loads main immediately after the browser gate; both are startup roots. */
+function startupChunks(bundle, root) {
+  const eager = new Map();
+  let foundMain = false;
   const visit = (chunk) => {
     if (chunk?.type !== 'chunk' || eager.has(chunk.fileName)) return;
-    eager.add(chunk.fileName);
+    eager.set(chunk.fileName, chunk);
     for (const name of chunk.imports ?? []) visit(bundle[name]);
   };
-  for (const chunk of Object.values(bundle)) if (chunk.isEntry) visit(chunk);
+  for (const chunk of Object.values(bundle)) {
+    if (chunk.type !== 'chunk') continue;
+    const main = Object.keys(chunk.modules).some(id => relativeModule(id, root) === 'src/main.tsx');
+    if (main) foundMain = true;
+    if (chunk.isEntry || main) visit(chunk);
+  }
+  if (!foundMain) throw new Error('no chunk of the build renders src/main.tsx; update the startup root in scripts/lazy-chunks.mjs.');
+  return eager;
+}
+
+/** Fetch startup JS and CSS from HTML without evaluating main before the browser gate. */
+export function startupPreloadLinks(bundle, root) {
+  const tags = new Map();
+  for (const chunk of startupChunks(bundle, root).values()) {
+    if (!chunk.isEntry) tags.set(chunk.fileName, 'modulepreload');
+    for (const file of chunk.viteMetadata?.importedCss ?? []) tags.set(file, 'stylesheet');
+  }
+  return [...tags].map(([file, rel]) => ({ tag: 'link', attrs: { rel, crossorigin: '', href: `./${file}` }, injectTo: 'head' }));
+}
+
+/**
+ * Rendered LAZY_ONLY modules in the startup graph, as `<chunk file>: <module>`.
+ * Ignore tree-shaken bindings. Refuse to pass when guarded modules are absent
+ * altogether — a stale list would otherwise pass every build.
+ */
+export function lazyModulesInEntry(bundle, root) {
+  const rendered = new Set();
+  const inEntry = [];
+  const eager = startupChunks(bundle, root);
   for (const chunk of Object.values(bundle)) {
     if (chunk.type !== 'chunk') continue;
     for (const [id, mod] of Object.entries(chunk.modules)) {
-      const name = relative(id);
+      const name = relativeModule(id, root);
       if (!LAZY_ONLY.includes(name) || mod.renderedLength === 0) continue;
       rendered.add(name);
       if (eager.has(chunk.fileName)) inEntry.push(`${chunk.fileName}: ${name}`);

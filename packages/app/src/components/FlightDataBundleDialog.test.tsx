@@ -32,6 +32,11 @@ const fill = (input: HTMLInputElement, value: string) => act(() => {
   input.dispatchEvent(new Event('input', { bubbles: true }));
 });
 
+it('sizes the bundle dialog without requiring a :has selector', () => {
+  act(() => root.render(<FlightDataBundleDialog source={source()} onClose={() => {}} />));
+  expect(host.querySelector('[role="dialog"]')?.classList.contains('flight-bundle-dialog')).toBe(true);
+});
+
 it('updates measurement previews without rebuilding the design and flight files on each keystroke', async () => {
   const build = vi.spyOn(bundleService, 'flightDataBundleContents');
   try {

@@ -7,6 +7,24 @@ import { EX_IMPORT_BYTES_NOTE, EX_NO_MOTOR_FILES_NOTE, MAX_EX_IMPORT_BYTES } fro
 
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
 
+it('imports with a floor-browser signal lacking throwIfAborted', async () => {
+  const file = new File(['Legacy 18 70 P 0.01 0.02 Maker\n0 0\n0.5 20\n1 0'], 'legacy.eng');
+  const out = await importMotorFiles([file], undefined, { aborted: false } as AbortSignal);
+  expect(out.parsed).toHaveLength(1);
+  expect(out.write?.stored).toBe(true);
+});
+
+it.each(['before read', 'after read'])('cancels a floor-browser motor import %s', async when => {
+  const reason = new Error('Stop import');
+  const legacy = { aborted: when === 'before read', reason };
+  const file = new File([], 'cancel.eng');
+  const read = vi.fn(async () => { legacy.aborted = true; return new ArrayBuffer(0); });
+  Object.defineProperty(file, 'arrayBuffer', { value: read });
+  await expect(importMotorFiles([file], undefined, legacy as AbortSignal)).rejects.toBe(reason);
+  expect(read).toHaveBeenCalledTimes(when === 'before read' ? 0 : 1);
+  expect(pageActivity.importsInProgress()).toBe(0);
+});
+
 it('holds an import before motor-file bytes arrive and releases after cancellation', async () => {
   const controller = new AbortController();
   let finishRead!: (bytes: ArrayBuffer) => void;

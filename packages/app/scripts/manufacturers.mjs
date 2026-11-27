@@ -116,6 +116,11 @@ export const partKey = (partNo) =>
 /** Identity for dedupe across sources: kind + manufacturer + part number. */
 export const presetKey = (p) => `${p.kind}|${mfrKey(p.manufacturer)}|${partKey(p.partNo)}`;
 
+/** Catalogue serialization uses English collation on every host. */
+export const presetOrder = (a, b) => a.kind.localeCompare(b.kind, 'en')
+  || a.manufacturer.localeCompare(b.manufacturer, 'en')
+  || String(a.partNo).localeCompare(String(b.partNo), 'en');
+
 /**
  * Every normalised spelling that maps to more than one DISPLAY string in a set
  * of rows — i.e. the defect this module exists to prevent, stated as a check.

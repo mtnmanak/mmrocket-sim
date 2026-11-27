@@ -23,6 +23,10 @@
  *
  *   node packages/app/scripts/dedupe-presets.mjs          # report only
  *   node packages/app/scripts/dedupe-presets.mjs --write  # apply
+ *
+ * Regeneration: run --write after all merges, before apply-preset-corrections
+ * and curate-presets --write. Fetch already canonicalises manufacturer display names.
+ * The authoritative order is in packages/app/scripts/CLAUDE.md.
  */
 import { isMain } from '../../../scripts/is-main.mjs';
 import { atomicWriteFileSync } from './atomic-write.mjs';

@@ -150,6 +150,22 @@ describe('opaque desktop simulation extensions', () => {
     expect(sims.map(s => s.querySelector('name')?.textContent)).toEqual(['Script run', 'Air run']);
   });
 
+  it('shares the configuration summary while preserving simulation names and extensions', () => {
+    const withData = (name: string, altitude: number, runId: string, extension: string) => sim('A',
+      extension + `<flightdata maxaltitude="${altitude}"/><aeromodel runid="${runId}">classic</aeromodel>`, name);
+    const opened = importOrk(fixture(withData('First', 111, 'first-run', script)
+      + withData('Second', 222, 'second-run', air)));
+    const output = exportOrk({ ...opened, launch: DEFAULT_CONDITIONS, configs: opened.configs,
+      activeConfigId: 'A', flightData: { A: { maxAltitude: 222, aeroModel: 'classic', runId: 'second-run', importedSummary: true } } });
+    const sims = simulations(output).filter(s => s.querySelector('conditions > configid')?.textContent === 'A');
+    expect(sims.map(s => s.querySelector('name')?.textContent)).toEqual(['First', 'Second']);
+    expect(sims.map(s => s.querySelector('flightdata')?.getAttribute('maxaltitude'))).toEqual(['222', '222']);
+    expect(sims.map(s => s.querySelector('aeromodel')?.getAttribute('runid'))).toEqual(['second-run', 'second-run']);
+    expect(sims.map(s => s.querySelectorAll('extension').length)).toEqual([1, 1]);
+    expect(sims[0]!.querySelector('extension')?.getAttribute('extensionid')).toBe('info.openrocket.core.simulation.extension.impl.ScriptingExtension');
+    expect(sims[1]!.querySelector('extension')?.getAttribute('extensionid')).toBe('net.sf.openrocket.simulation.extension.example.AirStart');
+  });
+
   it('reports dropped extensions when their configuration is deleted, without moving them to the remaining one', () => {
     const opened = importOrk(fixture());
     opened.configs = opened.configs.filter(c => c.id !== 'A');

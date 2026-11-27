@@ -33,6 +33,7 @@ const DEPLOY = workflow('deploy.yml');
 const REFRESH = workflow('motors-refresh.yml');
 const CATALOGUE = workflow('catalogue-publish.yml');
 const SUITES = workflow('test-suites.yml');
+const API_DEPLOY = workflow('api-deploy.yml');
 
 const indentOf = (l) => l.length - l.trimStart().length;
 const isContent = (l) => l.trim() !== '' && !l.trim().startsWith('#');
@@ -74,6 +75,17 @@ function steps(lines, job) {
 
 /** The one-line `run:` commands of a job, in order. */
 const runs = (lines, job) => steps(lines, job).map((s) => value(s, 'run')).filter((r) => r && r !== '|');
+
+function reservedStepEnvOverrides(catalogue = CATALOGUE) {
+  const reserved = [];
+  for (const [lines, jobs] of [[REFRESH, ['refresh', 'publish']], [catalogue, ['validate', 'plan', 'catalogue']]]) {
+    for (const job of jobs) for (const step of steps(lines, job)) {
+      const keys = (child(step, 'env') ?? []).filter(isContent).map(l => l.trim().split(':')[0]);
+      reserved.push(...keys.filter(key => /^(GITHUB_|RUNNER_)/.test(key)));
+    }
+  }
+  return reserved;
+}
 
 /**
  * A GitHub Actions expression over github.event_name and github.ref: string
@@ -270,10 +282,10 @@ describe('deploy.yml — pull requests get the gate, only main deploys', () => {
 
   it('leaves no git credential in any checkout of either workflow', () => {
     const assertCheckouts = (suites) => {
-      const checkouts = [[DEPLOY, 'build'], [DEPLOY, 'deploy'], [REFRESH, 'refresh'], [REFRESH, 'publish'], [CATALOGUE, 'plan'], [CATALOGUE, 'catalogue'], [suites, 'suite']]
+      const checkouts = [[DEPLOY, 'build'], [DEPLOY, 'deploy'], [API_DEPLOY, 'build'], [API_DEPLOY, 'deploy'], [API_DEPLOY, 'delete'], [REFRESH, 'refresh'], [REFRESH, 'publish'], [CATALOGUE, 'validate'], [CATALOGUE, 'plan'], [CATALOGUE, 'catalogue'], [suites, 'suite'], [suites, 'stability-worker']]
         .flatMap(([lines, job]) => steps(lines, job).filter((s) => value(s, 'uses')?.startsWith('actions/checkout@'))
           .map((s) => [job, value(child(s, 'with') ?? [''], 'persist-credentials')]));
-      expect(checkouts).toEqual([['build', 'false'], ['deploy', 'false'], ['refresh', 'false'], ['publish', 'false'], ['plan', 'false'], ['catalogue', 'false'], ['suite', 'false']]);
+      expect(checkouts).toEqual([['build', 'false'], ['deploy', 'false'], ['build', 'false'], ['deploy', 'false'], ['delete', 'false'], ['refresh', 'false'], ['publish', 'false'], ['validate', 'false'], ['plan', 'false'], ['catalogue', 'false'], ['suite', 'false'], ['stability-worker', 'false']]);
     };
     assertCheckouts(SUITES);
     expect(() => assertCheckouts(SUITES.map((l) => l.replace('persist-credentials: false', 'persist-credentials: true')))).toThrow();
@@ -314,9 +326,9 @@ describe('both workflows — one pinned runner image', () => {
   // only by a commit that changes all jobs, including the catalogue publisher.
   it('runs all seven jobs on the same explicit image, never a -latest label', () => {
     const assertImages = (suites) => {
-      const images = [[DEPLOY, 'build'], [DEPLOY, 'deploy'], [REFRESH, 'refresh'], [REFRESH, 'publish'], [CATALOGUE, 'plan'], [CATALOGUE, 'catalogue'], [suites, 'suite']]
+      const images = [[DEPLOY, 'build'], [DEPLOY, 'deploy'], [API_DEPLOY, 'build'], [API_DEPLOY, 'deploy'], [API_DEPLOY, 'delete'], [REFRESH, 'refresh'], [REFRESH, 'publish'], [CATALOGUE, 'validate'], [CATALOGUE, 'plan'], [CATALOGUE, 'catalogue'], [suites, 'suite'], [suites, 'stability-worker']]
         .map(([lines, job]) => value(path(lines, 'jobs', job), 'runs-on'));
-      expect(images).toHaveLength(7);
+      expect(images).toHaveLength(12);
       for (const image of images) expect(image).toMatch(/^ubuntu-\d\d\.\d\d$/);
       expect(new Set(images).size).toBe(1);
     };
@@ -370,7 +382,7 @@ describe('test-suites.yml — the sharded suite', () => {
 
   it('pins every suite action to a release commit', () => {
     const source = readFileSync(new URL('../../../.github/workflows/test-suites.yml', import.meta.url), 'utf8');
-    const count = steps(SUITES, 'suite').filter((s) => value(s, 'uses')).length;
+    const count = ['suite', 'stability-worker'].flatMap(job => steps(SUITES, job)).filter((s) => value(s, 'uses')).length;
     assertPinnedActions(source, count);
     const unpinned = source.replace(/actions\/checkout@[a-f0-9]{40}/, 'actions/checkout@main');
     expect(unpinned).not.toBe(source);
@@ -489,11 +501,83 @@ describe('test-suites.yml — the sharded suite', () => {
 });
 
 // Include both '- uses:' and named steps with a separate indented 'uses:'.
-function assertPinnedActions(text, expectedCount) {
+function assertPinnedActions(text, expectedCount, deploy = false) {
   const uses = text.split(/\r?\n/).filter((l) => /^\s*(?:- )?uses:/.test(l));
   expect(uses).toHaveLength(expectedCount);
-  for (const use of uses) expect(use).toMatch(/uses: actions\/[a-z-]+@[a-f0-9]{40} # v\d/);
+  for (const use of uses) {
+    if (deploy && use.trim() === 'uses: ./.github/workflows/test-suites.yml') continue;
+    expect(use).toMatch(deploy
+      ? /uses: (?:actions\/[\w-]+|cloudflare\/wrangler-action)@[a-f0-9]{40} # v\d/
+      : /uses: actions\/[\w-]+@[a-f0-9]{40} # v\d/);
+  }
 }
+
+it('rejects SHA-pinned third-party actions in suite, refresh and credentialed catalogue jobs', () => {
+  for (const name of ['test-suites.yml', 'motors-refresh.yml', 'catalogue-publish.yml']) {
+    const source = readFileSync(new URL(`../../../.github/workflows/${name}`, import.meta.url), 'utf8');
+    const count = source.split('\n').filter(l => /^\s*(?:- )?uses:/.test(l)).length;
+    const changed = source.replace('actions/checkout@', 'other-owner/checkout@');
+    expect(changed).not.toBe(source);
+    expect(() => assertPinnedActions(changed, count)).toThrow();
+  }
+});
+
+it('pins Pages and API deploy actions, including Wrangler, and keeps runner images together', () => {
+  for (const name of ['deploy.yml', 'api-deploy.yml']) {
+    const source = readFileSync(new URL(`../../../.github/workflows/${name}`, import.meta.url), 'utf8');
+    const count = source.split('\n').filter(l => /^\s*(?:- )?uses:/.test(l)).length;
+    assertPinnedActions(source, count, true);
+    const changed = source.replace(/cloudflare\/wrangler-action@[a-f0-9]{40}/, 'cloudflare/wrangler-action@v4');
+    expect(changed).not.toBe(source);
+    expect(() => assertPinnedActions(changed, count, true)).toThrow();
+  }
+  const images = lines => lines.filter(l => /^\s*runs-on:/.test(l)).map(l => l.trim());
+  const lockstep = deploy => expect(new Set([...images(deploy), ...images(API_DEPLOY)]).size).toBe(1);
+  lockstep(DEPLOY);
+  expect(() => lockstep(DEPLOY.map(l => l.replaceAll('ubuntu-24.04', 'ubuntu-26.04')))).toThrow();
+});
+
+it('builds the stability worker immediately before a required artifact test', () => {
+  const assertIntegration = lines => {
+    const list = steps(lines, 'stability-worker');
+    const at = list.findIndex(s => value(s, 'run') === 'npm run build -w @online-openrocket/engine');
+    expect(at).toBeGreaterThan(0);
+    const test = list[at + 1];
+    expect(value(test, 'run')).toBe('npx vitest run --project app src/services/configStabilityRange.worker.test.ts');
+    expect(value(child(test, 'env'), 'REQUIRE_STABILITY_WORKER')).toBe("'1'");
+    expect(value(test, 'working-directory')).toBe('packages/app');
+    for (const step of list) {
+      expect(value(step, 'if')).toBeUndefined();
+      expect(value(step, 'continue-on-error')).toBeUndefined();
+    }
+  };
+  assertIntegration(SUITES);
+  expect(() => assertIntegration(SUITES.filter(l => !l.includes('- run: npm run build')))).toThrow();
+  expect(() => assertIntegration(SUITES.filter(l => !l.includes('REQUIRE_STABILITY_WORKER:')))).toThrow();
+});
+
+it('validates one immutable publisher checkout without write credentials before planning or upload', () => {
+  const assertPublisher = lines => {
+    const validator = path(lines, 'jobs', 'validate');
+    expect(validator.join('\n')).not.toMatch(/secrets\b|environment:|continue-on-error/);
+    expect(path(lines, 'jobs', 'validate', 'permissions').filter(isContent).map(l => l.trim())).toEqual(['contents: read']);
+    expect(runs(lines, 'validate').slice(-3)).toEqual(['npm ci', 'npm run typecheck', 'npm run lint -- --max-warnings 0']);
+    expect(value(child(steps(lines, 'validate')[0], 'with'), 'ref')).toBe('${{ github.sha }}');
+    expect(value(path(lines, 'jobs', 'plan'), 'needs')).toBe('validate');
+    expect(child(path(lines, 'jobs', 'plan'), 'if').join(' ')).toContain("needs.validate.result == 'success'");
+    expect(value(path(lines, 'jobs', 'validate', 'outputs'), 'publisher_sha')).toBe('${{ steps.publisher.outputs.sha }}');
+    expect(steps(lines, 'validate').find(s => value(s, 'id') === 'publisher').join('\n')).toContain('git rev-parse HEAD');
+    expect(value(path(lines, 'jobs', 'plan', 'outputs'), 'publisher_sha')).toBe('${{ needs.validate.outputs.publisher_sha }}');
+    for (const [job, ref] of [['plan', '${{ needs.validate.outputs.publisher_sha }}'], ['catalogue', '${{ needs.plan.outputs.publisher_sha }}']]) {
+      expect(value(child(steps(lines, job)[0], 'with'), 'ref')).toBe(ref);
+    }
+  };
+  assertPublisher(CATALOGUE);
+  for (const from of ['npm run typecheck', 'npm run lint -- --max-warnings 0', "needs.validate.result == 'success'", '${{ needs.validate.outputs.publisher_sha }}', '${{ needs.plan.outputs.publisher_sha }}']) {
+    expect(() => assertPublisher(CATALOGUE.map(l => l.replaceAll(from, 'main')))).toThrow();
+  }
+  expect(() => assertPublisher(CATALOGUE.filter(l => !/^\s+needs: validate$/.test(l)))).toThrow();
+});
 
 // Dynamic imports and CommonJS entry points must not bypass the pre-install
 // dependency boundary. Ban computed imports and createRequire outright here.
@@ -605,7 +689,7 @@ describe('catalogue workflow isolation and approval boundary', () => {
     expect(value(path(CATALOGUE, 'on', 'workflow_dispatch', 'inputs', 'run_id'), 'required')).toBe('true');
     expect(value(path(CATALOGUE, 'on', 'workflow_dispatch', 'inputs', 'run_id'), 'type')).toBe('string');
     const condition = child(path(CATALOGUE, 'jobs', 'plan'), 'if').filter(isContent).map((l) => l.trim()).join(' ');
-    expect(condition).toBe("!cancelled() && github.repository == 'mtnmanak/mmrocket-sim' && github.ref == 'refs/heads/main'");
+    expect(condition).toBe("!cancelled() && needs.validate.result == 'success' && github.repository == 'mtnmanak/mmrocket-sim' && github.ref == 'refs/heads/main'");
     const input = steps(CATALOGUE, 'plan').find((s) => value(s, 'id') === 'input').join('\n');
     for (const line of ['gh api "$api/runs/$RUN_ID"', 'gh api --paginate --slurp "$api/runs/$RUN_ID/attempts/$attempt/jobs?per_page=100"',
       'node packages/app/scripts/catalogue-source.mjs attempts --run "$RUNNER_TEMP/source-run.json" --summary "$GITHUB_STEP_SUMMARY" > "$RUNNER_TEMP/attempts.txt"',
@@ -708,16 +792,19 @@ describe('catalogue workflow isolation and approval boundary', () => {
   });
 
   it('T1/T8: forbids reserved step env overrides and checks approval protection without failing on denied reads', () => {
-    for (const [lines, jobs] of [[REFRESH, ['refresh', 'publish']], [CATALOGUE, ['plan', 'catalogue']]]) {
-      for (const job of jobs) for (const step of steps(lines, job)) {
-        const keys = (child(step, 'env') ?? []).filter(isContent).map((l) => l.trim().split(':')[0]);
-        expect(keys.filter((key) => /^(GITHUB_|RUNNER_)/.test(key))).toEqual([]);
-      }
-    }
+    expect(reservedStepEnvOverrides()).toEqual([]);
     const approval = steps(CATALOGUE, 'plan').find((s) => value(s, 'name') === 'Check approval protection (informational)').join('\n');
     expect(approval).toContain('if gh api "repos/$GITHUB_REPOSITORY/environments/catalogue-publish"');
     expect(approval).toContain('could not confirm the approval rule');
     expect(approval).toContain('catalogue-source.mjs approval');
+  });
+
+  it.each(['GITHUB_TOKEN', 'RUNNER_TEMP'])('T1/T8 catches reserved %s overrides in publisher validation', key => {
+    const original = CATALOGUE.join('\n');
+    const mutated = original.replace(/( {2}validate:[\s\S]*? {4}steps:\n)/,
+      `$1      - name: reserved override\n        run: echo invalid\n        env:\n          ${key}: invalid\n`);
+    expect(mutated).not.toBe(original);
+    expect(reservedStepEnvOverrides(mutated.split('\n'))).toContain(key);
   });
 
   it('R8: catches static/dynamic/require dependencies and createRequire before npm ci', () => {
@@ -802,7 +889,7 @@ describe('catalogue workflow isolation and approval boundary', () => {
     const verify = list.find((s) => value(s, 'name') === 'Verify the public catalogue');
     expect(value(verify, 'run')).toBe('node packages/app/scripts/catalogue-publish.mjs verify --base https://catalogue.mountainmanrockets.com --plan "$RUNNER_TEMP/catalogue-plan"');
     expect(list.indexOf(verify)).toBe(list.indexOf(upload) + 1); expect(value(verify, 'env')).toBeUndefined();
-    for (const [name, lines, jobs] of [['motors-refresh.yml', REFRESH, ['refresh', 'publish']], ['catalogue-publish.yml', CATALOGUE, ['plan', 'catalogue']]]) {
+    for (const [name, lines, jobs] of [['motors-refresh.yml', REFRESH, ['refresh', 'publish']], ['catalogue-publish.yml', CATALOGUE, ['validate', 'plan', 'catalogue']]]) {
       const original = readFileSync(new URL(`../../../.github/workflows/${name}`, import.meta.url), 'utf8');
       assertPinnedActions(original, jobs.flatMap((job) => steps(lines, job)).filter((s) => value(s, 'uses')).length);
     }

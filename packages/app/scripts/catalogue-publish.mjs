@@ -39,6 +39,8 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const PUBLIC_BASE = 'https://catalogue.mountainmanrockets.com/';
 const run = (command, args, options) => spawnSync(command, args, { ...options, encoding: 'utf8' });
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
+// Match catalogueClient.ts. Measured as UTF-8 bytes, before JSON parsing.
+export const SNAPSHOT_MAX_BYTES = { motors: 4 * 1024 * 1024, curves: 8 * 1024 * 1024 };
 const jsonBytes = (value) => Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
 const date = (value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
   && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
@@ -136,6 +138,10 @@ export function validatePreviousManifest(manifest) {
 /** Plan immutable files and ONE entry, never an authoritative future manifest. */
 export function planPublication({ motorsBytes, curvesBytes, previousManifest, previousManifestBytes,
   previousMotorsBytes, previousCurvesBytes, previousSnapshotUnavailable = false, commit, sourceRunId, fetchedAt, sourceAttempt }) {
+  for (const [kind, bytes] of [['motors', motorsBytes], ['curves', curvesBytes]]) {
+    const limit = SNAPSHOT_MAX_BYTES[kind];
+    if (Buffer.byteLength(bytes) > limit) throw new Error(`${kind} snapshot exceeds browser size limit (${limit} bytes)`);
+  }
   validatePreviousManifest(previousManifest);
   if (!runId(sourceRunId) || !checkedTimestamp(fetchedAt)) throw new Error('Valid sourceRunId and fetchedAt are required (UTC ending in Z)');
   if (!/^[0-9a-f]{40}$/.test(commit ?? '')) throw new Error('A valid 40-hex commit is required');
@@ -323,6 +329,9 @@ export function readPublication(dir) {
   if (plan.checkedUpdate !== undefined && typeof plan.checkedUpdate !== 'boolean') throw new Error('Invalid staged checked-update verdict');
   if (plan.baseManifestSha256 !== 'absent' && !digest(plan.baseManifestSha256)) throw new Error('Invalid staged base manifest hash');
   validatePreviousManifest({ schema: 1, current: plan.snapshotId, snapshots: [plan.entry] });
+  for (const kind of ['motors', 'curves']) {
+    if (plan.entry[kind].bytes > SNAPSHOT_MAX_BYTES[kind]) throw new Error(`${kind} snapshot exceeds browser size limit`);
+  }
   if (plan.snapshotId !== plan.entry.id) throw new Error('Invalid staged current snapshot');
   if (plan.checkedUpdate && (plan.changed || !checkedTimestamp(plan.input?.fetchedAt) || !runId(plan.input?.sourceRunId))) {
     throw new Error('Invalid staged checked-date provenance');
@@ -619,7 +628,7 @@ export async function main(argv = process.argv.slice(2), { env = process.env, st
         }
       }
     }
-    else if (command === 'verify') await verifyPublication(values.plan, { base: values.base, fetchImpl, sleep });
+    else if (command === 'verify') await verifyPublication(values.plan, { base: values.base, fetchImpl, sleep, attempts, delayMs });
     else if (command === 'freeze') freezeInputs({ motorsBytes: readFileSync(values.motors), curvesBytes: readFileSync(values.curves) }, values.out);
     else {
       const previousManifestBytes = values.previous === 'none' ? undefined : readFileSync(values.previous);

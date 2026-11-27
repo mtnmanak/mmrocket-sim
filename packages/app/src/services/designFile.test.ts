@@ -38,6 +38,18 @@ it('sniffs a bounded view then decodes the inflated bytes once without copying',
   } finally { spy.mockRestore(); }
 });
 
+it.each([
+  ['ork', 'renamed.rkt', '<openrocket><rocket><name>Test</name><subcomponents><stage><subcomponents><bodytube/></subcomponents></stage></subcomponents></rocket></openrocket>'],
+  ['cdx1', 'renamed.ork', '<RASAeroDocument><RocketDesign><Comments>Test</Comments><NoseCone><Length>10</Length><Diameter>2</Diameter><Shape>Conical</Shape></NoseCone><BodyTube><Length>20</Length><Diameter>2</Diameter></BodyTube></RocketDesign></RASAeroDocument>'],
+])('sniffs renamed %s after a leading comment crossing 16 KiB', async (format, filename, xml) => {
+  const positive = await parseDesignFile(new TextEncoder().encode('<!---->' + xml).buffer, filename, { presets: [] });
+  expect(positive.sourceFormat).toBe(format);
+  const bytes = new TextEncoder().encode('<!--' + 'x'.repeat(20000) + '-->' + xml);
+  const opened = await parseDesignFile(bytes.buffer, filename, { presets: [] });
+  expect(opened.sourceFormat).toBe(format);
+  expect(opened.notes.join(' ')).toContain('content');
+});
+
 /**
  * THE FILE DOOR (2026-10-01): the size refusal, the format dispatch, the name
  * fallback and the open-failure sentence App's Open… used inline, moved here
