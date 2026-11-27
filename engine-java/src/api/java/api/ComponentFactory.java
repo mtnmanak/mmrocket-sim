@@ -655,16 +655,20 @@ final class ComponentFactory {
         // BarrowmanCalculator.calculateOverrideCD. `overrideCD` above stays the
         // Mach-0.3 fallback and is the number the app's property panel quotes.
         //
-        // THESE TWO KEYS ARE SYNTHESIZED ONLY BY THE APP'S engineTree, for the two
-        // STREAMLINED protuberance classes. The `.ork` <overridecd> path
-        // (orkFile.ts readOverrides) must never set them, so every user-typed CD
-        // override and every desktop file stays Mach-flat and desktop-parity is
-        // untouched. An absent key leaves the field at NaN, which is the plain
-        // scalar behaviour.
+        // THESE KEYS ARE SYNTHESIZED ONLY BY THE APP'S engineTree: body ratios
+        // for streamlined protuberances and camera shrouds, and a normalization
+        // radius for ALL generated carriers, including scalar bumps/shrouds.
+        // The .ork readOverrides path and typed CD overrides must never set them:
+        // those retain desktop's live-reference-area meaning. An absent radius
+        // leaves NaN and an absent ratio leaves the plain scalar behaviour.
         double bodyRatio = dbl(node, "overrideCDBodyRatio", Double.NaN);
         if (!Double.isNaN(bodyRatio)) {
             c.setOverrideCDBodyRatio(bodyRatio);
             c.setOverrideCDBodyIncludesBase(bool(node, "overrideCDBodyIncludesBase", true));
+        }
+        double referenceRadius = dbl(node, "overrideCDReferenceRadius", Double.NaN);
+        if (Double.isFinite(referenceRadius) && referenceRadius > 0) {
+            c.setOverrideCDReferenceRadius(referenceRadius);
         }
         // The override REPLACES the whole subtree's computed value rather than
         // adding to this component's own.

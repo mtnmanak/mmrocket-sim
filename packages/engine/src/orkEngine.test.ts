@@ -1312,6 +1312,34 @@ describe('a body-proportional CD override tracks the body CD at every Mach', () 
 
   const sweep = (t: RocketTree) => OrkRocket.buildTree(t).dragSweep(OPTS);
 
+  it('rescales scalar and body-ratio overrides from their carried area to the live area', () => {
+    for (const over of [
+      { overrideCD: 0.05 },
+      { overrideCD: 0.05, overrideCDBodyRatio: RATIO, overrideCDBodyIncludesBase: true },
+      { overrideCD: 0.05, overrideCDBodyRatio: RATIO, overrideCDBodyIncludesBase: false },
+    ]) {
+      const noKey = OrkRocket.buildTree(airframe([FINS, carrier(over)]));
+      const scaled = OrkRocket.buildTree(airframe([FINS, carrier({ ...over, overrideCDReferenceRadius: 0.05 })]));
+      const own = sweep(airframe([FINS, carrier({ ...over, overrideCDReferenceRadius: 0.025 })]));
+      // All columns, not just the override: own-radius scaling must be inert.
+      expect(own).toEqual(noKey.dragSweep(OPTS));
+      const plain = noKey.forceSamples([0.3, 0.9, 1.5]);
+      const large = scaled.forceSamples([0.3, 0.9, 1.5]);
+      plain.forEach((row, i) => {
+        expect(large[i]![16] / row[16]).toBeCloseTo(4, 12);
+        if (!('overrideCDBodyRatio' in over)) expect(row[16]).toBe(0.05);
+      });
+    }
+  }, 60_000);
+
+  it('ignores invalid carried radii and leaves desktop overrides unchanged', () => {
+    const plain = sweep(airframe([FINS, carrier({ overrideCD: 0.05 })]));
+    for (const radius of [0, -0.025, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(sweep(airframe([FINS, carrier({ overrideCD: 0.05, overrideCDReferenceRadius: radius })])))
+        .toEqual(plain);
+    }
+  }, 60_000);
+
   it('delivers ratio x body CD(M), not a frozen scalar', () => {
     const bodyOnly = sweep(airframe([]));           // Rogers' "Rocket Body Only"
     const finned = sweep(airframe([FINS]));         // the same rocket, carrier removed

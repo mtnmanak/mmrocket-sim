@@ -63,6 +63,35 @@ public final class GoldenMain {
         stallAngleScenarios();
         forceConsistentCpScenarios();
         tumbleReleaseScenarios();
+        overrideReferenceAreaScenarios();
+    }
+
+    // J7-K1: append-only rows for a generated carrier on a narrower live stack.
+    private static void overrideReferenceAreaScenarios() {
+        final String opts = "{\"machMin\":0.3,\"machMax\":1.5,\"machStep\":0.4}";
+        String head = "{\"components\":[{\"type\":\"stage\",\"children\":["
+                + "{\"type\":\"nosecone\",\"length\":0.15,\"aftRadius\":0.025,\"thickness\":0.002},"
+                + "{\"type\":\"bodytube\",\"length\":0.5,\"outerRadius\":0.025,\"thickness\":0.001,"
+                + "\"children\":[{\"type\":\"railbutton\",\"outerDiameter\":0.014,\"overrideMass\":0,"
+                + "\"launchGuide\":false,\"overrideCD\":0.03";
+        String tail = "}]}]}]}";
+        String[] keys = { "", ",\"overrideCDReferenceRadius\":0.05",
+                ",\"overrideCDReferenceRadius\":0.025", ",\"overrideCDBodyRatio\":0.08",
+                ",\"overrideCDBodyRatio\":0.08,\"overrideCDReferenceRadius\":0.05",
+                ",\"overrideCDBodyRatio\":0.08,\"overrideCDReferenceRadius\":0.025" };
+        java.util.List<java.util.List<?>> totals = new java.util.ArrayList<>();
+        int last = 0;
+        for (String key : keys) {
+            last = api.OrkEngine.buildRocket(head + key + tail);
+            totals.add(sweepTotals(last, opts, "total"));
+        }
+        java.util.List<?> machs = sweepMachs(last, opts);
+        for (int i = 0; i < machs.size(); i++) {
+            line("cdreference." + i, (Double) machs.get(i),
+                    (Double) totals.get(0).get(i), (Double) totals.get(1).get(i),
+                    (Double) totals.get(2).get(i), (Double) totals.get(3).get(i),
+                    (Double) totals.get(4).get(i), (Double) totals.get(5).get(i));
+        }
     }
 
     // OR #3002/#3183: append-only differential rows. No old scenario is changed.

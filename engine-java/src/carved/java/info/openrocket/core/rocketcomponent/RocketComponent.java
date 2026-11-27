@@ -238,6 +238,13 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 	 */
 	private boolean overrideCDBodyIncludesBase = true;
 
+	/**
+	 * PATCH (MMRocket Sim, J7-K1): radius used to normalize a generated drag override.
+	 * NaN preserves the live-area meaning of desktop/user overrides. Clones carry
+	 * this primitive with the other override fields.
+	 */
+	private double overrideCDReferenceRadius = Double.NaN;
+
 	// User-given name of the component
     protected String name = null;
 	
@@ -980,6 +987,18 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 	public final void setOverrideCDBodyIncludesBase(boolean o) {
 		checkState();
 		this.overrideCDBodyIncludesBase = o;
+	}
+
+	/** PATCH (MMRocket Sim): fixed normalization radius, or NaN for a live-area CD. */
+	public final double getOverrideCDReferenceRadius() {
+		mutex.verify();
+		return overrideCDReferenceRadius;
+	}
+
+	/** PATCH (MMRocket Sim): see {@link #setOverrideCDBodyRatio} for the event-free bridge-only setter. */
+	public final void setOverrideCDReferenceRadius(double radius) {
+		checkState();
+		this.overrideCDReferenceRadius = radius;
 	}
 
 

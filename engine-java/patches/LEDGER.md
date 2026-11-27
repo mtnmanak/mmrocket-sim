@@ -1,5 +1,43 @@
 # Patch ledger
 
+## Generated override reference area after separation (J7-K1, 2026-11-26)
+
+- **Why:** engineTree normalizes bump and camera-shroud scalar/ratio overrides
+  against the full design. A separated branch with half that reference diameter
+  previously delivered only one quarter of its intended override drag area.
+- **Change:** `RocketComponent.overrideCDReferenceRadius` defaults to NaN and has
+  bridge-only, event-free accessors (clones copy the primitive). ComponentFactory
+  accepts only finite positive radii. engineTree emits the whole design radius on
+  every generated protuberance and camera-shroud carrier. After either override
+  branch, `BarrowmanCalculator.calculateOverrideCD` multiplies by the
+  squared carried/live radius ratio. The diameter fallback matches
+  ReferenceType.MAXIMUM. Equal radii skip the multiplication entirely: TeaVM
+  reassociated the original cd * (A0 / Ar) into cd * PI * r0^2 / Ar, introducing
+  rounding even when both areas matched. The explicit radius comparison keeps
+  attached/static/own-radius runs bit-identical without relying on grouping.
+- **Divergence:** MMRocket-original correctness fix, inert unless the new key is
+  present. Typed/.ork and assembly overrides retain desktop live-area semantics.
+  Sustainer, booster and separated pod configurations use the same calculation;
+  Hybrid's two inner calculators receive the same conditions and scale.
+- **Oracle (round 2 rebuild PENDING):** the orchestrator's round 1 evidence has
+  464 unchanged existing goldenJvm rows plus four appended rows; difftest passed
+  468 rows. Round 2 changes the scaling arithmetic and needs another rebuild.
+  Append-only `cdreference.*` golden rows exercise absent, own-radius and
+  doubled-radius scalar and ratio cases.
+  Compare goldenJvm before/after: existing rows must remain unchanged; only
+  appended rows are new. Then compare JVM/TeaVM with difftest. Engine force-sample
+  tests require a fourfold override at doubled radius and exact sweep identity
+  at own radius; full-series engine/app tests check both sides of separation,
+  the narrower booster, Hybrid/Kbf and desktop controls. No round 2 build/golden,
+  kernel mutation or corpus result is claimed here; see `.lane/REPORT.md`.
+- **Notes consequence:** post-separation flight numbers change when a generated
+  carrier remains on a branch whose reference diameter changes. No static/panel
+  or export formula changes. Corpus populations and before/after apogees must be
+  measured through engineTree after rebuilding. Camera shrouds retain the known
+  limit that their Mach-0.3 normalization uses the full stack's body Cd while
+  post-separation drag tracks the remaining branch's body Cd. No per-stage probe
+  or Mach-flat fallback is introduced by this fix.
+
 Every file in `patches/` REPLACES the same-relative-path upstream file during carve
 (`scripts/carve.mjs`). Patches must be minimal, documented here, and re-audited when
 upgrading the upstream OpenRocket version. Diff a patch against upstream with:

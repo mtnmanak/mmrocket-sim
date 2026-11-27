@@ -1358,7 +1358,7 @@ const AUTO_NO_NEIGHBOUR_RADIUS = 0.025;
  * Shared by engineTree and the property panel so the CD a user reads is the CD
  * that reaches the kernel.
  */
-export function referenceArea(tree: RocketTree): number {
+export function referenceRadius(tree: RocketTree): number {
   let maxR = 0;
   // The symmetric components in stack order, because a transition's absent
   // radius is AUTOMATIC and what the kernel substitutes depends on whether it
@@ -1399,8 +1399,12 @@ export function referenceArea(tree: RocketTree): number {
     }
   });
   // ReferenceType works in DIAMETER, and shoulder radii are not part of it.
-  const refLength = maxR * 2;
-  return Math.PI * ((refLength < 0.001 ? 0.01 : refLength) / 2) ** 2;
+  return maxR * 2 < 0.001 ? 0.005 : maxR;
+}
+
+export function referenceArea(tree: RocketTree): number {
+  const refLength = referenceRadius(tree) * 2;
+  return Math.PI * (refLength / 2) ** 2;
 }
 
 /**
@@ -1603,6 +1607,7 @@ export function engineTree(tree: RocketTree): RocketTree {
   tree = { ...tree, components: withoutMarks(tree.components) };
   // Rocket reference diameter = the airframe's max diameter (kernel rule).
   const aRef = referenceArea(tree);
+  const rRef = referenceRadius(tree);
 
   const walk = (nodes: ComponentNode[], parent?: ComponentNode): ComponentNode[] => nodes.map((n) => {
     if ((n.type as string) === 'protuberance') {
@@ -1660,6 +1665,8 @@ export function engineTree(tree: RocketTree): RocketTree {
         // drawings, which all read num(child, 'angleOffset', 0).
         angleOffset: reducePi(num(n, 'angleOffset', 0)),
         overrideCD: (cd * area) / Math.max(aRef, 1e-9),
+        // Keep this dimensional drag area when staging changes the live reference.
+        overrideCDReferenceRadius: rRef,
         // KEPT, and still the number the property panel quotes: it is the
         // Mach-0.3 value, and it is what the kernel charges if the ratio below
         // is absent — a plate, a typed Cd, or an older kernel artifact.
@@ -1724,6 +1731,7 @@ export function engineTree(tree: RocketTree): RocketTree {
         // true only because of that.
         overrideCD: (cdFrontal * surfaceBumpFrontalArea(mountRadiusOf(parent), W, H))
           / Math.max(aRef, 1e-9),
+        overrideCDReferenceRadius: rRef,
         // THE SHROUD FOLLOWS THE BODY'S MACH CURVE TOO (v0.103, Eric's ruling
         // 2026-09-04). Unlike a protuberance this is NOT Rogers' pure area ratio:
         // `cdFrontal` is Hoerner's flat-wall frontal coefficient (0.25 streamlined /
