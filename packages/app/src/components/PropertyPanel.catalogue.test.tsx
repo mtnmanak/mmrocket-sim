@@ -8,6 +8,7 @@ import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { detachPatch, presetPatch, type Preset } from '../services/presets.js';
 import presetsJson from '../data/presets.json';
 import { INITIAL_UNITS, IMPERIAL_UNITS, noticeQuantity } from '../prefs/units.js';
+import { MAX_STATED_MASS_KG } from '../tree/schema.js';
 
 /**
  * THE CONFLICT MARKER, tiers (b) and (c) — the property-panel half of the
@@ -49,7 +50,8 @@ const COUPLER: Preset = {
   kind: 'TubeCoupler', manufacturer: 'Test Tubes', partNo: 'TC-98', description: '',
   length: 0.2, outsideDiameter: 0.0985, insideDiameter: 0.0955,
 };
-const CATALOGUE = [CHUTE, OVERLINED, UNVENTED, COUPLER];
+const TUBE: Preset = { kind: 'BodyTube', manufacturer: 'Test', partNo: 'Tube', description: '', mass: 0.01 };
+const CATALOGUE = [CHUTE, OVERLINED, UNVENTED, COUPLER, TUBE];
 
 /** A canopy picked from `row` — the link and every catalogue value — then edited. */
 const linkedChute = (over: Record<string, unknown> = {}, row: Preset = CHUTE): ComponentNode => ({
@@ -118,6 +120,35 @@ afterEach(() => {
 });
 
 describe('the conflict marker in the property panel — tier (b), the ≠ chip', () => {
+  it('J5-M r3 clamps a rescaled catalogue cluster total to the stated mass limit', async () => {
+    const row: Preset = { ...TUBE, mass: MAX_STATED_MASS_KG / 2 };
+    loadPresets.mockResolvedValue([row]);
+    const prior: ComponentNode = { type: 'innertube', id: 'tube', cluster: 'single' };
+    await show({ ...prior, ...presetPatch('innertube', row, { node: prior, presets: [row] }) });
+    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Cluster layout"]')!;
+    act(() => { select.value = '4-ring'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(patches.at(-1)).toEqual({ cluster: '4-ring', overrideMass: MAX_STATED_MASS_KG });
+    expect(current.overrideMass).toBe(MAX_STATED_MASS_KG);
+  });
+  it.each([
+    ['4-ring', 'single', false, undefined, 0.01],
+    ['single', '4-ring', false, undefined, 0.04],
+    ['4-ring', 'single', true, undefined, 0.01],
+    ['4-ring', 'single', false, 0.013, 0.013],
+  ] as const)('J5-M changes %s to %s (detached %s, typed %s)', async (from, to, detached, typed, expected) => {
+    const prior: ComponentNode = { type: 'innertube', id: 'tube', cluster: from };
+    const initial = { ...prior, ...presetPatch('innertube', TUBE, { node: prior, presets: CATALOGUE }),
+      ...(detached ? { presetManufacturer: undefined, presetPartNo: undefined } : {}),
+      ...(typed === undefined ? {} : { overrideMass: typed }) } as ComponentNode;
+    await show(initial);
+    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Cluster layout"]')!;
+    expect(select).not.toBeNull();
+    act(() => { select.value = to; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(patches.at(-1)).toEqual(typed === undefined ? { cluster: to, overrideMass: expected } : { cluster: to });
+    expect(current.overrideMass).toBeCloseTo(expected, 12);
+    if (typed === undefined) expect(useButtons().some(b => b.getAttribute('aria-label')?.endsWith('for Mass'))).toBe(false);
+    if (detached) expect(host.textContent).not.toContain('not in this browser');
+  });
   it.each([['metric', INITIAL_UNITS], ['imperial', IMPERIAL_UNITS]] as const)(
     'writes the canopy and line material markers in the preferred density unit (%s)', async (_set, units) => {
       localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units }));

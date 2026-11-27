@@ -910,6 +910,33 @@ const matchesRetiredMass = (held: number, row: Preset): boolean =>
   partNumbersOf(row).some((pn) =>
     retiredMasses[linkKey(row.kind, row.manufacturer, pn)]?.some((mass) => matchesMass(held, mass)));
 
+/** Match the pick's link, or its original name after Detach. */
+function massRows(node: ComponentNode, presets: readonly Preset[]): readonly Preset[] {
+  const kind = KIND_FOR_TYPE[node.type];
+  if (!kind) return [];
+  if (node['presetPartNo'] == null) {
+    const name = typeof node.name === 'string' ? node.name.trim() : '';
+    return name === '' ? [] : presets.filter(p => p.kind === kind && `${p.manufacturer} ${p.partNo}` === name);
+  }
+  const want = linkKey(kind, node['presetManufacturer'], node['presetPartNo']);
+  return presets.filter(p => p.kind === kind
+    && partNumbersOf(p).some(pn => linkKey(kind, p.manufacturer, pn) === want));
+}
+
+/** Keep a recognized per-tube catalogue weight when editing the cluster count. */
+export function clusterCountPatch(node: ComponentNode, cluster: string, presets: readonly Preset[] | null): Partial<ComponentNode> {
+  const patch: Partial<ComponentNode> = { cluster };
+  const held = numOpt(node, 'overrideMass');
+  const from = clusterCount(node['cluster'] as string | undefined), to = clusterCount(cluster);
+  if (node.type !== 'innertube' || from === to || held === undefined
+      || node['overrideSubcomponentsMass'] === true || presets === null) return patch;
+  const perTube = held / from;
+  const row = massRows(node, presets).find(p => (p['savedComponent'] !== true || p.savedComponentVersion === 2)
+    && (matchesMass(perTube, p.mass) || matchesRetiredMass(perTube, p)));
+  if (row) patch['overrideMass'] = perTube * to;
+  return patch;
+}
+
 /**
  * Is this node's mass override the catalogue mass of the part it is linked to
  * — one `presetPatch` wrote, or a file copied from the same row — rather than a
@@ -941,13 +968,7 @@ export function holdsCatalogueMass(node: ComponentNode, presets: readonly Preset
   const weighsAsRow = (p: Preset) => p.kind === kind
     && (matchesMass(held / presetMassCopies(p, node), p.mass) || matchesRetiredMass(held / presetMassCopies(p, node), p)
       || (p['savedComponent'] !== true && (matchesMass(held, p.mass) || matchesRetiredMass(held, p))));
-  if (node['presetPartNo'] == null) {
-    const name = typeof node.name === 'string' ? node.name.trim() : '';
-    return name !== '' && presets.some((p) => weighsAsRow(p) && `${p.manufacturer} ${p.partNo}` === name);
-  }
-  const want = linkKey(kind, node['presetManufacturer'], node['presetPartNo']);
-  return presets.some((p) => weighsAsRow(p)
-    && partNumbersOf(p).some((pn) => linkKey(kind, p.manufacturer, pn) === want));
+  return massRows(node, presets).some(weighsAsRow);
 }
 
 // ---------------------------------------------------------------------------

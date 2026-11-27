@@ -109,6 +109,8 @@ export interface DescribeFileResult {
   launchMount: string | null;
   /** `#d=1.…`, exactly what the app's share link carries after its origin. */
   fragment: string;
+  /** Internal provenance: only this leading analysis prefix comes from kernel warnings. */
+  analysisWarningCount: number;
   notes: {
     import: { text: string; severity: NoticeSeverity; group?: ImportPlan['note']['group'] };
     analysis: string[];
@@ -396,6 +398,7 @@ export async function describeFile(
     mounts,
     launchMount,
     fragment,
+    analysisWarningCount: info.warningTexts.length,
     notes: {
       import: { text: plan.note.text, severity: plan.note.severity,
         ...(opts.includeImportNoteGroup ? { group: plan.note.group } : {}) },

@@ -265,6 +265,40 @@ it('strips short unsafe note characters and replaces short unsafe name character
   } finally { spy.mockRestore(); }
 });
 
+it('J23-L4 bounds warning analysis separately from app-authored analysis notes', async () => {
+  const normal = await headless.describeFile(bytesOf('reference.ork'), 'reference.ork');
+  const warning = 'Warning: ' + 'w'.repeat(2000);
+  const note = 'The drag estimate is unavailable: ' + 'x'.repeat(5000);
+  normal.notes.analysis = [warning, note];
+  normal.analysisWarningCount = 1;
+  const spy = vi.spyOn(headless, 'describeFile').mockResolvedValue(normal);
+  try {
+    const response = await post('/describe', 'safe.ork', bytesOf('reference.ork'));
+    expect(response.status).toBe(200);
+    const out = await response.json() as typeof normal;
+    expect(points(out.notes.analysis[0]!)).toBeLessThanOrEqual(1000);
+    expect(points(out.notes.analysis[1]!)).toBeGreaterThan(1000);
+    expect(points(out.notes.analysis[1]!)).toBeLessThanOrEqual(4000);
+    expect(out).not.toHaveProperty('analysisWarningCount');
+  } finally { spy.mockRestore(); }
+});
+
+it('J23-L4 r3 keeps warning limits on flight comments absent from static warnings', async () => {
+  const normal = await headless.simulateFile(bytesOf('reference.ork'), 'reference.ork', { reportSeries: 'summary' });
+  const comments = ['Report "' + 'x'.repeat(3500) + '"', 'Report "A\u201cB"'];
+  normal.build.info.warningTexts = [];
+  normal.run.comments = comments.join(' | ');
+  const spy = vi.spyOn(headless, 'simulateFile').mockResolvedValue(normal);
+  try {
+    const response = await post('/experimental/fly', 'safe.ork', bytesOf('reference.ork'));
+    expect(response.status).toBe(200);
+    const out = await response.json() as { notes: { flight: { text: string }[] } };
+    expect(out.notes.flight.map(entry => entry.text)).toEqual(comments.map(warningEcho));
+    expect(points(out.notes.flight[0]!.text)).toBeLessThanOrEqual(1000);
+    expect(out.notes.flight[1]!.text).toContain('[U+201C]');
+  } finally { spy.mockRestore(); }
+});
+
 it('removes file line controls inside entries and rebuilds only structural newlines', () => {
   const result = noteStrings({ text: 'obsolete', group: { heading: 'Loaded.', lines: [
     { text: 'Motor \u201cUNKNOWN\rINJECT\nFAKE\tTAB\u201d.', part: 'PART\rINJECT\nFAKE\tTAB' },

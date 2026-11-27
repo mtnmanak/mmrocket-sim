@@ -50,6 +50,34 @@ async function fixture() {
 }
 
 describe('ask at open choices', () => {
+  it.each(['accept', 'replace', 'empty'] as const)('J23-L2 r4 only the answered file locations grant provenance (%s)', async choice => {
+    const { state, groups } = await fixture();
+    const tree = defaultTree();
+    const mountId = motorMounts(tree)[0]!.id!;
+    const old = state.mountMotors.m!;
+    motorMounts(tree)[0]!['fileMotorIds'] = [old.meta.motorId!, 'other-file'];
+    const link = { ...old, meta: { ...old.meta, motorId: 'link-wide' }, spec: { ...old.spec, diameter: 0.1 } };
+    const otherFile = { ...old, meta: { ...old.meta, motorId: 'other-file' } };
+    const group = { ...groups[0]!, locations: [{ configId: 'b', mountId, ref }] };
+    const row = group.candidates.find(m => m.motorId !== old.meta.motorId)!;
+    const next = await applyOpenMotorChoices({ tree, mountMotors: { [mountId]: link }, unmatchedRefs: {},
+      savedConfigs: [
+        { id: 'a', name: null, isDefault: true, motors: { [mountId]: link } },
+        { id: 'b', name: null, isDefault: false, motors: { [mountId]: old } },
+        { id: 'c', name: null, isDefault: false, motors: { [mountId]: otherFile } },
+      ] }, 'a', [group], { [group.key]: choice === 'empty' ? { kind: 'empty' }
+      : { kind: 'catalogue', motor: choice === 'accept' ? group.candidates.find(m => m.motorId === old.meta.motorId)! : row } }, fetchSpec);
+    const ids = motorMounts(next.tree)[0]!['fileMotorIds'];
+    expect(ids).not.toContain('link-wide');
+    expect(ids).toContain('other-file');
+    if (choice === 'accept') {
+      expect(ids).toContain(old.meta.motorId);
+      expect(next.tree).toBe(tree);
+    } else {
+      expect(ids).not.toContain(old.meta.motorId);
+      if (choice === 'replace') expect(ids).toContain(row.motorId);
+    }
+  });
   it.each([false, true])('J4 S7a-g6 preserves explicit Auto or applies the chosen every-delay default (%s)', async every => {
     const { state, groups } = await fixture();
     const old = { ...state.mountMotors.m!, meta: { ...state.mountMotors.m!.meta, autoDelay: true },

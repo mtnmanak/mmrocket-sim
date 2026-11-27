@@ -859,7 +859,8 @@ export function planConfigSwitch(
   // the open path, folded into the same tree.
   const spent = reconcileAllIncludedMotors(next, attachedSet(cfg.motors), text);
   next = spent.tree;
-  next = refreshFileMotorIds(next, [cfg.motors, ...savedConfigs.map(c => c.motors)], true);
+  // Switching working motors cannot create file-origin exceptions. Import and
+  // explicit open-motor answers already record the file's choices.
   const fitNotes: ImportNote[] = motorFitWarnings(next, Object.entries(cfg.motors), units)
     .map(w => ({ kind: 'I12.motor-fit', tier: 'caution', text: w.message }));
   // Always rewrite the note, never only on failure. Writing it solely when

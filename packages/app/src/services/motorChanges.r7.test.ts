@@ -35,7 +35,7 @@ it('r7 calls only estimated motor room an estimate', () => {
   expect(explicit).toContain('does not model this collision');
 });
 
-it('r7 config switches refresh file choices and fit cautions in both directions', () => {
+it('r7 config switches preserve file choices and refresh fit cautions in both directions', () => {
   const tree = balanceTree(1), wide = balanceMotor(), fits = balanceMotor();
   wide.meta.motorId = 'wide'; wide.spec.diameter = 0.1;
   fits.meta.motorId = 'fits';
@@ -45,12 +45,22 @@ it('r7 config switches refresh file choices and fit cautions in both directions'
   const b = { id: 'b', name: 'Fits', isDefault: false, motors: { m0: fits } };
   const state = { tree, savedConfigs: [a, b], mountMotors: a.motors, unmatchedRefs: {}, activeConfigId: 'a' };
   const next = planConfigSwitch(state, b, { mass: String, length: String });
-  expect(motorMounts(next.tree)[0]!['fileMotorIds']).toEqual(['obsolete', 'wide']);
+  expect(motorMounts(next.tree)[0]!['fileMotorIds']).toEqual(['obsolete']);
   expect(next.note.group.lines.filter(n => n.kind === 'I12.motor-fit')).toEqual([]);
   const back = planConfigSwitch({ ...state, ...next }, a, { mass: String, length: String });
   expect(back.note.group.lines.filter(n => n.kind === 'I12.motor-fit')).toHaveLength(1);
   expect(back.note.severity).toBe('warn');
   expect(mount['fileMotorIds']).toEqual(['obsolete']);
+});
+
+it.each(['motorId', 'exMotorId'] as const)('J23-L2 config switches never give a working %s motor file provenance', key => {
+  const tree = balanceTree(1), wide = balanceMotor();
+  wide.meta[key] = 'link-wide'; wide.spec.diameter = 0.1;
+  const a = { id: 'a', name: 'Working', isDefault: true, motors: {} };
+  const b = { id: 'b', name: 'Other', isDefault: false, motors: {} };
+  const next = planConfigSwitch({ tree, savedConfigs: [a, b], mountMotors: { m0: wide },
+    unmatchedRefs: {}, activeConfigId: 'a' }, b, { mass: String, length: String });
+  expect(motorMounts(next.tree)[0]!['fileMotorIds']).toBeUndefined();
 });
 
 it.each(['wide', 'fits', 'empty'] as const)('r7 open motor choice %s refreshes its file choices and fit notes', async kind => {

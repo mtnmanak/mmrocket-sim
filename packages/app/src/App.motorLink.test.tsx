@@ -224,6 +224,20 @@ it('opens an unknown motor with an empty mount, a note and no flight', async () 
   expect(flyBuiltDesign).not.toHaveBeenCalled();
   expect(host.textContent).toContain(MOTOR_DB_DATE);
 }, 20_000);
+it('J23-L2 r3 initial link open keeps injected motors out of file provenance', async () => {
+  const wide = (await Promise.all(getCatalogue().filter(m => m.diameter > 18 && m.diameter <= 29)
+    .map(async m => await bundleHasCurve(m.motorId) ? m : null))).find(m => m !== null)!;
+  expect(wide).toBeDefined();
+  await open(`&motor=${wide.motorId}`);
+  await waitFor(() => runs().length === 1);
+  const plan = vi.mocked(applyImportPlan).mock.calls.at(-1)![0];
+  const mount = motorMounts(plan.snapshot.tree)[0]!;
+  expect(plan.snapshot.mountMotors[mount.id!]?.meta.motorId).toBe(wide.motorId);
+  expect(mount['fileMotorIds'] ?? []).toEqual([]);
+  expect(host.textContent).toContain('the real rocket could not be built this way');
+  await waitFor(() => Object.values(session().mountMotors ?? {}).some(m => (m as { meta?: { motorId?: string } }).meta?.motorId === wide.motorId));
+  expect(motorMounts(session().tree)[0]!['fileMotorIds'] ?? []).toEqual([]);
+}, 20_000);
 it('never auto-flies a plain link', async () => {
   await open(''); await settle();
   expect(catalogueCheckSettled).not.toHaveBeenCalled();
@@ -641,6 +655,30 @@ async function questionFile(otherMount = false) {
   if (otherMount) xml = xml.replace('<motor configid="b">', '<motor configid="a">').replace('<motormount>', '<motormount/><subcomponents><innertube><length>0.15</length><outerradius>0.015</outerradius><motormount>').replace('</motormount></bodytube>', '</motormount></innertube></subcomponents></bodytube>');
   return encodeShareFragment(xml);
 }
+
+it.each([false, true])('J23-L2 r4 inactive answer keeps link provenance and held flight (wide file motor=%s)', async wideFile => {
+  const wide = (await Promise.all(getCatalogue().filter(m => m.diameter > 30 && m.diameter <= 38)
+    .map(async m => await bundleHasCurve(m.motorId) ? m : null))).find(m => m !== null)!;
+  expect(wide).toBeDefined();
+  const xml = await decodeShareFragment(await questionFile());
+  const fragment = await encodeShareFragment(wideFile ? xml.replace('<radius>0.016</radius>', '<radius>0.01</radius>') : xml);
+  await open('&motor=' + wide.motorId, fragment);
+  await waitFor(() => vi.mocked(applyImportPlan).mock.calls.length === 1);
+  const plan = vi.mocked(applyImportPlan).mock.calls[0]![0];
+  const mount = motorMounts(plan.snapshot.tree)[0]!;
+  const before = mount['fileMotorIds'] ?? [];
+  expect(before).not.toContain(wide.motorId);
+  expect(plan.snapshot.savedConfigs.find(c => c.id === 'b')!.motors[mount.id!]!.openNote).toBeDefined();
+  expect(flyBuiltDesign).not.toHaveBeenCalled();
+  await click('Apply');
+  await waitFor(() => !host.querySelector('[aria-label="Choose motors for this file"]'));
+  await waitFor(() => Object.values(session().mountMotors ?? {}).some(m => (m as { meta?: { motorId?: string } }).meta?.motorId === wide.motorId));
+  expect(motorMounts(session().tree)[0]!['fileMotorIds'] ?? []).toEqual(before);
+  await waitFor(() => runs().length === 1);
+  await settle();
+  expect(flyBuiltDesign).toHaveBeenCalledOnce();
+  expect(Object.values(vi.mocked(flyBuiltDesign).mock.calls[0]![0].working!.motors)).toMatchObject([{ meta: { motorId: wide.motorId } }]);
+}, 20_000);
 
 it.each(['occupied', 'same-stage', 'two-stage', 'unmatched', 'ex'] as const)('round11 active %s opens plainly without catalogue wait', async kind => {
   vi.mocked(catalogueCheckSettled).mockReturnValue(new Promise(() => {}));

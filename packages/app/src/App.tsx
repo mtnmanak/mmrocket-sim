@@ -23,7 +23,7 @@ import { OtherMountOffer } from './components/OtherMountOffer.js';
 import { prepareOrkExport, exportMotorsMap as assembleExportMotors,
   flightExportInput as assembleFlightExportInput } from './services/exportAssembly.js';
 import { OpenMotorDialog } from './components/OpenMotorDialog.js';
-import { acceptedOtherMakerNotes, applyOpenMotorChoices, collectOpenMotorIdentities, commitOpenMotorChoices, type OpenMotorIdentity, type OpenMotorState } from './services/openMotorChoices.js';
+import { acceptedOtherMakerNotes, applyOpenMotorChoices, collectOpenMotorIdentities, commitOpenMotorChoices, refreshOpenMotorFileIds, type OpenMotorIdentity, type OpenMotorState } from './services/openMotorChoices.js';
 import { activeFlightOverrides, holdsOverrides, overrideFor, resolveFlightState, resetOverride, setOverride, sparsify,
   workingSettingsOwnOverrides, isWorkingSettings } from './services/flightState.js';
 import type { ComponentFlightTuple } from './services/flightOverrideText.js';
@@ -191,7 +191,7 @@ import { convertShrouds, type ShroudCandidate } from './tree/shroudConvert.js';
 import { mountBore } from './tree/scaleRocket.js';
 import { designNotices, type HeldNote } from './services/notices.js';
 import { groupOf, groupText, highestTier, tierLines, withoutLines, noteFlags, type ImportNote, type NoteGroup } from './services/importNotes.js';
-import { motorFitWarnings, refreshFileMotorIds } from './services/motorFitWarnings.js';
+import { motorFitWarnings } from './services/motorFitWarnings.js';
 import { dismissLegacyPositions, preserveLegacyPositionCheck } from './services/legacyPositionCheck.js';
 import {
   legacyPadMassWrite, restoredPadMassNote, typedPadMass, type PadMassText,
@@ -3164,6 +3164,14 @@ export function App() {
       const filePlan = fileImport && planImport({ ...fileImport.imported, notes: imported.notes, noteTiers: imported.noteTiers, expand: imported.expand }, fileImport.resolved,
         { launch: launchRef.current, text: statedWeightText, units: prefs.units });
       const plan = planImport(imported, resolved, { launch: launchRef.current, text: statedWeightText, units: prefs.units });
+      if (filePlan) {
+        // A link's injected motor is working hardware. Only motors from the
+        // pre-injection file plan may receive the browser's file exceptions.
+        for (const mount of motorMounts(plan.snapshot.tree)) {
+          const ids = findNode(filePlan.snapshot.tree, mount.id!)?.['fileMotorIds'];
+          plan.snapshot.tree = updateNode(plan.snapshot.tree, mount.id!, { fileMotorIds: ids });
+        }
+      }
       const quietLines = new Set(planImport(imported, acceptedOtherMakerNotes(resolved),
         { launch: launchRef.current, text: statedWeightText, units: prefs.units }).note.text.split('\n'));
       const acceptedLines = plan.note.text.split('\n').filter(line => !quietLines.has(line));
@@ -4634,8 +4642,7 @@ export function App() {
             const next = await applyOpenMotorChoices({ tree, mountMotors, savedConfigs, unmatchedRefs }, activeConfigId, identities, choices, undefined, prefs.units);
             if (documentGeneration.current !== generation) return;
             // The chosen motor and its back-out are one undo step (audit 2026-10-11, S2-2).
-            const changedMounts = new Set(identities.flatMap(g => g.locations.map(l => l.mountId)));
-            const chosenTree = refreshFileMotorIds(treeRef.current, [next.mountMotors, ...next.savedConfigs.map(c => c.motors)], false, changedMounts);
+            const chosenTree = refreshOpenMotorFileIds(treeRef.current, next, activeConfigId, identities);
             const spent = reconcileAllIncludedMotors(chosenTree, attachedSet(next.mountMotors), statedWeightText);
             const fitNotes: ImportNote[] = motorFitWarnings(spent.tree, Object.entries(next.mountMotors), prefs.units)
               .map(w => ({ kind: 'I12.motor-fit', tier: 'caution', text: w.message }));

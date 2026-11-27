@@ -55,6 +55,20 @@ beforeEach(() => { fetchSpy.mockClear(); vi.stubGlobal('fetch', fetchSpy); });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); expect(fetchSpy).not.toHaveBeenCalled(); });
 
 describe('describeFile: dry statics on the shipped data, no flight', () => {
+  it('J23-L4 counts the leading kernel warning notes separately from app analysis', async () => {
+    const real = KERNEL_HANDLES.build;
+    vi.spyOn(KERNEL_HANDLES, 'build').mockImplementation(engine => {
+      const rocket = real(engine), staticInfo = rocket.staticInfo.bind(rocket);
+      rocket.staticInfo = () => ({ ...staticInfo(), warningTexts: ['[Warning.Other] Fixture warning'] });
+      rocket.dragSweep = () => { throw new Error('Fixture drag failure'); };
+      return rocket;
+    });
+    const out = await describeFile(bytes('reference.ork'), 'reference.ork');
+    expect(out.analysisWarningCount).toBe(out.notes.analysis.findIndex(text => text.includes('Fixture drag failure')));
+    expect(out.analysisWarningCount).toBeGreaterThan(0);
+    expect(out.notes.analysis[0]).toContain('Fixture warning');
+    expect(out.notes.analysis.slice(out.analysisWarningCount).join(' ')).toContain('Fixture drag failure');
+  });
   it.each(readdirSync(join(repoRoot(), 'packages', 'app', 'src', 'services', '__fixtures__'))
     .filter(name => /\.(ork|rkt|cdx1)$/i.test(name)).sort())('%s: separate aero model and Kbf fields', async file => {
     const out = await describeFile(bytes(file), file);

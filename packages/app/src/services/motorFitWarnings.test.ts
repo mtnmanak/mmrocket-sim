@@ -5,7 +5,7 @@ import { balanceMotor, balanceTree } from './asymmetricThrust.testSupport.js';
 import { IMPERIAL_UNITS, INITIAL_UNITS } from '../prefs/units.js';
 import { preflightAudit } from './preflightAudit.js';
 import { staticWarningTier, warningTier } from './simWarnings.js';
-import { applyImportPlan, planImport } from './importApply.js';
+import { applyImportPlan, planConfigSwitch, planImport } from './importApply.js';
 import { addExMotors, parseEng } from './exMotors.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import { cloneSubtree, defaultTree, motorMounts, updateNode } from '../tree/treeModel.js';
@@ -17,6 +17,36 @@ import { designStateFromSession } from './sessionRestore.js';
 import { importCdx1 } from './rasaeroFile.js';
 import { exportOrk, importOrk } from './orkFile.js';
 import { exportRkt, importRkt } from './rocksimFile.js';
+import { discardSession, flushSession, loadSession, saveSessionDebounced } from './session.js';
+
+it.each(['motorId', 'exMotorId'] as const)('J23-L2 r3 current autosaves never invent %s file provenance', key => {
+  const tree = defaultTree(), mount = motorMounts(tree)[0]!, wide = balanceMotor();
+  wide.meta[key] = 'working-wide'; wide.spec.diameter = 0.1;
+  expect(mount['fileMotorIds']).toBeUndefined();
+  discardSession();
+  try {
+    saveSessionDebounced({ tree, launch: DEFAULT_CONDITIONS, mountMotors: { [mount.id!]: wide },
+      savedConfigs: [{ id: 'wide', name: 'Wide', isDefault: true, motors: { [mount.id!]: wide } }] });
+    flushSession();
+    const saved = loadSession()!;
+    expect(saved.mountMotors?.[mount.id!]?.meta[key]).toBe('working-wide');
+    const restored = designStateFromSession(saved, { legacyMaxMotorLengthM: null });
+    expect(motorMounts(restored.state.tree)[0]!['fileMotorIds'] ?? []).toEqual([]);
+    expect(restored.state.mountMotors[mount.id!]?.spec).toEqual(wide.spec);
+    expect(motorFitWarnings(restored.state.tree, Object.entries(restored.state.mountMotors)).map(w => w.key)).toContain('MOTOR_TOO_WIDE');
+  } finally { discardSession(); }
+});
+
+it.each(['motorId', 'exMotorId'] as const)('J23-L2 r3 still migrates genuinely legacy %s file choices once', key => {
+  const tree = defaultTree(), mount = motorMounts(tree)[0]!, wide = balanceMotor();
+  wide.meta[key] = 'legacy-wide'; wide.spec.diameter = 0.1;
+  const saved = { tree, launch: DEFAULT_CONDITIONS, savedAt: 1, mountMotors: { [mount.id!]: wide } };
+  const restored = designStateFromSession(saved, { legacyMaxMotorLengthM: null });
+  expect(motorMounts(restored.state.tree)[0]!['fileMotorIds']).toEqual(['legacy-wide']);
+  const again = designStateFromSession({ ...saved, ...restored.state, mountMotors: {} }, { legacyMaxMotorLengthM: null });
+  expect(motorMounts(again.state.tree)[0]!['fileMotorIds']).toEqual(['legacy-wide']);
+  expect(mount['fileMotorIds']).toBeUndefined();
+});
 
 it('r5 a modern provenance marker prevents migration of a measured 2 mm sibling', () => {
   const tree = balanceTree(2);
@@ -33,6 +63,19 @@ it('r5 file-motor exceptions belong only to the original unscaled mount', () => 
   expect(cloneSubtree(mount)['fileMotorIds']).toEqual([]);
   expect(motorMounts(scaleRocket(tree, 0.5).tree)[0]!['fileMotorIds']).toEqual([]);
   expect(mount['fileMotorIds']).toEqual(['wide']);
+});
+
+it('J23-L1 switching configurations cannot restore a scaled mount file exception', () => {
+  const tree = balanceTree(1), wide = balanceMotor();
+  wide.meta.motorId = 'scaled-wide'; wide.spec.diameter = 0.1;
+  motorMounts(tree)[0]!['fileMotorIds'] = ['scaled-wide'];
+  const scaled = scaleRocket(tree, 0.5).tree;
+  const a = { id: 'a', name: 'Empty', isDefault: true, motors: {} };
+  const b = { id: 'b', name: 'Wide', isDefault: false, motors: { m0: wide } };
+  const next = planConfigSwitch({ tree: scaled, savedConfigs: [a, b], mountMotors: {},
+    unmatchedRefs: {}, activeConfigId: 'a' }, b, { mass: String, length: String });
+  expect(motorMounts(next.tree)[0]!['fileMotorIds']).toEqual([]);
+  expect(next.note.group.lines.some(n => n.kind === 'I12.motor-fit')).toBe(true);
 });
 
 it('r5 restoring a scaled mount does not recover its discarded file exception', () => {
