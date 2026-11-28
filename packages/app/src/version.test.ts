@@ -144,6 +144,8 @@ describe('changelog areas worked out from two diameters', () => {
   type AreaClaim =
     /** "81 percent more area": the square of the diameters' ratio, as a percentage. */
     | { areaPercent: number }
+    /** "75 % too low": how far the smaller diameter's area falls short of the larger one's, as a percentage. */
+    | { areaPercentLess: number }
     /** "34 percent wider": the ratio itself. */
     | { widerPercent: number }
     /** "2.4 times the area", rounded to `step` as written: "two and a half" is a step of 0.5. */
@@ -166,6 +168,11 @@ describe('changelog areas worked out from two diameters', () => {
   }
 
   const AREA_FIGURES: AreaFigure[] = [
+    {
+      version: '0.221',
+      says: 'the smaller area unchanged, so on a stage narrower than the widest part it was too small (75 % too low for a 50 mm sustainer above a 100 mm booster)',
+      from: 100, to: 50, claim: { areaPercentLess: 75 },
+    },
     { version: '0.145', says: '"34 percent more area"', from: 0.18, to: 0.242, claim: { areaPercent: 34 }, quoted: true },
     { version: '0.145', says: '"56 percent more"', from: 0.18, to: 0.281, claim: { widerPercent: 56 }, quoted: true },
     { version: '0.145', says: 'the areas grew 81 and 144 percent', from: 0.18, to: 0.242, claim: { areaPercent: 81 } },
@@ -256,6 +263,11 @@ describe('changelog areas worked out from two diameters', () => {
     if ('areaPercent' in c) {
       if (!standalone(c.areaPercent).test(f.says)) return `${at}: does not state ${c.areaPercent}`;
       return pct(r ** 2) === c.areaPercent ? null : `${at}: the area grows ${pct(r ** 2)} % (the diameter ${pct(r)} %)`;
+    }
+    if ('areaPercentLess' in c) {
+      if (!standalone(c.areaPercentLess).test(f.says)) return `${at}: does not state ${c.areaPercentLess}`;
+      const short = Math.round(100 * (1 - r ** 2));
+      return r < 1 && short === c.areaPercentLess ? null : `${at}: the area falls short by ${short} %`;
     }
     if ('areaTimesJustOver' in c) {
       const n = c.areaTimesJustOver;

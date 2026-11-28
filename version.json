@@ -1,5 +1,5 @@
 {
-  "version": "0.220",
-  "released": "2026-11-26",
-  "note": "Batch can skip mirrored layouts for more rings of identical tubes; questions and notices about designs that did not open are tidied."
+  "version": "0.221",
+  "released": "2026-11-28",
+  "note": "A blank nozzle exit now flies the motor’s published nozzle on every launch, and a RASAero 0 means no nozzle; protuberance and camera-shroud drag keeps its area after separation."
 }
