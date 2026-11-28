@@ -334,7 +334,9 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
       add(kids.some(n => n.type === 'nosecone') || kids.filter(n => n.type === 'bodytube').length > 1
         || kids.some(n => n.type === 'transition' && String(n['shape'] ?? 'conical') !== 'conical'),
       `Booster geometry ${named(stage)}: forward noses are omitted, tube boundaries and radii collapse to one tube, and shoulder/boat-tail shapes become conical.`);
-      add(num(stage, 'nozzleExitDiameter', 0) > 0 && !exportedEngines[stages.indexOf(stage)],
+      // A blank (automatic) booster gets its one note from nozzleExportNotes.
+      const storedExit = asStageNodes(input.storedNozzleTree ?? input.tree)[stages.indexOf(stage)]?.['nozzleExitDiameter'];
+      add(storedExit != null && num(stage, 'nozzleExitDiameter', 0) > 0 && !exportedEngines[stages.indexOf(stage)],
         `Booster nozzle ${named(stage)} is not kept because this stage has no exported engine.`);
     }
     parts(n => planar(n) && nonzero(n, 'cant', 'rotation'), 'Fin cant and rotation are not kept');
