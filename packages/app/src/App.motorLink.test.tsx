@@ -236,7 +236,8 @@ it('J23-L2 r3 initial link open keeps injected motors out of file provenance', a
   const mount = motorMounts(plan.snapshot.tree)[0]!;
   expect(plan.snapshot.mountMotors[mount.id!]?.meta.motorId).toBe(wide.motorId);
   expect(mount['fileMotorIds'] ?? []).toEqual([]);
-  expect(host.textContent).toContain('the real rocket could not be built this way');
+  // J23N: the flight warning strip owns motor-fit advice on every entry path (no second link Caution).
+  expect(host.textContent).toContain('The real rocket could not be built this way');
   await waitFor(() => Object.values(session().mountMotors ?? {}).some(m => (m as { meta?: { motorId?: string } }).meta?.motorId === wide.motorId));
   expect(motorMounts(session().tree)[0]!['fileMotorIds'] ?? []).toEqual([]);
 }, 20_000);

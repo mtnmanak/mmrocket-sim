@@ -48,7 +48,7 @@ describe('J10 guide promises match the supported conditions', () => {
     const physics = paragraph('- **power-on base drag**');
     expect(physics).toContain('Blank means automatic');
     expect(physics).toContain('explicit **0**');
-    expect(physics).toContain('sum of the motor exit areas');
+    expect(physics).toContain('sum of the firing motor exit areas');
     expect(paragraph('- **Many motors have no exit diameter on file**')).toContain('imported `.rse`');
     expect(paragraph('**Cluster**')).toContain('usable exit, published or from an imported `.rse`');
   });
