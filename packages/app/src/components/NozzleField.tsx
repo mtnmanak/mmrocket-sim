@@ -215,8 +215,8 @@ export function NozzleField({
           </button>
         </p>
       )}
-      <Note tier={exitDiameterM === null && (clearedFor != null || unavailable) ? 'caution' : 'information'}>
-      {clearedFor && exitDiameterM === null && (
+      <Note tier={exitDiameterM === null && published === null && (clearedFor != null || unavailable) ? 'caution' : 'information'}>
+      {clearedFor && exitDiameterM === null && published === null && (
         <p className="field-caution" style={{ margin: '3px 0 0' }} data-nozzle="cleared">
           <strong>Cleared — the {ui(clearedFor.previousM)} here was for {clearedFor.previousLabel}.</strong>
           {' '}

@@ -286,15 +286,19 @@ it('J23N r5 configurations use the live EX library, retaining owner exits only a
     return provenanceKeyOf({ tree: flown, physicsKey: physicsKeyOf(flown.components), assigned: [['a', mm]],
       hardwareDeltaKg: 0, launch: DEFAULT_CONDITIONS, aero });
   };
-  const assembled = flightExportInput({ tree, runs: [], savedConfigs: [
+  const assemble = () => flightExportInput({ tree, runs: [], savedConfigs: [
     config({ motors: { a: first }, nozzles: { s: null } }),
     config({ id: 'B', motors: { a: second }, nozzles: { s: null } }),
   ], activeConfigId: 'A', assigned: [['a', first]], mountMotors: { a: first }, detachedOverrides: {},
     mounts: tree.components[0]!.children!.slice(0, 2), hardwareDeltaKg: 0, launch: DEFAULT_CONDITIONS,
     provenanceKey: expected(first, ex.exitDiameterM), ...aero });
+  const assembled = assemble();
   expect(assembled.configurationState!('A').designKey).toBe(expected(first, 0.012).designKey);
   expect(assembled.configurationState!('B').designKey).toBe(expected(second, 0.012).designKey);
   deleteExMotor(ex.motorId);
+  const retained = assemble();
+  expect(retained.configurationState!('A').designKey).toBe(expected(first, 0.008).designKey);
+  expect(retained.configurationState!('B').designKey).toBe(expected(second, 0.009).designKey);
 });
 
 it('J23N r3 inactive nozzle keys and Auto-delay evidence exclude that run\'s refused motors', () => {

@@ -74,6 +74,27 @@ function harness(initial: RocketTree, look: NozzleLookup = lookup) {
 
 const exitOf = (t: RocketTree) => t.components[0]!['nozzleExitDiameter'];
 
+it('J23N r6 forgets a cleared caution when an unchanged EX loadout gains an automatic exit', async () => {
+  localStorage.clear();
+  const ex = parseEng('G100 38 150 P 0.1 0.2 Home\n0 0\n0.5 200\n1 0')[0]!;
+  addExMotors([ex]);
+  const h = harness(tree(0.012), nozzleForMotorId);
+  await h.show(loadout('C6-5'));
+  await h.show(loadout(ex.motorId));
+  expect(exitOf(h.treeRef.current)).toBeUndefined();
+  expect(h.out.cleared.s1?.previousM).toBe(0.012);
+  const writes = h.writes.length;
+  await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.009 }]); });
+  expect(h.out.cleared).toEqual({});
+  expect(h.out.pending).toBe(false);
+  expect(h.writes).toHaveLength(writes);
+  expect(exitOf(h.treeRef.current)).toBeUndefined();
+  // Removing the library figure alone must not create another cleared note.
+  await act(async () => { addExMotors([ex]); });
+  expect(h.out.cleared).toEqual({});
+  expect(h.writes).toHaveLength(writes);
+});
+
 it.each([0.008, undefined])('J23N r5 App lookup keeps typed 12 mm across library-only reimport from %s', async exitDiameterM => {
   localStorage.clear();
   const ex = { ...parseEng('G100 38 150 P 0.1 0.2 Home\n0 0\n0.5 200\n1 0')[0]!, exitDiameterM };

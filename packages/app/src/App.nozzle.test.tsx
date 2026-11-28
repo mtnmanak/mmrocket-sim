@@ -228,9 +228,11 @@ it('J23N r5 automatic EX uses the library until deletion then retains its mounte
   await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.009 }]); });
   await settle(20);
   expect(host.querySelector('[data-nozzle="published"]')?.textContent).toContain('9 mm');
+  expect(vi.mocked(buildDesign).mock.calls.at(-1)![0].tree.components[0]!.nozzleExitDiameter).toBe(0.009);
   await act(async () => { deleteExMotor(ex.motorId); });
   await settle(20);
   expect(host.querySelector('[data-nozzle="published"]')?.textContent).toContain('8 mm');
+  expect(vi.mocked(buildDesign).mock.calls.at(-1)![0].tree.components[0]!.nozzleExitDiameter).toBe(0.008);
   await act(async () => button(host, 'Batch simulate motors').click());
   await waitFor(() => !!host.querySelector('[aria-label="Batch simulate motors"]'), 'Batch');
   expect(batchProps.tree.components[0]!.nozzleExitDiameter).toBeUndefined();

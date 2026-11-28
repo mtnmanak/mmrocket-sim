@@ -8,6 +8,45 @@ import { exportRkt, rktComponentInfo } from './rocksimFile.js';
 import { exportCdx1 } from './rasaeroFile.js';
 
 describe('lossy fix regressions', () => {
+  it('J23N r6 uses the writer engine selection rather than a motor keyed to the stage itself', () => {
+    const d = input();
+    d.tree.components.push({ type: 'stage', id: 'lower', name: 'EX Booster', nozzleExitDiameter: 0.008,
+      children: [{ type: 'bodytube', id: 'boost', length: 0.3, outerRadius: 0.03 }] });
+    d.motors.lower = { designation: 'G80', manufacturer: 'AeroTech', diameter: 0.029, length: 0.1, delay: 5 };
+    d.motors.boost = { designation: 'G100', manufacturer: 'Home', diameter: 0.038, length: 0.15, delay: 5 };
+    expect(exportCdx1({ name: 'Booster', tree: d.tree, motors: d.motors })).not.toContain('<Booster1Engine>');
+    expect(checkFormatLoss('cdx1', d).losses)
+      .toContain('Booster nozzle “EX Booster” is not kept because this stage has no exported engine.');
+  });
+
+  it.each([false, true])('J23N r6 discloses an unsupported booster nozzle without promising preservation (typed %s)', typed => {
+    const d = input();
+    const booster: ComponentNode = { type: 'stage', id: 'lower', name: 'EX Booster', children: [
+      { type: 'bodytube', id: 'boost', length: 0.3, outerRadius: 0.03, motorMount: true },
+    ] };
+    d.tree.components.push(booster);
+    if (typed) booster.nozzleExitDiameter = 0.008;
+    d.storedNozzleTree = structuredClone(d.tree);
+    // Save receives the flight copy after the automatic EX exit was resolved.
+    booster.nozzleExitDiameter = 0.008;
+    d.motors.boost = { designation: 'G100', manufacturer: 'Home', diameter: 0.038, length: 0.15,
+      exMotorId: 'ex:Home:G100', delay: 5 };
+    const report = checkFormatLoss('cdx1', d);
+    expect(report.refused).toBeNull();
+    expect(report.losses).toContain('Booster nozzle “EX Booster” is not kept because this stage has no exported engine.');
+    expect(report.losses.some(n => n.startsWith('EX Booster: .CDX1 writes the flown'))).toBe(false);
+    const xml = exportCdx1({ name: 'EX booster', tree: d.tree, motors: d.motors });
+    expect(xml).toContain('<Booster1Nozzle>0</Booster1Nozzle>');
+    expect(xml).toContain('<Booster1NozzleDiameter>0</Booster1NozzleDiameter>');
+    // The same stage with an exported engine keeps the automatic-exit note.
+    d.motors.boost!.manufacturer = 'AeroTech';
+    const supported = checkFormatLoss('cdx1', d);
+    expect(supported.losses.join('\n')).not.toContain('Booster nozzle');
+    expect(supported.losses.some(n => n.startsWith('EX Booster: .CDX1 writes the flown'))).toBe(!typed);
+    expect(exportCdx1({ name: 'Supported booster', tree: d.tree, motors: d.motors }))
+      .not.toContain('<Booster1NozzleDiameter>0</Booster1NozzleDiameter>');
+  });
+
   it('r3 does not claim translated charge-relative staging was discarded', () => {
     const d = input();
     d.tree.components.push({ type: 'stage', id: 'lower', children: [{ type: 'bodytube', id: 'boost', length: 0.3, outerRadius: 0.03 }] });

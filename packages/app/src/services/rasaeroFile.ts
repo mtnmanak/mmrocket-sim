@@ -2359,6 +2359,59 @@ export function cdx1RecoveryDelayNote(tree: RocketTree): string | null {
       + 'These parachutes open at the deployment event with no delay, earlier than in the app.';
 }
 
+/** The writer and save notes must agree on which stages carry an engine. */
+export function cdx1EngineSlots({ tree, motors, engineExport, notes }: Pick<Cdx1ExportInput, 'tree' | 'motors' | 'engineExport' | 'notes'>, refuseClusters = false) {
+  const stagesIn = asStageNodes(tree);
+  // Per-stage engine strings, desktop format 'DESIGNATION  (ABBREV)' — two
+  // spaces, the exact shape our own importer's parseEngine reads back. null =
+  // no motor on the stage, or a manufacturer RASAero doesn't document (the
+  // NRE risk: see CDX1_ENGINE_EXPORT). ON by default since 2026-08-25;
+  // `engineExport: false` is the per-call opt-out (tests, file generation).
+  const engineOn = engineExport ?? CDX1_ENGINE_EXPORT;
+  // One record per stage: engine string plus its ignition delay, computed
+  // TOGETHER so the two can never desync. RASAero holds one delay per stage
+  // and measures it from the stage below's burnout, which is exactly what
+  // importCdx1 reads back as `ignitionEvent: 'burnout'`. Writing a hard 0
+  // (what we used to do) silently dropped a staged design's timers on every
+  // .CDX1 export — and the first fix filled a parallel delays array by
+  // side-effect pushes on each of the map's exit paths, one future
+  // early-return away from writing Booster1's delay into the Sustainer cell.
+  return stagesIn.map((st, stIdx): { engine: string | null; ignitionDelay: number; motor?: Cdx1ExportEngine } => {
+    if (!engineOn || !motors) return { engine: null, ignitionDelay: 0 };
+    let found: Cdx1ExportEngine | undefined;
+    let motorCount = 0;
+    const seek = (nodes: ComponentNode[]) => {
+      for (const n of nodes) {
+        if (n.id && Object.hasOwn(motors, n.id) && motors[n.id]) {
+          found ??= motors[n.id];
+          motorCount += mountMotorCount(tree, n.id);
+        }
+        seek(n.children ?? []);
+      }
+    };
+    seek(st.children ?? []);
+    if (motorCount > 1 && refuseClusters) {
+      // An unnamed stage by the number Motors & Configuration shows for it.
+      throw new Error(`RASAero supports one engine per stage — “${noteField(nameOr(st, `Stage ${stIdx + 1}`))}” has ${motorCount} motors. `
+        + 'Export as .ork or .rkt to keep every motor and its thrust.');
+    }
+    // Only a burnout-triggered motor has a delay this format can express; a
+    // launch-stage motor, or any other ignition event, writes RASAero's own 0.
+    const ignitionDelay = knownIgnitionEvent(found?.ignitionEvent) === 'burnout' ? (found?.ignitionDelay ?? 0) : 0;
+    const abbrev = found ? rasaeroManufacturerAbbrev(found.manufacturer) : null;
+    if (found && abbrev && stIdx === stagesIn.length - 1
+      && (knownIgnitionEvent(found.ignitionEvent) ?? 'automatic') === 'automatic' && (found.ignitionDelay ?? 0) !== 0) {
+      notes?.push(`Motor “${noteField(found.designation)}”: .CDX1 cannot keep the launch-stage ignition delay of ${found.ignitionDelay ?? 0} s. `
+        + 'On reopen it ignites at launch with no delay, which can change the flight. Save .ork to keep this timing.');
+    }
+    return {
+      engine: found && abbrev ? `${found.designation}  (${abbrev})` : null,
+      ignitionDelay,
+      ...(found ? { motor: found } : {}),
+    };
+  });
+}
+
 export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM, launchStages, launch, motors, engineExport, machAlt, notes, dryRun }: Cdx1ExportInput): string {
   // CDX1 can carry only the effective recovery, not its separate own setting.
   // Disclose the lost layer even for one configuration (audit 2026-10-11, FC-3).
@@ -2382,54 +2435,7 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
   const stagesIn = asStageNodes(tree);
   if (stagesIn.length > 3) throw new Error('RASAero supports at most 3 stages.');
 
-  // Per-stage engine strings, desktop format 'DESIGNATION  (ABBREV)' — two
-  // spaces, the exact shape our own importer's parseEngine reads back. null =
-  // no motor on the stage, or a manufacturer RASAero doesn't document (the
-  // NRE risk: see CDX1_ENGINE_EXPORT). ON by default since 2026-08-25;
-  // `engineExport: false` is the per-call opt-out (tests, file generation).
-  const engineOn = engineExport ?? CDX1_ENGINE_EXPORT;
-  // One record per stage: engine string plus its ignition delay, computed
-  // TOGETHER so the two can never desync. RASAero holds one delay per stage
-  // and measures it from the stage below's burnout, which is exactly what
-  // importCdx1 reads back as `ignitionEvent: 'burnout'`. Writing a hard 0
-  // (what we used to do) silently dropped a staged design's timers on every
-  // .CDX1 export — and the first fix filled a parallel delays array by
-  // side-effect pushes on each of the map's exit paths, one future
-  // early-return away from writing Booster1's delay into the Sustainer cell.
-  const stageSlots = stagesIn.map((st, stIdx): { engine: string | null; ignitionDelay: number; motor?: Cdx1ExportEngine } => {
-    if (!engineOn || !motors) return { engine: null, ignitionDelay: 0 };
-    let found: Cdx1ExportEngine | undefined;
-    let motorCount = 0;
-    const seek = (nodes: ComponentNode[]) => {
-      for (const n of nodes) {
-        if (n.id && Object.hasOwn(motors, n.id) && motors[n.id]) {
-          found ??= motors[n.id];
-          motorCount += mountMotorCount(tree, n.id);
-        }
-        seek(n.children ?? []);
-      }
-    };
-    seek(st.children ?? []);
-    if (motorCount > 1) {
-      // An unnamed stage by the number Motors & Configuration shows for it.
-      throw new Error(`RASAero supports one engine per stage — “${noteField(nameOr(st, `Stage ${stIdx + 1}`))}” has ${motorCount} motors. `
-        + 'Export as .ork or .rkt to keep every motor and its thrust.');
-    }
-    // Only a burnout-triggered motor has a delay this format can express; a
-    // launch-stage motor, or any other ignition event, writes RASAero's own 0.
-    const ignitionDelay = knownIgnitionEvent(found?.ignitionEvent) === 'burnout' ? (found?.ignitionDelay ?? 0) : 0;
-    const abbrev = found ? rasaeroManufacturerAbbrev(found.manufacturer) : null;
-    if (found && abbrev && stIdx === stagesIn.length - 1
-      && (knownIgnitionEvent(found.ignitionEvent) ?? 'automatic') === 'automatic' && (found.ignitionDelay ?? 0) !== 0) {
-      notes?.push(`Motor “${noteField(found.designation)}”: .CDX1 cannot keep the launch-stage ignition delay of ${found.ignitionDelay ?? 0} s. `
-        + 'On reopen it ignites at launch with no delay, which can change the flight. Save .ork to keep this timing.');
-    }
-    return {
-      engine: found && abbrev ? `${found.designation}  (${abbrev})` : null,
-      ignitionDelay,
-      ...(found ? { motor: found } : {}),
-    };
-  });
+  const stageSlots = cdx1EngineSlots({ tree, motors, engineExport, notes }, true);
   const stageEngines = stageSlots.map((s) => s.engine);
   for (const [i, slot] of stageSlots.entries()) {
     if (stageEngines.slice(i + 1).some(Boolean)) continue;

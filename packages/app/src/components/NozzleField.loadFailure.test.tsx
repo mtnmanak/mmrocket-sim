@@ -146,16 +146,20 @@ describe('NozzleField — the nozzle data could not be loaded', () => {
   // the default order if the map is ever carried from one case to the next —
   // the order dependence a shuffled run found (2026-10-01), when this case ran
   // last and hid it.
-  it('shows automatic provenance when a later nozzleForMotorId lookup succeeds', async () => {
-    render({ exitDiameterM: null });
+  it('J23N r6 hides a cleared caution when a later nozzleForMotorId lookup succeeds', async () => {
+    const clearedFor = { previousLabel: 'Prior motor', previousM: 0.012 };
+    render({ exitDiameterM: null, clearedFor });
     await waitFor(() => note() !== null, 'the could-not-load note');
     data.fail = false;
     // A new loadout looks again (four of the same motor: twice one exit).
-    render({ exitDiameterM: null, motors: [{ motorId: D13, count: 4 }] });
+    render({ exitDiameterM: null, motors: [{ motorId: D13, count: 4 }], clearedFor });
     await waitFor(() => host.querySelector('[data-nozzle="published"]') !== null, 'automatic provenance');
     expect(committed).toEqual([]);
     expect(Number(host.querySelector('input')!.placeholder)).toBeCloseTo(2 * D13_EXIT_M * 1000, 2);
     expect(note()).toBeNull();
+    expect(host.querySelector('[data-nozzle="cleared"]')).toBeNull();
+    expect(host.querySelector('.message-caution')).toBeNull();
+    expect(text()).not.toContain('No published exit diameter');
     expect(text()).not.toMatch(/could not be loaded/);
   });
 

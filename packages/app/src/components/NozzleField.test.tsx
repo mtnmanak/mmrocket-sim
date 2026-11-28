@@ -341,6 +341,15 @@ describe('NozzleField — whose figure it is', () => {
 });
 
 describe('NozzleField — rule 4: a value cleared because the motor changed', () => {
+  it('J23N r6 does not claim an automatic exit is missing beside a stale cleared note', async () => {
+    await render({ clearedFor: { previousLabel: 'Prior motor', previousM: 0.012 } });
+    expect(host.querySelector('[data-nozzle="published"]')?.textContent).toContain('Automatic:');
+    expect(host.querySelector('[data-nozzle="cleared"]')).toBeNull();
+    expect(text()).not.toContain('No published exit diameter');
+    expect(text()).not.toContain('both off for this stage');
+    expect(committed).toEqual([]);
+  });
+
   it('J4 r4 does not blame the published first mount for an incomplete multi-mount exit', async () => {
     const published = (await Promise.all(MOTOR_DB.map(async row =>
       await nozzleForMotorId(row.motorId) ? row : null))).find(row => row !== null)!;

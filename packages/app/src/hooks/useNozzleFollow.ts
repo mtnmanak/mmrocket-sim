@@ -233,19 +233,24 @@ export function useNozzleFollow(opts: {
         const was = decided.current.get(s.stageId);
         if (was?.key === current.key) continue;
         nowDecided.set(s.stageId, current);
-        // A library-only correction changes automatic lookup data, not the
-        // mounted loadout for which the user typed this stage's exit.
-        if (was?.motors === current.motors) continue;
         // The stage as it stands NOW, not when the lookup started.
         const node = findNode(treeRef.current, s.stageId);
+        const currentValueM = node ? numOrNull(node, 'nozzleExitDiameter') : null;
+        const publishedM = equivalentExitDiameterM(s.motors.map((m, i) => ({
+          count: m.count,
+          exitDiameterM: entries[i]?.exitDiameterM ?? null,
+        })));
+        // A library-only correction changes automatic lookup data, not the
+        // mounted loadout for which the user typed this stage's exit.
+        if (was?.motors === current.motors) {
+          if (currentValueM === null && publishedM !== null) forgotten.push(s.stageId);
+          continue;
+        }
         const act = followNozzle({
           hadMotorsBefore: (was?.key ?? '') !== '',
           previousLabel: was?.label ?? '',
-          currentValueM: node ? numOrNull(node, 'nozzleExitDiameter') : null,
-          publishedM: equivalentExitDiameterM(s.motors.map((m, i) => ({
-            count: m.count,
-            exitDiameterM: entries[i]?.exitDiameterM ?? null,
-          }))),
+          currentValueM,
+          publishedM,
         });
         if (act.kind === 'automatic') { updates[s.stageId] = null; forgotten.push(s.stageId); }
         else if (act.kind === 'clear') {
