@@ -33,8 +33,11 @@ describe('lossy fix regressions', () => {
       exMotorId: 'ex:Home:G100', delay: 5 };
     const report = checkFormatLoss('cdx1', d);
     expect(report.refused).toBeNull();
-    expect(report.losses).toContain('Booster nozzle “EX Booster” is not kept because this stage has no exported engine.');
-    expect(report.losses.some(n => n.startsWith('EX Booster: .CDX1 writes the flown'))).toBe(false);
+    // One line per booster: a typed exit is "not kept"; a blank one is written as 0 and reopens OFF.
+    const boosterLines = report.losses.filter(n => n.includes('EX Booster') && /nozzle/i.test(n));
+    expect(boosterLines).toEqual([typed
+      ? 'Booster nozzle “EX Booster” is not kept because this stage has no exported engine.'
+      : 'EX Booster: .CDX1 writes 0 (OFF) for this stage because it has no exported engine, so any automatic exit is lost and the stage reopens with nozzle effects off. Keep an .ork copy.']);
     const xml = exportCdx1({ name: 'EX booster', tree: d.tree, motors: d.motors });
     expect(xml).toContain('<Booster1Nozzle>0</Booster1Nozzle>');
     expect(xml).toContain('<Booster1NozzleDiameter>0</Booster1NozzleDiameter>');
@@ -45,6 +48,20 @@ describe('lossy fix regressions', () => {
     expect(supported.losses.some(n => n.startsWith('EX Booster: .CDX1 writes the flown'))).toBe(!typed);
     expect(exportCdx1({ name: 'Supported booster', tree: d.tree, motors: d.motors }))
       .not.toContain('<Booster1NozzleDiameter>0</Booster1NozzleDiameter>');
+  });
+
+  it('J23N r7 tells a blank engine-less booster with no flown exit that it reopens OFF', () => {
+    const d = input();
+    d.tree.components.push({ type: 'stage', id: 'lower', name: 'EX Booster', children: [
+      { type: 'bodytube', id: 'boost', length: 0.3, outerRadius: 0.03, motorMount: true },
+    ] });
+    d.storedNozzleTree = structuredClone(d.tree);
+    const report = checkFormatLoss('cdx1', d);
+    expect(report.refused).toBeNull();
+    expect(report.losses.filter(n => n.includes('EX Booster') && /nozzle/i.test(n))).toEqual(['EX Booster: .CDX1 writes 0 (OFF) for this stage because it has no exported engine, so any automatic exit is lost and the stage reopens with nozzle effects off. Keep an .ork copy.']);
+    const xml = exportCdx1({ name: 'Bare booster', tree: d.tree, motors: d.motors });
+    expect(xml).toContain('<Booster1Nozzle>0</Booster1Nozzle>');
+    expect(xml).toContain('<Booster1NozzleDiameter>0</Booster1NozzleDiameter>');
   });
 
   it('r3 does not claim translated charge-relative staging was discarded', () => {

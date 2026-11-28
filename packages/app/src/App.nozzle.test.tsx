@@ -253,7 +253,9 @@ it('J23N r3 CDX1 loss preview names an automatic booster nozzle whose EX engine 
   await act(async () => button(host, 'Save As / Export').click());
   await act(async () => button(host.querySelector('.file-menu')!, 'Save .CDX1').click());
   await waitFor(() => host.textContent!.includes('Save .CDX1 anyway'), 'CDX1 loss preview');
-  expect(host.textContent).toContain('Booster nozzle “EX Booster” is not kept because this stage has no exported engine.');
+  // J23N r7: a blank booster gets ONE line, the reopen-OFF note; 'not kept' is for a typed exit.
+  expect(host.textContent).toContain('EX Booster: .CDX1 writes 0 (OFF) for this stage because it has no exported engine, so any automatic exit is lost and the stage reopens with nozzle effects off.');
+  expect(host.textContent).not.toContain('Booster nozzle “EX Booster” is not kept');
 });
 
 /** Launch pressed, and the flight it records saved. */

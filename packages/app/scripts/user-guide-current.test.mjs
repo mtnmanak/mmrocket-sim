@@ -134,7 +134,7 @@ it('J23N r4 explains CDX1 automatic-mode loss and the drag curve sentence', () =
   const md = readFileSync(SRC, 'utf8');
   expect(md).toContain('preserves typed serial-stage exits and explicit 0 (OFF) for the sustainer and each booster that carries an exported RASAero engine');
   expect(md.match(/the sustainer and each booster that carries an exported RASAero engine/g)).toHaveLength(3);
-  expect(md).toContain('A booster without an exported engine loses its nozzle exit.');
+  expect(md.split('A booster without an exported engine loses its nozzle exit and reopens as 0 (OFF).')).toHaveLength(4);
   expect(md).toContain('automatic motor-following is lost on reopen');
   expect(md).toContain('or 0 (OFF) when none is flown');
   expect(md).not.toContain('reopening may independently fill');
