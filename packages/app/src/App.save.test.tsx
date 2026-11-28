@@ -29,6 +29,7 @@ import { importCdx1 } from './services/rasaeroFile.js';
 import { saveFile, type SaveOutcome } from './services/saveFile.js';
 import { safeName } from './services/fileName.js';
 import { sessionUnreadable, type SessionState } from './services/session.js';
+import * as sessionStore from './services/session.js';
 import { pageActivity } from './services/pageActivity.js';
 import { designFingerprint } from './services/dirtyState.js';
 import * as dirtyState from './services/dirtyState.js';
@@ -140,6 +141,158 @@ class NoPath { moveTo() {} lineTo() {} closePath() {} rect() {} arc() {} addPath
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SESSION_KEY = 'online-openrocket.session.v1';
+
+it('J23N r4 loads nozzle data for an inactive configuration with no active motors', async () => {
+  const tree = defaultTree();
+  const id = motorMounts(tree)[0]!.id!;
+  const motor = (await loadCatalogueMotor('AeroTech', 'H128W', 10))!;
+  const loader = vi.spyOn(nozzleDb, 'loadNozzleDb');
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: {}, launch: DEFAULT_CONDITIONS,
+    savedConfigs: [{ id: 'B', name: 'Inactive', isDefault: false, motors: { [id]: motor } }],
+    activeConfigId: null, savedAt: Date.now(), appVersion: APP_VERSION }));
+  await mountApp();
+  expect(loader).toHaveBeenCalled();
+});
+
+it('J23N r4 CDX1 recomputes flown save inputs after nozzle readiness', async () => {
+  const tree = defaultTree();
+  const id = motorMounts(tree)[0]!.id!;
+  const loaded = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+  const motor = { ...loaded, meta: { ...loaded.meta, autoDelay: true } };
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [id]: motor }, launch: DEFAULT_CONDITIONS,
+    activeConfigId: null, savedAt: Date.now(), appVersion: APP_VERSION }));
+  const host = await mountApp();
+  await waitFor(starterStored, 'starter motor');
+  let release!: () => void;
+  const gate = new Promise<void>(r => { release = r; });
+  vi.spyOn(nozzleDb, 'publishedExitSync').mockReturnValue(undefined);
+  vi.spyOn(nozzleDb, 'loadNozzleDb').mockImplementation(async () => { await gate; return 'ready'; });
+  const assemble = vi.spyOn(exportAssembly, 'flightExportInput');
+  const check = vi.spyOn(formatLoss, 'checkFormatLossSafely');
+  let ready = false;
+  vi.spyOn(orkFlightData, 'flownAutoDelays').mockImplementation((): Record<string, Record<string, number>> => ready ? { '': { [id]: 7 } } : {});
+  await saveAs(host, 'Save .CDX1', false);
+  assemble.mockClear();
+  await act(async () => { ready = true; release(); await gate; });
+  expect(assemble).toHaveBeenCalled();
+  // The dialog and writer must use the newly eligible flown delay, not the
+  // provisional value in the pre-await render's memo.
+  expect(check.mock.calls.at(-1)![1].motors[id]?.delay).toBe(7);
+});
+
+it('J23N r4 autosave preserves inactive flight evidence while nozzle data is pending', async () => {
+  const tree = defaultTree();
+  const id = motorMounts(tree)[0]!.id!;
+  const motor = (await loadCatalogueMotor('AeroTech', 'H128W', 10))!;
+  let ready = false;
+  let release!: () => void;
+  const gate = new Promise<void>(r => { release = r; });
+  nozzleDb.resetNozzleDbCache();
+  const realExit = nozzleDb.publishedExitSync;
+  const realLoad = nozzleDb.loadNozzleDb;
+  vi.spyOn(nozzleDb, 'publishedExitSync').mockImplementation(id => ready ? realExit(id) : undefined);
+  vi.spyOn(nozzleDb, 'loadNozzleDb').mockImplementation(async () => { await gate; ready = true; return realLoad(); });
+  const write = vi.spyOn(sessionStore, 'saveSessionDebounced');
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: {}, launch: DEFAULT_CONDITIONS,
+    savedConfigs: [{ id: 'B', name: 'Inactive', isDefault: false, motors: { [id]: motor } }],
+    activeConfigId: null, flownAutoDelays: { B: { [id]: 7 } }, savedAt: Date.now(), appVersion: APP_VERSION }));
+  await mountApp();
+  try {
+    expect(write).not.toHaveBeenCalled();
+    expect(storedSession()?.flownAutoDelays).toEqual({ B: { [id]: 7 } });
+  } finally { await act(async () => { release(); await gate; }); }
+  await waitFor(() => write.mock.calls.length > 0, 'autosave after nozzle readiness');
+});
+
+it.each(['resolve', 'reject'] as const)('J23N r4 bundle readiness %s cannot affect a new document', async outcome => {
+  const host = await mountApp();
+  await waitFor(starterStored, 'starter motor');
+  await waitFor(() => !host.querySelector<HTMLButtonElement>('.vitals-launch')!.disabled, 'Launch');
+  await act(async () => { host.querySelector<HTMLButtonElement>('.vitals-launch')!.click(); });
+  await waitFor(() => !![...host.querySelectorAll('button')].find(b => b.textContent === 'Export flight-data bundle'), 'flight');
+  let release!: () => void;
+  const gate = new Promise<void>(r => { release = r; });
+  vi.spyOn(nozzleDb, 'loadNozzleDb').mockImplementation(async () => {
+    await gate;
+    if (outcome === 'reject') throw new Error('old document failure');
+    return 'ready';
+  });
+  const dialog = vi.spyOn(bundleDialog, 'FlightDataBundleDialog').mockReturnValue(<></>);
+  await act(async () => { button(host, 'Export flight-data bundle').click(); });
+  await openTab(host, 'Design');
+  await act(async () => { button(host, '✕ New').click(); });
+  const discard = [...host.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Discard & start new');
+  if (discard) await act(async () => { discard.click(); });
+  await waitFor(() => !host.textContent!.includes('Start a new design?'), 'New');
+  await act(async () => { release(); await gate; });
+  expect(dialog).not.toHaveBeenCalled();
+  expect(host.textContent).not.toContain('Error: Flight-data bundle could not be prepared');
+  if (outcome === 'reject') expect(host.textContent).toContain('An earlier export finished: Flight-data bundle could not be prepared');
+}, 30000);
+
+it('J23N r3 a cancelled Save preserves a configuration renamed during nozzle readiness', async () => {
+  const host = await mountApp();
+  await waitFor(starterStored, 'starter motor');
+  await openTab(host, 'Motors & Configuration');
+  await act(async () => { button(host, '+ New from loaded motors').click(); });
+  await act(async () => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+  const nozzle = host.querySelector<HTMLInputElement>('input[id^="cfg-nozzle-"]')!;
+  await type(nozzle, '0');
+  await act(async () => { nozzle.dispatchEvent(new FocusEvent('blur', { bubbles: true })); });
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  vi.spyOn(nozzleDb, 'loadNozzleDb').mockImplementation(async () => { await gate; return 'ready'; });
+  vi.mocked(saveFile).mockResolvedValueOnce({ kind: 'cancelled' });
+  await saveAs(host, 'Save .ork');
+  await act(async () => { host.querySelector<HTMLButtonElement>('button[aria-label^="Rename "]')!.click(); });
+  const name = input(host, 'Rename ');
+  await type(name, 'Renamed during readiness');
+  await act(async () => { name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+  await act(async () => { release(); await gate; });
+  await waitFor(() => vi.mocked(saveFile).mock.calls.length === 1, 'cancelled Save');
+  window.dispatchEvent(new Event('pagehide'));
+  expect(storedSession()!.savedConfigs![0]!.name).toBe('Renamed during readiness');
+});
+
+it('J23N r3 a flight finished during Save readiness remains unsaved', async () => {
+  const host = await mountApp();
+  await waitFor(starterStored, 'starter motor');
+  await openTab(host, 'Motors & Configuration');
+  const nozzle = host.querySelector<HTMLInputElement>('input[id^="cfg-nozzle-"]')!;
+  await type(nozzle, '0');
+  await act(async () => { nozzle.dispatchEvent(new FocusEvent('blur', { bubbles: true })); });
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  vi.spyOn(nozzleDb, 'loadNozzleDb').mockImplementation(async () => { await gate; return 'ready'; });
+  await saveAs(host, 'Save .ork');
+  await act(async () => { button(host, 'Launch').click(); });
+  await waitFor(() => host.textContent!.includes('Flight complete'), 'flight during readiness');
+  await act(async () => { release(); await gate; });
+  await waitFor(() => vi.mocked(saveFile).mock.calls.length === 1, 'Save after flight');
+  expect(vi.mocked(exportOrk).mock.calls.at(-1)![0].flightData).toEqual({});
+  window.dispatchEvent(new Event('pagehide'));
+  expect(storedSession()!.flownSinceSave).toBe(true);
+  await openTab(host, 'Design');
+  expect(await guarded(host)).toBe(true);
+}, 30000);
+
+it('J23N r3 CDX1 readiness cannot export or mark an earlier document after New', async () => {
+  const host = await mountApp();
+  await waitFor(starterStored, 'starter motor');
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  vi.spyOn(nozzleDb, 'publishedExitSync').mockReturnValue(undefined);
+  vi.spyOn(nozzleDb, 'loadNozzleDb').mockImplementation(async () => { await gate; return 'ready'; });
+  await saveAs(host, 'Save .CDX1', false);
+  await act(async () => { button(host, '✕ New').click(); });
+  const discard = [...host.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Discard & start new');
+  if (discard) await act(async () => { discard.click(); });
+  await waitFor(() => !host.textContent!.includes('Start a new design?'), 'New completed');
+  await act(async () => { release(); await gate; });
+  expect(vi.mocked(saveFile)).not.toHaveBeenCalled();
+  expect(host.querySelector('[aria-label="Confirm format losses"]')).toBeNull();
+  expect(host.textContent).not.toContain('Save .CDX1 anyway');
+});
 
 it('F-D-1 shows differing nozzle notes through Save, share and recovery', async () => {
   const tree = defaultTree();
@@ -5026,7 +5179,7 @@ describe('maximum motor length export losses', () => {
 describe('pending motor choices across App actions', () => {
   it.each([
     { typed: '7', published: null, expected: null, lookupFails: false },
-    { typed: '7', published: 0.004, expected: 0.004, lookupFails: false },
+    { typed: '7', published: 0.004, expected: null, lookupFails: false },
     { typed: '0', published: 0.004, expected: 0, lookupFails: false },
     { typed: '7', published: null, expected: null, lookupFails: true },
   ])('r5 locks configuration changes through the deferred pick and nozzle lookup ($typed mm, published $published m, failure $lookupFails)', async ({ typed, published, expected, lookupFails }) => {

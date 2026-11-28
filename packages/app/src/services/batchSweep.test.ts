@@ -66,6 +66,11 @@ it('H1 per-mount plugged advice preserves warning levels with separators in name
 });
 import { flyLaunch } from './flightRunner.js';
 import { simulateDesign } from './simulateDesign.js';
+import { withFlownNozzles, type PublishedExitLookup } from './flownNozzles.js';
+import { stageMotors } from './nozzleFollow.js';
+import { publishedExitSync } from './nozzleDb.js';
+import nozzlesJson from '../data/nozzles.json';
+import { addExMotors, deleteExMotor, exToMotorSpec, parseEng } from './exMotors.js';
 import { readFileSync } from 'node:fs';
 import { probeFlight } from './autoDelay.testSupport.js';
 import { canReplayDelays } from './autoDelaySolver.js';
@@ -87,7 +92,6 @@ import { deriveLaunchInputs, designBuildInputOf, hardwareDeltaKgOf, physicsKeyOf
 import { buildDesign, KERNEL_HANDLES } from './buildDesign.js';
 import { flownSpec, LEGACY_PAD_MASS_KEY, motorIdentity } from './hardwareMass.js';
 import { padMassSetKey } from './configSync.js';
-import { stageMotors } from './nozzleFollow.js';
 import { historyMotorLabel } from '../components/SimResults.js';
 import { batchMountDisclosure } from './batchMountDisclosure.js';
 import { batchRingSplits } from './batchRing.js';
@@ -1801,7 +1805,9 @@ const designState = (tree: RocketTree, mountMotors: Record<string, MountMotor>):
   savedConfigs: [], activeConfigId: null,
 });
 
-function designPageKey(state: DesignState) {
+function designPageKey(state: DesignState, lookup: PublishedExitLookup = publishedExitSync) {
+  state = { ...state, tree: withFlownNozzles(state.tree,
+    stageMotors(state.tree, Object.entries(state.mountMotors)), lookup).tree };
   const derived = deriveLaunchInputs(state, provenanceAero);
   const built = buildDesign(designBuildInputOf({
     tree: state.tree, assigned: derived.assigned, effectiveKbf: true, effectiveSupersonic: false,
@@ -1815,10 +1821,10 @@ function designPageKey(state: DesignState) {
   });
 }
 
-it('K7: a batch database nozzle does not match a design with no nozzle', async () => {
+it('J23-N a loaded batch row matches single Launch on a blank automatic stage', async () => {
   const tree = rocket();
   const state = designState(tree, { mount: loadedMotor('a', 'E20') });
-  const cur = designPageKey(state);
+  const cur = designPageKey(state, () => 0.012);
   const { rows } = await sweep(input(tree, {
     candidates: [entry('a', 'Acme', 'E20', '5')], autoDelay: false,
     assignedMountMotors: state.mountMotors,
@@ -1831,8 +1837,52 @@ it('K7: a batch database nozzle does not match a design with no nozzle', async (
   expect(run.motorSetKey).toBe(cur.motorSetKey);
   expect(run.motorDataKey).toBe(cur.motorDataKey);
   expect(run.motorDataKeys).toEqual(cur.motorDataKeys);
-  expect(runMatchesDesign(run, cur)).toBe(false);
-  expect(changedSinceRun(run, cur)).toEqual(['the design']);
+  expect(runMatchesDesign(run, cur)).toBe(true);
+  expect(changedSinceRun(run, cur)).toEqual([]);
+  const single = await simulateDesign(state, { aero: provenanceAero, publishedExit: () => 0.012, yieldToUi: noYield });
+  expect(single.run.maxAltitude).toBeCloseTo(run.maxAltitude, 8);
+  expect(single.run.nozzleStages).toEqual(run.nozzleStages);
+  expect(tree.components[0]!['nozzleExitDiameter']).toBeUndefined();
+}, 30000);
+
+it('J23N r5 Batch candidates and companions use the same live EX library definition', async () => {
+  const ex = { ...parseEng('G100 18 70 5 0.01 0.025 Home\n0 0\n0.1 100\n1 0\n')[0]!, exitDiameterM: 0.008 };
+  const updated = { ...ex, exitDiameterM: 0.012 };
+  addExMotors([updated]);
+  const tree = rocket({ sideMount: true });
+  const mounted: MountMotor = { spec: exToMotorSpec(ex, 5), label: 'EX', meta: { label: 'EX', exMotorId: ex.motorId }, ignition: { event: 'automatic', delay: 0 } };
+  const motors = { mount: mounted, side: mounted };
+  const { rows } = await sweep(input(tree, { autoDelay: false,
+    candidates: [entry(ex.motorId, 'Home', ex.designation, '5')],
+    mounts: [MOUNT, { ...MOUNT, id: 'side' }], assignedMountMotors: motors,
+    assignedMotors: { mount: mounted.spec, side: mounted.spec }, assignedMotorIds: batchMotorIds(motors),
+  }), { fetchSpec: fetchFrom({ [ex.motorId]: exToMotorSpec(updated, 5) }) });
+  expect(rows[0]!.error).toBeUndefined();
+  expect(rows[0]!.exitM).toBeCloseTo(Math.sqrt(2) * updated.exitDiameterM, 10);
+  expect(rows[0]!.run!.designKey).toBe(designPageKey(designState(tree, motors), () => updated.exitDiameterM).designKey);
+  deleteExMotor(ex.motorId);
+}, 30000);
+
+it('J23N r3 Batch default lookup retains an EX companion exit absent from the library', async () => {
+  const row = nozzlesJson.motors.find(m => m.motorId && m.exitDiameterM)!;
+  const ex = { ...parseEng('G100 18 70 5 0.01 0.025 Home\n0 0\n0.1 100\n1 0\n')[0]!, exitDiameterM: 0.008 };
+  deleteExMotor(ex.motorId);
+  const tree = rocket({ sideMount: true });
+  const candidate = loadedMotor(row.motorId!, row.designation);
+  const companion: MountMotor = { spec: exToMotorSpec(ex, 5), label: 'EX',
+    meta: { label: 'EX', exMotorId: ex.motorId }, ignition: { event: 'automatic', delay: 0 } };
+  const state = designState(tree, { mount: candidate, side: companion });
+  const lookup = (id: string) => id === ex.motorId ? ex.exitDiameterM : row.exitDiameterM!;
+  const current = designPageKey(state, lookup);
+  const { rows } = await sweep(input(tree, { autoDelay: false,
+    candidates: [entry(row.motorId!, 'Acme', row.designation, '5')],
+    mounts: [MOUNT, { ...MOUNT, id: 'side' }], assignedMountMotors: state.mountMotors,
+    assignedMotors: { mount: candidate.spec, side: companion.spec }, assignedMotorIds: batchMotorIds(state.mountMotors),
+  }), { fetchSpec: fetchFrom({ [row.motorId!]: candidate.spec }) });
+  expect(rows[0]!.error).toBeUndefined();
+  expect(rows[0]!.run!.nozzleStages).toEqual(['Sustainer']);
+  expect(rows[0]!.run!.designKey).toBe(current.designKey);
+  expect(tree.components[0]!.nozzleExitDiameter).toBeUndefined();
 }, 30000);
 
 it('J4 r2 S7b-g2 S7b-g4 names a blank batch nozzle stage as Motors & Configuration does', async () => {

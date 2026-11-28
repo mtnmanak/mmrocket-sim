@@ -8,8 +8,8 @@ import { stageMotors, type StageMotors } from '../services/nozzleFollow.js';
 import { applyStageNozzles, motorMounts } from '../tree/treeModel.js';
 import { useNozzleFollow, type NozzleCleared, type NozzleLookup } from './useNozzleFollow.js';
 import { HISTORY_COALESCE_MS, useTreeHistory, type TreeHistory } from './useTreeHistory.js';
-import { addExMotors, deleteExMotor, parseEng, parseRse } from '../services/exMotors.js';
-import { nozzleForMotorId } from '../services/nozzleDb.js';
+import { addExMotors, deleteExMotor, exToMotorSpec, parseEng, parseRse } from '../services/exMotors.js';
+import { nozzleForMountedEx, nozzleForMotorId } from '../services/nozzleDb.js';
 
 /**
  * The nozzle-follow rule as App runs it (Eric, 2026-09-13): the stage's exit
@@ -74,6 +74,48 @@ function harness(initial: RocketTree, look: NozzleLookup = lookup) {
 
 const exitOf = (t: RocketTree) => t.components[0]!['nozzleExitDiameter'];
 
+it('J23N r6 forgets a cleared caution when an unchanged EX loadout gains an automatic exit', async () => {
+  localStorage.clear();
+  const ex = parseEng('G100 38 150 P 0.1 0.2 Home\n0 0\n0.5 200\n1 0')[0]!;
+  addExMotors([ex]);
+  const h = harness(tree(0.012), nozzleForMotorId);
+  await h.show(loadout('C6-5'));
+  await h.show(loadout(ex.motorId));
+  expect(exitOf(h.treeRef.current)).toBeUndefined();
+  expect(h.out.cleared.s1?.previousM).toBe(0.012);
+  const writes = h.writes.length;
+  await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.009 }]); });
+  expect(h.out.cleared).toEqual({});
+  expect(h.out.pending).toBe(false);
+  expect(h.writes).toHaveLength(writes);
+  expect(exitOf(h.treeRef.current)).toBeUndefined();
+  // Removing the library figure alone must not create another cleared note.
+  await act(async () => { addExMotors([ex]); });
+  expect(h.out.cleared).toEqual({});
+  expect(h.writes).toHaveLength(writes);
+});
+
+it.each([0.008, undefined])('J23N r5 App lookup keeps typed 12 mm across library-only reimport from %s', async exitDiameterM => {
+  localStorage.clear();
+  const ex = { ...parseEng('G100 38 150 P 0.1 0.2 Home\n0 0\n0.5 200\n1 0')[0]!, exitDiameterM };
+  addExMotors([ex]);
+  const motors: MountMotor[] = [{ spec: exToMotorSpec(ex, 5), label: 'EX', meta: { label: 'EX', exMotorId: ex.motorId }, ignition: { event: 'launch', delay: 0 } }];
+  // The same live-first helper and closure over mounted motors App passes.
+  const look: NozzleLookup = id => id?.startsWith('ex:')
+    ? Promise.resolve(nozzleForMountedEx(id, motors)) : nozzleForMotorId(id);
+  const h = harness(tree(0.012), look);
+  await h.show(loadout(ex.motorId));
+  await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.018 }]); });
+  expect(exitOf(h.treeRef.current)).toBe(0.012);
+  expect(h.writes).toHaveLength(0);
+  expect(h.out.cleared).toEqual({});
+  expect(h.out.pending).toBe(false);
+  const four = loadout(ex.motorId); four[0]!.motors[0]!.count = 4;
+  await h.show(four);
+  expect(exitOf(h.treeRef.current)).toBeUndefined();
+  expect(h.out.cleared).toEqual({});
+});
+
 it('J4 S7e-b1 caches a first-sight EX exit for deletion followed by clustering', async () => {
   localStorage.clear();
   const ex = { ...parseEng('G100 38 150 P 0.1 0.2 Home\n0 0\n0.5 200\n1 0')[0]!, exitDiameterM: 0.015 };
@@ -84,7 +126,8 @@ it('J4 S7e-b1 caches a first-sight EX exit for deletion followed by clustering',
   await act(async () => { deleteExMotor(ex.motorId); });
   const four = loadout(ex.motorId); four[0]!.motors[0]!.count = 4;
   await h.show(four);
-  expect(exitOf(h.treeRef.current)).toBeCloseTo(0.030, 12);
+  expect(exitOf(h.treeRef.current)).toBeUndefined();
+  expect(h.out.cleared).toEqual({});
 });
 
 it('J4 S7e-g1 prunes cleared cautions on seed, manual entry and stage removal', async () => {
@@ -102,6 +145,7 @@ it('J4 S7e-g1 prunes cleared cautions on seed, manual entry and stage removal', 
   await h.show(loadout('unknown'));
   expect(h.out.cleared.s1).toBeUndefined();
   await h.show(loadout('J1'));
+  h.treeRef.current = tree(0.024);
   await h.show(loadout('unknown'));
   expect(h.out.cleared.s1).toBeDefined();
   await h.show([]);
@@ -140,7 +184,7 @@ it('keeps a prototype-key stage update as an own nozzle entry', async () => {
   const second = loadout('K1').map(s => ({ ...s, stageId: '__proto__' }));
   await h.show(first);
   await h.show(second);
-  expect(exitOf(h.treeRef.current)).toBe(0.016);
+  expect(exitOf(h.treeRef.current)).toBeUndefined();
 });
 
 describe('useNozzleFollow', () => {
@@ -150,7 +194,7 @@ describe('useNozzleFollow', () => {
     const set = (id: string) => loadout(id).map(stage => ({ ...stage, stageId }));
     await h.show(set('J1'));
     await h.show(set('K1'));
-    expect(exitOf(h.treeRef.current)).toBeCloseTo(0.016, 12);
+    expect(exitOf(h.treeRef.current)).toBeUndefined();
   });
 
   it.each(['constructor', 'toString', '__proto__'])('follows and clears published exits for stage %s', async id => {
@@ -160,7 +204,8 @@ describe('useNozzleFollow', () => {
     const stages = (motorId: string) => loadout(motorId).map(s => ({ ...s, stageId: id }));
     await h.show(stages('J1'));
     await h.show(stages('K1'));
-    expect(exitOf(h.treeRef.current)).toBe(0.016);
+    expect(exitOf(h.treeRef.current)).toBeUndefined();
+    h.treeRef.current = applyStageNozzles(h.treeRef.current, { [id]: 0.016 });
     await h.show(stages('unknown'));
     expect(exitOf(h.treeRef.current)).toBeUndefined();
     expect(Object.hasOwn(h.out.cleared, id)).toBe(true);
@@ -172,7 +217,7 @@ describe('useNozzleFollow', () => {
     const h = harness(tree(0.015), nozzleForMotorId);
     await h.show(loadout(ex.motorId));
     await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.018 }]); });
-    expect(exitOf(h.treeRef.current)).toBe(0.018);
+    expect(exitOf(h.treeRef.current)).toBe(0.015);
     await h.show(loadout());
     await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.020 }]); });
 
@@ -188,12 +233,12 @@ describe('useNozzleFollow', () => {
     const four = loadout(ex.motorId);
     four[0]!.motors[0]!.count = 4;
     await h.show(four);
-    expect(exitOf(h.treeRef.current)).toBe(0.040); // Four 20 mm exits have one 40 mm equivalent.
+    expect(exitOf(h.treeRef.current)).toBeUndefined();
     expect(h.out.pending).toBe(false);
     expect(h.out.cleared).toEqual({});
   });
 
-  it('S3c-2 keeps the mounted nozzle after library deletion, then follows a corrected re-import', async () => {
+  it('S3c-2 keeps the mounted nozzle after library deletion, then keeps typed data across a corrected re-import', async () => {
     const ex = { ...parseEng('G100 38 150 P 0.1 0.2 Home\n0 0\n0.5 200\n1 0')[0]!, exitDiameterM: 0.015 };
     addExMotors([ex]);
     const h = harness(tree(0.015), nozzleForMotorId);
@@ -205,11 +250,11 @@ describe('useNozzleFollow', () => {
     expect(h.out.pending).toBe(false);
     expect(h.out.cleared).toEqual({});
     await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.018 }]); });
-    expect(exitOf(h.treeRef.current)).toBe(0.018);
+    expect(exitOf(h.treeRef.current)).toBe(0.015);
     await act(async () => { deleteExMotor(ex.motorId); });
-    expect(exitOf(h.treeRef.current)).toBe(0.018);
+    expect(exitOf(h.treeRef.current)).toBe(0.015);
     await act(async () => { addExMotors([{ ...ex, exitDiameterM: undefined }]); });
-    expect(exitOf(h.treeRef.current)).toBeUndefined();
+    expect(exitOf(h.treeRef.current)).toBe(0.015);
     expect(h.out.pending).toBe(false);
   });
 
@@ -230,21 +275,21 @@ describe('useNozzleFollow', () => {
     expect(exitOf(h.treeRef.current)).toBe(0.015);
     expect(h.out.pending).toBe(true);
     await act(async () => { releases[1]!(); });
-    expect(exitOf(h.treeRef.current)).toBe(0.02);
+    expect(exitOf(h.treeRef.current)).toBe(0.015);
     expect(h.out.pending).toBe(false);
   });
 
-  it.each([0.015, 0])('S3c-2 follows a same-id re-import from %s m, preserving OFF', async initial => {
+  it.each([0.015, 0])('S3c-2 preserves typed and OFF values across a same-id re-import from %s m', async initial => {
     const ex = parseRse('<engine-database><engine code="G100" mfg="Home" dia="38" len="150" initWt="200" propWt="100" exitDia="15"><data><eng-data t="0" f="0"/><eng-data t="0.5" f="200"/><eng-data t="1" f="0"/></data></engine></engine-database>')[0]!;
     addExMotors([ex]);
     const h = harness(tree(initial), nozzleForMotorId);
     await h.show(loadout(ex.motorId));
     expect(h.writes).toHaveLength(0);
     await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.018 }]); });
-    expect(exitOf(h.treeRef.current)).toBe(initial === 0 ? 0 : 0.018);
+    expect(exitOf(h.treeRef.current)).toBe(initial);
     expect(h.out.pending).toBe(false);
     await act(async () => { addExMotors([{ ...ex, exitDiameterM: undefined }]); });
-    expect(exitOf(h.treeRef.current)).toBe(initial === 0 ? 0 : undefined);
+    expect(exitOf(h.treeRef.current)).toBe(initial);
   });
 
   it('keeps the current nozzle decision pending across edits and superseded lookups', async () => {
@@ -300,7 +345,7 @@ describe('useNozzleFollow', () => {
     expect(h.writes).toHaveLength(0);
     const four = loadout('K1'); four[0]!.motors[0]!.count = 4;
     await h.show(four);
-    expect(h.treeRef.current.components[0]!.children![0]!['nozzleExitDiameter']).toBe(0.032);
+    expect(h.treeRef.current.components[0]!.children![0]!['nozzleExitDiameter']).toBeUndefined();
     h.out.seed(loadout('J1'));
     h.treeRef.current = nested(0);
     await h.show(loadout('J1'));
@@ -315,11 +360,11 @@ describe('useNozzleFollow', () => {
     expect(exitOf(h.treeRef.current)).toBe(0.02);
   });
 
-  it('puts the new motor’s published exit on the stage when the loadout changes', async () => {
+  it('clears the previous typed exit to automatic when the loadout changes', async () => {
     const h = harness(tree(0.012));
     await h.show(loadout('J1'));
     await h.show(loadout('K1'));
-    expect(exitOf(h.treeRef.current)).toBe(0.016);
+    expect(exitOf(h.treeRef.current)).toBeUndefined();
   });
 
   it('clears a nozzle that belonged to the previous motor, and says whose it was', async () => {
@@ -378,7 +423,7 @@ describe('useNozzleFollow', () => {
     h.treeRef.current = { ...h.treeRef.current, name: 'renamed' };
     await h.show(loadout('K1'));         // an unrelated edit: same loadout, new array
     await act(async () => { release(); await gate; });
-    expect(exitOf(h.treeRef.current)).toBe(0.016);
+    expect(exitOf(h.treeRef.current)).toBeUndefined();
     expect(h.treeRef.current.name).toBe('renamed');
   });
 
@@ -579,25 +624,25 @@ describe('useNozzleFollow under the undo history', () => {
     await settle();
     await edit(m, (t) => ({ ...t, name: 'renamed' }));
     await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.018 }]); });
-    expect(exitOf(m.current.h.treeRef.current)).toBe(0.018);
+    expect(exitOf(m.current.h.treeRef.current)).toBe(0.015);
     await act(async () => { deleteExMotor(ex.motorId); });
-    expect(exitOf(m.current.h.treeRef.current)).toBe(0.018);
+    expect(exitOf(m.current.h.treeRef.current)).toBe(0.015);
     await undo(m);
     expect(m.current.h.treeRef.current.name).toBe('r');
-    expect(exitOf(m.current.h.treeRef.current)).toBe(0.018);
+    expect(exitOf(m.current.h.treeRef.current)).toBe(0.015);
     expect(m.current.pending).toBe(false);
     expect(m.current.cleared).toEqual({});
     await redo(m);
     expect(m.current.h.treeRef.current.name).toBe('renamed');
-    expect(exitOf(m.current.h.treeRef.current)).toBe(0.018);
+    expect(exitOf(m.current.h.treeRef.current)).toBe(0.015);
 
-    // A present replacement can remove the figure; deleting it must not revive 18 mm.
+    // Library changes never erase the typed 15 mm, including across undo.
     await act(async () => { addExMotors([{ ...ex, exitDiameterM: undefined }]); });
-    expect(exitOf(m.current.h.treeRef.current)).toBeUndefined();
+    expect(exitOf(m.current.h.treeRef.current)).toBe(0.015);
     await act(async () => { deleteExMotor(ex.motorId); });
     await undo(m);
     expect(m.current.h.treeRef.current.name).toBe('r');
-    expect(exitOf(m.current.h.treeRef.current)).toBeUndefined();
+    expect(exitOf(m.current.h.treeRef.current)).toBe(0.015);
     expect(m.current.pending).toBe(false);
   });
 
@@ -617,13 +662,13 @@ describe('useNozzleFollow under the undo history', () => {
     await settle();
     await edit(m, (t) => ({ ...t, name: 'renamed' }));
     await swap(m, 'K1');
-    expect(exitOf(m.current.h.treeRef.current)).toBe(0.016);
+    expect(exitOf(m.current.h.treeRef.current)).toBeUndefined();
     await undo(m);
     expect(m.current.h.treeRef.current.name).toBe('r');     // the rename came off...
-    expect(exitOf(m.current.h.treeRef.current)).toBe(0.016); // ...and K1 still flies K1's exit
+    expect(exitOf(m.current.h.treeRef.current)).toBeUndefined(); // ...and K1 still flies automatically
     await redo(m);
     expect(m.current.h.treeRef.current.name).toBe('renamed');
-    expect(exitOf(m.current.h.treeRef.current)).toBe(0.016);
+    expect(exitOf(m.current.h.treeRef.current)).toBeUndefined();
     expect(m.current.cleared).toEqual({});
   });
 
@@ -657,10 +702,10 @@ describe('useNozzleFollow under the undo history', () => {
     await edit(m, (t) => ({ ...t, name: 'renamed' }));   // pushes that 12 mm state
     await act(async () => { release(); await gate; });
     await settle();
-    expect(exitOf(m.current.h.treeRef.current)).toBe(0.016);
+    expect(exitOf(m.current.h.treeRef.current)).toBeUndefined();
     await undo(m);
     expect(m.current.h.treeRef.current.name).toBe('r');
-    expect(exitOf(m.current.h.treeRef.current)).toBe(0.016);
+    expect(exitOf(m.current.h.treeRef.current)).toBeUndefined();
   });
 
   it('undoing a nozzle typed for the motor still loaded puts back the value before it', async () => {

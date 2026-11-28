@@ -361,6 +361,22 @@ describe('stored flights in real workerd', () => {
     } else expect(actual, path).toEqual(expected);
   };
 
+  it('J23-N workerd flies a blank published exit like the Node oracle', async () => {
+    const { readFileSync } = await import('node:fs');
+    const body = new Uint8Array(readFileSync(new URL('../../app/src/data/examples/dual-deploy.ork', import.meta.url)));
+    const node = await simulateFile(body, 'dual-deploy.ork', API_OPTIONS);
+    expect(node.run.nozzleStages).toHaveLength(1);
+    expect(node.state.tree.components[0]!['nozzleExitDiameter']).toBeUndefined();
+    const oracle = await respond(body, 'dual-deploy.ork');
+    const response = await local!.fetch('http://local/experimental/fly?filename=dual-deploy.ork',
+      { method: 'POST', body });
+    const json = await response.json() as Record<string, unknown>;
+    delete json['timing'];
+    expect(response.status, JSON.stringify(json)).toBe(200);
+    expect(oracle.status).toBe(200);
+    close(json, oracle.json);
+  });
+
   it.each(DESIGN_NAMES)('%s: workerd matches main\'s parser in Node', async name => {
     const body = zipSync({ 'rocket.ork': strToU8(storedFlightXml(DESIGNS[name]!)) });
     setXmlParser(createJsXmlParser(E1));

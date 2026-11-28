@@ -1,6 +1,26 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { nozzleForMotorId, resetNozzleDbCache } from './nozzleDb.js';
+import { loadNozzleDb, nozzleDbRevision, nozzleForMotorId, nozzleForMountedEx, publishedExitSync, resetNozzleDbCache, subscribeNozzleDb } from './nozzleDb.js';
+import { addExMotors, deleteExMotor, exToMotorSpec, parseEng } from './exMotors.js';
 import nozzles from '../data/nozzles.json';
+
+it('J23N r5 live EX entry wins over every mounted snapshot, even when it has no exit', () => {
+  const ex = { ...parseEng('G100 18 70 5 0.01 0.025 Home\n0 0\n0.1 100\n1 0\n')[0]!, exitDiameterM: 0.008 };
+  const mounted = { spec: exToMotorSpec(ex, 5), label: 'EX', meta: { label: 'EX', exMotorId: ex.motorId }, ignition: { event: 'launch' as const, delay: 0 } };
+  addExMotors([{ ...ex, exitDiameterM: 0.009 }]);
+  expect(nozzleForMountedEx(ex.motorId, [mounted])?.exitDiameterM).toBe(0.009);
+  addExMotors([{ ...ex, exitDiameterM: undefined }]);
+  expect(nozzleForMountedEx(ex.motorId, [mounted])).toBeNull();
+  deleteExMotor(ex.motorId);
+  expect(nozzleForMountedEx(ex.motorId, [mounted])).toMatchObject({ exitDiameterM: ex.exitDiameterM, fromImportedFile: true });
+  expect(nozzleForMountedEx(ex.motorId, [])).toBeNull();
+});
+
+it.each([NaN, Infinity, -0.01, 0, 0.001, 10])('J23N r5 refuses deleted-library mounted EX exit %s', exitDiameterM => {
+  const ex = { ...parseEng('G100 18 70 5 0.01 0.025 Invalid\n0 0\n0.1 100\n1 0\n')[0]!, exitDiameterM };
+  deleteExMotor(ex.motorId);
+  const mounted = { spec: exToMotorSpec(ex, 5), label: 'EX', meta: { label: 'EX', exMotorId: ex.motorId }, ignition: { event: 'launch' as const, delay: 0 } };
+  expect(nozzleForMountedEx(ex.motorId, [mounted])).toBeNull();
+});
 
 /**
  * Runs against the SHIPPED `src/data/nozzles.json`, the way
@@ -11,6 +31,22 @@ import nozzles from '../data/nozzles.json';
  */
 describe('the published nozzle lookup', () => {
   beforeEach(resetNozzleDbCache);
+
+  it('J23-N distinguishes pending from absent exits and announces readiness', async () => {
+    const row = nozzles.motors.find(m => m.motorId && m.exitDiameterM)!;
+    expect(publishedExitSync(row.motorId!)).toBeUndefined();
+    const before = nozzleDbRevision();
+    let changed = 0;
+    const unsubscribe = subscribeNozzleDb(() => { changed++; });
+    const a = loadNozzleDb();
+    expect(loadNozzleDb()).toBe(a);
+    expect(await a).toBe('ready');
+    expect(nozzleDbRevision()).toBeGreaterThan(before);
+    expect(changed).toBeGreaterThan(0);
+    expect(publishedExitSync(row.motorId!)).toBeCloseTo(row.exitDiameterM!, 12);
+    expect(publishedExitSync('missing-motor')).toBeNull();
+    unsubscribe();
+  });
 
   it('finds a motor by its catalogue id and reports where the number came from', async () => {
     // D13W, RMS-18-20, nozzle 01000-1 at 0.188 in = 4.775 mm.

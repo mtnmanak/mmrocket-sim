@@ -165,6 +165,13 @@ const type = (input: HTMLInputElement, text: string) => act(() => {
   input.dispatchEvent(new Event('input', { bubbles: true }));
 });
 const start = () => act(async () => { primary().click(); });
+
+it('J23N r5 leaves candidate nozzle lookup to the actual batch runner', async () => {
+  sweep.mockResolvedValue({ rows: [], stopped: false });
+  mount();
+  await start();
+  expect(sweep.mock.calls[0]![2]).toBeUndefined();
+});
 const candidateCount = () => Number(/(\d+) candidate motors/.exec(host.textContent ?? '')![1]);
 
 it.each(['Minimum apogee', 'Maximum apogee'])('r5 bounds typed and persisted %s for every altitude unit', label => {

@@ -11,7 +11,7 @@ import { exportIgnitions } from './foreignConfigLayers.js';
 import { DEFAULT_CONDITIONS, DEFAULT_MAX_FLIGHT_TIME_S, DEFAULT_TIME_STEP_S, flownRodAimDeg, type LaunchConditions } from './launchConditions.js';
 import type { MeasuredFigures, OrkExportFlightData, OrkExportMotor } from './orkFile.js';
 import { exportRkt, rktPackedChuteSize, rktRecoveryCount, type RktPartInfo } from './rocksimFile.js';
-import { cdx1RecoveryDelayNote, cdx1RodAimNote, cdx1WrittenParts, exportCdx1, rasaeroManufacturerAbbrev } from './rasaeroFile.js';
+import { cdx1EngineSlots, cdx1RecoveryDelayNote, cdx1RodAimNote, cdx1WrittenParts, exportCdx1, rasaeroManufacturerAbbrev } from './rasaeroFile.js';
 import { nozzleExportNotes } from './nozzleExport.js';
 import { windProfileSaveNotes } from './windProfile.js';
 import { designProvenanceLossNotes } from './designProvenance.js';
@@ -28,6 +28,8 @@ export interface FormatLossReport {
 }
 export interface FormatLossInput {
   tree: RocketTree;
+  /** Stored intent when the CDX1 writer receives a resolved flight tree. */
+  storedNozzleTree?: RocketTree;
   /** The same computed component snapshot passed to the real RockSim save. */
   compInfo?: Record<string, RktPartInfo>;
   /** Active/detached layered tuples, supplied with the component-default tree. */
@@ -160,9 +162,10 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
     motors: exportIgnitions(input.tree, input.motors, input.overrides ?? {})!,
     tree: resolveFlightState(input.tree, [], null, input.overrides ?? {}, {}).tree };
   const ext = formatExtension(format);
+  const exportedEngines = format === 'cdx1' ? cdx1EngineSlots(input).map(s => s.engine) : [];
   losses.push(...windProfileSaveNotes(input.launch, ext), ...motorLengthLossNotes(input.tree, ext));
   if (format === 'cdx1') {
-    losses.push(...nozzleExportNotes(input.tree, ext));
+    losses.push(...nozzleExportNotes(input.storedNozzleTree ?? input.tree, ext, exportedEngines));
     for (const note of [cdx1RodAimNote(input.launch), cdx1RecoveryDelayNote(input.tree)]) if (note) losses.push(note);
   }
   const nodes = nodesOf(input.tree);
@@ -331,9 +334,7 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
       add(kids.some(n => n.type === 'nosecone') || kids.filter(n => n.type === 'bodytube').length > 1
         || kids.some(n => n.type === 'transition' && String(n['shape'] ?? 'conical') !== 'conical'),
       `Booster geometry ${named(stage)}: forward noses are omitted, tube boundaries and radii collapse to one tube, and shoulder/boat-tail shapes become conical.`);
-      const stageNodes = nodesOf({ components: [stage] });
-      const motor = stageNodes.map(n => overrideFor(input.motors, n.id ?? '')).find(Boolean);
-      add(num(stage, 'nozzleExitDiameter', 0) > 0 && !rasaeroManufacturerAbbrev(motor?.manufacturer),
+      add(num(stage, 'nozzleExitDiameter', 0) > 0 && !exportedEngines[stages.indexOf(stage)],
         `Booster nozzle ${named(stage)} is not kept because this stage has no exported engine.`);
     }
     parts(n => planar(n) && nonzero(n, 'cant', 'rotation'), 'Fin cant and rotation are not kept');

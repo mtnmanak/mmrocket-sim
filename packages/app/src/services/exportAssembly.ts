@@ -11,6 +11,9 @@ import { orkMotorSet, type ExLibrary, type FlownAutoDelays } from './orkExportMo
 import { motorSetKeyOf, type DesignMatchKey } from './simReport.js';
 import { buildDesign, KERNEL_HANDLES } from './buildDesign.js';
 import { stableJson, type DesignSnapshot } from './dirtyState.js';
+import { withFlownNozzles, type PublishedExitLookup } from './flownNozzles.js';
+import { stageMotors } from './nozzleFollow.js';
+import { nozzleForMountedEx, publishedExitSync } from './nozzleDb.js';
 
 /** One synchronous snapshot for Save, share and the flight-data bundle.
  * Route-specific callbacks and save bookkeeping remain with the caller. */
@@ -67,26 +70,36 @@ interface ExportFlightState extends Pick<FlightDataForExportInput,
   effectiveKbf: boolean;
   autoSupersonic: boolean;
   measuredDryMassKg?: number | null;
+  publishedExit?: PublishedExitLookup;
 }
 
 /** The same owner-specific effective inputs Launch stamps onto a stored flight. */
 export function flightExportInput(input: ExportFlightState, hardwareCache: ExportHardwareCache = new Map()): FlightDataForExportInput {
   const { runs, importedDocument, savedConfigs, activeConfigId, assigned, refusedMountIds, mounts, provenanceKey,
     aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, tree, detachedOverrides, mountMotors, launch } = input;
-  const states = new Map<string | null, ReturnType<NonNullable<FlightDataForExportInput['configurationState']>>>();
+  const states = new Map<string, ReturnType<NonNullable<FlightDataForExportInput['configurationState']>>>();
+  const ownerLookup = (motors: Record<string, MountMotor>): PublishedExitLookup => {
+    return id => id.startsWith('ex:')
+      ? nozzleForMountedEx(id, Object.values(motors))?.exitDiameterM ?? null
+      : (input.publishedExit ?? publishedExitSync)(id);
+  };
   for (const id of hardwareCache.keys()) if (!savedConfigs.some(c => c.id === id)) hardwareCache.delete(id);
   return {
     runs, importedDocument, savedConfigs, activeConfigId, assigned, refusedMountIds,
     mountIds: mounts.map((m) => m.id).filter((id): id is string => typeof id === 'string'),
     designKey: provenanceKey.designKey,
-    configurationState: (id) => {
-      const cached = states.get(id);
+    configurationState: (id, ownerRefusals) => {
+      const working = id === activeConfigId;
+      const refusals = working ? refusedMountIds : ownerRefusals;
+      const stateKey = stableJson([id, [...(refusals ?? [])].sort()]);
+      const cached = states.get(stateKey);
       if (cached) return cached;
       const cfg = savedConfigs.find(c => c.id === id);
-      const working = id === activeConfigId;
       const resolved = resolveFlightState(!working && cfg ? configOntoTree(tree, cfg) : tree,
         savedConfigs, id, detachedOverrides, working ? mountMotors : cfg?.motors ?? mountMotors);
       const motors = assignedMotorsOf(resolved.mountMotors, mounts);
+      resolved.tree = withFlownNozzles(resolved.tree,
+        stageMotors(resolved.tree, motors, refusals), ownerLookup(resolved.mountMotors)).tree;
       let hardwareDelta: number | undefined;
       const calculateHardwareDeltaKg = () => {
         if (working) return hardwareDeltaKg;
@@ -113,15 +126,24 @@ export function flightExportInput(input: ExportFlightState, hardwareCache: Expor
       };
       // The design hash and revision flags do not depend on hardware delta.
       const state = { ...provenanceKeyOf({ tree: resolved.tree, physicsKey: physicsKeyOf(resolved.tree.components),
-        assigned: motors, hardwareDeltaKg: 0, launch,
+        assigned: motors, refusedMountIds: refusals, hardwareDeltaKg: 0, launch,
         aero: { aeroMode, effectiveKbf, autoSupersonic } }), motors, getHardwareDeltaKg };
-      states.set(id, state);
+      states.set(stateKey, state);
       return state;
     },
     conditionsKey: provenanceKey.conditionsKey,
     model: { aeroMode, effectiveKbf, autoSupersonic },
-    // Tree-only: another configuration may burn in a stage that is bare now.
-    hasNozzle: stagesWithNozzle(tree).length > 0,
+    // Each owner flies its own motor's automatic exit, even while inactive.
+    hasNozzle: [activeConfigId, ...savedConfigs.map(c => c.id)].some(id => {
+      const cfg = savedConfigs.find(c => c.id === id);
+      const working = id === activeConfigId;
+      const resolved = resolveFlightState(!working && cfg ? configOntoTree(tree, cfg) : tree,
+        savedConfigs, id, detachedOverrides, working ? mountMotors : cfg?.motors ?? mountMotors);
+      return stagesWithNozzle(withFlownNozzles(resolved.tree,
+        stageMotors(resolved.tree, assignedMotorsOf(resolved.mountMotors, mounts), working ? refusedMountIds
+          : runs.find(run => run.flightConfigId === id)?.refusedMountIds),
+        ownerLookup(resolved.mountMotors)).tree).length > 0;
+    }),
     requiresPhysicsRevision: provenanceKey.requiresPhysicsRevision,
     physicsRevisions: provenanceKey.physicsRevisions,
     motorSetKeyOf,

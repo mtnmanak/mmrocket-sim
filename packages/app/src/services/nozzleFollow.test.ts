@@ -268,22 +268,20 @@ describe('equivalentExitDiameterM', () => {
 describe('followNozzle', () => {
   const base = { hadMotorsBefore: true, previousLabel: 'K1127', currentValueM: 0.02286, publishedM: null as number | null };
 
-  it('replaces a stale value with the new motor’s published figure', () => {
+  it('clears a stale typed value to automatic when the new motor publishes an exit', () => {
     expect(followNozzle({ ...base, publishedM: 0.0254 }))
-      .toEqual({ kind: 'set', exitDiameterM: 0.0254 });
+      .toEqual({ kind: 'automatic' });
   });
 
-  it('fills an empty field when the new motor publishes one', () => {
+  it('leaves an empty field automatic when the new motor publishes one', () => {
     expect(followNozzle({ ...base, currentValueM: null, publishedM: 0.0254 }))
-      .toEqual({ kind: 'set', exitDiameterM: 0.0254 });
+      .toEqual({ kind: 'none' });
   });
 
-  it('writes nothing when the value already IS the published figure', () => {
-    // Down to the display's own 0.05 mm slop, so a unit round-trip through the
-    // box does not churn the design (and the undo-free write with it).
-    expect(followNozzle({ ...base, currentValueM: 0.0254, publishedM: 0.0254 })).toEqual({ kind: 'none' });
-    expect(followNozzle({ ...base, currentValueM: 0.02542, publishedM: 0.0254 })).toEqual({ kind: 'none' });
-    expect(followNozzle({ ...base, currentValueM: 0.0256, publishedM: 0.0254 }).kind).toBe('set');
+  it('clears even a value equal to the new published figure after a motor change', () => {
+    expect(followNozzle({ ...base, currentValueM: 0.0254, publishedM: 0.0254 })).toEqual({ kind: 'automatic' });
+    expect(followNozzle({ ...base, currentValueM: 0.02542, publishedM: 0.0254 })).toEqual({ kind: 'automatic' });
+    expect(followNozzle({ ...base, currentValueM: 0.0256, publishedM: 0.0254 }).kind).toBe('automatic');
   });
 
   it('clears a value the new motor has no figure for, and says what it was', () => {

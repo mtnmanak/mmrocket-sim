@@ -51,7 +51,7 @@ it.each([
         valueKg={null} legacyPending={false} onChange={() => {}} computedPadMassKg={0.1} hardware={undefined}
         nameOfMount={id => id} describeIdentity={id => id} /></section>
       <section data-test="nozzle"><NozzleField stageName="Stage" exitDiameterM={null} motors={[]} motorLabel={null}
-        clearedFor={{ previousLabel: 'Previous motor', previousM: 0.0254 }} onCommit={() => {}} onAutoFill={() => {}} /></section>
+        clearedFor={{ previousLabel: 'Previous motor', previousM: 0.0254 }} onCommit={() => {}} /></section>
       <section data-test="room"><MotorLengthField mountName="Mount" value={null} onCommit={() => {}}
         room={{ lengthM: 0.0254, limitedBy: 'Bulkhead' }} /></section>
       <section data-test="audit"><PreflightAudit result={{ findings: [{ id: 'mass', kind: 'mass-ratio', tier: 'caution',

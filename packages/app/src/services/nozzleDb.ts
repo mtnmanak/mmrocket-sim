@@ -1,3 +1,5 @@
+import type { MountMotor } from '../model/design.js';
+import type { RepairedMotorSpec } from './thrustcurve.js';
 /**
  * The manufacturers' own published nozzle exit diameters, looked up by motor.
  *
@@ -26,7 +28,8 @@
  * assigned, and the entry chunk should not carry it.
  */
 
-import { getExMotor } from './exMotors.js';
+import { exitDiameterFromRse, getExMotor, type ExMotor } from './exMotors.js';
+import { nozzleData } from './nozzleData.js';
 
 /** One motor's published nozzle, as the panel needs it. */
 export interface NozzleEntry {
@@ -120,6 +123,39 @@ interface RawDb {
 }
 
 let byMotorId: Map<string, NozzleEntry> | null = null;
+let loading: Promise<'ready' | 'failed'> | null = null;
+let failed = false;
+let revision = 0;
+const listeners = new Set<() => void>();
+export const subscribeNozzleDb = (listener: () => void): (() => void) => {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+};
+export const nozzleDbRevision = (): number => revision;
+const notify = () => { revision++; for (const listener of listeners) listener(); };
+
+/** Settle the lazy chunk before building or taking the headless kernel lock. */
+export function loadNozzleDb(): Promise<'ready' | 'failed'> {
+  if (byMotorId) return Promise.resolve('ready');
+  if (loading) return loading;
+  loading = db().then(() => 'ready' as const, () => {
+    if (!failed) { failed = true; notify(); }
+    return 'failed' as const;
+  }).then(status => { loading = null; return status; });
+  return loading;
+}
+
+/** undefined means pending; null means no usable published exit (or failed chunk). */
+export function publishedExitSync(motorId: string): number | null | undefined {
+  if (!motorId) return null;
+  if (motorId.startsWith('ex:')) {
+    return exNozzleEntry(getExMotor(motorId))?.exitDiameterM ?? null;
+  }
+  return byMotorId ? byMotorId.get(motorId)?.exitDiameterM ?? null : failed ? null : undefined;
+}
+
+export const nozzleDbFailed = (): boolean => failed && byMotorId === null;
+export const nozzleLoadFailure = 'The published nozzle exit could not be loaded, so the flight used none — check Motors & Configuration.';
 
 function toEntry(m: RawMotor): NozzleEntry | null {
   // A row with no motorId cannot become an entry, because `NozzleEntry.motorId` is the key
@@ -167,7 +203,7 @@ async function db(): Promise<Map<string, NozzleEntry>> {
   // (LazyDialog.tsx), and nothing may promise that the field fills itself in
   // when the connection comes back.
   if (!byMotorId) {
-    const mod = await import('../data/nozzles.json');
+    const mod = await nozzleData.load();
     const raw = mod.default as unknown as RawDb;
     const map = new Map<string, NozzleEntry>();
     for (const m of raw.motors ?? []) {
@@ -183,6 +219,8 @@ async function db(): Promise<Map<string, NozzleEntry>> {
       if (e) map.set(e.motorId, e);
     }
     byMotorId = map;
+    failed = false;
+    notify();
   }
   return byMotorId;
 }
@@ -219,28 +257,44 @@ export async function nozzleForMotorId(motorId: string | undefined): Promise<Noz
   // file's own `mfg`, because the panel says whose figure this is out loud and
   // it must never credit AeroTech with a number out of somebody's own file.
   if (motorId.startsWith('ex:')) {
-    const ex = getExMotor(motorId);
-    const d = ex?.exitDiameterM;
-    if (!ex || typeof d !== 'number' || !Number.isFinite(d) || d <= 0) return null;
-    return {
-      motorId,
-      designation: ex.designation,
-      manufacturer: ex.realManufacturer || 'your own motor file',
-      exitDiameterM: d,
-      // 'low' is the honest grade: a catalogue 'high' means a part number
-      // traced to a dimensioned drawing, and a value typed into a motor file
-      // by its author has no such chain. The panel shows the note beside it.
-      confidence: 'low',
-      note: `read from the ${ex.source === 'rse' ? '.rse' : 'motor'} file you imported, not from a manufacturer's drawing`,
-      // No drawing chain exists for a file somebody wrote themselves.
-      drawings: [],
-      fromImportedFile: true,
-    };
+    return exNozzleEntry(getExMotor(motorId));
   }
   return (await db()).get(motorId) ?? null;
+}
+
+/** The same validated provenance for live and retained mounted EX definitions. */
+export function exNozzleEntry(ex: ExMotor | undefined): NozzleEntry | null {
+  const d = ex?.exitDiameterM;
+  if (!ex || typeof d !== 'number' || !Number.isFinite(d) || d <= 0) return null;
+  const exit = exitDiameterFromRse(d * 1000, ex.diameter);
+  if (!exit || !('exitDiameterM' in exit)) return null;
+  return {
+    motorId: ex.motorId,
+    designation: ex.designation,
+    manufacturer: ex.realManufacturer || 'your own motor file',
+    exitDiameterM: d,
+    // 'low' is the honest grade: a catalogue 'high' means a part number
+    // traced to a dimensioned drawing, and a value typed into a motor file
+    // by its author has no such chain. The panel shows the note beside it.
+    confidence: 'low',
+    note: `read from the ${ex.source === 'rse' ? '.rse' : 'motor'} file you imported, not from a manufacturer's drawing`,
+    // No drawing chain exists for a file somebody wrote themselves.
+    drawings: [],
+    fromImportedFile: true,
+  };
 }
 
 /** Test seam — the module-level cache would otherwise leak between cases. */
 export function resetNozzleDbCache(): void {
   byMotorId = null;
+  loading = null;
+  failed = false;
+  notify();
+}
+
+/** Live EX library first; only a deleted entry falls back to its mounted file. */
+export function nozzleForMountedEx(id: string, motors: readonly MountMotor[]): NozzleEntry | null {
+  const live = getExMotor(id);
+  const mounted = motors.find(m => m.meta.exMotorId === id);
+  return exNozzleEntry(live ?? (mounted?.spec as RepairedMotorSpec | undefined)?.exDefinition);
 }

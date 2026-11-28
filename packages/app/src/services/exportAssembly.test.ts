@@ -9,7 +9,10 @@ import * as dirtyState from './dirtyState.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import { physicsKeyOf, provenanceKeyOf } from './designDerivation.js';
 import { flightDataForExport, flownAutoDelays } from './orkFlightData.js';
+import { withFlownNozzles } from './flownNozzles.js';
+import { stageMotors } from './nozzleFollow.js';
 import { PHYSICS_REVISION, motorDataKeyOf, type SimRun } from './simReport.js';
+import { addExMotors, deleteExMotor, exToMotorSpec, parseEng } from './exMotors.js';
 
 const motor = testMotor(true, 4);
 const tree: FlightTree = { name: 'Layers', ignitionDefaults: { a: { event: 'launch', delay: 2 } }, components: [
@@ -243,4 +246,95 @@ describe('export assembly (S2-8)', () => {
     expect(tree.components[0]!.children![2]!.deployEvent).toBe('apogee');
     expect(motor.ignition).toEqual({ event: 'automatic', delay: 0 });
   });
+});
+
+it('J23-N an inactive blank configuration keeps its own flown exit and export key', () => {
+  const first = { ...motor, meta: { ...motor.meta, motorId: 'first' } };
+  const second = { ...motor, meta: { ...motor.meta, motorId: 'second' },
+    ignition: { event: 'launch' as const, delay: 2 } };
+  const aero = { aeroMode: 'classic' as const, effectiveKbf: true, autoSupersonic: false };
+  const lookup = (id: string) => id === 'first' ? 0.01 : 0.02;
+  const flownTree = withFlownNozzles(tree, stageMotors(tree, [['a', second]]), lookup).tree;
+  const expected = provenanceKeyOf({ tree: flownTree, physicsKey: physicsKeyOf(flownTree.components),
+    assigned: [['a', second]], hardwareDeltaKg: 0, launch: DEFAULT_CONDITIONS, aero });
+  const assembled = flightExportInput({ tree, runs: [], savedConfigs: [
+    config({ motors: { a: first }, nozzles: { s: null } }),
+    config({ id: 'B', motors: { a: second }, nozzles: { s: null } }),
+  ], activeConfigId: 'A', assigned: [['a', first]], mountMotors: { a: first },
+    detachedOverrides: {}, mounts: tree.components[0]!.children!.slice(0, 2),
+    hardwareDeltaKg: 0, launch: DEFAULT_CONDITIONS, provenanceKey: expected, publishedExit: lookup, ...aero });
+  expect(assembled.configurationState!('B').designKey).toBe(expected.designKey);
+  expect(assembled.configurationState!('A').designKey).not.toBe(expected.designKey);
+  expect(assembled.hasNozzle).toBe(true);
+  expect(tree.components[0]!['nozzleExitDiameter']).toBeUndefined();
+  const run = { id: 'inactive', flightConfigId: 'B', designKey: expected.designKey,
+    conditionsKey: expected.conditionsKey, motorSetKey: expected.motorSetKey, motorDataKey: expected.motorDataKey,
+    delayResolution: testResolution([['a', second]], [8]), physicsRevision: PHYSICS_REVISION,
+    aeroModel: 'classic', rogersKbf: true, nozzleStages: ['Stage'], maxAltitude: 100 } as SimRun;
+  assembled.runs = [run];
+  expect(flightDataForExport(assembled)).toHaveProperty('B');
+});
+
+it('J23N r5 configurations use the live EX library, retaining owner exits only after deletion', () => {
+  const ex = { ...parseEng('G100 18 70 5 0.01 0.025 Home\n0 0\n0.1 100\n1 0\n')[0]!, exitDiameterM: 0.008 };
+  const first = { ...motor, spec: exToMotorSpec(ex, 5), meta: { label: 'EX', exMotorId: ex.motorId } };
+  const second = { ...first, spec: exToMotorSpec({ ...ex, exitDiameterM: 0.009 }, 5) };
+  addExMotors([{ ...ex, exitDiameterM: 0.012 }]);
+  const aero = { aeroMode: 'classic' as const, effectiveKbf: true, autoSupersonic: false };
+  const expected = (mm: typeof first, exit: number) => {
+    const flown = withFlownNozzles(tree, stageMotors(tree, [['a', mm]]), () => exit).tree;
+    return provenanceKeyOf({ tree: flown, physicsKey: physicsKeyOf(flown.components), assigned: [['a', mm]],
+      hardwareDeltaKg: 0, launch: DEFAULT_CONDITIONS, aero });
+  };
+  const assemble = () => flightExportInput({ tree, runs: [], savedConfigs: [
+    config({ motors: { a: first }, nozzles: { s: null } }),
+    config({ id: 'B', motors: { a: second }, nozzles: { s: null } }),
+  ], activeConfigId: 'A', assigned: [['a', first]], mountMotors: { a: first }, detachedOverrides: {},
+    mounts: tree.components[0]!.children!.slice(0, 2), hardwareDeltaKg: 0, launch: DEFAULT_CONDITIONS,
+    provenanceKey: expected(first, ex.exitDiameterM), ...aero });
+  const assembled = assemble();
+  expect(assembled.configurationState!('A').designKey).toBe(expected(first, 0.012).designKey);
+  expect(assembled.configurationState!('B').designKey).toBe(expected(second, 0.012).designKey);
+  deleteExMotor(ex.motorId);
+  const retained = assemble();
+  expect(retained.configurationState!('A').designKey).toBe(expected(first, 0.008).designKey);
+  expect(retained.configurationState!('B').designKey).toBe(expected(second, 0.009).designKey);
+});
+
+it('J23N r3 inactive nozzle keys and Auto-delay evidence exclude that run\'s refused motors', () => {
+  const accepted = { ...motor, meta: { ...motor.meta, motorId: 'accepted' }, ignition: { event: 'launch' as const, delay: 2 } };
+  const refused = { ...motor, meta: { ...motor.meta, motorId: 'refused', autoDelay: false }, ignition: { event: 'launch' as const, delay: 0 } };
+  const motors: [string, typeof motor][] = [['a', accepted], ['b', refused]];
+  const lookup = (id: string) => id === 'accepted' ? 0.006 : 0.008;
+  const aero = { aeroMode: 'classic' as const, effectiveKbf: true, autoSupersonic: false };
+  const flownTree = withFlownNozzles(tree, stageMotors(tree, motors, ['b']), lookup).tree;
+  const key = provenanceKeyOf({ tree: flownTree, physicsKey: physicsKeyOf(flownTree.components), assigned: motors,
+    hardwareDeltaKg: 0, launch: DEFAULT_CONDITIONS, aero });
+  const run = { id: 'refused-owner', flightConfigId: 'B', ...key,
+    delayResolution: testResolution([['a', accepted]], [8]), refusedMountIds: ['b'],
+    physicsRevision: PHYSICS_REVISION, aeroModel: 'classic', rogersKbf: true,
+    nozzleStages: ['Stage'], maxAltitude: 100 } as unknown as SimRun;
+  const assembled = flightExportInput({ tree, runs: [run], savedConfigs: [config(), config({ id: 'B',
+    motors: Object.fromEntries(motors), nozzles: { s: null } })], activeConfigId: 'A', assigned: [['a', motor]],
+    mountMotors: { a: motor }, detachedOverrides: {}, mounts: tree.components[0]!.children!.slice(0, 2),
+    hardwareDeltaKg: 0, launch: DEFAULT_CONDITIONS, provenanceKey: key, publishedExit: lookup, ...aero });
+  expect(flownAutoDelays(assembled)).toHaveProperty('B', { a: 8 });
+  // The flown Auto input survives; a partial flight must still not represent both motors.
+  expect(flightDataForExport(assembled)).not.toHaveProperty('B');
+  const state = assembled.configurationState! as (id: string, refused?: readonly string[]) => { designKey: string };
+  expect(state('B', ['b']).designKey).toBe(key.designKey);
+  expect(state('B', []).designKey).not.toBe(key.designKey);
+});
+
+it('J23N r3 a typed nozzle on an inactive refused-only stage needs no flown nozzle stamp', () => {
+  const typed = { ...tree, components: [{ ...tree.components[0]!, nozzleExitDiameter: 0.01 }] };
+  const aero = { aeroMode: 'classic' as const, effectiveKbf: true, autoSupersonic: false };
+  const key = provenanceKeyOf({ tree: typed, physicsKey: physicsKeyOf(typed.components), assigned: [['a', motor]],
+    hardwareDeltaKg: 0, launch: DEFAULT_CONDITIONS, aero });
+  const input = flightExportInput({ tree: typed, runs: [], savedConfigs: [config(), config({ id: 'B' })],
+    activeConfigId: 'A', assigned: [['a', motor]], mountMotors: { a: motor }, detachedOverrides: {},
+    mounts: tree.components[0]!.children!.slice(0, 2), hardwareDeltaKg: 0, launch: DEFAULT_CONDITIONS,
+    provenanceKey: key, ...aero });
+  expect(input.configurationState!('B', ['a']).hasNozzle).toBe(false);
+  expect(input.configurationState!('B', []).hasNozzle).toBe(true);
 });

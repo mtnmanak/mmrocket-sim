@@ -2498,8 +2498,8 @@ export function buildSimRun(input: {
       + 'published sea-level curve gains the exit area times the pressure the rocket has climbed out '
       + 'of, for as long as it burns — the same correction RASAero makes while the motor burns. The '
       + 'flown thrust and the thrust:weight at rod departure therefore read above the catalogue '
-      + 'curve: nothing at a sea-level pad, more with height. Clear the nozzle under the stage, or '
-      + 'fly Classic Extended Barrowman, to fly the published curve.'
+      + "curve: nothing at a sea-level pad, more with height. Set the stage's Nozzle exit diameter to zero, or "
+      + 'fly Classic Extended Barrowman, to fly the published curve. A blank nozzle field stays automatic.'
       + (idleExitRisk
       ? ' The kernel uses the whole stage’s equivalent exit area whenever any motor on that stage burns. '
       + 'With delayed ignition or unequal burnout times, it can credit exits that are not flowing and overstate thrust and apogee. '

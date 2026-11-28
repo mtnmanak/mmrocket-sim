@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NozzleField } from './NozzleField.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
-import { resetNozzleDbCache } from '../services/nozzleDb.js';
+import { nozzleForMotorId, resetNozzleDbCache } from '../services/nozzleDb.js';
 import { setReloadHold } from '../services/swUpdate.js';
 
 /**
@@ -44,16 +44,19 @@ vi.mock('../data/nozzles.json', async (importOriginal) => {
 
 // D13-10W: nozzle 01000-1, exit 0.188 in = 4.775 mm (NozzleField.test.tsx's motor).
 const D13 = '5f4294d20002310000000021';
-const D13_EXIT_M = 0.004775;
+let D13_EXIT_M: number;
 
 let host: HTMLDivElement;
 let root: Root;
 let committed: (number | null)[];
 
-// Load the real JSON behind the mock once, before any render, so every look-up
-// below settles in a few ticks (NozzleField.test.tsx's beforeAll says why).
-// Importing does not read `default`, so nothing fails here.
-beforeAll(async () => { await import('../data/nozzles.json'); });
+// Read the successful shipped lookup before the failure cases, so the expected
+// exit follows the data. Each case resets the map and enables the failure seam.
+beforeAll(async () => {
+  data.fail = false;
+  D13_EXIT_M = (await nozzleForMotorId(D13))!.exitDiameterM;
+  data.fail = true;
+});
 
 beforeEach(() => {
   setReloadHold(() => false);
@@ -90,7 +93,6 @@ const render = (over: {
           motorLabel="D13-10"
           clearedFor={over.clearedFor ?? null}
           onCommit={(m) => { committed.push(m); }}
-          onAutoFill={(m) => { committed.push(m); }}
         />
       </PrefsProvider>,
     );
@@ -128,7 +130,7 @@ describe('NozzleField — the nozzle data could not be loaded', () => {
     render({ exitDiameterM: null });
     await waitFor(() => note() !== null, 'the could-not-load note');
     expect(note()!.textContent).toMatch(/nozzle data could not be loaded/);
-    expect(note()!.textContent).toMatch(/cannot fill itself in/);
+    expect(note()!.textContent).toMatch(/the flight cannot use/);
     expect(note()!.textContent).toContain('Save this tab’s design as an .ork file before reloading');
     expect(note()!.closest('.message-caution')).not.toBeNull();
     // Blank is not "automatic" while nothing can fill it: say what blank does.
@@ -144,15 +146,20 @@ describe('NozzleField — the nozzle data could not be loaded', () => {
   // the default order if the map is ever carried from one case to the next —
   // the order dependence a shuffled run found (2026-10-01), when this case ran
   // last and hid it.
-  it('fills the field once a later look-up can load the data — nozzleDb keeps no failure of its own', async () => {
-    render({ exitDiameterM: null });
+  it('J23N r6 hides a cleared caution when a later nozzleForMotorId lookup succeeds', async () => {
+    const clearedFor = { previousLabel: 'Prior motor', previousM: 0.012 };
+    render({ exitDiameterM: null, clearedFor });
     await waitFor(() => note() !== null, 'the could-not-load note');
     data.fail = false;
     // A new loadout looks again (four of the same motor: twice one exit).
-    render({ exitDiameterM: null, motors: [{ motorId: D13, count: 4 }] });
-    await waitFor(() => committed.length > 0, 'the fill');
-    expect(committed[0]).toBeCloseTo(2 * D13_EXIT_M, 9);
+    render({ exitDiameterM: null, motors: [{ motorId: D13, count: 4 }], clearedFor });
+    await waitFor(() => host.querySelector('[data-nozzle="published"]') !== null, 'automatic provenance');
+    expect(committed).toEqual([]);
+    expect(Number(host.querySelector('input')!.placeholder)).toBeCloseTo(2 * D13_EXIT_M * 1000, 2);
     expect(note()).toBeNull();
+    expect(host.querySelector('[data-nozzle="cleared"]')).toBeNull();
+    expect(host.querySelector('.message-caution')).toBeNull();
+    expect(text()).not.toContain('No published exit diameter');
     expect(text()).not.toMatch(/could not be loaded/);
   });
 

@@ -12,7 +12,7 @@ import { hasIgnitionSourceStage,
 import { equivalentExitDiameterM, stageMotors } from './nozzleFollow.js';
 import { num, numOpt, numOrNull } from '../tree/nodeNum.js';
 import { noteField, noteText } from './noteField.js';
-import { nozzleForMotorId } from './nozzleDb.js';
+import { nozzleForMountedEx, nozzleForMotorId } from './nozzleDb.js';
 import { displayDesignation, displayMotorManufacturer, fitsMount, motorLabel, isHighPower, type MotorDbEntry } from './motorDb.js';
 import { boundedLoadoutMotorNames, loadoutMotorNames, motorLabelEntry } from './motorLabels.js';
 import { mountLoadoutText, namedBatchMounts } from './batchLoadout.js';
@@ -797,7 +797,9 @@ export async function runBatchSweep(
       && !knownUnlitIgnition(overrideFor(assignedIgnitions, m.id)?.event, !hasIgnitionSourceStage(tree, m.id)))
     .map(async (m) => ({
       count: m.motorCount ?? 1,
-      exitDiameterM: (await nozzleFor(overrideFor(assignedMotorIds, m.id)))?.exitDiameterM ?? null,
+      exitDiameterM: (await (deps.nozzleFor || !overrideFor(assignedMotorIds, m.id)?.startsWith('ex:')
+        ? nozzleFor(overrideFor(assignedMotorIds, m.id))
+        : nozzleForMountedEx(overrideFor(assignedMotorIds, m.id)!, Object.values(input.assignedMountMotors ?? {}))))?.exitDiameterM ?? null,
     })));
 
   /*

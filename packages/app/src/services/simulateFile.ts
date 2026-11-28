@@ -16,6 +16,7 @@ import {
 } from './simulateDesign.js';
 import { bundledOnlyFetchSpec, fetchMotorSpec } from './thrustcurve.js';
 import { statedWeightTextFor } from './unitText.js';
+import { exNozzleEntry, publishedExitSync } from './nozzleDb.js';
 
 /**
  * ONE DESIGN FILE, START TO FINISH, WITH NO REACT MOUNTED (2026-10-01;
@@ -217,7 +218,13 @@ export async function simulateImported(
   };
   try {
     const out = await simulateDesign(
-      { tree, mountMotors, launch, measured, savedConfigs, activeConfigId, unmatchedRefs: plan.unmatchedRefs }, opts);
+      { tree, mountMotors, launch, measured, savedConfigs, activeConfigId, unmatchedRefs: plan.unmatchedRefs },
+      { ...opts, publishedExit: opts.publishedExit ?? (id => {
+        if (!id.startsWith('ex:')) return publishedExitSync(id);
+        const embedded = plan.embeddedExMotors?.find(m => m.motorId === id);
+        if (embedded) return exNozzleEntry(embedded)?.exitDiameterM ?? null;
+        return opts.network === 'allow' ? publishedExitSync(id) : null;
+      }) });
     limitNote(true);
     return { ...out, plan, importNote: plan.note };
   } catch (e) {

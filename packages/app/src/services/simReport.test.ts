@@ -2837,14 +2837,15 @@ describe('the launch report says when thrust was corrected for ambient pressure'
   const line = (run: SimRun): string | undefined =>
     run.comments.split(' | ').find((c) => c.startsWith('Thrust was corrected'));
 
-  it('says it, names the stage, and prints NO number', () => {
+  it('says it, names the stage, and explains zero versus automatic without an invented thrust total', () => {
     const run = build({ nozzleStages: ['Sustainer'], aeroModel: 'classic', rogersKbf: true });
     const said = line(run)!;
     expect(said).toContain('Sustainer carries a nozzle exit diameter');
     expect(said).toContain('published sea-level curve');
     expect(said).toContain('thrust:weight at rod departure');
     // Both ways back, which is what the changelog promises.
-    expect(said).toContain('Clear the nozzle under the stage');
+    expect(said).toContain("Set the stage's Nozzle exit diameter to zero");
+    expect(said).toContain('A blank nozzle field stays automatic.');
     expect(said).toContain('fly Classic Extended Barrowman, to fly the published curve');
     // NOTHING numeric: the kernel exports no pressure-thrust total, so a
     // figure here could only be invented. The only digits allowed in the

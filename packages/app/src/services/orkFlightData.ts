@@ -213,7 +213,7 @@ savedConfigs: readonly SavedConfig[] = []): SummaryImportPlan {
 
 export interface FlightDataForExportInput {
   /** FC-4: qualify against this owner's effective inputs, including null/detached. */
-  configurationState?: (id: string | null) => {
+  configurationState?: (id: string | null, refusedMountIds?: readonly string[]) => {
     designKey: string; hasNozzle?: boolean; requiresPhysicsRevision?: boolean; physicsRevisions?: readonly string[];
     motors: [string, MountMotor][];
     hardwareDeltaKg?: number;
@@ -293,7 +293,8 @@ function describedMotors(r: SimRun, input: FlightDataForExportInput, includeMode
   } = input;
   const cfg = r.flightConfigId ? savedConfigs.find((c) => c.id === r.flightConfigId) : undefined;
   if (r.flightConfigId ? !cfg : activeConfigId !== null) return null;
-  const effective = input.configurationState?.(cfg?.id ?? null);
+  const active = !cfg || cfg.id === activeConfigId;
+  const effective = input.configurationState?.(cfg?.id ?? null, active ? input.refusedMountIds : r.refusedMountIds);
   if (r.designKey !== (effective?.designKey ?? designKey)) return null;
   if (r.conditionsKey !== conditionsKey) return null;
   // The model too. Without this a run the app itself marks "flown on a
@@ -318,7 +319,6 @@ function describedMotors(r: SimRun, input: FlightDataForExportInput, includeMode
   // verbatim and can hold a stale id that the run's key — stamped from
   // `assigned` — never had. Refusal is the safe direction, but a needless one
   // loses that configuration's stored result from the file.
-  const active = !cfg || cfg.id === activeConfigId;
   const cfgMotors: [string, MountMotor][] = effective ? effective.motors.filter(([id]) => mountIds.includes(id)) : active
     ? [...assigned]
     : Object.entries(cfg.motors).filter(([id]) => mountIds.includes(id));

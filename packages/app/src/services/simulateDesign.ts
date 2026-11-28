@@ -15,7 +15,7 @@ import { hasIgnitionSourceStage, isOnLaunchStage, motorisedStagesWithNozzle, mou
 import { APP_VERSION } from '../version.js';
 import { buildDesign, KERNEL_HANDLES, type BuildHandle, type BuiltDesign, type HandleFactory } from './buildDesign.js';
 import {
-  deriveLaunchInputs, designBuildInputOf, hardwareDeltaKgOf, legacyPadMassStepOf, mountNamesOf, provenanceKeyOf,
+  deriveLaunchInputs, designBuildInputOf, hardwareDeltaKgOf, legacyPadMassStepOf, mountNamesOf, physicsKeyOf, provenanceKeyOf,
   refusedMountIdsOf, type AeroState, type Assigned, type DesignState, type LaunchDerivation,
 } from './designDerivation.js';
 import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './flightPipeline.js';
@@ -27,6 +27,9 @@ import { buildSimRun, type DesignMatchKey, type FreshSimRun } from './simReport.
 import { normalizeFlightAdvisories, type FlightAdvisories } from '../prefs/flightAdvisories.js';
 import { padMassTextFor } from './unitText.js';
 import type { WeatherSnapshot } from './weatherSnapshot.js';
+import { nozzleLoadAffectsFlight, withFlownNozzles, type PublishedExitLookup } from './flownNozzles.js';
+import { stageMotors } from './nozzleFollow.js';
+import { nozzleForMountedEx, loadNozzleDb, nozzleDbFailed, nozzleLoadFailure, publishedExitSync } from './nozzleDb.js';
 
 /**
  * THE LAUNCH, WITH NO REACT MOUNTED (2026-10-01; response-2026-10-01b § 3.2).
@@ -70,6 +73,8 @@ import type { WeatherSnapshot } from './weatherSnapshot.js';
 
 /** App's state as one Launch reads it, with the design already built. */
 export interface BuiltLaunchInput<R extends BuildHandle = OrkRocket> {
+  /** Frozen onto this run when automatic exit data failed to load. */
+  nozzleCaution?: string;
   /** Reported series set; see SimulateDesignOptions.reportSeries. App leaves this absent. */
   reportSeries?: 'full' | 'summary';
   weatherSnapshot?: WeatherSnapshot | null;
@@ -265,6 +270,10 @@ export async function flyBuiltDesign<R extends BuildHandle>(
     run.comments = run.comments ? `${run.comments} | ${note}` : note;
     if (run.commentLevels) run.commentLevels = [...run.commentLevels, 'info'];
   }
+  if (input.nozzleCaution) {
+    run.comments = run.comments ? `${run.comments} | ${input.nozzleCaution}` : input.nozzleCaution;
+    if (run.commentLevels) run.commentLevels = [...run.commentLevels, 'caution'];
+  }
   return { flight, run };
 }
 
@@ -281,6 +290,8 @@ export async function flyBuiltDesign<R extends BuildHandle>(
 export const APP_DEFAULT_AERO: AeroState = { ...effectiveAero(DEFAULT_PREFS, null), autoSupersonic: false };
 
 export interface SimulateDesignOptions {
+  /** File-owned EX snapshots on the headless path; no browser library required. */
+  publishedExit?: PublishedExitLookup;
   /** API-only dead-holder detection; unsafe with browser macrotask yields. Absent: wait indefinitely. */
   kernelDeadHolderMs?: number;
   /** Optional floor shared by the reported flight, auto-delay probes and Mach probe. */
@@ -481,7 +492,9 @@ function abortReason(signal: AbortSignal): Error {
  * Fly a design state the way the Launch button flies it, from the build on.
  * Nothing is persisted: `addRun` and every other write stay with App.
  */
-export function simulateDesign(state: DesignState, opts: SimulateDesignOptions = {}): Promise<SimulateDesignResult> {
+export async function simulateDesign(state: DesignState, opts: SimulateDesignOptions = {}): Promise<SimulateDesignResult> {
+  refuseIfAborted(opts.signal);
+  await loadNozzleDb();
   // The dead-holder watchdog requires microtask-only yields inside the lock.
   if (opts.kernelDeadHolderMs !== undefined && opts.yieldToUi === undefined) {
     opts = { ...opts, yieldToUi: () => Promise.resolve() };
@@ -519,7 +532,20 @@ async function simulateDesignNow(input: DesignState, opts: SimulateDesignOptions
   // audit 2026-10-11, FC-4: every build and re-flight shares this projection.
   const resolved = resolveFlightState(input.tree, input.savedConfigs, input.activeConfigId, input.detachedOverrides ?? {}, input.mountMotors);
   let state = resolved.tree === input.tree && resolved.mountMotors === input.mountMotors ? input : { ...input, ...resolved };
+  const storedTree = state.tree;
+  const lookup = opts.publishedExit ?? (id => id.startsWith('ex:')
+    ? nozzleForMountedEx(id, Object.values(state.mountMotors))?.exitDiameterM ?? null : publishedExitSync(id));
+  state = { ...state, tree: withFlownNozzles(storedTree,
+    stageMotors(storedTree, deriveLaunchInputs(state, aero).assigned), lookup).tree };
   let { derived, built } = buildOrThrow(state, aero, handles, opts.units);
+  if (built.motorFailures.length) {
+    const accepted = withFlownNozzles(storedTree,
+      stageMotors(storedTree, derived.assigned, refusedMountIdsOf(built.motorFailures)), lookup).tree;
+    if (physicsKeyOf(accepted.components) !== physicsKeyOf(state.tree.components)) {
+      state = { ...state, tree: accepted };
+      ({ derived, built } = buildOrThrow(state, aero, handles, opts.units));
+    }
+  }
   // THE LEGACY PAD-MASS SETTLE. App's reconcile effect runs after the first
   // build, before anyone can press Launch: a value keyed 'legacy' (a
   // v0.116/v0.117 session, a bare-form .ork) is re-keyed to the set now loaded
@@ -550,6 +576,9 @@ async function simulateDesignNow(input: DesignState, opts: SimulateDesignOptions
       advisoryLimits: opts.advisoryLimits,
       built,
       tree: state.tree,
+      ...(nozzleDbFailed() && nozzleLoadAffectsFlight(storedTree,
+        stageMotors(storedTree, derived.assigned, refusedMountIdsOf(built.motorFailures)), lookup, aero)
+        ? { nozzleCaution: nozzleLoadFailure } : {}),
       derived: { ...derived, primaryMountId },
       launch: state.launch,
       aero,

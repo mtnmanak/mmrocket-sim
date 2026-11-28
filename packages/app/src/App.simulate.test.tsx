@@ -27,6 +27,10 @@ import { comparable, idFree } from './services/simulate.testSupport.js';
 import type { FreshSimRun } from './services/simReport.js';
 import type { MountMotor } from './model/design.js';
 import { flyBuiltDesign, simulateDesign, type SimulateDesignResult } from './services/simulateDesign.js';
+import { withFlownNozzles } from './services/flownNozzles.js';
+import { stageMotors } from './services/nozzleFollow.js';
+import { publishedExitSync } from './services/nozzleDb.js';
+import { exportOrk } from './services/orkFile.js';
 import { simulateFile, simulateImported } from './services/simulateFile.js';
 import { unzipMember } from './services/zipMember.js';
 import { addChild, addStage, defaultTree, findNode, motorMounts, updateNode } from './tree/treeModel.js';
@@ -692,6 +696,9 @@ function expectSameLaunch(app: AppSide, out: SimulateDesignResult, aero: AeroSta
   const same = (a: unknown, b: unknown) => (stored ? expect(plain(a)).toStrictEqual(plain(b)) : expect(a).toStrictEqual(b));
   const effective = resolveFlightState(out.state.tree, out.state.savedConfigs, out.state.activeConfigId,
     out.state.detachedOverrides ?? {}, out.state.mountMotors);
+  effective.tree = withFlownNozzles(effective.tree,
+    stageMotors(effective.tree, deriveLaunchInputs({ ...out.state, ...effective }, aero).assigned,
+      out.build.motorFailures.map(f => f.mountId)), publishedExitSync).tree;
   same(effective.tree, app.args.tree);
   // The flight and the run.
   expect(comparable(out.run)).toStrictEqual(comparable(app.out.run));
@@ -2040,3 +2047,21 @@ it('LW ignition Show reaches the motor editor; Batch includes candidate ignition
   const batchLaunch = host.querySelector('[aria-label="Batch simulate motors"] .launch-btn')!;
   expect(batchLaunch.getAttribute('aria-describedby')).toBe('launch-override-batch');
 }, 30000);
+
+it.each([false, true])('J23-N dual-deploy agrees with headless before/after Motors (visited %s)', async visited => {
+  const data = new Uint8Array(readFileSync(join(repoRoot(), 'packages/app/src/data/examples/dual-deploy.ork')));
+  const result = await fileCase(data, 'dual-deploy.ork', CLASSIC, async host => {
+    if (visited) await act(async () => [...host.querySelectorAll('button')]
+      .find(b => b.textContent?.trim() === 'Motors & Configuration')!.click());
+    await settle(100);
+    window.dispatchEvent(new Event('pagehide'));
+    const stored = peekSession()!;
+    expect(stored.tree.components.every(s => s['nozzleExitDiameter'] === undefined)).toBe(true);
+    const saved = exportOrk({ name: stored.tree.name ?? 'dual-deploy', tree: stored.tree });
+    const xml = saved;
+    expect(xml).not.toContain('<nozzleexitdiameter>');
+    if (visited) expect(host.querySelector('[data-nozzle="published"]')?.textContent).toContain('Automatic:');
+  });
+  expect(result.out.run.nozzleStages).toHaveLength(1);
+  expect(result.out.state.tree.components.every(s => s['nozzleExitDiameter'] === undefined)).toBe(true);
+}, 60000);

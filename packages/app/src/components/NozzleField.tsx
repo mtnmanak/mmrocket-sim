@@ -11,8 +11,7 @@ import { UnitChip } from './UnitChip.js';
 import { MAX_DIMENSION_M } from '../tree/schema.js';
 
 /**
- * A stage's nozzle exit diameter, on the Motors & Configuration page, filled from the
- * manufacturer's own published data and showing where the number came from.
+ * A stage's nozzle exit diameter, with the automatic flight value and provenance.
  *
  * WHY IT MOVED HERE (Eric, 2026-09-08b): "where is the field to input the nozzle
  * exit diameter? In v0.120, I can no longer find it. I thought we were going to
@@ -21,17 +20,17 @@ import { MAX_DIMENSION_M } from '../tree/schema.js';
  * the stage in the component tree. But the number belongs to the MOTOR, which is
  * why he went looking for it beside the motor, so it is now here as well.
  *
- * WHY IT FILLS ITSELF IN (his §6(a) ruling the same day): "it should be
+ * WHY IT SHOWS PROVENANCE (his §6(a) ruling the same day): "it should be
  * automatic with provenance." The exit area is not decoration — since v0.119 it
  * buys thrust as the air thins — and it was a field the user had to know about
  * and then fill from a drawing they had to go and find.
  *
- * THE RULES, and the second changed on 2026-09-13:
+ * B-9 (2026-11-19) keeps automatic exits out of the stored design:
  *
- *  1. Field EMPTY and the stage's motors have a published nozzle -> fill it,
- *     and say whose figure it is.
- *  2. THE MOTORS CHANGED -> the value follows them: replaced by the new
- *     motors' published figure, or cleared when they have none. Eric's ruling,
+ *  1. Field EMPTY -> show the published flight value and its source without
+ *     writing it. withFlownNozzles resolves the value for each flight.
+ *  2. THE MOTORS CHANGED -> clear the previous motor's typed value to blank.
+ *     The new motor's published exit is automatic. Eric's earlier ruling,
  *     2026-09-13: "the info is per motor, not per rocket ... if a user inputs a
  *     number into that field and then changes the motor, that field would have
  *     to change as well since the value they input was for the previous motor".
@@ -39,7 +38,7 @@ import { MAX_DIMENSION_M } from '../tree/schema.js';
  *     motor change from a file being opened. See `services/nozzleFollow.ts`.
  *  3. Field has a value that DISAGREES with the published figure and the motors
  *     have not changed under it -> do NOT overwrite. Show both numbers and
- *     offer a one-click accept. That is the file-import case, and it is where
+ *     offer a one-click return to automatic. That is the file-import case, where
  *     the database earns its keep: a tester's file gave the N1000W a 2.737 in
  *     exit where AeroTech's drawing says 1.750 — 2.4x the area.
  *  4. No published figure -> say nothing, unless the value was JUST cleared
@@ -53,7 +52,7 @@ import { MAX_DIMENSION_M } from '../tree/schema.js';
  * re-read.
  */
 export function NozzleField({
-  stageName, exitDiameterM, motors, motorLabel, clearedFor, onCommit, onAutoFill, parallel = false, inputId: givenId,
+  stageName, exitDiameterM, motors, motorLabel, clearedFor, onCommit, parallel = false, inputId: givenId, nozzleFor = nozzleForMotorId,
 }: {
   stageName: string;
   /** A stable id for the input (`cfg-nozzle-<stageId>`), so Design's read-only line can focus it. */
@@ -77,8 +76,7 @@ export function NozzleField({
    */
   clearedFor?: { previousLabel: string; previousM: number } | null;
   onCommit: (m: number | null) => void;
-  /** Motor-driven writes do not create an undo step (audit 2026-10-11, S3c-1). */
-  onAutoFill: (m: number) => void;
+  nozzleFor?: typeof nozzleForMotorId;
 }) {
   const { prefs } = usePrefs();
   const sym = prefs.units.motorDimensions;
@@ -101,7 +99,7 @@ export function NozzleField({
       // that never came: no fill, no disagreement, no provenance, no word why.
       let found: (NozzleEntry | null)[] | null;
       try {
-        found = await Promise.all(motors.map((m) => nozzleForMotorId(m.motorId)));
+        found = await Promise.all(motors.map((m) => nozzleFor(m.motorId)));
       } catch (err) {
         console.error('The nozzle data could not be loaded:', err);
         found = null;
@@ -111,7 +109,7 @@ export function NozzleField({
     return () => { live = false; };
     // `motors` is a fresh array each render; `key` is its stable content.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- key IS motors
-  }, [key]);
+  }, [key, nozzleFor]);
 
   const settled = lookup?.key === key ? lookup : null;
   const entries = settled?.entries ?? null;
@@ -128,21 +126,12 @@ export function NozzleField({
   const clustered = motors.length > 1 || motors.some((m) => m.count > 1);
   const mixed = new Set(motors.map((m) => m.motorId)).size > 1;
 
-  // Rule 1: fill an empty field from the published figure. In an effect and not
-  // in render, because it writes to the design.
-  useEffect(() => {
-    if (published !== null && exitDiameterM === null) onAutoFill(published);
-    // onAutoFill is a per-render closure; re-running on its identity would fight
-    // the write it just made.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fill once, on arrival
-  }, [published, exitDiameterM]);
-
   const ui = (m: number) => noticeQuantity('motorDimensions', m, prefs.units);
   // 0.05 mm: finer than any drawing states, coarse enough that a unit
   // round-trip through the display never reads as a disagreement.
   const differs = published !== null && exitDiameterM !== null && exitDiameterM > 0
     && Math.abs(published - exitDiameterM) > 0.00005;
-  const matches = published !== null && exitDiameterM !== null && exitDiameterM > 0 && !differs;
+  const matches = published !== null && (exitDiameterM === null || exitDiameterM > 0 && !differs);
   const maker = entry?.manufacturer ?? 'The manufacturer';
   // An EX motor's exit comes out of the .rse the USER imported, not out of a
   // manufacturer's drawing, and the panel must not dress one as the other:
@@ -196,7 +185,7 @@ export function NozzleField({
       )}
       {matches && entry && (
         <p className="comp-stats" style={{ margin: '3px 0 0' }} data-nozzle="published">
-          {ui(published)} — {clustered ? `equivalent exit from ${mixed ? 'the motor sources' : fromFile ? 'the imported motor file' : `${maker} data`}` : fromFile
+          {exitDiameterM === null && 'Automatic: '}{ui(published)} — {clustered ? `equivalent exit from ${mixed ? 'the motor sources' : fromFile ? 'the imported motor file' : `${maker} data`}` : fromFile
             ? `from the motor file you imported${motorLabel ? ` for ${motorLabel}` : ''}`
             : `${maker}\u2019s published figure${motorLabel ? ` for ${motorLabel}` : ''}`}
           {!mixed && entry.nozzlePartNo ? `, nozzle ${entry.nozzlePartNo}` : ''}.
@@ -221,13 +210,13 @@ export function NozzleField({
               say "Use Klima's" for a figure from the user's own .rse while the
               sentence said the file (audit 2026-09-22). */}
           <button className="file-btn" style={{ marginLeft: 4 }}
-            onClick={() => onCommit(published)}>
+            onClick={() => onCommit(null)}>
             Use {clustered ? 'equivalent' : `${fromFile ? 'the file' : maker}’s`} {ui(published)}
           </button>
         </p>
       )}
-      <Note tier={exitDiameterM === null && (clearedFor != null || unavailable) ? 'caution' : 'information'}>
-      {clearedFor && exitDiameterM === null && (
+      <Note tier={exitDiameterM === null && published === null && (clearedFor != null || unavailable) ? 'caution' : 'information'}>
+      {clearedFor && exitDiameterM === null && published === null && (
         <p className="field-caution" style={{ margin: '3px 0 0' }} data-nozzle="cleared">
           <strong>Cleared — the {ui(clearedFor.previousM)} here was for {clearedFor.previousLabel}.</strong>
           {' '}
@@ -244,8 +233,8 @@ export function NozzleField({
           fetches the current build's chunk, or the service worker's copy. */}
       {unavailable && exitDiameterM !== 0 && (
         <p className="field-caution" style={{ margin: '3px 0 0' }} data-nozzle="unavailable">
-          <strong>The nozzle data could not be loaded</strong>, so this field cannot fill itself in
-          from the published figure or check a typed value against it.
+          <strong>The nozzle data could not be loaded</strong>, so the flight cannot use
+          the published automatic exit. This field also cannot check a typed value against it.
           {exitDiameterM === null && ' Blank means the pressure-thrust term and the power-on base-drag reduction are both off for this stage.'}
           {' '}The connection may have dropped, or the app may have been updated since this page loaded.
           {' '}Save this tab&rsquo;s design as an .ork file before reloading: another tab may have replaced the shared autosave, and reloading can lose this tab&rsquo;s design.

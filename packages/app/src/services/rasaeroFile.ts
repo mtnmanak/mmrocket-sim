@@ -1197,8 +1197,10 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
    * 0.9). So: the simulation's value, and when that is 0 but the Design tab
    * is not, the Design tab's (3 of the 51 distinct corpus designs —
    * vb38-dragstudy02 and the two ARCAS No Fins files — are filled in only
-   * there). Both 0 means power-off drag and the property stays UNSET, which
-   * is what the schema, the .ork reader and the kernel all mean by "none".
+   * there). A stated 0 in the winning field means OFF, just as in .ork;
+   * absent or invalid flight and Design fields stay automatic when neither
+   * source supplies a valid value. Preserve the positive simulation / Design
+   * fallback order (Eric, 2026-11-27).
    * Eric's ruling 2026-09-07 on docs/research/rasaero-nozzle-diameters-2026-09-07.md.
    *
    * Desktop OpenRocket 24.12 reads neither (no nozzle handling anywhere under
@@ -1220,7 +1222,17 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
     { design: 'Booster1Nozzle', sim: 'Booster1NozzleDiameter' },
     { design: 'Booster2Nozzle', sim: 'Booster2NozzleDiameter' },
   ] as const;
-  const designNozzleIn = NOZZLE_TAGS.map((t) => Math.max(0, num(design, t.design, 0)));
+  const readNozzleIn = (el: XmlElement, tag: string): number | null => {
+    const value = num(el, tag, NaN);
+    if (!Number.isFinite(value)) return null;
+    if (value < 0) {
+      // A negative dimension is refused, never converted to durable OFF.
+      unreadable.set(tag, noteField(el.querySelector(`:scope > ${tag}`)?.textContent?.trim() ?? '', 40));
+      return null;
+    }
+    return value;
+  };
+  const designNozzleIn = NOZZLE_TAGS.map(t => readNozzleIn(design, t.design));
   const warnedDesignNozzles = new Set<string>();
   /** Per config id, per stage index: where its nozzle came from — for the ONE note. */
   const nozzleSource = new Map<string, ('sim' | 'design' | null)[]>();
@@ -1231,21 +1243,23 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
     for (const [stageIdx, t] of NOZZLE_TAGS.entries()) {
       const stage = stages[stageIdx];
       if (!stage?.id) break;
-      const simIn = sim ? Math.max(0, num(sim, t.sim, 0)) : 0;
-      const designIn = designNozzleIn[stageIdx] ?? 0;
-      const inches = simIn > 0 ? simIn : designIn;
+      const simIn = sim ? readNozzleIn(sim, t.sim) : null;
+      const designIn = designNozzleIn[stageIdx] ?? null;
+      const inches = (simIn ?? 0) > 0 ? simIn! : designIn ?? simIn;
+      const fromSim = (simIn ?? 0) > 0;
+      if (inches === null) { out[stage.id] = null; sources.push(null); continue; }
       const diameter = inches / IN;
-      if (diameter > MAX_DIMENSION_M && (simIn > 0 || !warnedDesignNozzles.has(t.design))) {
+      if (diameter > MAX_DIMENSION_M && (fromSim || !warnedDesignNozzles.has(t.design))) {
         const simNr = simNumbers.get(cfgId) ?? (sim ? simulationOrdinals.get(sim) : undefined);
-        const where = simIn > 0 ? `simulation ${simNr ?? 1}` : 'the Design tab';
+        const where = fromSim ? `simulation ${simNr ?? 1}` : 'the Design tab';
         const limitIn = MAX_DIMENSION_M * IN;
         const roundedIn = inches.toFixed(2);
         const shownIn = Number(roundedIn) > limitIn ? roundedIn : String(inches);
-        cautionNote(notes, 'I04.nozzle-dimension', `<${simIn > 0 ? t.sim : t.design}> in ${where}: nozzle exit diameter ${shownIn} in exceeds the ${limitIn.toFixed(2)} in (${MAX_DIMENSION_M} m) limit; using ${limitIn.toFixed(2)} in. Check it before trusting the flight.`);
-        if (simIn <= 0) warnedDesignNozzles.add(t.design);
+        cautionNote(notes, 'I04.nozzle-dimension', `<${fromSim ? t.sim : t.design}> in ${where}: nozzle exit diameter ${shownIn} in exceeds the ${limitIn.toFixed(2)} in (${MAX_DIMENSION_M} m) limit; using ${limitIn.toFixed(2)} in. Check it before trusting the flight.`);
+        if (!fromSim) warnedDesignNozzles.add(t.design);
       }
-      out[stage.id] = inches > 0 ? Math.min(diameter, MAX_DIMENSION_M) : null;
-      sources.push(simIn > 0 ? 'sim' : designIn > 0 ? 'design' : null);
+      out[stage.id] = Math.min(diameter, MAX_DIMENSION_M);
+      sources.push(fromSim ? 'sim' : (designIn ?? 0) > 0 ? 'design' : null);
     }
     nozzleSource.set(cfgId, sources);
     return out;
@@ -1388,7 +1402,7 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
   const openingNozzles = chosen?.nozzles ?? readNozzles(nozzleSim, 'design');
   for (const [stageId, m] of Object.entries(openingNozzles)) {
     const stage = stages.find((s) => s.id === stageId);
-    if (stage && m !== null && m > 0) stage['nozzleExitDiameter'] = m;
+    if (stage && m !== null) stage['nozzleExitDiameter'] = m;
   }
   const openingSources = nozzleSource.get(chosen?.id ?? 'design') ?? [];
 
@@ -1931,12 +1945,13 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
       if (fromSim.length > 0) parts.push(`${fromSim.join(', ')} from ${simTxt} (the value RASAero flies with)`);
       if (fromDesign.length > 0) {
         parts.push(`${fromDesign.join(', ')} from the Design tab`
-          + (chosen || nozzleSim ? `, because ${simTxt} leaves it at 0` : ' (this file carries no simulation)'));
+          + (chosen || nozzleSim ? `, because ${simTxt} has no positive exit` : ' (this file carries no simulation)'));
       }
       // Only worth a sentence when some other configuration would show a
       // different number in the same box.
       const differs = configs.some((c) => c !== chosen && Object.entries(c.nozzles ?? {})
-        .some(([id, m]) => Math.abs((m ?? 0) - (openingNozzles[id] ?? 0)) > 1e-9));
+        .some(([id, m]) => m == null || openingNozzles[id] == null
+          ? m !== openingNozzles[id] : Math.abs(m - openingNozzles[id]!) > 1e-9));
       // The clause about thrust was added 2026-09-08, when the same value
       // started buying thrust as well as trimming drag: an imported RASAero
       // design is the ONE place the number arrives without anyone typing it,
@@ -1944,8 +1959,9 @@ export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
       notes.push(`Nozzle exit diameter: ${parts.join('; ')}. While that stage’s motor burns it both `
         + 'trims base drag and raises thrust as the rocket climbs — the published sea-level curve '
         + 'gains the exit area times the pressure left behind, which is what RASAero does (Rogers '
-        + 'Kbf and Supersonic models only); clear it under the stage to fly the published curve and '
-        + `power-off drag.${differs ? ' Other simulations in this file carry their own — switching '
+        + 'Kbf and Supersonic models only); set the stage’s Nozzle exit diameter to 0, or fly Classic '
+        + 'Extended Barrowman, to use the published curve and power-off drag; blank stays automatic.'
+        + `${differs ? ' Other simulations in this file carry their own — switching '
           + 'under Flight configurations applies it.' : ''}`);
     }
   }
@@ -2343,6 +2359,59 @@ export function cdx1RecoveryDelayNote(tree: RocketTree): string | null {
       + 'These parachutes open at the deployment event with no delay, earlier than in the app.';
 }
 
+/** The writer and save notes must agree on which stages carry an engine. */
+export function cdx1EngineSlots({ tree, motors, engineExport, notes }: Pick<Cdx1ExportInput, 'tree' | 'motors' | 'engineExport' | 'notes'>, refuseClusters = false) {
+  const stagesIn = asStageNodes(tree);
+  // Per-stage engine strings, desktop format 'DESIGNATION  (ABBREV)' — two
+  // spaces, the exact shape our own importer's parseEngine reads back. null =
+  // no motor on the stage, or a manufacturer RASAero doesn't document (the
+  // NRE risk: see CDX1_ENGINE_EXPORT). ON by default since 2026-08-25;
+  // `engineExport: false` is the per-call opt-out (tests, file generation).
+  const engineOn = engineExport ?? CDX1_ENGINE_EXPORT;
+  // One record per stage: engine string plus its ignition delay, computed
+  // TOGETHER so the two can never desync. RASAero holds one delay per stage
+  // and measures it from the stage below's burnout, which is exactly what
+  // importCdx1 reads back as `ignitionEvent: 'burnout'`. Writing a hard 0
+  // (what we used to do) silently dropped a staged design's timers on every
+  // .CDX1 export — and the first fix filled a parallel delays array by
+  // side-effect pushes on each of the map's exit paths, one future
+  // early-return away from writing Booster1's delay into the Sustainer cell.
+  return stagesIn.map((st, stIdx): { engine: string | null; ignitionDelay: number; motor?: Cdx1ExportEngine } => {
+    if (!engineOn || !motors) return { engine: null, ignitionDelay: 0 };
+    let found: Cdx1ExportEngine | undefined;
+    let motorCount = 0;
+    const seek = (nodes: ComponentNode[]) => {
+      for (const n of nodes) {
+        if (n.id && Object.hasOwn(motors, n.id) && motors[n.id]) {
+          found ??= motors[n.id];
+          motorCount += mountMotorCount(tree, n.id);
+        }
+        seek(n.children ?? []);
+      }
+    };
+    seek(st.children ?? []);
+    if (motorCount > 1 && refuseClusters) {
+      // An unnamed stage by the number Motors & Configuration shows for it.
+      throw new Error(`RASAero supports one engine per stage — “${noteField(nameOr(st, `Stage ${stIdx + 1}`))}” has ${motorCount} motors. `
+        + 'Export as .ork or .rkt to keep every motor and its thrust.');
+    }
+    // Only a burnout-triggered motor has a delay this format can express; a
+    // launch-stage motor, or any other ignition event, writes RASAero's own 0.
+    const ignitionDelay = knownIgnitionEvent(found?.ignitionEvent) === 'burnout' ? (found?.ignitionDelay ?? 0) : 0;
+    const abbrev = found ? rasaeroManufacturerAbbrev(found.manufacturer) : null;
+    if (found && abbrev && stIdx === stagesIn.length - 1
+      && (knownIgnitionEvent(found.ignitionEvent) ?? 'automatic') === 'automatic' && (found.ignitionDelay ?? 0) !== 0) {
+      notes?.push(`Motor “${noteField(found.designation)}”: .CDX1 cannot keep the launch-stage ignition delay of ${found.ignitionDelay ?? 0} s. `
+        + 'On reopen it ignites at launch with no delay, which can change the flight. Save .ork to keep this timing.');
+    }
+    return {
+      engine: found && abbrev ? `${found.designation}  (${abbrev})` : null,
+      ignitionDelay,
+      ...(found ? { motor: found } : {}),
+    };
+  });
+}
+
 export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM, launchStages, launch, motors, engineExport, machAlt, notes, dryRun }: Cdx1ExportInput): string {
   // CDX1 can carry only the effective recovery, not its separate own setting.
   // Disclose the lost layer even for one configuration (audit 2026-10-11, FC-3).
@@ -2366,54 +2435,7 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
   const stagesIn = asStageNodes(tree);
   if (stagesIn.length > 3) throw new Error('RASAero supports at most 3 stages.');
 
-  // Per-stage engine strings, desktop format 'DESIGNATION  (ABBREV)' — two
-  // spaces, the exact shape our own importer's parseEngine reads back. null =
-  // no motor on the stage, or a manufacturer RASAero doesn't document (the
-  // NRE risk: see CDX1_ENGINE_EXPORT). ON by default since 2026-08-25;
-  // `engineExport: false` is the per-call opt-out (tests, file generation).
-  const engineOn = engineExport ?? CDX1_ENGINE_EXPORT;
-  // One record per stage: engine string plus its ignition delay, computed
-  // TOGETHER so the two can never desync. RASAero holds one delay per stage
-  // and measures it from the stage below's burnout, which is exactly what
-  // importCdx1 reads back as `ignitionEvent: 'burnout'`. Writing a hard 0
-  // (what we used to do) silently dropped a staged design's timers on every
-  // .CDX1 export — and the first fix filled a parallel delays array by
-  // side-effect pushes on each of the map's exit paths, one future
-  // early-return away from writing Booster1's delay into the Sustainer cell.
-  const stageSlots = stagesIn.map((st, stIdx): { engine: string | null; ignitionDelay: number; motor?: Cdx1ExportEngine } => {
-    if (!engineOn || !motors) return { engine: null, ignitionDelay: 0 };
-    let found: Cdx1ExportEngine | undefined;
-    let motorCount = 0;
-    const seek = (nodes: ComponentNode[]) => {
-      for (const n of nodes) {
-        if (n.id && Object.hasOwn(motors, n.id) && motors[n.id]) {
-          found ??= motors[n.id];
-          motorCount += mountMotorCount(tree, n.id);
-        }
-        seek(n.children ?? []);
-      }
-    };
-    seek(st.children ?? []);
-    if (motorCount > 1) {
-      // An unnamed stage by the number Motors & Configuration shows for it.
-      throw new Error(`RASAero supports one engine per stage — “${noteField(nameOr(st, `Stage ${stIdx + 1}`))}” has ${motorCount} motors. `
-        + 'Export as .ork or .rkt to keep every motor and its thrust.');
-    }
-    // Only a burnout-triggered motor has a delay this format can express; a
-    // launch-stage motor, or any other ignition event, writes RASAero's own 0.
-    const ignitionDelay = knownIgnitionEvent(found?.ignitionEvent) === 'burnout' ? (found?.ignitionDelay ?? 0) : 0;
-    const abbrev = found ? rasaeroManufacturerAbbrev(found.manufacturer) : null;
-    if (found && abbrev && stIdx === stagesIn.length - 1
-      && (knownIgnitionEvent(found.ignitionEvent) ?? 'automatic') === 'automatic' && (found.ignitionDelay ?? 0) !== 0) {
-      notes?.push(`Motor “${noteField(found.designation)}”: .CDX1 cannot keep the launch-stage ignition delay of ${found.ignitionDelay ?? 0} s. `
-        + 'On reopen it ignites at launch with no delay, which can change the flight. Save .ork to keep this timing.');
-    }
-    return {
-      engine: found && abbrev ? `${found.designation}  (${abbrev})` : null,
-      ignitionDelay,
-      ...(found ? { motor: found } : {}),
-    };
-  });
+  const stageSlots = cdx1EngineSlots({ tree, motors, engineExport, notes }, true);
   const stageEngines = stageSlots.map((s) => s.engine);
   for (const [i, slot] of stageSlots.entries()) {
     if (stageEngines.slice(i + 1).some(Boolean)) continue;
@@ -2433,6 +2455,8 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
   /**
    * A stage's nozzle exit diameter in INCHES, which is the unit this format
    * uses for every length. The importer reads these back and divides by IN.
+   * The app passes its flight-only resolved tree: automatic exits are written
+   * to CDX1 without ever filling the stored design (B-9 export ruling).
    */
   const stageNozzleIn = (i: number): string => {
     const st = stagesIn[i];

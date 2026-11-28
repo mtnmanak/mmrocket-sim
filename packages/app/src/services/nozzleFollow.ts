@@ -33,10 +33,12 @@ import { getExMotor, motorWithinRepresentabilityLimits } from './exMotors.js';
  * WHAT THIS MODULE DOES NOT DECIDE: whether the motors changed. That is the
  * caller's job, and it matters — OPENING A FILE is not a motor change. A
  * RASAero or .ork file arrives with a nozzle AND the motor it was typed for,
- * and replacing it on load would throw away the one case the old rule was
+ * and clearing it on load would throw away the one case the old rule was
  * written for (a tester's file gave the N1000W a 2.737 in exit where AeroTech's
  * drawing says 1.750). App seeds its per-stage record on first sight and acts
  * only on a CHANGE, so a load seeds and a motor swap fires.
+ * B-9 (2026-11-19): a changed motor clears its old typed exit to automatic;
+ * published exits are resolved on the flight copy, never stored in the tree.
  */
 
 /** One stage and the motors currently loaded in it, cluster and pod counts included. */
@@ -166,17 +168,9 @@ export function equivalentExitDiameterM(
 
 /** What to do to one stage's nozzle now that its motors have changed. */
 export type NozzleFollow =
-  | { kind: 'set'; exitDiameterM: number }
+  | { kind: 'automatic' }
   | { kind: 'clear'; previousLabel: string; previousM: number }
   | { kind: 'none' };
-
-/**
- * 0.05 mm — the same slop the panel uses to decide whether a value "disagrees"
- * with the published one. Finer than any drawing states, coarse enough that a
- * value that went out to the box in millimetres and came back does not read as
- * a change worth writing.
- */
-const SAME_M = 0.00005;
 
 /**
  * THE WHOLE DECISION, for one stage whose motors have just changed.
@@ -190,8 +184,8 @@ const SAME_M = 0.00005;
  * the field was never a motor's: it is a nozzle a file carried without one, or
  * a number typed before a motor was chosen. That is the user's own data about
  * the rocket in front of them, so nothing here touches it — the panel's
- * fill-an-empty-field and show-the-disagreement rules deal with it exactly as
- * they did before. Without this gate, opening a RASAero file that states a
+ * automatic-flight and show-the-disagreement rules deal with it. Without this
+ * gate, opening a RASAero file that states a
  * nozzle but no resolvable motor and then loading the motor by hand would have
  * silently replaced the file's own number, which is the one outcome the
  * do-not-overwrite rule exists to prevent.
@@ -208,15 +202,14 @@ export function followNozzle(input: {
 }): NozzleFollow {
   const { hadMotorsBefore, previousLabel, currentValueM, publishedM } = input;
   if (!hadMotorsBefore || currentValueM === 0) return { kind: 'none' };
-  if (publishedM !== null) {
-    if (currentValueM !== null && Math.abs(currentValueM - publishedM) <= SAME_M) return { kind: 'none' };
-    return { kind: 'set', exitDiameterM: publishedM };
-  }
+  if (currentValueM === null) return { kind: 'none' };
+  // A motor change clears the previous motor's typed exit. A published exit
+  // is resolved only for the flight, never written into the design (B-9).
+  if (publishedM !== null) return { kind: 'automatic' };
   // Nothing published for what is loaded now, and what is in the field belongs
   // to what was loaded before. Clearing is the honest answer: blank turns the
   // pressure-thrust term and the power-on drag reduction off, which is what
   // "we do not know this motor's nozzle" means.
-  if (currentValueM === null) return { kind: 'none' };
   return {
     kind: 'clear',
     previousLabel: previousLabel || 'the previous motor',
